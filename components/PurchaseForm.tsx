@@ -71,7 +71,7 @@ interface PurchaseFormProps {
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
     onAddDistributor: (data: Omit<Distributor, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<Distributor>;
     onAddInventoryItemDirectly?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
-    onSaveMapping: (map: Partial<SupplierProductMap>) => Promise<void>;
+    onSaveMapping: (map: map: SupplierProductMap) => Promise<void>;
     setIsDirty: (isDirty: boolean) => void;
     addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
     title: string;
