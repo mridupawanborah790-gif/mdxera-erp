@@ -143,7 +143,6 @@ export const extractPurchaseDetailsFromBill = async (
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
                 responseMimeType: "application/json",
-                thinkingConfig: { thinkingBudget: 0 },
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -228,7 +227,6 @@ export const extractPrescription = async (
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
                 responseMimeType: "application/json",
-                thinkingConfig: { thinkingBudget: 0 },
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -361,8 +359,7 @@ export const findSubstitutes = async (text?: string, imageBase64?: string, mimeT
             config: {
                 systemInstruction,
                 responseMimeType: "application/json",
-                responseSchema: substituteSchema,
-                thinkingConfig: { thinkingBudget: 2000 }
+                responseSchema: substituteSchema
             }
         });
         if (!response.text) throw new Error("Empty response from AI");
