@@ -1,6 +1,6 @@
 
 
-
+import { supabase } from '../lib/supabaseClient';
 import {
     RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier,
     Customer, PurchaseOrder, TransactionLedgerItem, UserRole, OrganizationMember,
