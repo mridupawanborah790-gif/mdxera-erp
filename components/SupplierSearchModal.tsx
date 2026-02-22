@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Modal from './Modal';
-import { Distributor } from '../types';
+import { Supplier } from '../types';
 import { fuzzyMatch } from '../utils/search';
 import { getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
@@ -9,14 +9,14 @@ import SupplierLedgerModal from './SupplierLedgerModal';
 interface SupplierSearchModalProps {
     isOpen: boolean;
     onClose: () => void;
-    distributors: Distributor[];
-    onSelect: (distributor: Distributor) => void;
+    suppliers: Supplier[];
+    onSelect: (supplier: Supplier) => void;
     initialSearch?: string;
 }
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
-const SupplierSearchModal: React.FC<SupplierSearchModalProps> = ({ isOpen, onClose, distributors, onSelect, initialSearch = '' }) => {
+const SupplierSearchModal: React.FC<SupplierSearchModalProps> = ({ isOpen, onClose, suppliers, onSelect, initialSearch = '' }) => {
     const [searchTerm, setSearchTerm] = useState(initialSearch);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
@@ -33,15 +33,15 @@ const SupplierSearchModal: React.FC<SupplierSearchModalProps> = ({ isOpen, onClo
 
     const filtered = useMemo(() => {
         /* Fix: Rename d.isActive to d.is_active */
-        const active = distributors.filter(d => d.is_active !== false);
+        const active = suppliers.filter(s => s.is_active !== false);
         if (!searchTerm.trim()) return active;
-        return active.filter(d =>
-            fuzzyMatch(d.name, searchTerm) ||
-            /* Fix: Rename d.gstNumber to d.gst_number */
-            fuzzyMatch(d.gst_number, searchTerm) ||
-            fuzzyMatch(d.phone, searchTerm)
+        return active.filter(s =>
+            fuzzyMatch(s.name, searchTerm) ||
+            /* Fix: Rename s.gstNumber to s.gst_number */
+            fuzzyMatch(s.gst_number, searchTerm) ||
+            fuzzyMatch(s.phone, searchTerm)
         );
-    }, [distributors, searchTerm]);
+    }, [suppliers, searchTerm]);
 
     useEffect(() => {
         if (resultsContainerRef.current) {
@@ -112,23 +112,23 @@ const SupplierSearchModal: React.FC<SupplierSearchModalProps> = ({ isOpen, onClo
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map((dist, idx) => {
+                                {filtered.map((supplier, idx) => {
                                     const isSelected = idx === selectedIndex;
-                                    const balance = getOutstandingBalance(dist);
+                                    const balance = getOutstandingBalance(supplier);
                                     return (
                                         <tr
-                                            key={dist.id}
+                                            key={supplier.id}
                                             data-index={idx}
-                                            onClick={() => onSelect(dist)}
+                                            onClick={() => onSelect(supplier)}
                                             onMouseEnter={() => setSelectedIndex(idx)}
                                             className={`cursor-pointer transition-all border-b border-gray-100 h-12 ${isSelected ? 'bg-primary text-white z-10 shadow-xl scale-[1.01]' : 'hover:bg-yellow-50'}`}
                                         >
                                             <td className="p-2 px-4 border-r border-gray-200">
-                                                <p className={`leading-none ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{dist.name}</p>
+                                                <p className={`leading-none ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{supplier.name}</p>
                                             </td>
                                             <td className={`p-2 px-4 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-primary'}`}>
                                                 {/* Fix: Rename dist.gstNumber to dist.gst_number */}
-                                                {dist.gst_number || 'N/A'}
+                                                {supplier.gst_number || 'N/A'}
                                             </td>
                                             <td className={`p-2 px-4 text-right ${uniformTextStyle} ${isSelected ? 'text-white' : (balance > 0 ? 'text-red-600' : 'text-emerald-700')}`}>
                                                 ₹{balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -161,7 +161,7 @@ const SupplierSearchModal: React.FC<SupplierSearchModalProps> = ({ isOpen, onClo
                 <SupplierLedgerModal
                     isOpen={isLedgerModalOpen}
                     onClose={() => setIsLedgerModalOpen(false)}
-                    distributor={filtered[selectedIndex]}
+                    supplier={filtered[selectedIndex]}
                 />
             )}
         </Modal>

@@ -6,18 +6,18 @@ import { extractPurchaseDetailsFromBill } from '../services/geminiService';
 import type { Purchase, InventoryItem, Distributor, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, DistributorProductMap, Medicine, AppConfigurations, SupplierProductMap, Supplier, FileInput } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import WebcamCaptureModal from '../components/WebcamCaptureModal';
-import MobileSyncModal from '../components/MobileSyncModal'; 
+import MobileSyncModal from '../components/MobileSyncModal';
 import LinkToMasterModal from '../components/LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchDistributorProductMaps, generateUUID, saveData } from '../services/storageService';
+import { fetchSupplierProductMaps, generateUUID, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
-import SupplierLedgerModal from '../components/SupplierLedgerModal'; 
+import SupplierLedgerModal from '../components/SupplierLedgerModal';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { parseNetworkAndApiError } from '../utils/error';
 
-const UploadIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>;
-const CameraIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="4"/></svg>;
-const SmartphoneIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" ry="18" x2="12.01" y2="18"/></svg>;
+const UploadIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>;
+const CameraIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="4" /></svg>;
+const SmartphoneIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" ry="18" x2="12.01" y2="18" /></svg>;
 
 const Spinner = () => (
     <svg className="animate-spin h-4 w-4 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -84,8 +84,8 @@ interface PurchaseFormProps {
 }
 
 const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
-    onAddPurchase, onUpdatePurchase, inventory, distributors, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, onClearDraft, currentUser, onAddMedicineMaster, onAddDistributor, onSaveMapping, onCancel, title, className, configurations, addNotification, isReadOnly = false, 
-    isManualEntry = false, isChallan = false, disableAIInput = false, mobileSyncSessionId, setMobileSyncSessionId, 
+    onAddPurchase, onUpdatePurchase, inventory, distributors, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, onClearDraft, currentUser, onAddMedicineMaster, onAddDistributor, onSaveMapping, onCancel, title, className, configurations, addNotification, isReadOnly = false,
+    isManualEntry = false, isChallan = false, disableAIInput = false, mobileSyncSessionId, setMobileSyncSessionId,
     organizationId,
 }, ref) => {
     const isEditing = !!purchaseToEdit;
@@ -100,7 +100,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [activeRowId, setActiveRowId] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
-    
+
     // Modal States
     const [isWebcamModalOpen, setIsWebcamModalOpen] = useState(false);
     const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
@@ -115,33 +115,33 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
-    const invoiceNumberInputRef = useRef<HTMLInputElement>(null); 
-    const dateInputRef = useRef<HTMLInputElement>(null); 
+    const invoiceNumberInputRef = useRef<HTMLInputElement>(null);
+    const dateInputRef = useRef<HTMLInputElement>(null);
     const lastSourceRef = useRef<string | null>(null);
 
     const currentDistributor = useMemo(() => {
         const lowerSupplier = (supplier || '').toLowerCase().trim();
         if (!lowerSupplier) return null;
-        return distributors.find(d =>      (d.name || '').toLowerCase().trim() === lowerSupplier ) ?? null;
+        return distributors.find(d => (d.name || '').toLowerCase().trim() === lowerSupplier) ?? null;
     }, [distributors, supplier]);
 
     const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetDistributor: Distributor | null) => {
         if (!medicines.length) return itemList;
-        
+
         return itemList.map(item => {
             if (item.inventoryItemId) return item;
 
             if (targetDistributor) {
-                const mapping = mappings.find(m => 
-                    m.supplier_id === targetDistributor.id && 
+                const mapping = mappings.find(m =>
+                    m.supplier_id === targetDistributor.id &&
                     m.supplier_product_name.toLowerCase().trim() === item.name.toLowerCase().trim()
                 );
                 if (mapping) {
                     const foundMed = medicines.find(m => m.id === mapping.master_medicine_id);
                     if (foundMed) {
-                        return { 
-                            ...item, 
-                            inventoryItemId: foundMed.id, 
+                        return {
+                            ...item,
+                            inventoryItemId: foundMed.id,
                             matchStatus: 'matched' as const,
                             name: foundMed.name,
                             hsnCode: foundMed.hsnCode || item.hsnCode,
@@ -155,9 +155,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             const directMatch = medicines.find(m => m.name.toLowerCase().trim() === item.name.toLowerCase().trim());
             if (directMatch) {
-                return { 
-                    ...item, 
-                    inventoryItemId: directMatch.id, 
+                return {
+                    ...item,
+                    inventoryItemId: directMatch.id,
                     matchStatus: 'matched' as const,
                     hsnCode: directMatch.hsnCode || item.hsnCode,
                     gstPercent: directMatch.gstRate || item.gstPercent,
@@ -178,7 +178,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setSupplier(purchaseToEdit.supplier || '');
             setInvoiceNumber(purchaseToEdit.invoiceNumber || '');
             setDate(purchaseToEdit.date ? purchaseToEdit.date.split('T')[0] : new Date().toISOString().split('T')[0]);
-            
+
             const matchedDist = distributors.find(d => (d.name || '').toLowerCase().trim() === (purchaseToEdit.supplier || '').toLowerCase().trim());
             if (matchedDist) setSupplierGst(matchedDist.gst_number || '');
             else setSupplierGst('');
@@ -216,12 +216,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [purchaseToEdit, draftItems, distributors, draftSupplier, attemptAutoLink]);
 
     const calculatedTotals = useMemo(() => {
-        let subtotal = 0; 
-        let totalGst = 0; 
+        let subtotal = 0;
+        let totalGst = 0;
         let totalItemDiscount = 0;
         let totalItemSchemeDiscount = 0;
 
-        const validItems = items.filter(p => (p.name || '').trim() !== ''); 
+        const validItems = items.filter(p => (p.name || '').trim() !== '');
         const itemsWithCalculations = validItems.map(p => {
             const gross = (p.purchasePrice || 0) * (p.quantity || 0);
             const tradeDisc = gross * ((p.discountPercent || 0) / 100);
@@ -236,21 +236,21 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             totalItemDiscount += tradeDisc;
             totalItemSchemeDiscount += schemeDisc;
 
-            return { 
-                ...p, 
-                taxableValue: taxable, 
-                gstAmount: gst, 
-                itemGrossValue: gross, 
-                itemTradeDiscount: tradeDisc, 
+            return {
+                ...p,
+                taxableValue: taxable,
+                gstAmount: gst,
+                itemGrossValue: gross,
+                itemTradeDiscount: tradeDisc,
                 itemSchemeDiscount: schemeDisc,
                 lineTotal: total
             };
         });
 
-        return { 
-            itemsWithCalculations, 
-            subtotal, 
-            totalGst, 
+        return {
+            itemsWithCalculations,
+            subtotal,
+            totalGst,
             totalAmount: subtotal + totalGst,
             totalItemDiscount,
             totalItemSchemeDiscount
@@ -258,35 +258,35 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [items]);
 
     const handleSubmit = async () => {
-        if (isSubmitting) return; 
+        if (isSubmitting) return;
         if (!supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
         if (!invoiceNumber.trim()) { setInvoiceNumberError("Invoice number is required."); return; }
-        const activeItems = items.filter(p => (p.name || '').trim() !== ''); 
+        const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
-        
+
         setIsSubmitting(true);
         try {
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;
             let nextExternalNumber;
 
-            if (!purchaseToEdit) { 
+            if (!purchaseToEdit) {
                 const { id: generatedSerialId, nextExternalNumber: nextNum } = generateNewInvoiceId(configurations.purchaseConfig, 'purchase-bill');
                 purchaseSerialId = generatedSerialId;
                 nextExternalNumber = nextNum;
             }
 
-            const payload = { 
-                purchaseSerialId: purchaseSerialId!, 
-                supplier, 
-                invoiceNumber: invoiceNumber.trim(), 
-                date, 
-                items: calculatedTotals.itemsWithCalculations, 
-                subtotal: calculatedTotals.subtotal, 
-                totalGst: calculatedTotals.totalGst, 
-                totalAmount: calculatedTotals.totalAmount, 
-                totalItemDiscount: calculatedTotals.totalItemDiscount, 
-                totalItemSchemeDiscount: calculatedTotals.totalItemSchemeDiscount, 
-                status: 'completed' as const, 
+            const payload = {
+                purchaseSerialId: purchaseSerialId!,
+                supplier,
+                invoiceNumber: invoiceNumber.trim(),
+                date,
+                items: calculatedTotals.itemsWithCalculations,
+                subtotal: calculatedTotals.subtotal,
+                totalGst: calculatedTotals.totalGst,
+                totalAmount: calculatedTotals.totalAmount,
+                totalItemDiscount: calculatedTotals.totalItemDiscount,
+                totalItemSchemeDiscount: calculatedTotals.totalItemSchemeDiscount,
+                status: 'completed' as const,
                 organization_id: organizationId,
                 roundOff: 0,
                 schemeDiscount: 0
@@ -295,11 +295,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (purchaseToEdit) {
                 await onUpdatePurchase({ ...purchaseToEdit, ...payload } as any, supplierGst);
             } else {
-                await onAddPurchase(payload, supplierGst, nextExternalNumber); 
+                await onAddPurchase(payload, supplierGst, nextExternalNumber);
             }
-            onClearDraft(); if (onCancel) onCancel(); 
-        } catch (e: any) { 
-            addNotification(`Error: ${parseNetworkAndApiError(e)}`, "error"); 
+            onClearDraft(); if (onCancel) onCancel();
+        } catch (e: any) {
+            addNotification(`Error: ${parseNetworkAndApiError(e)}`, "error");
         } finally { setIsSubmitting(false); }
     };
 
@@ -309,7 +309,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }));
 
     const handleUpdateItem = (id: string, field: keyof PurchaseItem, value: any) => {
-        if (isReadOnly || !supplier.trim()) return; 
+        if (isReadOnly || !supplier.trim()) return;
         setItems(prev => {
             const index = prev.findIndex(p => p.id === id); if (index === -1) return prev;
             let updatedItem = { ...prev[index], [field]: value };
@@ -340,16 +340,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 if (bill.invoiceNumber) setInvoiceNumber(bill.invoiceNumber);
                 if (bill.date) setDate(normalizeImportDate(bill.date) || date);
                 if (bill.items && bill.items.length > 0) {
-                    const newItems = bill.items.map(item => ({ 
+                    const newItems = bill.items.map(item => ({
                         // Fix: createBlankItem now defined
-                        ...createBlankItem(), 
-                        ...item, 
-                        quantity: parseNumber(item.quantity), 
-                        purchasePrice: parseNumber(item.purchasePrice), 
-                        mrp: parseNumber(item.mrp), 
-                        gstPercent: parseNumber(item.gstPercent) || 5, 
-                        discountPercent: parseNumber(item.discountPercent), 
-                        matchStatus: 'pending' as const 
+                        ...createBlankItem(),
+                        ...item,
+                        quantity: parseNumber(item.quantity),
+                        purchasePrice: parseNumber(item.purchasePrice),
+                        mrp: parseNumber(item.mrp),
+                        gstPercent: parseNumber(item.gstPercent) || 5,
+                        discountPercent: parseNumber(item.discountPercent),
+                        matchStatus: 'pending' as const
                     }));
                     const linked = attemptAutoLink(newItems as PurchaseItem[], currentDistributor);
                     // Fix: createBlankItem now defined
@@ -400,22 +400,22 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 <div className="p-3 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-4 gap-4 items-end flex-shrink-0">
                     <div className="md:col-span-2 relative">
                         <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Particulars (Supplier Name)</label>
-                        <input 
-                            ref={supplierNameInputRef} 
-                            type="text" 
-                            value={supplier} 
-                            autoComplete="off" 
-                            onChange={e => { setSupplier(e.target.value); setIsSupplierDropdownOpen(true); }} 
+                        <input
+                            ref={supplierNameInputRef}
+                            type="text"
+                            value={supplier}
+                            autoComplete="off"
+                            onChange={e => { setSupplier(e.target.value); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
-                            className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`} 
-                            placeholder="Type to search Ledger..." 
+                            className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
+                            placeholder="Type to search Ledger..."
                         />
                         {isSupplierDropdownOpen && supplier.length > 0 && (
                             <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
                                 {distributors.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10).map((d, sIdx) => (
-                                    <div 
-                                        key={d.id} 
-                                        onClick={() => handleSupplierSelect(d)} 
+                                    <div
+                                        key={d.id}
+                                        onClick={() => handleSupplierSelect(d)}
                                         onMouseEnter={() => setSelectedSupplierIndex(sIdx)}
                                         className={`p-3 cursor-pointer flex justify-between items-center border-b border-gray-100 ${sIdx === selectedSupplierIndex ? 'bg-primary text-white' : 'hover:bg-gray-50'}`}
                                     >
@@ -428,22 +428,22 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                     <div>
                         <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Invoice #</label>
-                        <input 
+                        <input
                             ref={invoiceNumberInputRef}
-                            type="text" 
-                            value={invoiceNumber} 
-                            onChange={e => setInvoiceNumber(e.target.value)} 
-                            className={`w-full border p-2 text-sm font-bold outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`} 
+                            type="text"
+                            value={invoiceNumber}
+                            onChange={e => setInvoiceNumber(e.target.value)}
+                            className={`w-full border p-2 text-sm font-bold outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                         />
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase block mb-1">Date</label>
-                        <input 
+                        <input
                             ref={dateInputRef}
-                            type="date" 
-                            value={date} 
-                            onChange={(e) => setDate(e.target.value)} 
-                            className="w-full border border-gray-400 p-2 text-sm font-bold outline-none" 
+                            type="date"
+                            value={date}
+                            onChange={(e) => setDate(e.target.value)}
+                            className="w-full border border-gray-400 p-2 text-sm font-bold outline-none"
                         />
                     </div>
                 </div>
@@ -517,17 +517,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </button>
                 </div>
             </div>
-            
+
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleFileUpload as any} />}
             {isAddSupplierModalOpen && <AddDistributorModal isOpen={isAddSupplierModalOpen} onClose={() => setIsAddSupplierModalOpen(false)} onAdd={onAddDistributor} organizationId={organizationId} />}
             {isAddMedicineMasterModalOpen && <AddMedicineModal isOpen={isAddMedicineMasterModalOpen} onClose={() => setIsAddMedicineMasterModalOpen(false)} onAddMedicine={onAddMedicineMaster} organizationId={organizationId} />}
             {isLinkModalOpen && currentDistributor && (
-                <LinkToMasterModal 
-                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} distributor={currentDistributor as any} medicines={medicines} mappings={mappings} 
+                <LinkToMasterModal
+                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={currentDistributor as any} medicines={medicines} mappings={mappings}
                     onLink={onSaveMapping} scannedItems={items} onFinalize={(reconciled) => setItems(reconciled)} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
                 />
             )}
-            {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} distributor={supplierForLedger} />}
+            {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
             <MobileSyncModal isOpen={!!mobileSyncSessionId} onClose={() => setMobileSyncSessionId(null)} sessionId={mobileSyncSessionId} orgId={organizationId} />
         </div>
     );

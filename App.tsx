@@ -11,7 +11,7 @@ import PurchaseForm from './components/PurchaseForm';
 import PurchaseHistory from './pages/PurchaseHistory';
 import Inventory from './pages/Inventory';
 import PhysicalInventory from './pages/PhysicalInventory';
-import Suppliers from './pages/Suppliers'; 
+import Suppliers from './pages/Suppliers';
 import Customers from './pages/Customers';
 import MaterialMaster from './components/MaterialMaster';
 import SubstituteFinder from './pages/SubstituteFinder';
@@ -39,12 +39,12 @@ import TallyPrompt from './components/TallyPrompt';
 import * as storage from './services/storageService';
 import { supabase } from './services/supabaseClient';
 import { parseNetworkAndApiError } from './utils/error';
-import { 
-  RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier, 
-  Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
-  Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
-  PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
-  PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig
+import {
+    RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier,
+    Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
+    Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
+    PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
+    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig
 } from './types';
 import { navigation } from './constants';
 import { generateNewInvoiceId } from './utils/invoice';
@@ -57,7 +57,7 @@ const App: React.FC = () => {
     const [isReloading, setIsReloading] = useState(false);
     const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
     const [isRealtimeActive, setIsRealtimeActive] = useState(false);
-    
+
     const [showLogoutPrompt, setShowLogoutPrompt] = useState(false);
     const [showEscSavePrompt, setShowEscSavePrompt] = useState(false);
 
@@ -69,7 +69,7 @@ const App: React.FC = () => {
     const [medicines, setMedicines] = useState<Medicine[]>([]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [purchases, setPurchases] = useState<Purchase[]>([]);
-    const [suppliers, setSuppliers] = useState<Supplier[]>([]); 
+    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [ewayBills, setEwayBills] = useState<EWayBill[]>([]);
     const [mappings, setMappings] = useState<SupplierProductMap[]>([]);
@@ -77,17 +77,17 @@ const App: React.FC = () => {
     const [deliveryChallans, setDeliveryChallans] = useState<DeliveryChallan[]>([]);
     const [salesChallans, setSalesChallans] = useState<SalesChallan[]>([]);
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-    
+
     const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
     const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
     const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
     const [promotions, setPromotions] = useState<Promotion[]>([]);
     const [teamMembers, setTeamMembers] = useState<OrganizationMember[]>([]);
-    
+
     const [configurations, setConfigurations] = useState<AppConfigurations>({ organization_id: '' });
 
-    const [sourceChallansForPurchase, setSourceChallansForPurchase] = useState<{items: PurchaseItem[], supplier: string, ids: string[]} | null>(null);
+    const [sourceChallansForPurchase, setSourceChallansForPurchase] = useState<{ items: PurchaseItem[], supplier: string, ids: string[] } | null>(null);
     const [mobileSyncSessionId, setMobileSyncSessionId] = useState<string | null>(null);
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
 
@@ -95,7 +95,7 @@ const App: React.FC = () => {
     const [viewTransaction, setViewTransaction] = useState<Transaction | null>(null);
     const [viewPurchase, setViewPurchase] = useState<Purchase | null>(null);
     const [printPO, setPrintPO] = useState<PurchaseOrder | null>(null);
-    const [viewReport, setViewReport] = useState<any>(null); 
+    const [viewReport, setViewReport] = useState<any>(null);
 
     const addNotification = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
         setNotifications(prev => [...prev, { id: Date.now(), message, type }]);
@@ -107,7 +107,7 @@ const App: React.FC = () => {
 
     const loadData = useCallback(async (user: RegisteredPharmacy, mode: 'initial' | 'sync' | 'background' | 'targeted' = 'sync', specificTable?: string) => {
         if (!user) return;
-        
+
         if (mode === 'initial') setIsAppLoading(true);
         else if (mode === 'sync') setIsReloading(true);
 
@@ -115,17 +115,17 @@ const App: React.FC = () => {
 
         try {
             if (mode === 'targeted' && specificTable) {
-                switch(specificTable) {
+                switch (specificTable) {
                     case 'inventory': setInventory(await storage.fetchInventory(user)); break;
                     case 'material_master': setMedicines(await storage.fetchMedicineMaster(user)); break;
                     case 'sales_bill':
-                    case 'transactions': 
-                        setTransactions(await storage.fetchTransactions(user)); 
+                    case 'transactions':
+                        setTransactions(await storage.fetchTransactions(user));
                         break;
                     case 'purchases': setPurchases(await storage.fetchPurchases(user)); break;
                     case 'suppliers': setSuppliers(await storage.fetchSuppliers(user)); break;
                     case 'customers': setCustomers(await storage.fetchCustomers(user)); break;
-                    case 'configurations': 
+                    case 'configurations':
                         const cfg = await storage.getData('configurations', [], user);
                         if (cfg && cfg.length > 0) setConfigurations(cfg[0]);
                         break;
@@ -135,8 +135,8 @@ const App: React.FC = () => {
                     case 'physical_inventory': setPhysicalInventory(await storage.fetchPhysicalInventory(user)); break;
                     case 'categories': setCategories(await storage.getData('categories', [], user)); break;
                     case 'sub_categories': setSubCategories(await storage.getData('sub_categories', [], user)); break;
-                    case 'supplier_product_map': setMappings(await storage.fetchDistributorProductMaps(user)); break;
-                    case 'profiles': 
+                    case 'supplier_product_map': setMappings(await storage.fetchSupplierProductMaps(user)); break;
+                    case 'profiles':
                         const freshProfile = await storage.fetchProfile(user.user_id);
                         if (freshProfile) setCurrentUser(freshProfile);
                         break;
@@ -154,10 +154,10 @@ const App: React.FC = () => {
                 storage.fetchMedicineMaster(user),
                 storage.fetchTransactions(user),
                 storage.fetchPurchases(user),
-                storage.fetchSuppliers(user), 
+                storage.fetchSuppliers(user),
                 storage.fetchCustomers(user),
                 storage.fetchEWayBills(user),
-                storage.fetchDistributorProductMaps(user),
+                storage.fetchSupplierProductMaps(user),
                 storage.fetchPhysicalInventory(user),
                 storage.getData('delivery_challans', [], user),
                 storage.getData('sales_challans', [], user),
@@ -170,13 +170,13 @@ const App: React.FC = () => {
                 storage.fetchTeamMembers(user),
                 storage.getData('configurations', [{ organization_id: orgId }], user)
             ]);
-            
+
             if (freshProfile) setCurrentUser(freshProfile);
             setInventory(inv || []);
             setMedicines(med || []);
             setTransactions(tx || []);
             setPurchases(pur || []);
-            setSuppliers(supp || []); 
+            setSuppliers(supp || []);
             setCustomers(cust || []);
             setEwayBills(ewb || []);
             setMappings(mapData || []);
@@ -217,7 +217,7 @@ const App: React.FC = () => {
 
                 // Entry screens that require save/discard confirmation
                 const entryScreens = [
-                    'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 
+                    'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry',
                     'physicalInventory', 'deliveryChallans', 'salesChallans'
                 ];
 
@@ -296,7 +296,7 @@ const App: React.FC = () => {
                 (payload) => {
                     const table = payload.table;
                     const record = payload.new as any;
-                    
+
                     if (record && record.organization_id && record.organization_id !== orgId) {
                         return;
                     }
@@ -365,7 +365,7 @@ const App: React.FC = () => {
             window.location.reload();
         } catch (e) {
             setCurrentUser(null);
-            window.location.reload(); 
+            window.location.reload();
         }
     };
 
@@ -384,7 +384,7 @@ const App: React.FC = () => {
         if (!currentUser) return;
         try {
             const savedTx = await storage.addTransaction(tx, currentUser);
-            
+
             // Immediate local state update to ensure data shows in history without waiting for background reload
             if (isUpdate) {
                 setTransactions(prev => prev.map(t => t.id === savedTx.id ? savedTx : t));
@@ -414,7 +414,7 @@ const App: React.FC = () => {
             const savedPurchase = await storage.updatePurchase(p, currentUser);
             // Immediate local state update
             setPurchases(prev => prev.map(pur => pur.id === savedPurchase.id ? savedPurchase : pur));
-            
+
             loadData(currentUser, 'background');
             addNotification("Purchase voucher updated.", "success");
         } catch (e) {
@@ -430,12 +430,12 @@ const App: React.FC = () => {
             setPurchases(prev => [savedPurchase, ...prev]);
 
             if (nextCounter) {
-              const updatedConfigs = {
-                  ...configurations,
-                  purchaseConfig: { ...configurations.purchaseConfig!, currentNumber: nextCounter }
-              };
-              await storage.saveData('configurations', updatedConfigs, currentUser);
-              setConfigurations(updatedConfigs);
+                const updatedConfigs = {
+                    ...configurations,
+                    purchaseConfig: { ...configurations.purchaseConfig!, currentNumber: nextCounter }
+                };
+                await storage.saveData('configurations', updatedConfigs, currentUser);
+                setConfigurations(updatedConfigs);
             }
             loadData(currentUser, 'background');
             addNotification("Purchase entry posted.", "success");
@@ -457,15 +457,15 @@ const App: React.FC = () => {
             // 2. Reverse inventory (decrement stock that was added by this purchase)
             for (const item of purchase.items) {
                 // Find matching inventory item
-                const inventoryMatch = inventory.find(i => 
-                    (i.name || '').toLowerCase().trim() === (item.name || '').toLowerCase().trim() && 
+                const inventoryMatch = inventory.find(i =>
+                    (i.name || '').toLowerCase().trim() === (item.name || '').toLowerCase().trim() &&
                     (i.batch || 'UNSET').toLowerCase().trim() === (item.batch || 'UNSET').toLowerCase().trim()
                 );
 
                 if (inventoryMatch) {
                     const uPP = inventoryMatch.unitsPerPack || 1;
                     const unitsToRemove = (item.quantity * uPP) + (item.looseQuantity || 0) + (item.freeQuantity || 0);
-                    
+
                     const updatedInv = {
                         ...inventoryMatch,
                         stock: Math.max(0, Number(inventoryMatch.stock || 0) - unitsToRemove)
@@ -592,18 +592,18 @@ const App: React.FC = () => {
 
         switch (currentPage) {
             case 'dashboard':
-                return <Dashboard 
-                    currentUser={currentUser} configurations={configurations} inventory={inventory} 
-                    transactions={transactions} purchases={purchases} medicines={medicines} 
-                    customers={customers} distributors={suppliers} onKpiClick={handleNavigate} 
+                return <Dashboard
+                    currentUser={currentUser} configurations={configurations} inventory={inventory}
+                    transactions={transactions} purchases={purchases} medicines={medicines}
+                    customers={customers} distributors={suppliers} onKpiClick={handleNavigate}
                     brandName="MDXERA" lastRefreshed={lastRefreshed} onReload={handleReload} isReloading={isReloading}
                 />;
             case 'pos':
             case 'nonGstPos':
-                return <POS 
+                return <POS
                     ref={posRef}
                     inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
-                    onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction} 
+                    onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
                     onPrintBill={(tx) => setPrintBill({ ...tx, pharmacy: currentUser!, inventory, configurations } as any)}
                     currentUser={currentUser} config={config} configurations={configurations}
                     billType={currentPage === 'nonGstPos' ? 'non-gst' : 'regular'}
@@ -611,16 +611,16 @@ const App: React.FC = () => {
                     onCancel={() => handleNavigate('dashboard')}
                 />;
             case 'salesHistory':
-                return <SalesHistory 
+                return <SalesHistory
                     transactions={transactions} inventory={inventory}
                     onViewDetails={setViewTransaction}
                     onPrintBill={(tx) => setPrintBill({ ...tx, pharmacy: currentUser!, inventory, configurations } as any)}
                     onCancelTransaction={handleCancelTransaction}
-                    currentUser={currentUser} onViewSale={setViewTransaction} onEditSale={() => {}}
+                    currentUser={currentUser} onViewSale={setViewTransaction} onEditSale={() => { }}
                 />;
             case 'automatedPurchaseEntry':
             case 'manualPurchaseEntry':
-                return <PurchaseForm 
+                return <PurchaseForm
                     ref={purchaseFormRef}
                     onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
                     inventory={inventory} suppliers={suppliers} medicines={medicines}
@@ -630,7 +630,7 @@ const App: React.FC = () => {
                     onClearDraft={() => setSourceChallansForPurchase(null)}
                     currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
                     onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    setIsDirty={() => {}} addNotification={addNotification}
+                    setIsDirty={() => { }} addNotification={addNotification}
                     title={currentPage === 'automatedPurchaseEntry' ? "AI-Powered Automated Purchase" : "Manual Purchase Bill Entry"}
                     isManualEntry={currentPage === 'manualPurchaseEntry'}
                     configurations={configurations}
@@ -638,7 +638,7 @@ const App: React.FC = () => {
                     organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
                 />;
             case 'purchaseHistory':
-                return <PurchaseHistory 
+                return <PurchaseHistory
                     purchases={purchases} distributors={suppliers} onViewDetails={setViewPurchase}
                     onCancelPurchase={handleCancelPurchase} inventory={inventory} medicines={medicines}
                     onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualPurchaseEntry'); }}
@@ -646,21 +646,21 @@ const App: React.FC = () => {
                     currentUser={currentUser} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                 />;
             case 'inventory':
-                return <Inventory 
+                return <Inventory
                     inventory={inventory} medicines={medicines} currentUser={currentUser}
-                    onCreatePurchaseOrder={() => {}} config={config} onUpdateConfig={(newConfig) => handleUpdateModuleConfig('inventory', newConfig)}
+                    onCreatePurchaseOrder={() => { }} config={config} onUpdateConfig={(newConfig) => handleUpdateModuleConfig('inventory', newConfig)}
                     onBulkAddInventory={(list) => storage.saveBulkData('inventory', list, currentUser)}
                     onAddProduct={handleAddInventoryItem} onUpdateProduct={(item) => storage.saveData('inventory', item, currentUser).then(() => loadData(currentUser!, 'background'))}
                 />;
             case 'physicalInventory':
-                return <PhysicalInventory 
+                return <PhysicalInventory
                     inventory={inventory} physicalInventorySessions={physicalInventory}
-                    onStartNewCount={() => {}} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
+                    onStartNewCount={() => { }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
                     onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
-                    onCancelCount={() => {}}
+                    onCancelCount={() => { }}
                 />;
             case 'suppliers':
-                return <Suppliers 
+                return <Suppliers
                     suppliers={suppliers} onAddSupplier={handleAddDistributor}
                     onBulkAddSuppliers={(list) => storage.saveBulkData('suppliers', list, currentUser)}
                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'supplier')}
@@ -668,7 +668,7 @@ const App: React.FC = () => {
                     config={config} currentUser={currentUser}
                 />;
             case 'customers':
-                return <Customers 
+                return <Customers
                     customers={customers} teamMembers={teamMembers} onAddCustomer={handleAddCustomer}
                     onBulkAddCustomers={(list) => storage.saveBulkData('customers', list, currentUser)}
                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'customer')}
@@ -678,14 +678,14 @@ const App: React.FC = () => {
             case 'medicineMasterList':
             case 'vendorNomenclature':
             case 'bulkUtility':
-                return <MaterialMaster 
+                return <MaterialMaster
                     medicines={medicines} onAddMedicine={handleAddMedicineMaster}
                     onUpdateMedicine={(updated) => storage.saveData('material_master', updated, currentUser).then(() => loadData(currentUser!, 'background'))} currentUser={currentUser}
                     suppliers={suppliers} onAddPurchase={handleAddPurchase as any}
                     onBulkAddMedicines={(list) => storage.saveBulkData('material_master', list, currentUser)}
-                    onSearchMedicines={() => {}} onMassUpdateClick={() => {}}
+                    onSearchMedicines={() => { }} onMassUpdateClick={() => { }}
                     onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} onDeleteMapping={(id) => storage.deleteData('supplier_product_map', id).then(() => loadData(currentUser!, 'background'))}
-                    mappings={mappings} 
+                    mappings={mappings}
                     initialSubModule={currentPage === 'vendorNomenclature' ? 'sync' : currentPage === 'bulkUtility' ? 'bulk' : 'master'}
                 />;
             case 'substituteFinder':
@@ -693,28 +693,28 @@ const App: React.FC = () => {
             case 'promotions':
                 return <Promotions currentUser={currentUser} addNotification={addNotification} />;
             case 'reports':
-                return <Reports 
-                    inventory={inventory} transactions={transactions} purchases={purchases} 
-                    distributors={suppliers} customers={customers} salesReturns={salesReturns} 
+                return <Reports
+                    inventory={inventory} transactions={transactions} purchases={purchases}
+                    distributors={suppliers} customers={customers} salesReturns={salesReturns}
                     purchaseReturns={purchaseReturns} onPrintReport={setViewReport} config={config}
                 />;
             case 'gst':
-                return <GstCenter 
-                    transactions={transactions} purchases={purchases} customers={customers} 
-                    currentUser={currentUser} configurations={configurations} 
+                return <GstCenter
+                    transactions={transactions} purchases={purchases} customers={customers}
+                    currentUser={currentUser} configurations={configurations}
                     onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
                 />;
             case 'businessUsers':
-                return <BusinessUserAssignment 
-                    currentUser={currentUser!} addNotification={addNotification} 
+                return <BusinessUserAssignment
+                    currentUser={currentUser!} addNotification={addNotification}
                     members={teamMembers} onRefresh={() => loadData(currentUser!, 'sync')}
                 />;
             case 'businessRoles':
                 return <BusinessRoles currentUser={currentUser!} addNotification={addNotification} />;
             case 'configuration':
-                return <Configuration 
-                    configurations={configurations} 
-                    onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))} 
+                return <Configuration
+                    configurations={configurations}
+                    onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
                     addNotification={addNotification} currentUser={currentUser} inventory={inventory}
                     transactions={transactions} purchases={purchases} distributors={suppliers} customers={customers} medicines={medicines}
                     onBulkAddInventory={(l: any) => storage.saveBulkData('inventory', l, currentUser)}
@@ -727,16 +727,16 @@ const App: React.FC = () => {
                     mappings={mappings}
                 />;
             case 'settings':
-                return <Settings 
-                    currentUser={currentUser} 
+                return <Settings
+                    currentUser={currentUser}
                     onUpdateProfile={(p) => storage.updateProfile(p).then((updated) => {
                         setCurrentUser(updated);
                         loadData(updated, 'background');
-                    })} 
-                    addNotification={addNotification} 
+                    })}
+                    addNotification={addNotification}
                 />;
             case 'classification':
-                return <Classification 
+                return <Classification
                     categories={categories} subCategories={subCategories}
                     onAddCategory={(d) => storage.saveData('categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
                     onUpdateCategory={(d) => storage.saveData('categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
@@ -746,8 +746,8 @@ const App: React.FC = () => {
                     onDeleteSubCategory={(id) => storage.deleteData('sub_categories', id).then(() => loadData(currentUser!, 'background'))}
                 />;
             case 'deliveryChallans':
-                return <DeliveryChallans 
-                    deliveryChallans={deliveryChallans} inventory={inventory} distributors={suppliers} 
+                return <DeliveryChallans
+                    deliveryChallans={deliveryChallans} inventory={inventory} distributors={suppliers}
                     medicines={medicines} currentUser={currentUser} configurations={configurations}
                     onAddChallan={(d) => storage.saveData('delivery_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
                     onUpdateChallan={(d) => storage.saveData('delivery_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
@@ -757,8 +757,8 @@ const App: React.FC = () => {
                     onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} addNotification={addNotification} mappings={mappings}
                 />;
             case 'salesChallans':
-                return <SalesChallans 
-                    salesChallans={salesChallans} inventory={inventory} medicines={medicines} 
+                return <SalesChallans
+                    salesChallans={salesChallans} inventory={inventory} medicines={medicines}
                     purchases={purchases} customers={customers} currentUser={currentUser} configurations={configurations}
                     onAddChallan={(d) => storage.saveData('sales_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
                     onUpdateChallan={(d) => storage.saveData('sales_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
@@ -766,13 +766,13 @@ const App: React.FC = () => {
                     onConvertToInvoice={handleConvertToInvoice} addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
                 />;
             case 'purchaseOrders':
-                return <PurchaseOrders 
+                return <PurchaseOrders
                     distributors={suppliers} inventory={inventory} purchaseOrders={purchaseOrders}
                     onAddPurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
                     onUpdatePurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onCreatePurchaseEntry={() => {}} onPrintPurchaseOrder={setPrintPO as any}
+                    onCreatePurchaseEntry={() => { }} onPrintPurchaseOrder={setPrintPO as any}
                     onCancelPurchaseOrder={(id) => storage.deleteData('purchase_orders', id).then(() => loadData(currentUser!, 'background'))}
-                    draftItems={null} onClearDraft={() => {}} setIsDirty={() => {}}
+                    draftItems={null} onClearDraft={() => { }} setIsDirty={() => { }}
                     currentUserPharmacyName={currentUser?.pharmacy_name || ''} currentUserEmail={currentUser?.email || ''}
                     currentUserOrgId={currentUser?.organization_id}
                 />;
@@ -782,7 +782,7 @@ const App: React.FC = () => {
                 return <AccountPayable distributors={suppliers} onRecordPayment={(id, amt, dt, d) => handleRecordPayment(id, amt, dt, d, 'supplier')} currentUser={currentUser} />;
             case 'salesReturns':
             case 'purchaseReturn':
-                return <Returns 
+                return <Returns
                     currentUser={currentUser} transactions={transactions} inventory={inventory}
                     salesReturns={salesReturns} purchaseReturns={purchaseReturns} purchases={purchases}
                     onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(() => loadData(currentUser!, 'background'))}
@@ -790,10 +790,10 @@ const App: React.FC = () => {
                     addNotification={addNotification} defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'} isFixedMode={true}
                 />;
             default:
-                return <Dashboard 
-                    currentUser={currentUser} configurations={configurations} inventory={inventory} 
-                    transactions={transactions} purchases={purchases} medicines={medicines} 
-                    customers={customers} distributors={suppliers} onKpiClick={handleNavigate} 
+                return <Dashboard
+                    currentUser={currentUser} configurations={configurations} inventory={inventory}
+                    transactions={transactions} purchases={purchases} medicines={medicines}
+                    customers={customers} distributors={suppliers} onKpiClick={handleNavigate}
                     brandName="MDXERA" lastRefreshed={lastRefreshed} onReload={handleReload} isReloading={isReloading}
                 />;
         }
@@ -816,9 +816,9 @@ const App: React.FC = () => {
 
     return (
         <div className="h-screen flex flex-col bg-app-bg overflow-hidden text-app-text-primary">
-            <Header 
-                currentUser={currentUser} 
-                onNavigate={handleNavigate} 
+            <Header
+                currentUser={currentUser}
+                onNavigate={handleNavigate}
                 onLogout={() => setShowLogoutPrompt(true)}
                 onNewBillClick={() => handleNavigate('pos')}
                 isFullScreen={isFullScreen}
@@ -829,9 +829,9 @@ const App: React.FC = () => {
                 isReloading={isReloading}
             />
             <div className="flex-1 flex overflow-hidden">
-                <Sidebar 
-                    currentPage={currentPage} 
-                    onNavigate={handleNavigate} 
+                <Sidebar
+                    currentPage={currentPage}
+                    onNavigate={handleNavigate}
                     currentUser={currentUser}
                     navigationItems={navigation}
                     configurations={configurations}
@@ -843,33 +843,33 @@ const App: React.FC = () => {
                 </div>
             </div>
             <div className="no-print">
-            <StatusBar 
-                userName={currentUser?.full_name || 'Admin'} 
-                isOnline={navigator.onLine} 
-                pharmacyName={currentUser?.pharmacy_name || 'MDXERA'}
-                isSyncing={isReloading || !isRealtimeActive}
-                appEdition={isRealtimeActive ? "Enterprise Edition [Live]" : "Enterprise Edition"}
-            />
+                <StatusBar
+                    userName={currentUser?.full_name || 'Admin'}
+                    isOnline={navigator.onLine}
+                    pharmacyName={currentUser?.pharmacy_name || 'MDXERA'}
+                    isSyncing={isReloading || !isRealtimeActive}
+                    appEdition={isRealtimeActive ? "Enterprise Edition [Live]" : "Enterprise Edition"}
+                />
             </div>
             <NotificationSystem notifications={notifications} removeNotification={removeNotification} />
 
             {printBill && <PrintBillModal isOpen={!!printBill} onClose={() => setPrintBill(null)} bill={printBill} medicines={medicines} />}
-            {viewTransaction && <TransactionDetailModal isOpen={!!viewTransaction} onClose={() => setViewTransaction(null)} transaction={viewTransaction} customer={customers.find(c => c.id === viewTransaction.customerId)} onPrintBill={setPrintBill as any} onProcessReturn={() => {}} />}
+            {viewTransaction && <TransactionDetailModal isOpen={!!viewTransaction} onClose={() => setViewTransaction(null)} transaction={viewTransaction} customer={customers.find(c => c.id === viewTransaction.customerId)} onPrintBill={setPrintBill as any} onProcessReturn={() => { }} />}
             {viewPurchase && <PurchaseDetailModal isOpen={!!viewPurchase} onClose={() => setViewPurchase(null)} purchase={viewPurchase} />}
             {printPO && <PrintPurchaseOrderModal isOpen={!!printPO} onClose={() => setPrintPO(null)} purchaseOrder={printPO as any} pharmacy={currentUser} />}
             {viewReport && <PrintableReportModal isOpen={!!viewReport} onClose={() => setViewReport(null)} {...viewReport} pharmacyDetails={currentUser} />}
             {showLogoutPrompt && <TallyPrompt isOpen={showLogoutPrompt} title="Quit Application" message="Are you sure you want to exit Medimart ERP?" onAccept={handleLogout} onDiscard={() => setShowLogoutPrompt(false)} onCancel={() => setShowLogoutPrompt(false)} />}
-            
+
             {showEscSavePrompt && (
-                <TallyPrompt 
-                    isOpen={showEscSavePrompt} 
-                    title="Quit and Save" 
-                    message="Do you want to save the entry?" 
+                <TallyPrompt
+                    isOpen={showEscSavePrompt}
+                    title="Quit and Save"
+                    message="Do you want to save the entry?"
                     acceptLabel="Yes (Y)"
                     discardLabel="No (N)"
-                    onAccept={handleEscSave} 
-                    onDiscard={handleEscDiscard} 
-                    onCancel={() => setShowEscSavePrompt(false)} 
+                    onAccept={handleEscSave}
+                    onDiscard={handleEscDiscard}
+                    onCancel={() => setShowEscSavePrompt(false)}
                 />
             )}
         </div>

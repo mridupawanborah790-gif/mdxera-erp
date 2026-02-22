@@ -83,7 +83,7 @@ export const fetchSuppliers = (user: RegisteredPharmacy) => getData('suppliers',
 export const fetchCustomers = (user: RegisteredPharmacy) => getData('customers', [], user);
 export const fetchPurchaseOrders = (user: RegisteredPharmacy) => getData('purchase_orders', [], user);
 export const fetchTeamMembers = (user: RegisteredPharmacy) => getData('team_members', [], user);
-export const fetchDistributorProductMaps = (user: RegisteredPharmacy) => getData('supplier_product_map', [], user);
+export const fetchSupplierProductMaps = (user: RegisteredPharmacy) => getData('supplier_product_map', [], user);
 export const fetchCustomerPriceList = (user: RegisteredPharmacy) => getData('customer_price_list', [], user);
 
 // Added missing fetchPhysicalInventory function

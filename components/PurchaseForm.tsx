@@ -11,8 +11,7 @@ import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-// import { fetchsupplierProductMap, generateUUID, saveData } from '../services/storageService';
-import { generateUUID } from '../services/storageService';
+import { fetchSupplierProductMaps, generateUUID, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
@@ -72,7 +71,7 @@ interface PurchaseFormProps {
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
     onAddsupplier: (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<Supplier>;
     onAddInventoryItemDirectly?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
-    onSaveMapping: (map: SupplierProductMap) => Promise<void>;
+    onSaveMapping: (map: Partial<SupplierProductMap>) => Promise<void>;
     setIsDirty: (isDirty: boolean) => void;
     addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
     title: string;
@@ -762,11 +761,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             {isAddMedicineMasterModalOpen && <AddMedicineModal isOpen={isAddMedicineMasterModalOpen} onClose={() => setIsAddMedicineMasterModalOpen(false)} onAddMedicine={onAddMedicineMaster} organizationId={organizationId} />}
             {isLinkModalOpen && currentsupplier && (
                 <LinkToMasterModal
-                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} distributor={currentsupplier as any} medicines={medicines} mappings={mappings}
+                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={currentsupplier as any} medicines={medicines} mappings={mappings}
                     onLink={onSaveMapping} scannedItems={items} onFinalize={(reconciled) => setItems(reconciled)} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
                 />
             )}
-            {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} distributor={supplierForLedger} />}
+            {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
             <MobileSyncModal isOpen={!!mobileSyncSessionId} onClose={() => setMobileSyncSessionId(null)} sessionId={mobileSyncSessionId} orgId={organizationId} />
 
             <Modal
@@ -932,7 +931,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             <SupplierSearchModal
                 isOpen={isSupplierSearchModalOpen}
                 onClose={() => setIsSupplierSearchModalOpen(false)}
-                distributors={suppliers}
+                suppliers={suppliers}
                 onSelect={handleSupplierSelect}
                 initialSearch={Supplier}
             />

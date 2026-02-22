@@ -3,7 +3,7 @@ import Card from '../components/Card';
 // Fix: Corrected named import for PurchaseForm to default import
 import PurchaseForm from '../components/PurchaseForm';
 import ChallanDetailModal from '../components/ChallanDetailModal';
-import type { DeliveryChallan, PurchaseItem, InventoryItem, Distributor, Medicine, RegisteredPharmacy, AppConfigurations, DistributorProductMap, Purchase } from '../types';
+import type { DeliveryChallan, PurchaseItem, InventoryItem, Distributor, Medicine, RegisteredPharmacy, AppConfigurations, SupplierProductMap, Purchase } from '../types';
 import { DeliveryChallanStatus } from '../types';
 import { generateNewInvoiceId } from '../utils/invoice';
 // Fixed: Corrected import from services/storageService
@@ -23,10 +23,10 @@ interface DeliveryChallansPageProps {
     onAddInventoryItem: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
     onAddDistributor: (data: Omit<Distributor, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<Distributor>;
-    onSaveMapping: (map: DistributorProductMap) => Promise<void>;
+    onSaveMapping: (map: Partial<SupplierProductMap>) => Promise<void>;
     addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
     // Added required mappings prop
-    mappings: DistributorProductMap[];
+    mappings: SupplierProductMap[];
 }
 
 const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
@@ -54,7 +54,7 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
     const [filterSupplier, setFilterSupplier] = useState<string>('all');
     const [startDate, setStartDate] = useState<string>('');
     const [endDate, setEndDate] = useState<string>('');
-    
+
     const [challanToEdit, setChallanToEdit] = useState<DeliveryChallan | null>(null);
     const [selectedChallanForView, setSelectedChallanForView] = useState<DeliveryChallan | null>(null);
 
@@ -217,7 +217,7 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
 
                 {activeTab === 'create' ? (
                     <div className="flex-1 min-h-0">
-                        <PurchaseForm 
+                        <PurchaseForm
                             onAddPurchase={handleChallanSave}
                             onUpdatePurchase={handleChallanSave}
                             onAddInventoryItem={onAddInventoryItem}
@@ -234,18 +234,18 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
                             sourcePO={null}
                             purchaseToEdit={challanAsPurchase}
                             draftItems={null}
-                            onClearDraft={() => {}}
+                            onClearDraft={() => { }}
                             currentUser={currentUser}
                             configurations={configurations}
                             // Added missing 'visible' property to ModuleConfig object
                             config={{ visible: true, fields: {} }}
-                            setIsDirty={() => {}}
+                            setIsDirty={() => { }}
                             title={challanToEdit ? "Alter Delivery Challan" : "Create Delivery Challan"}
                             isChallan={true}
                             disableAIInput={true}
                             className="h-full !p-0 border-0 bg-transparent"
                             onCancel={() => { setActiveTab('list'); setChallanToEdit(null); }}
-                            mobileSyncSessionId={null} setMobileSyncSessionId={() => {}} 
+                            mobileSyncSessionId={null} setMobileSyncSessionId={() => { }}
                             /* Fix: Pass missing organizationId prop to PurchaseForm */
                             organizationId={currentUser?.organization_id || ''}
                         />
