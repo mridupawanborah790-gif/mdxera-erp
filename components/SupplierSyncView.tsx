@@ -107,7 +107,7 @@ const SupplierSyncView: React.FC<SupplierSyncViewProps> = ({
         );
 
         const map: SupplierProductMap = {
-            id: existingMap ? existingMap.id : crypto.randomUUID(),
+            id: existingMap ? existingMap.supplier_id : crypto.randomUUID(),
             organization_id: '', 
             supplier_id: newMapping.supplier_id,
             supplier_product_name: normalizedName,
