@@ -122,7 +122,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const currentDistributor = useMemo(() => {
         const lowerSupplier = (supplier || '').toLowerCase().trim();
         if (!lowerSupplier) return null;
-        return distributors.find(d => (d.name || '').toLowerCase().trim() === lowerSupplier);
+        return distributors.find(d =>      (d.name || '').toLowerCase().trim() === lowerSupplier ) ?? null;
     }, [distributors, supplier]);
 
     const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetDistributor: Distributor | null) => {
