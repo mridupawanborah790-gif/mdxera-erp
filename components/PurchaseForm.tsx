@@ -2,16 +2,17 @@ import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, f
 import Card from './Card';
 import Modal from './Modal';
 import AddMedicineModal from './AddMedicineModal';
-import { AddsupplierModal } from './AddsupplierModal';
+import { AddSupplierModal } from './AddSupplierModal';
 import BatchSelectionModal from './BatchSelectionModal';
 import { extractPurchaseDetailsFromBill } from '../services/geminiService';
-import type { Purchase, InventoryItem, supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, supplierProductMap, Medicine, AppConfigurations, SupplierProductMap, Supplier, FileInput } from '../types';
+import type { Purchase, InventoryItem, Supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, SupplierProductMap, Medicine, AppConfigurations, FileInput } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchsupplierProductMaps, generateUUID, saveData } from '../services/storageService';
+// import { fetchsupplierProductMap, generateUUID, saveData } from '../services/storageService';
+import { generateUUID } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
@@ -56,9 +57,9 @@ interface PurchaseFormProps {
     onAddPurchase: (purchase: any, supplierGst: string, nextCounter?: number) => Promise<void>;
     onUpdatePurchase: (purchase: Purchase, supplierGst?: string) => Promise<void>;
     inventory: InventoryItem[];
-    suppliers: supplier[];
+    suppliers: Supplier[];
     medicines?: Medicine[];
-    mappings: supplierProductMap[];
+    mappings: SupplierProductMap[];
     purchases: Purchase[];
     sourcePO?: PurchaseOrder | null;
     purchaseToEdit: Purchase | null;
@@ -69,9 +70,9 @@ interface PurchaseFormProps {
     currentUser: RegisteredPharmacy | null;
     onAddInventoryItem?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
-    onAddsupplier: (data: Omit<supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<supplier>;
+    onAddsupplier: (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<Supplier>;
     onAddInventoryItemDirectly?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
-    onSaveMapping: (map: (map: Partial<SupplierProductMap>) => Promise<void>;
+    onSaveMapping: (map: Partial<SupplierProductMap>) => Promise<void>;
     setIsDirty: (isDirty: boolean) => void;
     addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
     title: string;
@@ -96,7 +97,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const isEditing = !!purchaseToEdit;
 
     // Standard State
-    const [supplier, setSupplier] = useState('');
+    const [Supplier, setSupplier] = useState('');
     const [supplierGst, setSupplierGst] = useState('');
     const [invoiceNumber, setInvoiceNumber] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -119,7 +120,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
     const [selectedSupplierIndex, setSelectedSupplierIndex] = useState(0);
     const [isSupplierLedgerModalOpen, setIsSupplierLedgerModalOpen] = useState(false);
-    const [supplierForLedger, setSupplierForLedger] = useState<supplier | null>(null);
+    const [supplierForLedger, setSupplierForLedger] = useState<Supplier | null>(null);
     const [supplierNameError, setSupplierNameError] = useState<string | null>(null);
     const [invoiceNumberError, setInvoiceNumberError] = useState<string | null>(null);
     const [isSupplierSearchModalOpen, setIsSupplierSearchModalOpen] = useState(false);
@@ -133,12 +134,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const lastSourceRef = useRef<string | null>(null);
 
     const currentsupplier = useMemo(() => {
-        const lowerSupplier = (supplier || '').toLowerCase().trim();
+        const lowerSupplier = (Supplier || '').toLowerCase().trim();
         if (!lowerSupplier) return null;
         return suppliers.find(d => (d.name || '').toLowerCase().trim() === lowerSupplier);
-    }, [suppliers, supplier]);
+    }, [suppliers, Supplier]);
 
-    const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetsupplier: supplier | null) => {
+    const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetsupplier: Supplier | null) => {
         if (!medicines.length) return itemList;
 
         return itemList.map(item => {
@@ -220,7 +221,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setItems([...linked, createBlankItem()]);
         } else {
             setSupplier(''); setSupplierGst(''); setInvoiceNumber(''); setDate(new Date().toISOString().split('T')[0]); setItems([createBlankItem()]);
-            // Focus supplier name on new voucher
+            // Focus Supplier name on new voucher
             setTimeout(() => supplierNameInputRef.current?.focus(), 200);
         }
     }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink]);
@@ -269,7 +270,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     const handleSubmit = async () => {
         if (isSubmitting) return;
-        if (!supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
+        if (!Supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
         if (!invoiceNumber.trim()) { setInvoiceNumberError("Invoice number is required."); return; }
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
@@ -287,7 +288,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             const payload = {
                 purchaseSerialId: purchaseSerialId!,
-                supplier,
+                Supplier,
                 invoiceNumber: invoiceNumber.trim(),
                 date,
                 items: calculatedTotals.itemsWithCalculations,
@@ -479,7 +480,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [isReadOnly]);
 
     const handleUpdateItem = (id: string, field: keyof PurchaseItem, value: any) => {
-        if (isReadOnly || !supplier.trim()) return;
+        if (isReadOnly || !Supplier.trim()) return;
         setItems(prev => {
             const index = prev.findIndex(p => p.id === id); if (index === -1) return prev;
             let updatedItem = { ...prev[index], [field]: value };
@@ -528,7 +529,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         } catch (err: any) { addNotification("AI Extraction failed", "error"); } finally { setIsUploading(false); }
     };
 
-    const handleSupplierSelect = (d: supplier) => {
+    const handleSupplierSelect = (d: Supplier) => {
         setSupplier(d.name);
         setSupplierGst(d.gst_number || '');
         setIsSupplierDropdownOpen(false);
@@ -541,11 +542,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const handleSupplierKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            const filtered = suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
+            const filtered = suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10);
             setSelectedSupplierIndex(prev => (prev + 1) % Math.max(1, filtered.length));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            const filtered = suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
+            const filtered = suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10);
             setSelectedSupplierIndex(prev => (prev - 1 + filtered.length) % Math.max(1, filtered.length));
         } else if (e.key === 'Enter') {
             e.preventDefault();
@@ -570,16 +571,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         <input
                             ref={supplierNameInputRef}
                             type="text"
-                            value={supplier}
+                            value={Supplier}
                             autoComplete="off"
                             onChange={e => { setSupplier(e.target.value); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
                             className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                             placeholder="Press Enter to Select Supplier..."
                         />
-                        {isSupplierDropdownOpen && supplier.length > 0 && (
+                        {isSupplierDropdownOpen && Supplier.length > 0 && (
                             <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
-                                {suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10).map((d, sIdx) => (
+                                {suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10).map((d, sIdx) => (
                                     <div
                                         key={d.id}
                                         onClick={() => handleSupplierSelect(d)}
@@ -663,18 +664,18 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                     openSearchModal(p.id, p.name);
                                                 }}
                                                 className={`w-full bg-transparent outline-none focus:bg-yellow-50 ${uniformTextStyle}`}
-                                                disabled={isReadOnly || !supplier.trim()}
+                                                disabled={isReadOnly || !Supplier.trim()}
                                             />
                                         </td>
-                                        <td className={`p-1 border-r border-gray-400 ${uniformTextStyle}`}><input type="text" id={`mfr-${p.id}`} value={p.brand} onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)} className={`w-full bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center text-emerald-600 font-bold ${uniformTextStyle}`}><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-right font-bold text-blue-900 ${uniformTextStyle}`}><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner font-mono ${uniformTextStyle}`} disabled={isReadOnly || !supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-400 ${uniformTextStyle}`}><input type="text" id={`mfr-${p.id}`} value={p.brand} onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)} className={`w-full bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-400 text-center text-emerald-600 font-bold ${uniformTextStyle}`}><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-400 text-right font-bold text-blue-900 ${uniformTextStyle}`}><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap ${uniformTextStyle}`}>₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
                                     </tr>
                                 ))}
@@ -757,15 +758,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             </div>
 
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleFileUpload as any} />}
-            {isAddSupplierModalOpen && <AddsupplierModal isOpen={isAddSupplierModalOpen} onClose={() => setIsAddSupplierModalOpen(false)} onAdd={onAddsupplier} organizationId={organizationId} />}
+            {isAddSupplierModalOpen && <AddSupplierModal isOpen={isAddSupplierModalOpen} onClose={() => setIsAddSupplierModalOpen(false)} onAdd={onAddsupplier} organizationId={organizationId} />}
             {isAddMedicineMasterModalOpen && <AddMedicineModal isOpen={isAddMedicineMasterModalOpen} onClose={() => setIsAddMedicineMasterModalOpen(false)} onAddMedicine={onAddMedicineMaster} organizationId={organizationId} />}
             {isLinkModalOpen && currentsupplier && (
                 <LinkToMasterModal
-                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={currentsupplier as any} medicines={medicines} mappings={mappings}
+                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} distributor={currentsupplier as any} medicines={medicines} mappings={mappings}
                     onLink={onSaveMapping} scannedItems={items} onFinalize={(reconciled) => setItems(reconciled)} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
                 />
             )}
-            {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
+            {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} distributor={supplierForLedger} />}
             <MobileSyncModal isOpen={!!mobileSyncSessionId} onClose={() => setMobileSyncSessionId(null)} sessionId={mobileSyncSessionId} orgId={organizationId} />
 
             <Modal
@@ -931,9 +932,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             <SupplierSearchModal
                 isOpen={isSupplierSearchModalOpen}
                 onClose={() => setIsSupplierSearchModalOpen(false)}
-                suppliers={suppliers}
+                distributors={suppliers}
                 onSelect={handleSupplierSelect}
-                initialSearch={supplier}
+                initialSearch={Supplier}
             />
         </div>
     );
