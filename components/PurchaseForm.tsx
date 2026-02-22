@@ -2,16 +2,16 @@ import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, f
 import Card from './Card';
 import Modal from './Modal';
 import AddMedicineModal from './AddMedicineModal';
-import { AddDistributorModal } from './AddDistributorModal';
+import { AddsupplierModal } from './AddsupplierModal';
 import BatchSelectionModal from './BatchSelectionModal';
 import { extractPurchaseDetailsFromBill } from '../services/geminiService';
-import type { Purchase, InventoryItem, Distributor, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, DistributorProductMap, Medicine, AppConfigurations, SupplierProductMap, Supplier, FileInput } from '../types';
+import type { Purchase, InventoryItem, supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, supplierProductMap, Medicine, AppConfigurations, SupplierProductMap, Supplier, FileInput } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchDistributorProductMaps, generateUUID, saveData } from '../services/storageService';
+import { fetchsupplierProductMaps, generateUUID, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
@@ -56,9 +56,9 @@ interface PurchaseFormProps {
     onAddPurchase: (purchase: any, supplierGst: string, nextCounter?: number) => Promise<void>;
     onUpdatePurchase: (purchase: Purchase, supplierGst?: string) => Promise<void>;
     inventory: InventoryItem[];
-    distributors: Distributor[];
+    suppliers: supplier[];
     medicines?: Medicine[];
-    mappings: DistributorProductMap[];
+    mappings: supplierProductMap[];
     purchases: Purchase[];
     sourcePO?: PurchaseOrder | null;
     purchaseToEdit: Purchase | null;
@@ -69,7 +69,7 @@ interface PurchaseFormProps {
     currentUser: RegisteredPharmacy | null;
     onAddInventoryItem?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
-    onAddDistributor: (data: Omit<Distributor, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<Distributor>;
+    onAddsupplier: (data: Omit<supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<supplier>;
     onAddInventoryItemDirectly?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onSaveMapping: (map: map: SupplierProductMap) => Promise<void>;
     setIsDirty: (isDirty: boolean) => void;
@@ -89,7 +89,7 @@ interface PurchaseFormProps {
 }
 
 const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
-    onAddPurchase, onUpdatePurchase, inventory, distributors, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, onClearDraft, currentUser, onAddMedicineMaster, onAddDistributor, onSaveMapping, onCancel, title, className, configurations, addNotification, isReadOnly = false,
+    onAddPurchase, onUpdatePurchase, inventory, suppliers, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, onClearDraft, currentUser, onAddMedicineMaster, onAddsupplier, onSaveMapping, onCancel, title, className, configurations, addNotification, isReadOnly = false,
     isManualEntry = false, isChallan = false, disableAIInput = false, mobileSyncSessionId, setMobileSyncSessionId,
     organizationId,
 }, ref) => {
@@ -119,7 +119,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
     const [selectedSupplierIndex, setSelectedSupplierIndex] = useState(0);
     const [isSupplierLedgerModalOpen, setIsSupplierLedgerModalOpen] = useState(false);
-    const [supplierForLedger, setSupplierForLedger] = useState<Distributor | null>(null);
+    const [supplierForLedger, setSupplierForLedger] = useState<supplier | null>(null);
     const [supplierNameError, setSupplierNameError] = useState<string | null>(null);
     const [invoiceNumberError, setInvoiceNumberError] = useState<string | null>(null);
     const [isSupplierSearchModalOpen, setIsSupplierSearchModalOpen] = useState(false);
@@ -132,21 +132,21 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const searchResultsRef = useRef<HTMLDivElement>(null);
     const lastSourceRef = useRef<string | null>(null);
 
-    const currentDistributor = useMemo(() => {
+    const currentsupplier = useMemo(() => {
         const lowerSupplier = (supplier || '').toLowerCase().trim();
         if (!lowerSupplier) return null;
-        return distributors.find(d => (d.name || '').toLowerCase().trim() === lowerSupplier);
-    }, [distributors, supplier]);
+        return suppliers.find(d => (d.name || '').toLowerCase().trim() === lowerSupplier);
+    }, [suppliers, supplier]);
 
-    const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetDistributor: Distributor | null) => {
+    const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetsupplier: supplier | null) => {
         if (!medicines.length) return itemList;
 
         return itemList.map(item => {
             if (item.inventoryItemId) return item;
 
-            if (targetDistributor) {
+            if (targetsupplier) {
                 const mapping = mappings.find(m =>
-                    m.supplier_id === targetDistributor.id &&
+                    m.supplier_id === targetsupplier.id &&
                     m.supplier_product_name.toLowerCase().trim() === item.name.toLowerCase().trim()
                 );
                 if (mapping) {
@@ -192,7 +192,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setInvoiceNumber(purchaseToEdit.invoiceNumber || '');
             setDate(purchaseToEdit.date ? purchaseToEdit.date.split('T')[0] : new Date().toISOString().split('T')[0]);
 
-            const matchedDist = distributors.find(d => (d.name || '').toLowerCase().trim() === (purchaseToEdit.supplier || '').toLowerCase().trim());
+            const matchedDist = suppliers.find(d => (d.name || '').toLowerCase().trim() === (purchaseToEdit.supplier || '').toLowerCase().trim());
             if (matchedDist) setSupplierGst(matchedDist.gst_number || '');
             else setSupplierGst('');
 
@@ -212,7 +212,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setItems(linked.length > 0 ? [...linked, createBlankItem()] : [createBlankItem()]);
         } else if (draftItems) {
             setSupplier(draftSupplier || '');
-            const matchedDist = distributors.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
+            const matchedDist = suppliers.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
             const newItems = Array.isArray(draftItems) ? draftItems.map(item => ({
                 ...createBlankItem(), ...item, quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
             })) : [];
@@ -223,7 +223,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             // Focus supplier name on new voucher
             setTimeout(() => supplierNameInputRef.current?.focus(), 200);
         }
-    }, [purchaseToEdit, draftItems, distributors, draftSupplier, attemptAutoLink]);
+    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink]);
 
     const calculatedTotals = useMemo(() => {
         let subtotal = 0;
@@ -520,7 +520,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         discountPercent: parseNumber(item.discountPercent),
                         matchStatus: 'pending' as const
                     }));
-                    const linked = attemptAutoLink(newItems as PurchaseItem[], currentDistributor || null);
+                    const linked = attemptAutoLink(newItems as PurchaseItem[], currentsupplier || null);
                     setItems([...linked, createBlankItem()]);
                 }
                 addNotification("AI Extracted bill details successfully.", "success");
@@ -528,7 +528,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         } catch (err: any) { addNotification("AI Extraction failed", "error"); } finally { setIsUploading(false); }
     };
 
-    const handleSupplierSelect = (d: Distributor) => {
+    const handleSupplierSelect = (d: supplier) => {
         setSupplier(d.name);
         setSupplierGst(d.gst_number || '');
         setIsSupplierDropdownOpen(false);
@@ -541,11 +541,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const handleSupplierKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            const filtered = distributors.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
+            const filtered = suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
             setSelectedSupplierIndex(prev => (prev + 1) % Math.max(1, filtered.length));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            const filtered = distributors.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
+            const filtered = suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
             setSelectedSupplierIndex(prev => (prev - 1 + filtered.length) % Math.max(1, filtered.length));
         } else if (e.key === 'Enter') {
             e.preventDefault();
@@ -579,7 +579,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         />
                         {isSupplierDropdownOpen && supplier.length > 0 && (
                             <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
-                                {distributors.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10).map((d, sIdx) => (
+                                {suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10).map((d, sIdx) => (
                                     <div
                                         key={d.id}
                                         onClick={() => handleSupplierSelect(d)}
@@ -757,15 +757,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             </div>
 
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleFileUpload as any} />}
-            {isAddSupplierModalOpen && <AddDistributorModal isOpen={isAddSupplierModalOpen} onClose={() => setIsAddSupplierModalOpen(false)} onAdd={onAddDistributor} organizationId={organizationId} />}
+            {isAddSupplierModalOpen && <AddsupplierModal isOpen={isAddSupplierModalOpen} onClose={() => setIsAddSupplierModalOpen(false)} onAdd={onAddsupplier} organizationId={organizationId} />}
             {isAddMedicineMasterModalOpen && <AddMedicineModal isOpen={isAddMedicineMasterModalOpen} onClose={() => setIsAddMedicineMasterModalOpen(false)} onAddMedicine={onAddMedicineMaster} organizationId={organizationId} />}
-            {isLinkModalOpen && currentDistributor && (
+            {isLinkModalOpen && currentsupplier && (
                 <LinkToMasterModal
-                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} distributor={currentDistributor as any} medicines={medicines} mappings={mappings}
+                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={currentsupplier as any} medicines={medicines} mappings={mappings}
                     onLink={onSaveMapping} scannedItems={items} onFinalize={(reconciled) => setItems(reconciled)} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
                 />
             )}
-            {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} distributor={supplierForLedger} />}
+            {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
             <MobileSyncModal isOpen={!!mobileSyncSessionId} onClose={() => setMobileSyncSessionId(null)} sessionId={mobileSyncSessionId} orgId={organizationId} />
 
             <Modal
@@ -931,7 +931,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             <SupplierSearchModal
                 isOpen={isSupplierSearchModalOpen}
                 onClose={() => setIsSupplierSearchModalOpen(false)}
-                distributors={distributors}
+                suppliers={suppliers}
                 onSelect={handleSupplierSelect}
                 initialSearch={supplier}
             />
