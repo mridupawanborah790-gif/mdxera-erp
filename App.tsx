@@ -623,13 +623,13 @@ const App: React.FC = () => {
                 return <PurchaseForm 
                     ref={purchaseFormRef}
                     onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
-                    inventory={inventory} distributors={suppliers} medicines={medicines}
+                    inventory={inventory} suppliers={suppliers} medicines={medicines}
                     mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
                     draftItems={sourceChallansForPurchase?.items || null}
                     draftSupplier={sourceChallansForPurchase?.supplier}
                     onClearDraft={() => setSourceChallansForPurchase(null)}
                     currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
-                    onAddDistributor={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
+                    onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                     setIsDirty={() => {}} addNotification={addNotification}
                     title={currentPage === 'automatedPurchaseEntry' ? "AI-Powered Automated Purchase" : "Manual Purchase Bill Entry"}
                     isManualEntry={currentPage === 'manualPurchaseEntry'}

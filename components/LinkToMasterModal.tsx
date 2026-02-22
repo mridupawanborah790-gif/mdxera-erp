@@ -11,7 +11,7 @@ interface LinkToMasterModalProps {
     distributor: Supplier;
     medicines?: Medicine[];
     mappings?: SupplierProductMap[];
-    onLink: (map: Partial<SupplierProductMap>) => Promise<void>;
+    onLink: (map: SupplierProductMap) => Promise<void>;
     scannedItems: PurchaseItem[];
     onFinalize: (reconciledItems: PurchaseItem[]) => void;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
@@ -152,7 +152,8 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             );
 
             onLink({
-                id: existingMap ? existingMap.id : undefined,
+                id: existingMap ? existingMap.id : crypto.randomUUID(),
+                organization_id: organizationId,
                 supplier_id: distributor.id,
                 supplier_product_name: rawNomenclatureName, 
                 master_medicine_id: masterMed.id, 
@@ -296,7 +297,8 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                 
                 if (distributor.id && distributor.id !== 'temp') {
                     onLink({
-                        id: existingMap ? existingMap.id : undefined,
+                        id: existingMap ? existingMap.id : crypto.randomUUID(),
+                        organization_id: organizationId,
                         supplier_id: distributor.id,
                         supplier_product_name: item.name,
                         master_medicine_id: match.id,

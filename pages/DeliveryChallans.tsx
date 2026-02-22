@@ -222,11 +222,11 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
                             onUpdatePurchase={handleChallanSave}
                             onAddInventoryItem={onAddInventoryItem}
                             onAddMedicineMaster={onAddMedicineMaster}
-                            onAddDistributor={onAddDistributor}
+                            onAddsupplier={onAddDistributor}
                             onSaveMapping={onSaveMapping}
                             addNotification={addNotification}
                             inventory={inventory}
-                            distributors={distributors}
+                            suppliers={distributors}
                             medicines={medicines}
                             // Pass the required mappings prop
                             mappings={mappings}

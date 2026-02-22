@@ -1,6 +1,7 @@
 
 
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from './supabaseClient';
+import { idb, STORES } from './indexedDbService';
 import {
     RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier,
     Customer, PurchaseOrder, TransactionLedgerItem, UserRole, OrganizationMember,
@@ -91,22 +92,58 @@ export const fetchPhysicalInventory = (user: RegisteredPharmacy) => getData('phy
 // Added missing fetchEWayBills function
 export const fetchEWayBills = (user: RegisteredPharmacy) => getData('ewaybills', [], user);
 
+/**
+ * Fetches all organization records from Supabase by handling PostgREST pagination (default 1000 limit).
+ */
+const fetchAllPagesFromSupabase = async (tableName: string, orgId: string): Promise<any[]> => {
+    let allData: any[] = [];
+    let from = 0;
+    const PAGE_SIZE = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+        const { data, error } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('organization_id', orgId)
+            .range(from, from + PAGE_SIZE - 1);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+            allData = [...allData, ...data];
+            if (data.length < PAGE_SIZE) {
+                hasMore = false;
+            } else {
+                from += PAGE_SIZE;
+            }
+        } else {
+            hasMore = false;
+        }
+    }
+
+    return allData;
+};
+
 export const getData = async (tableName: string, defaultValue: any[] = [], user: RegisteredPharmacy | null): Promise<any[]> => {
     if (!user) return defaultValue;
     const storeKey = tableName.toUpperCase() as keyof typeof STORES;
+    // Priority 1: Local IndexedDB for instant UI
     const cached = await idb.getAll(STORES[storeKey]);
+
+    // Priority 2: Fetch updates in background if online
     if (navigator.onLine) {
-        try {
-            const { data, error } = await supabase.from(tableName).select('*').eq('organization_id', user.organization_id);
-            if (error) throw error;
-            if (data && data.length > 0) {
-                const normalized = data.map(d => toCamel(d));
-                await idb.putBulk(STORES[storeKey], normalized);
-                return normalized;
+        setTimeout(async () => {
+            try {
+                const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
+                if (allData.length > 0) {
+                    const normalized = allData.map(d => toCamel(d));
+                    await idb.putBulk(STORES[storeKey], normalized);
+                }
+            } catch (e) {
+                console.error(`Background fetch failed for ${tableName}:`, e);
             }
-        } catch (e) {
-            console.error(`Background fetch failed for ${tableName}:`, e);
-        }
+        }, 0);
     }
     return cached.length > 0 ? cached : defaultValue;
 };
