@@ -1,0 +1,29 @@
+{
+  "name": "MDXERA ERP",
+  "short_name": "MDXERA",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fdfdf5",
+  "theme_color": "#004242",
+  "icons": [
+    {
+      "src": "https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/ChatGPT%20Image%20Feb%203,%202026,%2009_44_47%20PM%20(1).png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/ChatGPT%20Image%20Feb%203,%202026,%2009_44_47%20PM%20(1).png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/ChatGPT%20Image%20Feb%203,%202026,%2009_44_47%20PM%20(1).png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

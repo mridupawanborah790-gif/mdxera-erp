@@ -1,0 +1,127 @@
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import type { RegisteredPharmacy, NavItem } from '../types';
+import { navigation, settingsNavigation } from '../constants';
+
+interface HeaderProps {
+  onNewBillClick: () => void;
+  currentUser: RegisteredPharmacy | null;
+  onNavigate: (pageId: string) => void;
+  onLogout: () => void;
+  isFullScreen: boolean;
+  onToggleFullScreen: () => void;
+  brandName: string;
+  currentPage: string;
+  onReload: () => void;
+  isReloading?: boolean;
+}
+
+const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate, onLogout, isFullScreen, onToggleFullScreen, brandName, currentPage, onReload, isReloading }) => {
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const menuItems = [
+    { id: 'data', label: '<u>K</u>: Company', children: [{id: 'settings', label: 'Alter Profile'}, {id: 'team', label: 'User Roles'}] },
+    { id: 'data_mgt', label: '<u>Y</u>: Data', children: [{id: 'configuration', label: 'Settings'}, {id: 'inventory', label: 'Import Items'}] },
+    { id: 'exchange', label: '<u>Z</u>: Exchange', children: [{id: 'gst', label: 'E-Way Bill'}] },
+    { id: 'go_to', label: '<u>G</u>: Go To', children: [{id: 'pos', label: 'Sale Entry'}, {id: 'manualPurchaseEntry', label: 'Purchase Entry'}, {id: 'reports', label: 'Management Reports'}] }
+  ];
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setActiveMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const handleShortcut = (e: KeyboardEvent) => {
+        if (e.altKey && e.key.toLowerCase() === 'r') {
+            e.preventDefault();
+            onReload();
+        }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [onReload]);
+
+  return (
+    <div className="flex flex-col border-b border-gray-400 bg-[#e1e1e1] dark:bg-zinc-900 select-none print:hidden">
+      {/* Top Bar */}
+      <div className="flex items-center h-9 px-2 bg-primary text-white text-[13px] font-bold" ref={menuRef}>
+        <div className="flex items-center gap-0.5 h-full">
+            <div className="px-3 bg-white/10 h-full flex items-center mr-2">
+                <span className="tracking-widest uppercase">MDXERA ERP</span>
+            </div>
+            {menuItems.map(item => (
+                <div key={item.id} className="relative h-full">
+                    <button 
+                        onClick={() => setActiveMenu(activeMenu === item.id ? null : item.id)}
+                        className={`h-full px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 ${activeMenu === item.id ? 'bg-white/20' : ''}`}
+                        dangerouslySetInnerHTML={{ __html: item.label }}
+                    />
+                    {/* Fix: removed reference to non-existent 'taxation' variable */}
+                    {activeMenu === item.id && (
+                        <div className="absolute top-full left-0 w-56 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl z-[100] py-1">
+                            {item.children.map(child => (
+                                <button
+                                    key={child.id}
+                                    onClick={() => { onNavigate(child.id); setActiveMenu(null); }}
+                                    className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[12px] font-bold"
+                                >
+                                    {child.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            ))}
+            <button 
+                onClick={onReload}
+                disabled={isReloading}
+                className={`h-full px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 gap-2 ${isReloading ? 'opacity-50' : ''}`}
+            >
+                {isReloading ? (
+                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                ) : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
+                <span><u>R</u>eload</span>
+            </button>
+        </div>
+        
+        <div className="ml-auto flex items-center gap-3 h-full">
+             <div className="flex items-center gap-2 px-2 border-l border-white/10 h-full text-accent">
+                 <span className="text-[11px] uppercase">{currentUser?.pharmacy_name}</span>
+             </div>
+             <button onClick={onLogout} className="px-3 hover:bg-red-700 h-full transition-colors font-bold text-[11px] uppercase">Quit</button>
+        </div>
+      </div>
+
+      {/* Button Toolbar - Only visible on Dashboard */}
+      {currentPage === 'dashboard' && (
+        <div className="flex items-center h-10 px-2 gap-1.5 bg-[#f1f1f1] dark:bg-zinc-800 overflow-x-auto no-scrollbar border-b border-gray-300">
+            <ToolbarButton label="F2: Date" onClick={() => {}} />
+            <ToolbarButton label="F3: Company" onClick={() => onNavigate('settings')} />
+            <ToolbarButton label="F4: Stock" onClick={() => onNavigate('inventory')} />
+            <ToolbarButton label="F10: Other Vouchers" onClick={() => onNavigate('pos')} />
+            <div className="flex-1"></div>
+            <button onClick={onToggleFullScreen} className="px-4 py-1.5 text-[11px] font-bold hover:bg-gray-200 rounded">
+                {isFullScreen ? 'Exit Full' : 'Fullscreen'}
+            </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ToolbarButton: React.FC<{ label: string, onClick: () => void }> = ({ label, onClick }) => (
+    <button 
+        onClick={label.toLowerCase().includes('reload') ? (e) => e.preventDefault() : onClick}
+        className="flex items-center h-8 px-4 bg-white dark:bg-zinc-700 border border-gray-300 hover:bg-accent hover:border-accent hover:text-black transition-all text-[12px] font-bold uppercase tracking-tighter"
+    >
+        {label}
+    </button>
+);
+
+export default Header;

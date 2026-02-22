@@ -1,0 +1,8 @@
+{
+  "name": "MDXERA ERP",
+  "description": "Medimart Retail – Enterprise-grade Pharmacy ERP and Billing solution. Optimized for fast keyboard-driven data entry, batch-wise inventory tracking, and AI insights.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

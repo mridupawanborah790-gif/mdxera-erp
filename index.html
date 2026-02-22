@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="royal">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/ChatGPT%20Image%20Feb%203,%202026,%2009_44_47%20PM%20(1).png" crossorigin="anonymous" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#004242" />
+    <link rel="manifest" href="./manifest.json" crossorigin="anonymous" />
+    
+    <!-- iOS support -->
+    <link rel="apple-touch-icon" href="https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/ChatGPT%20Image%20Feb%203,%202026,%2009_44_47%20PM%20(1).png" crossorigin="anonymous">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MDXERA ERP">
+    
+    <title>MDXERA ERP – Enterprise Pharmacy Billing & ERP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <style>
+      :root {
+        /* Tally Prime & Kwik-E-Mart Color Palette */
+        --color-primary: #004242; 
+        --color-primary-dark: #003333;
+        --color-primary-light: #006666;
+        --color-accent: #ffcc00; 
+        --color-bg-app: #fdfdf5; /* Ivory Cream */
+        --color-bg-card: #ffffff;
+        --color-bg-sidebar: #0F4C5C; /* Deep Teal */
+        --color-bg-sidebar-dark: #0A3B49; 
+        --color-text-primary: #000000;
+        --color-text-secondary: #333333;
+        --color-border: #999999;
+        --color-selection: #ffeb9c;
+        
+        --sidebar-width: 16rem;
+        --quickkeys-width: 10rem;
+
+        --modal-header-bg-light: #004242;
+        --modal-header-text-light: #FFFFFF;
+        --modal-header-border-light: #003333;
+        --modal-border-color-light: #004242;
+        --modal-bg-light: #fdfdf5;
+        --modal-content-bg-light: #ffffff;
+        --modal-footer-bg-light: #f1f1f1;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: var(--color-bg-app);
+        color: var(--color-text-primary);
+        font-size: 15px;
+        overflow: hidden;
+      }
+
+      .tally-font-mono {
+        font-family: 'Lucida Console', 'Roboto Mono', monospace;
+      }
+
+      .tally-border { border: 1px solid var(--color-border); }
+      .tally-shadow { box-shadow: 4px 4px 0px rgba(0,0,0,0.1); }
+      
+      .tally-input {
+        border: 1px solid var(--color-border);
+        background: var(--color-bg-card);
+        padding: 4px 8px;
+        outline: none;
+        color: #000;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+      .tally-input:focus {
+        border-color: var(--color-primary);
+        background-color: #fffde7;
+        box-shadow: 0 0 0 2px rgba(0, 66, 66, 0.1);
+      }
+
+      .tally-button-primary {
+        background-color: var(--color-primary);
+        color: white;
+        font-weight: 900;
+        text-transform: uppercase;
+        border: 1px solid var(--color-primary-dark);
+        transition: all 0.1s;
+      }
+      .tally-button-primary:active { transform: translateY(2px); }
+      
+      .tally-button-accent {
+        background-color: var(--color-accent);
+        color: black;
+        font-weight: 900;
+        text-transform: uppercase;
+        border: 1px solid #cca300;
+      }
+
+      .no-spinner::-webkit-outer-spin-button,
+      .no-spinner::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+    </style>
+    <script>
+      tailwind.config = {
+        darkMode: 'class', 
+        theme: {
+          extend: {
+            colors: {
+              primary: '#004242',
+              'primary-dark': '#003333',
+              accent: '#ffcc00',
+              'app-bg': '#fdfdf5',
+              'card-bg': '#ffffff',
+              'sidebar-bg': '#0F4C5C',
+              'sidebar-bg-dark': '#0A3B49',
+              'app-text-primary': '#000000',
+              'app-text-secondary': '#333333',
+              'app-border': '#999999',
+            },
+            borderRadius: {
+              'tally': '0px',
+            }
+          }
+        }
+      }
+    </script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/": "https://esm.sh/react@18.3.1/",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/": "https://esm.sh/react-dom@18.3.1/",
+    "recharts": "https://esm.sh/recharts@2.13.0",
+    "@google/genai": "https://esm.sh/@google/genai@1.40.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.0",
+    "@powersync/web": "https://esm.sh/@powersync/web@1.34.0",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,239 @@
+
+import React, { useState, useMemo } from 'react';
+import Card from '../components/Card';
+import POS from '../components/POS';
+import Modal from '../components/Modal';
+import { SalesChallan, BillItem, InventoryItem, Customer, RegisteredPharmacy, AppConfigurations, SalesChallanStatus, Medicine, Purchase } from '../types';
+import { generateNewInvoiceId } from '../utils/invoice';
+// Fix: Verified storage service exports include updateSalesChallanStatus and updateChallanStatus
+import { saveData, updateSalesChallanStatus, updateChallanStatus } from '../services/storageService';
+
+interface SalesChallansProps {
+    salesChallans: SalesChallan[];
+    inventory: InventoryItem[];
+    medicines: Medicine[]; // Added medicines prop
+    // Add missing purchases prop
+    purchases: Purchase[];
+    customers: Customer[];
+    currentUser: RegisteredPharmacy | null;
+    configurations: AppConfigurations;
+    onAddChallan: (challan: SalesChallan) => Promise<void>;
+    onUpdateChallan: (challan: SalesChallan) => Promise<void>;
+    onCancelChallan: (id: string) => Promise<void>;
+    onConvertToInvoice: (items: BillItem[], customer: Customer, challanIds: string[]) => void;
+    addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
+    onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
+}
+
+const SalesChallans: React.FC<SalesChallansProps> = ({
+    salesChallans, inventory, medicines, purchases, customers, currentUser, configurations,
+    onAddChallan, onUpdateChallan, onCancelChallan, onConvertToInvoice, addNotification, onAddMedicineMaster
+}) => {
+    const [activeTab, setActiveTab] = useState<'create' | 'list'>('list');
+    const [selectedChallanIds, setSelectedChallanIds] = useState<Set<string>>(new Set());
+    const [filterStatus, setFilterStatus] = useState<SalesChallanStatus | 'all'>(SalesChallanStatus.OPEN);
+    const [selectedChallanForView, setSelectedChallanForView] = useState<SalesChallan | null>(null);
+
+    const visibleChallans = useMemo(() => {
+        let list = [...salesChallans];
+        if (filterStatus !== 'all') {
+            list = list.filter(c => c.status === filterStatus);
+        }
+        return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [salesChallans, filterStatus]);
+
+    const handleSelectChallan = (challan: SalesChallan) => {
+        if (challan.status !== SalesChallanStatus.OPEN) return;
+        setSelectedChallanIds(prev => {
+            const next = new Set(prev);
+            if (next.has(challan.id)) next.delete(challan.id);
+            else next.add(challan.id);
+            return next;
+        });
+    };
+
+    const handleMergeToPOS = () => {
+        const selected = salesChallans.filter(c => selectedChallanIds.has(c.id));
+        if (selected.length === 0) return;
+        const customerNames = new Set(selected.map(c => c.customerName));
+        if (customerNames.size > 1) {
+            addNotification("Please select challans for the same customer to merge.", "error");
+            return;
+        }
+        const items: BillItem[] = [];
+        selected.forEach(c => items.push(...c.items));
+        const customer = customers.find(cust => cust.name === selected[0].customerName || cust.id === selected[0].customerId);
+        if (!customer) {
+            addNotification("Customer record not found for these challans.", "error");
+            return;
+        }
+        onConvertToInvoice(items, customer, Array.from(selectedChallanIds));
+    };
+
+    const handleChallanSave = async (tx: any) => {
+        const { id: serialId, nextExternalNumber } = generateNewInvoiceId(configurations.salesChallanConfig, 'sales-challan');
+        const challan: SalesChallan = {
+            id: crypto.randomUUID(),
+            organization_id: currentUser?.organization_id || '',
+            challanSerialId: serialId,
+            customerName: tx.customerName,
+            customerId: tx.customerId,
+            customerPhone: tx.customerPhone,
+            date: tx.date,
+            items: tx.items,
+            totalAmount: tx.total,
+            subtotal: tx.subtotal,
+            totalGst: tx.totalGst,
+            status: SalesChallanStatus.OPEN
+        };
+
+        await onAddChallan(challan);
+        const latestConfig = { ...configurations };
+        latestConfig.salesChallanConfig = {
+            ...(configurations.salesChallanConfig || { prefix: 'SC-', startingNumber: 1, paddingLength: 6, currentNumber: 1, useFiscalYear: false }),
+            currentNumber: nextExternalNumber
+        };
+        await saveData('configurations', latestConfig, currentUser);
+        addNotification(`Sales Challan ${serialId} recorded.`, "success");
+        setActiveTab('list');
+    };
+
+    const getStatusBadge = (status: SalesChallanStatus) => {
+        switch (status) {
+            case SalesChallanStatus.OPEN:
+                return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-700 uppercase border border-blue-200">Pending</span>;
+            case SalesChallanStatus.CONVERTED:
+                return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-700 uppercase border border-emerald-200">Billed</span>;
+            case SalesChallanStatus.CANCELLED:
+                return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-100 text-red-700 uppercase border border-red-200">Cancelled</span>;
+            default: return null;
+        }
+    };
+
+    return (
+        <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
+            <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
+                <span className="text-[10px] font-black uppercase tracking-widest">Sales Challan (Delivery Note)</span>
+                <span className="text-[10px] font-black uppercase text-accent">Entries: {visibleChallans.length}</span>
+            </div>
+
+            <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
+                <div className="flex justify-between items-center px-2">
+                    <div className="flex items-center space-x-2 bg-white p-1 border border-app-border shadow-sm">
+                        <button onClick={() => { setActiveTab('list'); setSelectedChallanForView(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'list' ? 'bg-primary text-white' : 'text-gray-400 hover:bg-hover'}`}>History</button>
+                        <button onClick={() => { setActiveTab('create'); setSelectedChallanForView(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'create' ? 'bg-primary text-white' : 'text-gray-400 hover:bg-hover'}`}>New Note</button>
+                    </div>
+                    {selectedChallanIds.size > 0 && (
+                        <button onClick={handleMergeToPOS} className="px-6 py-2 bg-emerald-600 text-white font-black text-xs uppercase tracking-widest shadow-lg transform active:scale-95">Convert {selectedChallanIds.size} to Sales Bill</button>
+                    )}
+                </div>
+
+                {activeTab === 'create' ? (
+                    <div className="flex-1 overflow-hidden">
+                        <POS 
+                            inventory={inventory}
+                            /* Fix: Pass missing purchases prop to POS component */
+                            purchases={purchases}
+                            medicines={medicines}
+                            customers={customers}
+                            onSaveOrUpdateTransaction={handleChallanSave}
+                            onPrintBill={() => {}}
+                            currentUser={currentUser}
+                            config={{ fields: {} }}
+                            configurations={configurations}
+                            billType="regular"
+                            addNotification={addNotification}
+                            onAddMedicineMaster={onAddMedicineMaster}
+                            onCancel={() => setActiveTab('list')}
+                        />
+                    </div>
+                ) : (
+                    <Card className="flex-1 p-0 overflow-hidden tally-border shadow-md bg-white">
+                        <div className="p-3 border-b border-gray-400 bg-gray-50 flex gap-4">
+                            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)} className="text-[10px] font-black uppercase border border-gray-400 p-1.5 focus:bg-yellow-50 outline-none shadow-sm">
+                                <option value="all">All Status</option>
+                                <option value={SalesChallanStatus.OPEN}>Pending Only</option>
+                                <option value={SalesChallanStatus.CONVERTED}>Invoiced Only</option>
+                            </select>
+                        </div>
+                        <div className="overflow-auto h-full pb-20">
+                            <table className="min-w-full border-collapse text-sm">
+                                <thead className="bg-gray-100 sticky top-0 z-10 border-b border-gray-400">
+                                    <tr className="text-[10px] font-black uppercase text-gray-600">
+                                        <th className="p-2 border-r border-gray-400 w-10 text-center">Sel.</th>
+                                        <th className="p-2 border-r border-gray-400 text-left">Challan ID</th>
+                                        <th className="p-2 border-r border-gray-400 text-left">Date</th>
+                                        <th className="p-2 border-r border-gray-400 text-left">Customer</th>
+                                        <th className="p-2 border-r border-gray-400 text-right">Items</th>
+                                        <th className="p-2 border-r border-gray-400 text-right">Amount</th>
+                                        <th className="p-2 border-r border-gray-400 text-center">Status</th>
+                                        <th className="p-2 text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200">
+                                    {visibleChallans.map(c => (
+                                        <tr key={c.id} className={`hover:bg-accent transition-colors ${selectedChallanIds.has(c.id) ? 'bg-accent/50' : ''}`} onClick={() => handleSelectChallan(c)}>
+                                            <td className="p-2 border-r border-gray-200 text-center">
+                                                <input type="checkbox" disabled={c.status !== SalesChallanStatus.OPEN} checked={selectedChallanIds.has(c.id)} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
+                                            </td>
+                                            <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary">{c.challanSerialId}</td>
+                                            <td className="p-2 border-r border-gray-200">{new Date(c.date).toLocaleDateString('en-GB')}</td>
+                                            <td className="p-2 border-r border-gray-200 font-black uppercase">{c.customerName}</td>
+                                            <td className="p-2 border-r border-gray-200 text-center font-bold">{c.items.length}</td>
+                                            <td className="p-2 border-r border-gray-200 text-right font-black">₹{c.totalAmount.toFixed(2)}</td>
+                                            <td className="p-2 border-r border-gray-200 text-center">{getStatusBadge(c.status)}</td>
+                                            <td className="p-2 text-right">
+                                                <button onClick={() => setSelectedChallanForView(c)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+                )}
+            </div>
+            {selectedChallanForView && (
+                <Modal isOpen={!!selectedChallanForView} onClose={() => setSelectedChallanForView(null)} title={`Sales Note Review: ${selectedChallanForView.challanSerialId}`} widthClass="max-w-4xl">
+                    <div className="p-6">
+                        <div className="mb-6 grid grid-cols-2 gap-4 text-sm font-bold uppercase">
+                            <div className="bg-gray-50 p-3 border">
+                                <p className="text-[10px] text-gray-400">Ledger Account</p>
+                                <p>{selectedChallanForView.customerName}</p>
+                            </div>
+                            <div className="bg-gray-50 p-3 border">
+                                <p className="text-[10px] text-gray-400">Assessment Value</p>
+                                <p className="text-primary font-black text-lg">₹{selectedChallanForView.totalAmount.toFixed(2)}</p>
+                            </div>
+                        </div>
+                        <table className="min-w-full text-xs erp-table border-collapse">
+                            <thead className="bg-gray-100 border-b-2 border-black">
+                                <tr className="uppercase font-black text-[9px] text-gray-500">
+                                    <th className="p-2 text-left">Description</th>
+                                    <th className="p-2 text-center w-24">Batch</th>
+                                    <th className="p-2 text-center w-20">Qty</th>
+                                    <th className="p-2 text-right w-32">Line Val</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {selectedChallanForView.items.map((item, idx) => (
+                                    <tr key={idx} className="border-b">
+                                        <td className="p-2 font-black uppercase">{item.name}</td>
+                                        <td className="p-2 text-center font-mono">{item.batch}</td>
+                                        <td className="p-2 text-center font-black">{item.quantity}</td>
+                                        <td className="p-2 text-right font-black">₹{((item.rate || item.mrp) * item.quantity).toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        <div className="mt-8 flex justify-end">
+                            <button onClick={() => setSelectedChallanForView(null)} className="px-12 py-3 tally-button-primary uppercase text-[11px] font-black tracking-widest shadow-xl">Close Preview</button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+        </main>
+    );
+};
+
+export default SalesChallans;
