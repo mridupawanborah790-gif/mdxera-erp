@@ -182,7 +182,7 @@ export const extractPurchaseDetailsFromBill = async (
 
     } catch (error: any) {
         console.error("Gemini Extraction Error Details:", error);
-        let errorMessage = "AI Extraction failed. Please ensure the images are clear and belong to the same bill.";
+        let errorMessage = "AI Extraction failed. Please ensure all uploaded images are clear, properly aligned, and belong to the same bill. Make sure the supplier name and bill number are visible and consistent across all pages. Then re-upload and try again.";
 
         const apiError = parseAiError(error).toLowerCase();
         if (apiError.includes('429') || apiError.includes('limit')) {
