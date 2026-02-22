@@ -1,6 +1,6 @@
 
-import { supabase } from './supabaseClient';
-import { idb, STORES } from './indexedDbService';
+
+
 import {
     RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier,
     Customer, PurchaseOrder, TransactionLedgerItem, UserRole, OrganizationMember,
