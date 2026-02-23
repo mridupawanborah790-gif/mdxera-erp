@@ -6,8 +6,7 @@ import { parseNetworkAndApiError } from '../utils/error';
 /**
  * Safely gets an instance of the GoogleGenAI client.
  */
-export const getAiClient = (): GoogleGenAI => {
-    // Support common key names used in this repo and Vite/client deployment variants.
+const getNormalizedApiKey = (): string => {
     const env = (import.meta as any).env || {};
     const rawApiKey =
         env.VITE_GEMINI_PRIMARY_API_KEY ||
@@ -26,7 +25,6 @@ export const getAiClient = (): GoogleGenAI => {
         process.env.GEMINI_API_KEY ||
         process.env.API_KEY;
 
-    // Normalize common pasted formats (quoted values or prefixed labels).
     const normalizedKey = String(rawApiKey || '')
         .trim()
         .replace(/^['"]|['"]$/g, '')
@@ -39,7 +37,11 @@ export const getAiClient = (): GoogleGenAI => {
         throw new Error("Gemini API key missing. Set VITE_GEMINI_PRIMARY_API_KEY (or VITE_GEMINI_API_KEY / VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
     }
 
-    return new GoogleGenAI({ apiKey: normalizedKey });
+    return normalizedKey;
+};
+
+export const getAiClient = (): GoogleGenAI => {
+    return new GoogleGenAI({ apiKey: getNormalizedApiKey() });
 };
 
 
@@ -65,6 +67,55 @@ const parseAiError = (error: any): string => {
     return parseNetworkAndApiError(error);
 };
 
+const normalizeRestContents = (contents: any): any[] => {
+    if (Array.isArray(contents)) return contents;
+    if (typeof contents === 'string') return [{ role: 'user', parts: [{ text: contents }] }];
+    if (contents && typeof contents === 'object') {
+        if (Array.isArray(contents.parts)) return [{ role: 'user', parts: contents.parts }];
+        return [contents];
+    }
+    return [{ role: 'user', parts: [{ text: String(contents ?? '') }] }];
+};
+
+const generateViaGeminiRest = async (model: string, params: any): Promise<GenerateContentResponse> => {
+    const apiKey = getNormalizedApiKey();
+    const requestBody: any = {
+        contents: normalizeRestContents(params?.contents)
+    };
+
+    if (params?.config?.systemInstruction) {
+        requestBody.systemInstruction = {
+            parts: [{ text: String(params.config.systemInstruction) }]
+        };
+    }
+
+    const generationConfig: any = {};
+    if (params?.config?.temperature !== undefined) generationConfig.temperature = params.config.temperature;
+    if (params?.config?.topP !== undefined) generationConfig.topP = params.config.topP;
+    if (params?.config?.responseMimeType) generationConfig.responseMimeType = params.config.responseMimeType;
+    if (Object.keys(generationConfig).length > 0) requestBody.generationConfig = generationConfig;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+        const details = await response.text();
+        throw new Error(`Gemini REST fallback failed (${response.status}): ${details}`);
+    }
+
+    const data = await response.json();
+    const text = (data?.candidates || [])
+        .flatMap((candidate: any) => candidate?.content?.parts || [])
+        .map((part: any) => part?.text || '')
+        .join('')
+        .trim();
+
+    return { text } as GenerateContentResponse;
+};
+
 const generateWithRetry = async (
     model: string,
     params: any,
@@ -82,6 +133,22 @@ const generateWithRetry = async (
         } catch (error: any) {
             lastError = error;
             const message = String(error?.message || "").toLowerCase();
+
+            const modelOrPermissionIssue =
+                message.includes('model') ||
+                message.includes('permission_denied') ||
+                message.includes('forbidden') ||
+                message.includes('403') ||
+                message.includes('404');
+
+            if (modelOrPermissionIssue) {
+                try {
+                    return await generateViaGeminiRest(model, params);
+                } catch (restError: any) {
+                    lastError = restError;
+                }
+            }
+
             const shouldRetry = message.includes('429') ||
                 message.includes('resource_exhausted') ||
                 message.includes('500') ||
@@ -91,34 +158,9 @@ const generateWithRetry = async (
                 await wait(baseDelay * Math.pow(2, attempt));
                 continue;
             }
-            throw error;
+            throw lastError;
         }
     }
-    throw lastError;
-};
-
-const generateWithModelFallback = async (
-    models: string[],
-    params: any
-): Promise<GenerateContentResponse> => {
-    let lastError: any;
-
-    for (const model of models) {
-        try {
-            return await generateWithRetry(model, params);
-        } catch (error: any) {
-            lastError = error;
-            const message = String(error?.message || '').toLowerCase();
-            const isModelIssue =
-                message.includes('model') && (message.includes('not found') || message.includes('unsupported') || message.includes('invalid'));
-
-            if (isModelIssue) {
-                continue;
-            }
-            throw error;
-        }
-    }
-
     throw lastError;
 };
 
