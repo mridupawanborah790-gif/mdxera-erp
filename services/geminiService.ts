@@ -7,21 +7,35 @@ import { parseNetworkAndApiError } from '../utils/error';
  * Safely gets an instance of the GoogleGenAI client.
  */
 export const getAiClient = (): GoogleGenAI => {
-    // Support common key names used in this repo and Vite client exposure rules.
+    // Support common key names used in this repo and Vite/client deployment variants.
     const env = (import.meta as any).env || {};
-    const apiKey =
+    const rawApiKey =
         env.VITE_GEMINI_API_KEY ||
         env.VITE_API_KEY ||
+        env.VITE_GOOGLE_API_KEY ||
+        env.VITE_GOOGLE_GENAI_API_KEY ||
         process.env.VITE_GEMINI_API_KEY ||
         process.env.VITE_API_KEY ||
+        process.env.VITE_GOOGLE_API_KEY ||
+        process.env.VITE_GOOGLE_GENAI_API_KEY ||
+        process.env.GOOGLE_API_KEY ||
+        process.env.GOOGLE_GENAI_API_KEY ||
         process.env.GEMINI_API_KEY ||
         process.env.API_KEY;
 
-    if (!apiKey) {
-        throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY in .env.local and restart the app.");
+    // Normalize common pasted formats (quoted values or prefixed labels).
+    const normalizedKey = String(rawApiKey || '')
+        .trim()
+        .replace(/^['"]|['"]$/g, '')
+        .replace(/^vite_gemini_api_key[-:=\s]*/i, '')
+        .replace(/^gemini_api_key[-:=\s]*/i, '')
+        .replace(/^google_api_key[-:=\s]*/i, '');
+
+    if (!normalizedKey) {
+        throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY (or VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
     }
 
-    return new GoogleGenAI({ apiKey });
+    return new GoogleGenAI({ apiKey: normalizedKey });
 };
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -64,6 +78,31 @@ const generateWithRetry = async (
             throw error;
         }
     }
+    throw lastError;
+};
+
+const generateWithModelFallback = async (
+    models: string[],
+    params: any
+): Promise<GenerateContentResponse> => {
+    let lastError: any;
+
+    for (const model of models) {
+        try {
+            return await generateWithRetry(model, params);
+        } catch (error: any) {
+            lastError = error;
+            const message = String(error?.message || '').toLowerCase();
+            const isModelIssue =
+                message.includes('model') && (message.includes('not found') || message.includes('unsupported') || message.includes('invalid'));
+
+            if (isModelIssue) {
+                continue;
+            }
+            throw error;
+        }
+    }
+
     throw lastError;
 };
 
@@ -148,8 +187,8 @@ export const extractPurchaseDetailsFromBill = async (
             Return ONLY valid JSON following the schema.
         `;
 
-        // Switched to gemini-1.5-flash for reliability and broad availability
-        const response = await generateWithRetry('gemini-1.5-flash', {
+        // Try multiple model names because availability can differ by project/region.
+        const response = await generateWithModelFallback(['gemini-1.5-flash', 'gemini-1.5-pro'], {
             contents: { parts: [...fileParts, { text: prompt }] },
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
@@ -195,11 +234,13 @@ export const extractPurchaseDetailsFromBill = async (
         let errorMessage = "AI Extraction failed. Please ensure all uploaded images are clear, properly aligned, and belong to the same bill. Make sure the supplier name and bill number are visible and consistent across all pages. Then re-upload and try again.";
 
         const apiError = parseAiError(error).toLowerCase();
+        const rawError = String(error?.message || '').toLowerCase();
+
         if (apiError.includes('gemini api key missing') || apiError.includes('api key missing')) {
             errorMessage = "Gemini API key is missing. Set VITE_GEMINI_API_KEY in .env.local and restart npm run dev.";
-        } else if (apiError.includes('403') || apiError.includes('permission_denied') || apiError.includes('referer')) {
+        } else if (apiError.includes('403') || apiError.includes('permission_denied') || apiError.includes('referer') || apiError.includes('forbidden')) {
             errorMessage = "Gemini request blocked (403). If your API key has restrictions, allow this app origin (localhost) or use an unrestricted key for testing.";
-        } else if (apiError.includes('401') || apiError.includes('invalid api key') || apiError.includes('api_key_invalid') || apiError.includes('key not found')) {
+        } else if (apiError.includes('401') || apiError.includes('invalid api key') || apiError.includes('api_key_invalid') || apiError.includes('key not found') || apiError.includes('unauthorized')) {
             errorMessage = "Gemini API key is invalid. Recheck the key in .env.local and restart npm run dev.";
         } else if (apiError.includes('429') || apiError.includes('limit')) {
             errorMessage = "AI limit reached. Please try again in a few moments.";
@@ -207,6 +248,10 @@ export const extractPurchaseDetailsFromBill = async (
             errorMessage = "Monthly AI quota exceeded.";
         } else if (apiError.includes('safety')) {
             errorMessage = "Document content was flagged by AI safety filters.";
+        } else if (rawError.includes('model') && (rawError.includes('not found') || rawError.includes('unsupported') || rawError.includes('invalid'))) {
+            errorMessage = "Gemini model is not available for this API key/project. Enable Gemini API in Google AI Studio and use a supported key.";
+        } else {
+            errorMessage = `${errorMessage} Technical details: ${parseAiError(error)}`;
         }
 
         return {
