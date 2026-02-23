@@ -6,37 +6,46 @@ import { parseNetworkAndApiError } from '../utils/error';
 /**
  * Safely gets an instance of the GoogleGenAI client.
  */
-export const getAiClient = (): GoogleGenAI => {
-    // Support common key names used in this repo and Vite/client deployment variants.
+const getNormalizedApiKey = (): string => {
     const env = (import.meta as any).env || {};
     const rawApiKey =
+        env.VITE_GEMINI_PRIMARY_API_KEY ||
         env.VITE_GEMINI_API_KEY ||
         env.VITE_API_KEY ||
         env.VITE_GOOGLE_API_KEY ||
         env.VITE_GOOGLE_GENAI_API_KEY ||
+        process.env.VITE_GEMINI_PRIMARY_API_KEY ||
         process.env.VITE_GEMINI_API_KEY ||
         process.env.VITE_API_KEY ||
         process.env.VITE_GOOGLE_API_KEY ||
         process.env.VITE_GOOGLE_GENAI_API_KEY ||
+        process.env.GEMINI_PRIMARY_API_KEY ||
         process.env.GOOGLE_API_KEY ||
         process.env.GOOGLE_GENAI_API_KEY ||
         process.env.GEMINI_API_KEY ||
         process.env.API_KEY;
 
-    // Normalize common pasted formats (quoted values or prefixed labels).
     const normalizedKey = String(rawApiKey || '')
         .trim()
         .replace(/^['"]|['"]$/g, '')
         .replace(/^vite_gemini_api_key[-:=\s]*/i, '')
+        .replace(/^gemini_primary_api_key[-:=\s]*/i, '')
         .replace(/^gemini_api_key[-:=\s]*/i, '')
         .replace(/^google_api_key[-:=\s]*/i, '');
 
     if (!normalizedKey) {
-        throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY (or VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
+        throw new Error("Gemini API key missing. Set VITE_GEMINI_PRIMARY_API_KEY (or VITE_GEMINI_API_KEY / VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
     }
 
-    return new GoogleGenAI({ apiKey: normalizedKey });
+    return normalizedKey;
 };
+
+export const getAiClient = (): GoogleGenAI => {
+    return new GoogleGenAI({ apiKey: getNormalizedApiKey() });
+};
+
+
+const PRIMARY_TEXT_MODEL = 'gemini-1.5-flash';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -58,6 +67,55 @@ const parseAiError = (error: any): string => {
     return parseNetworkAndApiError(error);
 };
 
+const normalizeRestContents = (contents: any): any[] => {
+    if (Array.isArray(contents)) return contents;
+    if (typeof contents === 'string') return [{ role: 'user', parts: [{ text: contents }] }];
+    if (contents && typeof contents === 'object') {
+        if (Array.isArray(contents.parts)) return [{ role: 'user', parts: contents.parts }];
+        return [contents];
+    }
+    return [{ role: 'user', parts: [{ text: String(contents ?? '') }] }];
+};
+
+const generateViaGeminiRest = async (model: string, params: any): Promise<GenerateContentResponse> => {
+    const apiKey = getNormalizedApiKey();
+    const requestBody: any = {
+        contents: normalizeRestContents(params?.contents)
+    };
+
+    if (params?.config?.systemInstruction) {
+        requestBody.systemInstruction = {
+            parts: [{ text: String(params.config.systemInstruction) }]
+        };
+    }
+
+    const generationConfig: any = {};
+    if (params?.config?.temperature !== undefined) generationConfig.temperature = params.config.temperature;
+    if (params?.config?.topP !== undefined) generationConfig.topP = params.config.topP;
+    if (params?.config?.responseMimeType) generationConfig.responseMimeType = params.config.responseMimeType;
+    if (Object.keys(generationConfig).length > 0) requestBody.generationConfig = generationConfig;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+        const details = await response.text();
+        throw new Error(`Gemini REST fallback failed (${response.status}): ${details}`);
+    }
+
+    const data = await response.json();
+    const text = (data?.candidates || [])
+        .flatMap((candidate: any) => candidate?.content?.parts || [])
+        .map((part: any) => part?.text || '')
+        .join('')
+        .trim();
+
+    return { text } as GenerateContentResponse;
+};
+
 const generateWithRetry = async (
     model: string,
     params: any,
@@ -75,6 +133,22 @@ const generateWithRetry = async (
         } catch (error: any) {
             lastError = error;
             const message = String(error?.message || "").toLowerCase();
+
+            const modelOrPermissionIssue =
+                message.includes('model') ||
+                message.includes('permission_denied') ||
+                message.includes('forbidden') ||
+                message.includes('403') ||
+                message.includes('404');
+
+            if (modelOrPermissionIssue) {
+                try {
+                    return await generateViaGeminiRest(model, params);
+                } catch (restError: any) {
+                    lastError = restError;
+                }
+            }
+
             const shouldRetry = message.includes('429') ||
                 message.includes('resource_exhausted') ||
                 message.includes('500') ||
@@ -84,34 +158,9 @@ const generateWithRetry = async (
                 await wait(baseDelay * Math.pow(2, attempt));
                 continue;
             }
-            throw error;
+            throw lastError;
         }
     }
-    throw lastError;
-};
-
-const generateWithModelFallback = async (
-    models: string[],
-    params: any
-): Promise<GenerateContentResponse> => {
-    let lastError: any;
-
-    for (const model of models) {
-        try {
-            return await generateWithRetry(model, params);
-        } catch (error: any) {
-            lastError = error;
-            const message = String(error?.message || '').toLowerCase();
-            const isModelIssue =
-                message.includes('model') && (message.includes('not found') || message.includes('unsupported') || message.includes('invalid'));
-
-            if (isModelIssue) {
-                continue;
-            }
-            throw error;
-        }
-    }
-
     throw lastError;
 };
 
@@ -124,10 +173,12 @@ Always prioritize pharmaceutical accuracy and professional standard operating pr
 export const getAiInsights = async (summary: any): Promise<string[]> => {
     try {
         const prompt = `Analyze this pharmacy data and provide 3 brief actionable insights in a JSON array of strings: ${JSON.stringify(summary)}`;
-        const response = await generateWithModelFallback(PRIMARY_TEXT_MODELS, {
+        const response = await generateWithRetry(PRIMARY_TEXT_MODEL, {
             contents: prompt,
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
+                temperature: 0.1,
+                topP: 0.9,
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.ARRAY,
@@ -193,14 +244,21 @@ export const extractPurchaseDetailsFromBill = async (
             2. AGGREGATE ALL ITEMS: Extract every single item from EVERY page. Do not stop after the first page. Combine them into a single list.
             3. CONSISTENT METADATA: Use the supplier name, GST, invoice number, and date from the best-quality page (usually the first).
              
+            OCR QUALITY RULES (MANDATORY):
+            4. Read line-items carefully using high OCR attention. Prefer exact text from image.
+            5. For unclear characters, choose the most probable medicine text but do not invent rows.
+            6. Preserve decimals for rate/MRP and parse discounts/schemes as numeric percentages.
+
             Return ONLY valid JSON following the schema.
         `;
 
         // Try multiple model names because availability can differ by project/region.
-        const response = await generateWithModelFallback(['gemini-1.5-flash', 'gemini-1.5-pro'], {
+        const response = await generateWithRetry(PRIMARY_TEXT_MODEL, {
             contents: { parts: [...fileParts, { text: prompt }] },
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
+                temperature: 0.1,
+                topP: 0.9,
                 responseMimeType: "application/json"
             }
         });
@@ -255,7 +313,7 @@ export const extractPurchaseDetailsFromBill = async (
         } else if (apiError.includes('safety')) {
             errorMessage = "Document content was flagged by AI safety filters.";
         } else if (rawError.includes('model') && (rawError.includes('not found') || rawError.includes('unsupported') || rawError.includes('invalid'))) {
-            errorMessage = "Gemini model is not available for this API key/project. Enable Gemini API in Google AI Studio and use a supported key.";
+            errorMessage = "Gemini model is not available for this API key/project. This app uses model gemini-1.5-flash. Enable Gemini API in Google AI Studio and ensure this model is allowed for your key/project.";
         } else {
             errorMessage = `${errorMessage} Technical details: ${parseAiError(error)}`;
         }
@@ -284,8 +342,8 @@ export const extractPrescription = async (
             Return ONLY valid JSON.
         `;
 
-        // Switched to gemini-3-flash-preview and disabled thinking budget for high-speed OCR/extraction
-        const response = await generateWithModelFallback(PRIMARY_TEXT_MODELS, {
+        // Use primary flash model for consistent, fast OCR/extraction
+        const response = await generateWithRetry(PRIMARY_TEXT_MODEL, {
             contents: {
                 parts: [
                     { inlineData: { mimeType: file.mimeType, data: file.data } },
@@ -294,6 +352,8 @@ export const extractPrescription = async (
             },
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
+                temperature: 0.1,
+                topP: 0.9,
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
@@ -362,10 +422,12 @@ export const generatePromotionalImage = async (prompt: string, logoUrl?: string)
 
 export const generateCaptionsForImage = async (prompt: string): Promise<string[]> => {
     try {
-        const response = await generateWithModelFallback(PRIMARY_TEXT_MODELS, {
+        const response = await generateWithRetry(PRIMARY_TEXT_MODEL, {
             contents: `Write 3 professional social media captions for this promo: "${prompt}". JSON array of strings.`,
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
+                temperature: 0.1,
+                topP: 0.9,
                 responseMimeType: "application/json",
                 responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
             },
