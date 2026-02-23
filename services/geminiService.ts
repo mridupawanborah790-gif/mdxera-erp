@@ -124,7 +124,7 @@ Always prioritize pharmaceutical accuracy and professional standard operating pr
 export const getAiInsights = async (summary: any): Promise<string[]> => {
     try {
         const prompt = `Analyze this pharmacy data and provide 3 brief actionable insights in a JSON array of strings: ${JSON.stringify(summary)}`;
-        const response = await generateWithRetry('gemini-1.5-flash', {
+        const response = await generateWithModelFallback(PRIMARY_TEXT_MODELS, {
             contents: prompt,
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
@@ -285,7 +285,7 @@ export const extractPrescription = async (
         `;
 
         // Switched to gemini-3-flash-preview and disabled thinking budget for high-speed OCR/extraction
-        const response = await generateWithRetry('gemini-1.5-flash', {
+        const response = await generateWithModelFallback(PRIMARY_TEXT_MODELS, {
             contents: {
                 parts: [
                     { inlineData: { mimeType: file.mimeType, data: file.data } },
@@ -362,7 +362,7 @@ export const generatePromotionalImage = async (prompt: string, logoUrl?: string)
 
 export const generateCaptionsForImage = async (prompt: string): Promise<string[]> => {
     try {
-        const response = await generateWithRetry('gemini-1.5-flash', {
+        const response = await generateWithModelFallback(PRIMARY_TEXT_MODELS, {
             contents: `Write 3 professional social media captions for this promo: "${prompt}". JSON array of strings.`,
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
