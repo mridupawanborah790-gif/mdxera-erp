@@ -491,43 +491,69 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         });
     };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files; if (!files || files.length === 0) return;
-        console.log(`MDXERA AI: Starting extraction for ${files.length} pages.`);
+    const processAiExtraction = useCallback(async (fileInputs: FileInput[]) => {
+        if (!fileInputs || fileInputs.length === 0) return;
+        console.log(`MDXERA AI: Starting extraction for ${fileInputs.length} page(s).`);
+
         setIsUploading(true);
         try {
-            const fileInputs = [];
-            for (let i = 0; i < files.length; i++) {
-                const base64 = await new Promise<string>((resolve) => {
-                    const reader = new FileReader(); reader.onloadend = () => resolve((reader.result as string).split(',')[1]); reader.readAsDataURL(files[i]);
-                });
-                fileInputs.push({ mimeType: files[i].type, data: base64 });
-            }
             const bill = await extractPurchaseDetailsFromBill(fileInputs, currentUser?.pharmacy_name || '');
-            if (bill.error) addNotification(bill.error, 'error');
-            else {
-                if (bill.supplier) setSupplier(bill.supplier);
-                if (bill.invoiceNumber) setInvoiceNumber(bill.invoiceNumber);
-                if (bill.date) setDate(normalizeImportDate(bill.date) || date);
-                if (bill.items && bill.items.length > 0) {
-                    const newItems = bill.items.map(item => ({
-                        ...createBlankItem(),
-                        ...item,
-                        quantity: parseNumber(item.quantity),
-                        purchasePrice: parseNumber(item.purchasePrice),
-                        mrp: parseNumber(item.mrp),
-                        gstPercent: parseNumber(item.gstPercent) || 5,
-                        discountPercent: parseNumber(item.discountPercent),
-                        matchStatus: 'pending' as const
-                    }));
-                    const linked = attemptAutoLink(newItems as PurchaseItem[], currentsupplier || null);
-                    setItems([...linked, createBlankItem()]);
-                }
-                addNotification("AI Extracted bill details successfully.", "success");
+            if (bill.error) {
+                addNotification(bill.error, 'error');
+                return;
             }
+
+            if (bill.supplier) setSupplier(bill.supplier);
+            if (bill.invoiceNumber) setInvoiceNumber(bill.invoiceNumber);
+            if (bill.date) setDate(normalizeImportDate(bill.date) || date);
+
+            if (bill.items && bill.items.length > 0) {
+                const newItems = bill.items.map(item => ({
+                    ...createBlankItem(),
+                    ...item,
+                    quantity: parseNumber(item.quantity),
+                    purchasePrice: parseNumber(item.purchasePrice),
+                    mrp: parseNumber(item.mrp),
+                    gstPercent: parseNumber(item.gstPercent) || 5,
+                    discountPercent: parseNumber(item.discountPercent),
+                    matchStatus: 'pending' as const
+                }));
+                const linked = attemptAutoLink(newItems as PurchaseItem[], currentsupplier || null);
+                setItems([...linked, createBlankItem()]);
+            }
+
+            addNotification("AI Extracted bill details successfully.", "success");
         } catch (err: any) {
             addNotification(`AI Extraction failed: ${parseNetworkAndApiError(err)}`, "error");
-        } finally { setIsUploading(false); }
+        } finally {
+            setIsUploading(false);
+        }
+    }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, currentsupplier, date]);
+
+    const filesToInputs = async (files: FileList): Promise<FileInput[]> => {
+        const fileInputs: FileInput[] = [];
+        for (let i = 0; i < files.length; i++) {
+            const base64 = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                reader.readAsDataURL(files[i]);
+            });
+            fileInputs.push({ mimeType: files[i].type || 'image/jpeg', data: base64 });
+        }
+        return fileInputs;
+    };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        const fileInputs = await filesToInputs(files);
+        await processAiExtraction(fileInputs);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handleWebcamCapture = async (data: string, mimeType: string) => {
+        await processAiExtraction([{ data, mimeType }]);
     };
 
     const handleSupplierSelect = (d: Supplier) => {
@@ -758,7 +784,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
             </div>
 
-            {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleFileUpload as any} />}
+            {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleWebcamCapture} />}
             {isAddSupplierModalOpen && <AddSupplierModal isOpen={isAddSupplierModalOpen} onClose={() => setIsAddSupplierModalOpen(false)} onAdd={onAddsupplier} organizationId={organizationId} />}
             {isAddMedicineMasterModalOpen && <AddMedicineModal isOpen={isAddMedicineMasterModalOpen} onClose={() => setIsAddMedicineMasterModalOpen(false)} onAddMedicine={onAddMedicineMaster} organizationId={organizationId} />}
             {isLinkModalOpen && currentsupplier && (
