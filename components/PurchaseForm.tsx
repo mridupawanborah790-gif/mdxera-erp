@@ -287,7 +287,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             const payload = {
                 purchaseSerialId: purchaseSerialId!,
-                Supplier,
+                supplier: Supplier,
                 invoiceNumber: invoiceNumber.trim(),
                 date,
                 items: calculatedTotals.itemsWithCalculations,
