@@ -10,14 +10,17 @@ export const getAiClient = (): GoogleGenAI => {
     // Support common key names used in this repo and Vite/client deployment variants.
     const env = (import.meta as any).env || {};
     const rawApiKey =
+        env.VITE_GEMINI_PRIMARY_API_KEY ||
         env.VITE_GEMINI_API_KEY ||
         env.VITE_API_KEY ||
         env.VITE_GOOGLE_API_KEY ||
         env.VITE_GOOGLE_GENAI_API_KEY ||
+        process.env.VITE_GEMINI_PRIMARY_API_KEY ||
         process.env.VITE_GEMINI_API_KEY ||
         process.env.VITE_API_KEY ||
         process.env.VITE_GOOGLE_API_KEY ||
         process.env.VITE_GOOGLE_GENAI_API_KEY ||
+        process.env.GEMINI_PRIMARY_API_KEY ||
         process.env.GOOGLE_API_KEY ||
         process.env.GOOGLE_GENAI_API_KEY ||
         process.env.GEMINI_API_KEY ||
@@ -28,15 +31,22 @@ export const getAiClient = (): GoogleGenAI => {
         .trim()
         .replace(/^['"]|['"]$/g, '')
         .replace(/^vite_gemini_api_key[-:=\s]*/i, '')
+        .replace(/^gemini_primary_api_key[-:=\s]*/i, '')
         .replace(/^gemini_api_key[-:=\s]*/i, '')
         .replace(/^google_api_key[-:=\s]*/i, '');
 
     if (!normalizedKey) {
-        throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY (or VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
+        throw new Error("Gemini API key missing. Set VITE_GEMINI_PRIMARY_API_KEY (or VITE_GEMINI_API_KEY / VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
     }
 
     return new GoogleGenAI({ apiKey: normalizedKey });
 };
+
+
+const PRIMARY_TEXT_MODELS = [
+    'gemini-1.5-flash',
+    'gemini-1.5-pro'
+];
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
