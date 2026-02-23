@@ -24,15 +24,12 @@ export const getAiClient = (): GoogleGenAI => {
         process.env.API_KEY;
 
     // Normalize common pasted formats (quoted values or prefixed labels).
-    const sanitizedKey = String(rawApiKey || '')
+    const normalizedKey = String(rawApiKey || '')
         .trim()
         .replace(/^['"]|['"]$/g, '')
         .replace(/^vite_gemini_api_key[-:=\s]*/i, '')
         .replace(/^gemini_api_key[-:=\s]*/i, '')
         .replace(/^google_api_key[-:=\s]*/i, '');
-
-    const aiKeyMatch = sanitizedKey.match(/AIza[0-9A-Za-z_-]{20,}/);
-    const normalizedKey = aiKeyMatch ? aiKeyMatch[0] : sanitizedKey;
 
     if (!normalizedKey) {
         throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY (or VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
@@ -56,9 +53,6 @@ const toNumeric = (value: any): number | undefined => {
     const parsed = parseFloat(cleaned);
     return Number.isFinite(parsed) ? parsed : undefined;
 };
-
-const PRIMARY_TEXT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
-const PURCHASE_EXTRACTION_MODELS = PRIMARY_TEXT_MODELS;
 
 const parseAiError = (error: any): string => {
     return parseNetworkAndApiError(error);
@@ -109,10 +103,7 @@ const generateWithModelFallback = async (
             lastError = error;
             const message = String(error?.message || '').toLowerCase();
             const isModelIssue =
-                (message.includes('model') && (message.includes('not found') || message.includes('unsupported') || message.includes('invalid')))
-                || message.includes('models/')
-                || message.includes('not found for api version')
-                || message.includes('is not found');
+                message.includes('model') && (message.includes('not found') || message.includes('unsupported') || message.includes('invalid'));
 
             if (isModelIssue) {
                 continue;
@@ -206,7 +197,7 @@ export const extractPurchaseDetailsFromBill = async (
         `;
 
         // Try multiple model names because availability can differ by project/region.
-        const response = await generateWithModelFallback(PURCHASE_EXTRACTION_MODELS, {
+        const response = await generateWithModelFallback(['gemini-1.5-flash', 'gemini-1.5-pro'], {
             contents: { parts: [...fileParts, { text: prompt }] },
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,

@@ -530,7 +530,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
     }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, currentsupplier, date]);
 
-    const filesToInputs = async (files: FileList): Promise<FileInput[]> => {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
         const fileInputs: FileInput[] = [];
         for (let i = 0; i < files.length; i++) {
             const base64 = await new Promise<string>((resolve) => {
@@ -540,14 +543,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             });
             fileInputs.push({ mimeType: files[i].type || 'image/jpeg', data: base64 });
         }
-        return fileInputs;
-    };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (!files || files.length === 0) return;
-
-        const fileInputs = await filesToInputs(files);
         await processAiExtraction(fileInputs);
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
