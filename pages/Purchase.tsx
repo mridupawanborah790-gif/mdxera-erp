@@ -89,6 +89,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     organizationId,
 }, ref) => {
     const isEditing = !!purchaseToEdit;
+    const isFieldVisible = useCallback((fieldId: string) => configurations.modules?.purchase?.fields?.[fieldId] !== false, [configurations.modules]);
 
     // Standard State
     const [supplier, setSupplier] = useState('');
@@ -492,6 +493,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Qty</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Free</th>
                                     <th className="p-1 border-r border-gray-400 text-right w-24">Rate</th>
+                                    {isFieldVisible('colDisc') && <th className="p-1 border-r border-gray-400 text-center w-16">Disc%</th>}
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Sch%</th>
                                     <th className="p-1 text-right w-32">Amount</th>
                                 </tr>
@@ -511,8 +513,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         <td className="p-1 border-r border-gray-400 text-center font-black"><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
                                         <td className="p-1 border-r border-gray-400 text-center text-emerald-600 font-bold"><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
                                         <td className="p-1 border-r border-gray-400 text-right font-bold text-blue-900"><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} className="w-full text-right bg-transparent outline-none no-spinner font-mono" /></td>
+                                        {isFieldVisible('colDisc') && <td className="p-1 border-r border-gray-400 text-center text-red-600"><input type="number" value={p.discountPercent || ''} onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>}
                                         <td className="p-1 border-r border-gray-400 text-center text-red-600"><input type="number" value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
-                                        <td className="p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap">₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
+                                        <td className="p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap">₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.discountPercent || 0) / 100) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
                                     </tr>
                                 ))}
                             </tbody>
