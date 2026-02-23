@@ -45,6 +45,15 @@ const cleanJsonString = (text: string): string => {
     return text.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
 };
 
+const toNumeric = (value: any): number | undefined => {
+    if (value === null || value === undefined || value === '') return undefined;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+
+    const cleaned = String(value).replace(/[^0-9.-]/g, '');
+    const parsed = parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 const parseAiError = (error: any): string => {
     return parseNetworkAndApiError(error);
 };
@@ -192,42 +201,39 @@ export const extractPurchaseDetailsFromBill = async (
             contents: { parts: [...fileParts, { text: prompt }] },
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        supplier: { type: Type.STRING },
-                        supplierGstNumber: { type: Type.STRING },
-                        invoiceNumber: { type: Type.STRING },
-                        date: { type: Type.STRING },
-                        error: { type: Type.STRING },
-                        items: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    name: { type: Type.STRING },
-                                    batch: { type: Type.STRING },
-                                    packType: { type: Type.STRING },
-                                    expiry: { type: Type.STRING },
-                                    quantity: { type: Type.NUMBER },
-                                    freeQuantity: { type: Type.NUMBER },
-                                    purchasePrice: { type: Type.NUMBER },
-                                    mrp: { type: Type.NUMBER },
-                                    gstPercent: { type: Type.NUMBER },
-                                    discountPercent: { type: Type.NUMBER }
-                                },
-                                required: ['name', 'quantity', 'purchasePrice', 'mrp']
-                            }
-                        }
-                    },
-                    required: ['items']
-                }
+                responseMimeType: "application/json"
             }
         });
 
         if (!response.text) throw new Error("Empty AI response");
-        return JSON.parse(cleanJsonString(response.text));
+
+        const parsed = JSON.parse(cleanJsonString(response.text));
+        const root = parsed?.data && typeof parsed.data === 'object' ? parsed.data : parsed;
+        const rawItems = Array.isArray(root?.items) ? root.items : [];
+
+        const normalizedItems = rawItems
+            .map((item: any) => ({
+                name: String(item?.name || item?.product || '').trim(),
+                batch: String(item?.batch || item?.batchNo || '').trim(),
+                packType: String(item?.packType || item?.pack || '').trim(),
+                expiry: String(item?.expiry || item?.exp || '').trim(),
+                quantity: toNumeric(item?.quantity) ?? 0,
+                freeQuantity: toNumeric(item?.freeQuantity) ?? 0,
+                purchasePrice: toNumeric(item?.purchasePrice ?? item?.rate) ?? 0,
+                mrp: toNumeric(item?.mrp) ?? 0,
+                gstPercent: toNumeric(item?.gstPercent ?? item?.gst) ?? undefined,
+                discountPercent: toNumeric(item?.discountPercent ?? item?.discount) ?? undefined,
+            }))
+            .filter((item: any) => item.name && (item.quantity > 0 || item.purchasePrice > 0 || item.mrp > 0));
+
+        return {
+            supplier: String(root?.supplier || root?.vendor || '').trim(),
+            supplierGstNumber: String(root?.supplierGstNumber || root?.supplierGst || root?.gst || '').trim(),
+            invoiceNumber: String(root?.invoiceNumber || root?.billNumber || '').trim(),
+            date: String(root?.date || root?.invoiceDate || '').trim(),
+            items: normalizedItems,
+            ...(normalizedItems.length === 0 ? { error: "AI could not detect line items from this image. Try a full-page, well-lit photo with item rows clearly visible." } : {}),
+        };
 
     } catch (error: any) {
         console.error("Gemini Extraction Error Details:", error);
