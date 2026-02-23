@@ -7,21 +7,35 @@ import { parseNetworkAndApiError } from '../utils/error';
  * Safely gets an instance of the GoogleGenAI client.
  */
 export const getAiClient = (): GoogleGenAI => {
-    // Support common key names used in this repo and Vite client exposure rules.
+    // Support common key names used in this repo and Vite/client deployment variants.
     const env = (import.meta as any).env || {};
-    const apiKey =
+    const rawApiKey =
         env.VITE_GEMINI_API_KEY ||
         env.VITE_API_KEY ||
+        env.VITE_GOOGLE_API_KEY ||
+        env.VITE_GOOGLE_GENAI_API_KEY ||
         process.env.VITE_GEMINI_API_KEY ||
         process.env.VITE_API_KEY ||
+        process.env.VITE_GOOGLE_API_KEY ||
+        process.env.VITE_GOOGLE_GENAI_API_KEY ||
+        process.env.GOOGLE_API_KEY ||
+        process.env.GOOGLE_GENAI_API_KEY ||
         process.env.GEMINI_API_KEY ||
         process.env.API_KEY;
 
-    if (!apiKey) {
-        throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY in .env.local and restart the app.");
+    // Normalize common pasted formats (quoted values or prefixed labels).
+    const normalizedKey = String(rawApiKey || '')
+        .trim()
+        .replace(/^['"]|['"]$/g, '')
+        .replace(/^vite_gemini_api_key[-:=\s]*/i, '')
+        .replace(/^gemini_api_key[-:=\s]*/i, '')
+        .replace(/^google_api_key[-:=\s]*/i, '');
+
+    if (!normalizedKey) {
+        throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY (or VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
     }
 
-    return new GoogleGenAI({ apiKey });
+    return new GoogleGenAI({ apiKey: normalizedKey });
 };
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
