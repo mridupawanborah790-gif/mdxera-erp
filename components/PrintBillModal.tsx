@@ -240,6 +240,43 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             </button>
         </div>
       </div>
+
+      <style>{`
+        @media print {
+          @page {
+            size: A5 ${orientation};
+            margin: 0;
+          }
+
+          body * {
+            visibility: hidden;
+          }
+
+          #print-bill-modal-container,
+          #print-bill-modal-container * {
+            visibility: visible;
+          }
+
+          #print-bill-modal-container {
+            position: fixed !important;
+            inset: 0 !important;
+            background: #fff !important;
+            display: block !important;
+          }
+
+          #print-bill-modal-container .no-print {
+            display: none !important;
+          }
+
+          #print-area {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            break-inside: avoid;
+          }
+        }
+      `}</style>
     </div>,
     document.body
   );

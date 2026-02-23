@@ -7,10 +7,21 @@ import { parseNetworkAndApiError } from '../utils/error';
  * Safely gets an instance of the GoogleGenAI client.
  */
 export const getAiClient = (): GoogleGenAI => {
-    // Support both Vite and standard Node envs
-    const apiKey = (import.meta as any).env?.VITE_API_KEY || process.env.VITE_API_KEY || process.env.API_KEY;
-    if (!apiKey) console.error("MDXERA AI: API_KEY is missing. AI features will fail.");
-    return new GoogleGenAI({ apiKey: apiKey || '' });
+    // Support common key names used in this repo and Vite client exposure rules.
+    const env = (import.meta as any).env || {};
+    const apiKey =
+        env.VITE_GEMINI_API_KEY ||
+        env.VITE_API_KEY ||
+        process.env.VITE_GEMINI_API_KEY ||
+        process.env.VITE_API_KEY ||
+        process.env.GEMINI_API_KEY ||
+        process.env.API_KEY;
+
+    if (!apiKey) {
+        throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY in .env.local and restart the app.");
+    }
+
+    return new GoogleGenAI({ apiKey });
 };
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
