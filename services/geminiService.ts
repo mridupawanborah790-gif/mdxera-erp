@@ -47,6 +47,24 @@ export const getAiClient = (): GoogleGenAI => {
 
 const PRIMARY_TEXT_MODEL = 'gemini-1.5-flash';
 
+const normalizeModelName = (model: string): string => {
+    return String(model || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '-');
+};
+
+const getModelFallbacks = (model: string): string[] => {
+    const normalized = normalizeModelName(model);
+    const fallbackMap: Record<string, string[]> = {
+        'gemini-1.5-flash': ['gemini-1.5-flash-8b', 'gemini-1.5-flash-latest', 'gemini-2.0-flash'],
+        'gemini-1.5-pro': ['gemini-1.5-pro-latest', 'gemini-2.0-pro-exp'],
+    };
+
+    const fallbacks = fallbackMap[normalized] || [];
+    return [normalized, ...fallbacks];
+};
+
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const cleanJsonString = (text: string): string => {
@@ -123,44 +141,52 @@ const generateWithRetry = async (
     baseDelay = 2000
 ): Promise<GenerateContentResponse> => {
     let lastError: any;
-    for (let attempt = 0; attempt < retries; attempt++) {
-        try {
-            const ai = getAiClient();
-            return await ai.models.generateContent({
-                model,
-                ...params
-            });
-        } catch (error: any) {
-            lastError = error;
-            const message = String(error?.message || "").toLowerCase();
+    const modelsToTry = getModelFallbacks(model);
 
-            const modelOrPermissionIssue =
-                message.includes('model') ||
-                message.includes('permission_denied') ||
-                message.includes('forbidden') ||
-                message.includes('403') ||
-                message.includes('404');
+    for (const candidateModel of modelsToTry) {
+        for (let attempt = 0; attempt < retries; attempt++) {
+            try {
+                const ai = getAiClient();
+                return await ai.models.generateContent({
+                    model: candidateModel,
+                    ...params
+                });
+            } catch (error: any) {
+                lastError = error;
+                const message = String(error?.message || "").toLowerCase();
 
-            if (modelOrPermissionIssue) {
-                try {
-                    return await generateViaGeminiRest(model, params);
-                } catch (restError: any) {
-                    lastError = restError;
+                const modelOrPermissionIssue =
+                    message.includes('model') ||
+                    message.includes('permission_denied') ||
+                    message.includes('forbidden') ||
+                    message.includes('403') ||
+                    message.includes('404');
+
+                if (modelOrPermissionIssue) {
+                    try {
+                        return await generateViaGeminiRest(candidateModel, params);
+                    } catch (restError: any) {
+                        lastError = restError;
+                    }
+
+                    break;
                 }
-            }
 
-            const shouldRetry = message.includes('429') ||
-                message.includes('resource_exhausted') ||
-                message.includes('500') ||
-                message.includes('internal error') ||
-                message.includes('503');
-            if (shouldRetry && attempt < retries - 1) {
-                await wait(baseDelay * Math.pow(2, attempt));
-                continue;
+                const shouldRetry = message.includes('429') ||
+                    message.includes('resource_exhausted') ||
+                    message.includes('500') ||
+                    message.includes('internal error') ||
+                    message.includes('503');
+                if (shouldRetry && attempt < retries - 1) {
+                    await wait(baseDelay * Math.pow(2, attempt));
+                    continue;
+                }
+
+                throw lastError;
             }
-            throw lastError;
         }
     }
+
     throw lastError;
 };
 
