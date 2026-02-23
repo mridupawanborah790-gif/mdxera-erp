@@ -287,7 +287,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             const payload = {
                 purchaseSerialId: purchaseSerialId!,
-                Supplier,
+                supplier: Supplier,
                 invoiceNumber: invoiceNumber.trim(),
                 date,
                 items: calculatedTotals.itemsWithCalculations,
@@ -525,7 +525,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 }
                 addNotification("AI Extracted bill details successfully.", "success");
             }
-        } catch (err: any) { addNotification("AI Extraction failed. Please ensure all uploaded images are clear, properly aligned, and belong to the same bill. Make sure the supplier name and bill number are visible and consistent across all pages. Then re-upload and try again.", "error"); } finally { setIsUploading(false); }
+        } catch (err: any) {
+            addNotification(`AI Extraction failed: ${parseNetworkAndApiError(err)}`, "error");
+        } finally { setIsUploading(false); }
     };
 
     const handleSupplierSelect = (d: Supplier) => {
