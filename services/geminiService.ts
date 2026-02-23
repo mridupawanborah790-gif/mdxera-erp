@@ -195,7 +195,13 @@ export const extractPurchaseDetailsFromBill = async (
         let errorMessage = "AI Extraction failed. Please ensure all uploaded images are clear, properly aligned, and belong to the same bill. Make sure the supplier name and bill number are visible and consistent across all pages. Then re-upload and try again.";
 
         const apiError = parseAiError(error).toLowerCase();
-        if (apiError.includes('429') || apiError.includes('limit')) {
+        if (apiError.includes('gemini api key missing') || apiError.includes('api key missing')) {
+            errorMessage = "Gemini API key is missing. Set VITE_GEMINI_API_KEY in .env.local and restart npm run dev.";
+        } else if (apiError.includes('403') || apiError.includes('permission_denied') || apiError.includes('referer')) {
+            errorMessage = "Gemini request blocked (403). If your API key has restrictions, allow this app origin (localhost) or use an unrestricted key for testing.";
+        } else if (apiError.includes('401') || apiError.includes('invalid api key') || apiError.includes('api_key_invalid') || apiError.includes('key not found')) {
+            errorMessage = "Gemini API key is invalid. Recheck the key in .env.local and restart npm run dev.";
+        } else if (apiError.includes('429') || apiError.includes('limit')) {
             errorMessage = "AI limit reached. Please try again in a few moments.";
         } else if (apiError.includes('quota')) {
             errorMessage = "Monthly AI quota exceeded.";

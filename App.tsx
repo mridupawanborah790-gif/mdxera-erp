@@ -35,6 +35,7 @@ import TransactionDetailModal from './components/TransactionDetailModal';
 import PurchaseDetailModal from './components/PurchaseDetailModal';
 import PrintPurchaseOrderModal from './components/PrintPurchaseOrderModal';
 import PrintableReportModal from './components/PrintableReportModal';
+import MobileCaptureView from './components/MobileCaptureView';
 import TallyPrompt from './components/TallyPrompt';
 import * as storage from './services/storageService';
 import { supabase } from './services/supabaseClient';
@@ -798,6 +799,14 @@ const App: React.FC = () => {
                 />;
         }
     };
+
+    const queryParams = new URLSearchParams(window.location.search);
+    const mobileSyncSession = queryParams.get('sync_session');
+    const mobileSyncOrgId = queryParams.get('org_id');
+
+    if (mobileSyncSession && mobileSyncOrgId) {
+        return <MobileCaptureView sessionId={mobileSyncSession} orgId={mobileSyncOrgId} />;
+    }
 
     if (!currentUser && !isAppLoading) {
         return <Auth onLogin={handleLogin} />;
