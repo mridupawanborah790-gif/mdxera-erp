@@ -10,14 +10,17 @@ export const getAiClient = (): GoogleGenAI => {
     // Support common key names used in this repo and Vite/client deployment variants.
     const env = (import.meta as any).env || {};
     const rawApiKey =
+        env.VITE_GEMINI_PRIMARY_API_KEY ||
         env.VITE_GEMINI_API_KEY ||
         env.VITE_API_KEY ||
         env.VITE_GOOGLE_API_KEY ||
         env.VITE_GOOGLE_GENAI_API_KEY ||
+        process.env.VITE_GEMINI_PRIMARY_API_KEY ||
         process.env.VITE_GEMINI_API_KEY ||
         process.env.VITE_API_KEY ||
         process.env.VITE_GOOGLE_API_KEY ||
         process.env.VITE_GOOGLE_GENAI_API_KEY ||
+        process.env.GEMINI_PRIMARY_API_KEY ||
         process.env.GOOGLE_API_KEY ||
         process.env.GOOGLE_GENAI_API_KEY ||
         process.env.GEMINI_API_KEY ||
@@ -28,15 +31,19 @@ export const getAiClient = (): GoogleGenAI => {
         .trim()
         .replace(/^['"]|['"]$/g, '')
         .replace(/^vite_gemini_api_key[-:=\s]*/i, '')
+        .replace(/^gemini_primary_api_key[-:=\s]*/i, '')
         .replace(/^gemini_api_key[-:=\s]*/i, '')
         .replace(/^google_api_key[-:=\s]*/i, '');
 
     if (!normalizedKey) {
-        throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY (or VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
+        throw new Error("Gemini API key missing. Set VITE_GEMINI_PRIMARY_API_KEY (or VITE_GEMINI_API_KEY / VITE_GOOGLE_API_KEY) in .env.local and restart the app.");
     }
 
     return new GoogleGenAI({ apiKey: normalizedKey });
 };
+
+
+const PRIMARY_TEXT_MODEL = 'gemini-1.5-flash';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -124,10 +131,12 @@ Always prioritize pharmaceutical accuracy and professional standard operating pr
 export const getAiInsights = async (summary: any): Promise<string[]> => {
     try {
         const prompt = `Analyze this pharmacy data and provide 3 brief actionable insights in a JSON array of strings: ${JSON.stringify(summary)}`;
-        const response = await generateWithModelFallback(PRIMARY_TEXT_MODELS, {
+        const response = await generateWithRetry(PRIMARY_TEXT_MODEL, {
             contents: prompt,
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
+                temperature: 0.1,
+                topP: 0.9,
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.ARRAY,
@@ -193,14 +202,21 @@ export const extractPurchaseDetailsFromBill = async (
             2. AGGREGATE ALL ITEMS: Extract every single item from EVERY page. Do not stop after the first page. Combine them into a single list.
             3. CONSISTENT METADATA: Use the supplier name, GST, invoice number, and date from the best-quality page (usually the first).
              
+            OCR QUALITY RULES (MANDATORY):
+            4. Read line-items carefully using high OCR attention. Prefer exact text from image.
+            5. For unclear characters, choose the most probable medicine text but do not invent rows.
+            6. Preserve decimals for rate/MRP and parse discounts/schemes as numeric percentages.
+
             Return ONLY valid JSON following the schema.
         `;
 
         // Try multiple model names because availability can differ by project/region.
-        const response = await generateWithModelFallback(['gemini-1.5-flash', 'gemini-1.5-pro'], {
+        const response = await generateWithRetry(PRIMARY_TEXT_MODEL, {
             contents: { parts: [...fileParts, { text: prompt }] },
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
+                temperature: 0.1,
+                topP: 0.9,
                 responseMimeType: "application/json"
             }
         });
@@ -255,7 +271,7 @@ export const extractPurchaseDetailsFromBill = async (
         } else if (apiError.includes('safety')) {
             errorMessage = "Document content was flagged by AI safety filters.";
         } else if (rawError.includes('model') && (rawError.includes('not found') || rawError.includes('unsupported') || rawError.includes('invalid'))) {
-            errorMessage = "Gemini model is not available for this API key/project. Enable Gemini API in Google AI Studio and use a supported key.";
+            errorMessage = "Gemini model is not available for this API key/project. This app uses model gemini-1.5-flash. Enable Gemini API in Google AI Studio and ensure this model is allowed for your key/project.";
         } else {
             errorMessage = `${errorMessage} Technical details: ${parseAiError(error)}`;
         }
@@ -284,8 +300,8 @@ export const extractPrescription = async (
             Return ONLY valid JSON.
         `;
 
-        // Switched to gemini-3-flash-preview and disabled thinking budget for high-speed OCR/extraction
-        const response = await generateWithModelFallback(PRIMARY_TEXT_MODELS, {
+        // Use primary flash model for consistent, fast OCR/extraction
+        const response = await generateWithRetry(PRIMARY_TEXT_MODEL, {
             contents: {
                 parts: [
                     { inlineData: { mimeType: file.mimeType, data: file.data } },
@@ -294,6 +310,8 @@ export const extractPrescription = async (
             },
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
+                temperature: 0.1,
+                topP: 0.9,
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
@@ -362,10 +380,12 @@ export const generatePromotionalImage = async (prompt: string, logoUrl?: string)
 
 export const generateCaptionsForImage = async (prompt: string): Promise<string[]> => {
     try {
-        const response = await generateWithModelFallback(PRIMARY_TEXT_MODELS, {
+        const response = await generateWithRetry(PRIMARY_TEXT_MODEL, {
             contents: `Write 3 professional social media captions for this promo: "${prompt}". JSON array of strings.`,
             config: {
                 systemInstruction: SYSTEM_PERSONALITY,
+                temperature: 0.1,
+                topP: 0.9,
                 responseMimeType: "application/json",
                 responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
             },
