@@ -11,7 +11,7 @@ import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchSupplierProductMaps, generateUUID, saveData } from '../services/storageService';
+import { fetchSupplierProductMaps, generateUUID, listenForSyncMessage, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
@@ -287,7 +287,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             const payload = {
                 purchaseSerialId: purchaseSerialId!,
-                Supplier,
+                supplier: Supplier,
                 invoiceNumber: invoiceNumber.trim(),
                 date,
                 items: calculatedTotals.itemsWithCalculations,
@@ -491,18 +491,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         });
     };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files; if (!files || files.length === 0) return;
-        console.log(`MDXERA AI: Starting extraction for ${files.length} pages.`);
+    const processAiExtraction = useCallback(async (fileInputs: FileInput[]) => {
+        if (!fileInputs.length) return;
         setIsUploading(true);
         try {
-            const fileInputs = [];
-            for (let i = 0; i < files.length; i++) {
-                const base64 = await new Promise<string>((resolve) => {
-                    const reader = new FileReader(); reader.onloadend = () => resolve((reader.result as string).split(',')[1]); reader.readAsDataURL(files[i]);
-                });
-                fileInputs.push({ mimeType: files[i].type, data: base64 });
-            }
             const bill = await extractPurchaseDetailsFromBill(fileInputs, currentUser?.pharmacy_name || '');
             if (bill.error) addNotification(bill.error, 'error');
             else {
@@ -525,7 +517,27 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 }
                 addNotification("AI Extracted bill details successfully.", "success");
             }
-        } catch (err: any) { addNotification("AI Extraction failed. Please ensure all uploaded images are clear, properly aligned, and belong to the same bill. Make sure the supplier name and bill number are visible and consistent across all pages. Then re-upload and try again.", "error"); } finally { setIsUploading(false); }
+        } catch (err: any) {
+            addNotification(`AI Extraction failed: ${parseNetworkAndApiError(err)}`, "error");
+        } finally { setIsUploading(false); }
+    }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, currentsupplier, date]);
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+        console.log(`MDXERA AI: Starting extraction for ${files.length} pages.`);
+
+        const fileInputs: FileInput[] = [];
+        for (let i = 0; i < files.length; i++) {
+            const base64 = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                reader.readAsDataURL(files[i]);
+            });
+            fileInputs.push({ mimeType: files[i].type || 'image/jpeg', data: base64 });
+        }
+
+        await processAiExtraction(fileInputs);
     };
 
     const handleSupplierSelect = (d: Supplier) => {
@@ -537,6 +549,26 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setSupplierNameError(null);
         invoiceNumberInputRef.current?.focus();
     };
+
+
+    useEffect(() => {
+        if (!mobileSyncSessionId || isManualEntry || disableAIInput) return;
+
+        const channel = listenForSyncMessage(mobileSyncSessionId, async (payload: any) => {
+            try {
+                if (!payload?.image) return;
+                await processAiExtraction([{ mimeType: payload?.mimeType || 'image/jpeg', data: payload.image }]);
+                setMobileSyncSessionId(null);
+                addNotification("Image received from mobile and extracted successfully.", "success");
+            } catch (error: any) {
+                addNotification(`Mobile sync processing failed: ${parseNetworkAndApiError(error)}`, "error");
+            }
+        });
+
+        return () => {
+            try { channel?.unsubscribe?.(); } catch (_) { }
+        };
+    }, [mobileSyncSessionId, isManualEntry, disableAIInput, processAiExtraction, setMobileSyncSessionId, addNotification]);
 
     const handleSupplierKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'ArrowDown') {
