@@ -52,6 +52,9 @@ export const parseNetworkAndApiError = (error: any): string => {
     if (message.includes('model is not available') || message.includes('unsupported model') || message.includes('not found for api version')) {
         return "Selected Gemini model is unavailable for this key/project. Set a supported model via VITE_GEMINI_MODEL (for example gemini-flash-lite-latest), and ensure Gemini API is enabled for the same Google project as your key.";
     }
+    if (message.includes('ocr function failed (404)') || message.includes('/functions/v1/gemini_ocr') || message.includes('gemini_ocr')) {
+        return "AI extraction service is not deployed or reachable. Deploy Supabase Edge Function 'gemini_ocr' and verify VITE_SUPABASE_URL points to the correct project.";
+    }
     if (message.includes('500') || message.includes('internal server error')) {
         return "AI service temporarily unavailable. Please try again later.";
     }

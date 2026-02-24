@@ -24,7 +24,7 @@ const getPreferredGeminiModel = (): string => {
     return String(env.VITE_GEMINI_MODEL || env.VITE_GOOGLE_MODEL || 'gemini-flash-lite-latest').trim();
 };
 
-const callGeminiOcr = async (userPrompt: string): Promise<any> => {
+const callGeminiOcr = async (userPrompt: string, images?: FileInput[]): Promise<any> => {
     const model = getPreferredGeminiModel();
     const response = await fetch(`${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/gemini_ocr`, {
         method: 'POST',
@@ -33,7 +33,7 @@ const callGeminiOcr = async (userPrompt: string): Promise<any> => {
             'Authorization': `Bearer ${(import.meta as any).env.VITE_SUPABASE_ANON_KEY}`,
             'apikey': (import.meta as any).env.VITE_SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ prompt: userPrompt, model }),
+        body: JSON.stringify({ prompt: userPrompt, model, images: images || [] }),
     });
 
     if (!response.ok) {
@@ -89,14 +89,7 @@ export const extractPurchaseDetailsFromBill = async (
             Return ONLY valid JSON.
         `;
 
-        const extractedInvoiceText = [
-            prompt,
-            '',
-            'INVOICE_IMAGE_DATA (base64 by page):',
-            ...inputFiles.map((file, index) => `Page ${index + 1} (${file.mimeType}): ${file.data}`),
-        ].join('\n');
-
-        const parsed = await callGeminiOcr(extractedInvoiceText);
+        const parsed = await callGeminiOcr(prompt, inputFiles);
         const root = parsed?.data && typeof parsed.data === 'object' ? parsed.data : parsed;
         const rawItems = Array.isArray(root?.items) ? root.items : [];
 
