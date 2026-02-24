@@ -95,6 +95,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     organizationId,
 }, ref) => {
     const isEditing = !!purchaseToEdit;
+    const isFieldVisible = useCallback((fieldId: string) => configurations.modules?.purchase?.fields?.[fieldId] !== false, [configurations.modules]);
 
     // Standard State
     const [Supplier, setSupplier] = useState('');
@@ -657,12 +658,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
                                     <th className="p-2 border-r border-gray-400 text-left w-72">Name of Item</th>
                                     <th className="p-2 border-r border-gray-400 text-left w-24">MFR</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>
+                                    {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
                                     <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-20">Exp.</th>
                                     <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-16">Qty</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">Free</th>
+                                    {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">FREE</th>}
                                     <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-16">Sch%</th>
@@ -693,12 +694,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             />
                                         </td>
                                         <td className={`p-1 border-r border-gray-400 ${uniformTextStyle}`}><input type="text" id={`mfr-${p.id}`} value={p.brand} onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)} className={`w-full bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        {isFieldVisible('colPack') && (
+                                            <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        )}
                                         <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center text-emerald-600 font-bold ${uniformTextStyle}`}><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        {isFieldVisible('colFree') && (
+                                            <td className={`p-1 border-r border-gray-400 text-center text-emerald-600 font-bold ${uniformTextStyle}`}><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        )}
                                         <td className={`p-1 border-r border-gray-400 text-right font-bold text-blue-900 ${uniformTextStyle}`}><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" value={p.discountPercent || ''} onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
