@@ -34,7 +34,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
     const [endDate, setEndDate] = useState('');
     const [rmpFilter, setRmpFilter] = useState('all');
     const [paymentModeFilter, setPaymentModeFilter] = useState('all');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('completed');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
     const [sortConfig, setSortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' }>({ key: 'date', direction: 'descending' });
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -127,7 +127,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
             </div>
 
             <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
-                <Card className="p-3 tally-border !rounded-none grid grid-cols-1 md:grid-cols-6 gap-4 items-end bg-white">
+                <Card className="p-3 tally-border !rounded-none grid grid-cols-1 md:grid-cols-7 gap-4 items-end bg-white">
                     <div className="md:col-span-2">
                         <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Search Vouchers</label>
                         <input type="text" placeholder="Bill ID, Customer..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold focus:bg-yellow-50 outline-none" />
@@ -139,6 +139,18 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                     <div>
                         <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">To Date</label>
                         <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Status</label>
+                        <select
+                            value={statusFilter}
+                            onChange={e => setStatusFilter(e.target.value as 'all' | 'completed' | 'cancelled')}
+                            className="w-full border border-gray-400 p-2 text-sm font-bold outline-none bg-white"
+                        >
+                            <option value="all">All Orders</option>
+                            <option value="cancelled">Cancelled Orders</option>
+                            <option value="completed">Completed Orders</option>
+                        </select>
                     </div>
                     <div className="flex gap-2 md:col-span-2">
                         <button 
@@ -164,6 +176,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                                     <th className="p-2 border-r border-gray-400 text-left">Customer Name</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-24">Items</th>
                                     <th className="p-2 border-r border-gray-400 text-right w-32">Amount</th>
+                                    <th className="p-2 border-r border-gray-400 text-center w-28">Status</th>
                                     <th className="p-2 text-right">Actions</th>
                                 </tr>
                             </thead>
@@ -176,6 +189,11 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                                         <td className="p-2 border-r border-gray-200 font-bold uppercase">{tx.customerName}</td>
                                         <td className="p-2 border-r border-gray-200 text-center font-bold">{(tx.items || []).length}</td>
                                         <td className="p-2 border-r border-gray-400 text-right font-black">₹{(tx.total || 0).toFixed(2)}</td>
+                                        <td className="p-2 border-r border-gray-200 text-center">
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${tx.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                                                {tx.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+                                            </span>
+                                        </td>
                                         <td className="p-2 text-right">
                                             <div className="flex justify-end gap-2">
                                                 <button onClick={() => onViewSale(tx)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
