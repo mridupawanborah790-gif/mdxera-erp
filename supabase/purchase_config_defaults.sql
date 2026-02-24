@@ -23,6 +23,7 @@ BEGIN
                 "colBrand": true,
                 "colBatch": true,
                 "colExpiry": true,
+                "colPack": true,
                 "colMrp": true,
                 "colQty": true,
                 "colPurRate": true,
