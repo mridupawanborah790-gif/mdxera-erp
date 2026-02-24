@@ -1,10 +1,6 @@
-
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { LiveServerMessage, Modality, Blob as GenaiBlob, Content } from '@google/genai';
+import React, { useState, useRef, useEffect } from 'react';
 import type { ChatMessage, InventoryItem, Transaction, Purchase, Distributor, Customer, Medicine } from '../types';
-import { encode, decode, decodeAudioData } from '../utils/audio';
-import { getAiClient } from '../services/geminiService';
-import { parseNetworkAndApiError } from '../utils/error';
+import { askAiAssistant } from '../services/geminiService';
 
 const AiIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12 2.69l.346.666L19.5 15.3l-6.846 4.01L6.5 15.3l7.154-11.944z"/><path d="M12 22v-6"/><path d="M12 8V2"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m4.93 19.07 4.24-4.24"/></svg>
@@ -23,98 +19,44 @@ interface ChatbotProps {
     appData: AppData;
 }
 
-
 const Chatbot: React.FC<ChatbotProps> = ({ appData }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [isListening, setIsListening] = useState(false);
-    const [transcription, setTranscription] = useState<{input: string, output: string}>({input: '', output: ''});
-
-    const sessionPromiseRef = useRef<Promise<any> | null>(null);
-    const mediaStreamRef = useRef<MediaStream | null>(null);
-    const audioContextRef = useRef<AudioContext | null>(null);
-    const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-    const outputAudioContextRef = useRef<AudioContext | null>(null);
-    const nextStartTimeRef = useRef<number>(0);
-    const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const transcriptionRef = useRef({input: '', output: ''});
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
-
-    useEffect(scrollToBottom, [messages, transcription]);
 
     useEffect(() => {
-        setMessages([
-            {
-                role: 'model',
-                parts: [{ text: "Hello! Welcome to MDXERA ERP! I am your AI Assistant, here to help you manage your pharmacy efficiently. How can I help you today?" }]
-            }
-        ]);
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
+
+    useEffect(() => {
+        setMessages([{ role: 'model', parts: [{ text: 'Hello! Welcome to MDXERA ERP! How can I help you today?' }] }]);
     }, []);
-    
+
     const handleSendMessage = async (textOverride?: string) => {
         const text = textOverride || inputValue;
         if (!text.trim() || isLoading) return;
-        
-        const ai = getAiClient(); 
-        if (!ai) {
-            setMessages(prev => [...prev, { role: 'model', parts: [{ text: "The AI configuration is currently missing. Please contact support." }] }]);
-            return;
-        }
 
         if (!textOverride) setInputValue('');
-        
         const userMessage: ChatMessage = { role: 'user', parts: [{ text }] };
         const updatedMessages = [...messages, userMessage];
         setMessages(updatedMessages);
         setIsLoading(true);
 
-        const systemInstruction = `You are the MDXERA ERP Assistant. You are a professional, efficient, and expert assistant for the MDXERA ERP Pharmacy system. Answer based ONLY on the provided pharmacy data. Stay professional and helpful.`;
-        
-        const dataContext = `This is the pharmacy's current state in JSON: ${JSON.stringify(appData)}`;
-
-        const primeUser: Content = { role: 'user', parts: [{ text: dataContext }] };
-        const primeModel: Content = { role: 'model', parts: [{ text: 'I have analyzed the current data state. I am ready to assist with your queries.' }] };
-        
-        const history: Content[] = updatedMessages.map(msg => ({
-            role: msg.role,
-            parts: msg.parts.map(p => ({ text: p.text })),
-        }));
-        
-        const contents: Content[] = [primeUser, primeModel, ...history.slice(-10)];
-
         try {
-            const stream = await ai.models.generateContentStream({
-                model: 'gemini-3-flash-preview',
-                contents,
-                config: { systemInstruction },
-            });
-
-            let currentResponse: ChatMessage = { role: 'model', parts: [{ text: '' }] };
-            setMessages(prev => [...prev, currentResponse]);
-
-            let fullText = '';
-            for await (const chunk of stream) {
-                fullText += chunk.text;
-                currentResponse = { ...currentResponse, parts: [{ text: fullText }] };
-                setMessages(prev => {
-                    const newMessages = [...prev];
-                    newMessages[newMessages.length - 1] = currentResponse;
-                    return newMessages;
-                });
-            }
-        } catch (error) {
-            setMessages(prev => [...prev, { role: 'model', parts: [{ text: "I encountered an error while processing your request. Please try again." }] }]);
+            const dataContext = `Pharmacy state JSON: ${JSON.stringify(appData)}`;
+            const history = updatedMessages.slice(-10).map(m => `${m.role}: ${m.parts[0]?.text || ''}`).join('\n');
+            const userPrompt = `You are MDXERA ERP assistant. Use only provided data context.\n${dataContext}\nConversation:\n${history}\nassistant:`;
+            const answer = await askAiAssistant(userPrompt);
+            setMessages(prev => [...prev, { role: 'model', parts: [{ text: answer || 'I could not generate a response right now.' }] }]);
+        } catch {
+            setMessages(prev => [...prev, { role: 'model', parts: [{ text: 'I encountered an error while processing your request. Please try again.' }] }]);
         } finally {
             setIsLoading(false);
         }
     };
-    
+
     useEffect(() => {
         const handleAiTrigger = (e: any) => {
             if (e.detail && e.detail.prompt) {
@@ -124,100 +66,7 @@ const Chatbot: React.FC<ChatbotProps> = ({ appData }) => {
         };
         window.addEventListener('trigger-ai-assistant', handleAiTrigger);
         return () => window.removeEventListener('trigger-ai-assistant', handleAiTrigger);
-    }, [messages]);
-
-    const stopListening = useCallback(() => {
-        sessionPromiseRef.current?.then(session => session.close());
-        mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-        scriptProcessorRef.current?.disconnect();
-        audioContextRef.current?.close();
-        for (const source of sourcesRef.current.values()) { source.stop(); }
-        sourcesRef.current.clear();
-        nextStartTimeRef.current = 0;
-        sessionPromiseRef.current = null;
-        setIsListening(false);
-        setTranscription({input: '', output: ''});
-        transcriptionRef.current = {input: '', output: ''};
-    }, []);
-
-    const startListening = useCallback(async () => {
-        try {
-            const ai = getAiClient();
-            if (!ai) return;
-
-            if (!outputAudioContextRef.current) {
-                outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-            }
-
-            sessionPromiseRef.current = ai.live.connect({
-                model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-                config: {
-                    responseModalities: [Modality.AUDIO],
-                    inputAudioTranscription: {},
-                    outputAudioTranscription: {},
-                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' }}},
-                    systemInstruction: "You are the MDXERA ERP Assistant. Be helpful, professional, and efficient."
-                },
-                callbacks: {
-                    onopen: async () => {
-                        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        const context = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-                        audioContextRef.current = context;
-                        const source = context.createMediaStreamSource(mediaStreamRef.current);
-                        const scriptProcessor = context.createScriptProcessor(4096, 1, 1);
-                        scriptProcessorRef.current = scriptProcessor;
-                        scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-                            const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
-                            const pcmBlob: GenaiBlob = {
-                                data: encode(new Uint8Array(new Int16Array(inputData.map(x => x * 32768)).buffer)),
-                                mimeType: 'audio/pcm;rate=16000',
-                            };
-                            sessionPromiseRef.current?.then((session) => session.sendRealtimeInput({ media: pcmBlob }));
-                        };
-                        source.connect(scriptProcessor);
-                        scriptProcessor.connect(context.destination);
-                    },
-                    onmessage: async (message: LiveServerMessage) => {
-                        const context = outputAudioContextRef.current;
-                        if (!context) return;
-                        if (message.serverContent?.outputTranscription) transcriptionRef.current.output += message.serverContent.outputTranscription.text;
-                        if (message.serverContent?.inputTranscription) transcriptionRef.current.input += message.serverContent.inputTranscription.text;
-                        setTranscription({ ...transcriptionRef.current });
-                        if (message.serverContent?.turnComplete) {
-                            const fullInput = transcriptionRef.current.input;
-                            const fullOutput = transcriptionRef.current.output;
-                            if (fullInput.trim()) setMessages(prev => [...prev, { role: 'user', parts: [{ text: fullInput }] }]);
-                            if (fullOutput.trim()) setMessages(prev => [...prev, { role: 'model', parts: [{ text: fullOutput }] }]);
-                            transcriptionRef.current = { input: '', output: '' };
-                            setTranscription({ input: '', output: '' });
-                        }
-                        const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                        if (base64Audio) {
-                            nextStartTimeRef.current = Math.max(nextStartTimeRef.current, context.currentTime);
-                            const audioBuffer = await decodeAudioData(decode(base64Audio), context, 24000, 1);
-                            const source = context.createBufferSource();
-                            source.buffer = audioBuffer;
-                            source.connect(context.destination);
-                            source.addEventListener('ended', () => { sourcesRef.current.delete(source); });
-                            source.start(nextStartTimeRef.current);
-                            nextStartTimeRef.current += audioBuffer.duration;
-                            sourcesRef.current.add(source);
-                        }
-                    },
-                    onerror: (e) => { stopListening(); },
-                    onclose: () => { stopListening(); }
-                }
-            });
-        } catch (error) {
-            setIsListening(false);
-            setMessages(prev => [...prev, { role: 'model', parts: [{ text: "Microphone access failed. Please ensure permissions are granted." }] }]);
-        }
-    }, [stopListening]);
-    
-    const handleMicClick = () => {
-        if (isListening) stopListening();
-        else { setIsListening(true); startListening(); }
-    };
+    }, [messages, isLoading]);
 
     return (
         <>
@@ -233,11 +82,9 @@ const Chatbot: React.FC<ChatbotProps> = ({ appData }) => {
                         <AiIcon className="w-5 h-5 text-accent"/>
                         <h3 className="font-black text-xs uppercase tracking-widest">MDXERA ERP Assistant</h3>
                     </div>
-                    <button onClick={() => setIsOpen(false)} className="text-white hover:text-accent">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    </button>
+                    <button onClick={() => setIsOpen(false)} className="text-white hover:text-accent">✕</button>
                 </div>
-                
+
                 <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-app-bg font-normal text-app-text-primary">
                     {messages.map((msg, index) => (
                         <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -252,21 +99,16 @@ const Chatbot: React.FC<ChatbotProps> = ({ appData }) => {
 
                 <div className="p-4 border-t border-app-border bg-white dark:bg-zinc-900 rounded-none">
                     <div className="flex items-center space-x-2">
-                        <input 
-                            type="text" 
+                        <input
+                            type="text"
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                            placeholder={isListening ? 'Listening...' : 'Ask about stock, sales or analysis...'}
+                            placeholder="Ask about stock, sales or analysis..."
                             className="flex-1 px-4 py-2 border border-app-border rounded-none bg-input-bg text-sm focus:ring-2 focus:ring-primary/20 outline-none font-bold uppercase"
-                            disabled={isLoading || isListening}
+                            disabled={isLoading}
                         />
-                        <button onClick={handleMicClick} className={`p-2 rounded-none transition-colors ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-primary hover:bg-gray-100'}`} disabled={isLoading}>
-                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-                        </button>
-                        <button onClick={() => handleSendMessage()} disabled={isLoading || isListening || !inputValue.trim()} className="p-2 text-white bg-primary rounded-none hover:bg-primary-dark shadow-md transition-all">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                        </button>
+                        <button onClick={() => handleSendMessage()} disabled={isLoading || !inputValue.trim()} className="p-2 text-white bg-primary rounded-none hover:bg-primary-dark shadow-md transition-all">➤</button>
                     </div>
                 </div>
             </div>

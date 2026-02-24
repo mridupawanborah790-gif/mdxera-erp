@@ -767,6 +767,7 @@ const POS = forwardRef<any, POSProps>(({
                                     <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
                                     {isFieldVisible('colName') && <th className="p-2 border-r border-gray-400 text-left w-72">Name of Item</th>}
                                     {isFieldVisible('colBatch') && <th className="p-2 border-r border-gray-400 text-center w-32">Batch / Exp</th>}
+                                    {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
                                     {isFieldVisible('colMrp') && <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>}
                                     {isFieldVisible('colPQty') && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
                                     {isFieldVisible('colLQty') && <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>}
@@ -812,6 +813,7 @@ const POS = forwardRef<any, POSProps>(({
                                                     <span className="block text-[10px] text-red-600 font-bold leading-tight">Exp: {item.expiry || 'N/A'}</span>
                                                 </td>
                                             )}
+                                            {isFieldVisible('colPack') && <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>{item.unitsPerPack || 1}</td>}
                                             {isFieldVisible('colMrp') && <td className={`p-2 border-r border-gray-200 text-right text-gray-600 ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colPQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
