@@ -181,6 +181,12 @@ export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
 
     const currentInventory = await fetchInventory(user);
 
+    const applyTierRates = (inv: InventoryItem, src: PurchaseItem) => {
+        if (src.rateA !== undefined) inv.rateA = Number(src.rateA || 0);
+        if (src.rateB !== undefined) inv.rateB = Number(src.rateB || 0);
+        if (src.rateC !== undefined) inv.rateC = Number(src.rateC || 0);
+    };
+
     for (const [key, change] of stockChanges.entries()) {
         let existingInv: InventoryItem | undefined;
 
@@ -199,6 +205,7 @@ export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
 
         if (existingInv) {
             existingInv.stock = Number(existingInv.stock || 0) + change.units;
+            applyTierRates(existingInv, change.item);
             await saveData('inventory', existingInv, user);
         } else {
             const uPP = change.item.unitsPerPack || 1;
@@ -216,6 +223,9 @@ export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
                 mrp: change.item.mrp,
                 gstPercent: change.item.gstPercent || 0,
                 hsnCode: change.item.hsnCode || '',
+                rateA: change.item.rateA,
+                rateB: change.item.rateB,
+                rateC: change.item.rateC,
                 minStockLimit: 10,
                 is_active: true
             };
@@ -233,6 +243,11 @@ export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
     // To properly adjust stock, we calculate the diff between original and new
     // We reverse the original stock added, then add the new stock
     const currentInventory = await fetchInventory(user);
+    const applyTierRates = (inv: InventoryItem, src: PurchaseItem) => {
+        if (src.rateA !== undefined) inv.rateA = Number(src.rateA || 0);
+        if (src.rateB !== undefined) inv.rateB = Number(src.rateB || 0);
+        if (src.rateC !== undefined) inv.rateC = Number(src.rateC || 0);
+    };
 
     // map key: identification string
     const itemMap = new Map<string, { oldUnits: number, newUnits: number, item: PurchaseItem }>();
@@ -277,6 +292,7 @@ export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
 
         if (invItem) {
             invItem.stock = Number(invItem.stock || 0) + diff;
+            applyTierRates(invItem, data.item);
             await saveData('inventory', invItem, user);
         } else if (diff > 0) {
             // New inventory item created during update
@@ -295,6 +311,9 @@ export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
                 mrp: data.item.mrp,
                 gstPercent: data.item.gstPercent || 0,
                 hsnCode: data.item.hsnCode || '',
+                rateA: data.item.rateA,
+                rateB: data.item.rateB,
+                rateC: data.item.rateC,
                 minStockLimit: 10,
                 is_active: true
             };
