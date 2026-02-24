@@ -26,6 +26,9 @@ const getPreferredGeminiModel = (): string => {
 
 const callGeminiOcr = async (userPrompt: string, images?: FileInput[]): Promise<any> => {
     const model = getPreferredGeminiModel();
+    const payload: any = { prompt: userPrompt, model };
+    if (images && images.length > 0) payload.images = images;
+
     const response = await fetch(`${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/gemini_ocr`, {
         method: 'POST',
         headers: {
@@ -33,7 +36,7 @@ const callGeminiOcr = async (userPrompt: string, images?: FileInput[]): Promise<
             'Authorization': `Bearer ${(import.meta as any).env.VITE_SUPABASE_ANON_KEY}`,
             'apikey': (import.meta as any).env.VITE_SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ prompt: userPrompt, model, images: images || [] }),
+        body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -89,7 +92,23 @@ export const extractPurchaseDetailsFromBill = async (
             Return ONLY valid JSON.
         `;
 
-        const parsed = await callGeminiOcr(prompt, inputFiles);
+        let parsed: any;
+        try {
+            parsed = await callGeminiOcr(prompt, inputFiles);
+        } catch (primaryError: any) {
+            const primaryMessage = String(primaryError?.message || '').toLowerCase();
+            const shouldFallbackToLegacyPrompt = primaryMessage.includes('400') || primaryMessage.includes('bad request') || primaryMessage.includes('invalid') || primaryMessage.includes('schema');
+            if (!shouldFallbackToLegacyPrompt) throw primaryError;
+
+            const extractedInvoiceText = [
+                prompt,
+                '',
+                'INVOICE_IMAGE_DATA (base64 by page):',
+                ...inputFiles.map((file, index) => `Page ${index + 1} (${file.mimeType}): ${file.data}`),
+            ].join('\n');
+            parsed = await callGeminiOcr(extractedInvoiceText);
+        }
+
         const root = parsed?.data && typeof parsed.data === 'object' ? parsed.data : parsed;
         const rawItems = Array.isArray(root?.items) ? root.items : [];
 
