@@ -209,6 +209,10 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                                 <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Tier B Rate</label>
                                 <input type="number" name="rateB" value={product.rateB || 0} onChange={handleChange} className="w-full tally-input !text-base" />
                             </div>
+                            <div>
+                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Tier C Rate</label>
+                                <input type="number" name="rateC" value={product.rateC || 0} onChange={handleChange} className="w-full tally-input !text-base" />
+                            </div>
                         </div>
                     </div>
 

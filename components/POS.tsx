@@ -12,7 +12,7 @@ import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, Regi
 import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
-import { getOutstandingBalance, parseNumber } from '../utils/helpers';
+import { formatExpiryToMMYY, getOutstandingBalance, parseNumber } from '../utils/helpers';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -108,6 +108,24 @@ const POS = forwardRef<any, POSProps>(({
     const strictStock = configurations.displayOptions?.strictStock ?? false;
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
+    const isValidExpiry = useCallback((expiry: string) => /^(0[1-9]|1[0-2])\/\d{2}$/.test(expiry), []);
+
+    const formatExpiryForInput = useCallback((expiry: string | undefined | null) => {
+        if (!expiry) return '';
+        const formatted = formatExpiryToMMYY(expiry);
+        return isValidExpiry(formatted) ? formatted : '';
+    }, [isValidExpiry]);
+
+    const normalizeExpiryInput = useCallback((value: string) => {
+        const digits = value.replace(/\D/g, '').slice(0, 4);
+        if (digits.length <= 2) return digits;
+        return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    }, []);
+
+    const isValidRateInput = useCallback((value: string) => {
+        if (value === '') return true;
+        return /^\d{0,6}(\.\d{0,2})?$/.test(value);
+    }, []);
 
     const totals = useMemo(() => {
         let gross = 0, tradeDiscount = 0, tax = 0, schemeTotal = 0;
@@ -482,7 +500,7 @@ const POS = forwardRef<any, POSProps>(({
             discountPercent: selectedCustomer?.defaultDiscount || 0,
             itemFlatDiscount: 0,
             batch: batch.batch || 'NEW-BATCH',
-            expiry: batch.expiry ? String(batch.expiry) : 'N/A',
+            expiry: formatExpiryForInput(batch.expiry ? String(batch.expiry) : ''),
             rate: rateValue,
             unitsPerPack: batch.unitsPerPack || 1
         };
@@ -511,10 +529,21 @@ const POS = forwardRef<any, POSProps>(({
         }, 50);
     };
 
-    const handleUpdateCartItem = (id: string, field: keyof BillItem, value: any) => {
+    const handleUpdateCartItem = useCallback((id: string, field: keyof BillItem, value: any) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === id) {
                 const updated = { ...item, [field]: value };
+                if (field === 'expiry') {
+                    updated.expiry = normalizeExpiryInput(String(value || ''));
+                    return updated;
+                }
+                if (field === 'rate') {
+                    const rateText = String(value || '');
+                    if (!isValidRateInput(rateText)) return item;
+                    const parsedRate = rateText === '' ? 0 : (parseFloat(rateText) || 0);
+                    updated.rate = Math.min(parsedRate, 999999.99);
+                    return updated;
+                }
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
                     (updated as any)[field] = value === '' ? 0 : (parseFloat(value) || 0);
                 }
@@ -522,7 +551,15 @@ const POS = forwardRef<any, POSProps>(({
             }
             return item;
         }));
-    };
+    }, [isValidRateInput, normalizeExpiryInput]);
+
+    const handleExpiryBlur = useCallback((id: string, value: string) => {
+        if (!value) return;
+        if (!isValidExpiry(value)) {
+            addNotification('Expiry must be in MM/YY format with month between 01 and 12.', 'error');
+            setCartItems(prev => prev.map(item => item.id === id ? { ...item, expiry: '' } : item));
+        }
+    }, [addNotification, isValidExpiry]);
 
     const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, schemeTotalQty?: number) => {
         setCartItems(prev => prev.map(item => {
@@ -601,6 +638,7 @@ const POS = forwardRef<any, POSProps>(({
     const handleRowKeyNavigation = useCallback((e: React.KeyboardEvent, id: string) => {
         const fields = [
             `name-${id}`,
+            `expiry-${id}`,
             `qty-p-${id}`,
             `qty-l-${id}`,
             `free-${id}`,
@@ -766,7 +804,8 @@ const POS = forwardRef<any, POSProps>(({
                                 <tr className="text-[10px] font-black uppercase text-gray-600 h-9">
                                     <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
                                     {isFieldVisible('colName') && <th className="p-2 border-r border-gray-400 text-left w-72">Name of Item</th>}
-                                    {isFieldVisible('colBatch') && <th className="p-2 border-r border-gray-400 text-center w-32">Batch / Exp</th>}
+                                    {isFieldVisible('colBatch') && <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>}
+                                    {isFieldVisible('colExpiry') && <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>}
                                     {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
                                     {isFieldVisible('colMrp') && <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>}
                                     {isFieldVisible('colPQty') && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
@@ -810,7 +849,25 @@ const POS = forwardRef<any, POSProps>(({
                                             {isFieldVisible('colBatch') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>
                                                     <span className="block leading-tight">{item.batch || 'N/A'}</span>
-                                                    <span className="block text-[10px] text-red-600 font-bold leading-tight">Exp: {item.expiry || 'N/A'}</span>
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colExpiry') && (
+                                                <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
+                                                    <input
+                                                        id={`expiry-${item.id}`}
+                                                        type="text"
+                                                        value={item.expiry || ''}
+                                                        onChange={e => handleUpdateCartItem(item.id, 'expiry', e.target.value)}
+                                                        onBlur={e => handleExpiryBlur(item.id, e.target.value)}
+                                                        onKeyDown={e => {
+                                                            handleItemKeyDown(e, item.id, idx);
+                                                            handleRowKeyNavigation(e, item.id);
+                                                        }}
+                                                        className="w-full text-center bg-transparent font-normal outline-none"
+                                                        placeholder="MM/YY"
+                                                        maxLength={5}
+                                                        disabled={isReadOnly}
+                                                    />
                                                 </td>
                                             )}
                                             {isFieldVisible('colPack') && <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>{item.unitsPerPack || 1}</td>}
@@ -878,7 +935,10 @@ const POS = forwardRef<any, POSProps>(({
                                                                 handleItemKeyDown(e, item.id, idx);
                                                                 handleRowKeyNavigation(e, item.id);
                                                             }}
-                                                            className="w-16 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed border-gray-300 focus:border-primary" 
+                                                            className="w-24 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed border-gray-300 focus:border-primary" 
+                                                            min="0"
+                                                            max="999999.99"
+                                                            step="0.01"
                                                             disabled={isReadOnly}
                                                         />
                                                     </div>
