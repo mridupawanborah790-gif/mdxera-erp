@@ -29,7 +29,7 @@ BEGIN
             "visible": true,
             "fields": {
                 "colDate": true, "colCustomer": true, "colPhone": true, "colReferred": true,
-                "colName": true, "colBatch": true, "colMrp": true, "colPQty": true, "colLQty": true,
+                "colName": true, "colBatch": true, "colExpiry": true, "colMrp": true, "colPQty": true, "colLQty": true,
                 "colFree": true, "colRate": true, "colDisc": true, "colGst": true,
                 "colSch": true, "colAmount": true, "optPrescription": true,
                 "optBillingCategory": true, "intelHub": true, "intelProfit": true,

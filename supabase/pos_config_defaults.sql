@@ -22,6 +22,7 @@ BEGIN
                 "colReferred": true,
                 "colName": true,
                 "colBatch": true,
+                "colExpiry": true,
                 "colMrp": true,
                 "colQty": true,
                 "colFree": true,
