@@ -354,6 +354,7 @@ export const configurableModules = [
       { id: 'colBrand', name: 'MFR / Brand' },
       { id: 'colBatch', name: 'Batch' },
       { id: 'colExpiry', name: 'Exp.' },
+      { id: 'colPack', name: 'Pack' },
       { id: 'colMrp', name: 'MRP' },
       { id: 'colQty', name: 'Qty' },
       { id: 'colPurRate', name: 'Pur. Rate' },
