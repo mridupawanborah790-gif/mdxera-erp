@@ -129,6 +129,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [activeRateTierRowId, setActiveRateTierRowId] = useState<string | null>(null);
     const [rateTierDraft, setRateTierDraft] = useState({ rateA: '', rateB: '', rateC: '' });
     const [rateTierHandledRows, setRateTierHandledRows] = useState<Set<string>>(new Set());
+    const [selectedRateTierAction, setSelectedRateTierAction] = useState<'skip' | 'save'>('save');
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
@@ -137,6 +138,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const modalSearchInputRef = useRef<HTMLInputElement>(null);
     const searchResultsRef = useRef<HTMLDivElement>(null);
     const lastSourceRef = useRef<string | null>(null);
+    const rateAInputRef = useRef<HTMLInputElement>(null);
+    const rateBInputRef = useRef<HTMLInputElement>(null);
+    const rateCInputRef = useRef<HTMLInputElement>(null);
+    const skipRateButtonRef = useRef<HTMLButtonElement>(null);
+    const saveRateButtonRef = useRef<HTMLButtonElement>(null);
 
     const currentsupplier = useMemo(() => {
         const lowerSupplier = (Supplier || '').toLowerCase().trim();
@@ -538,8 +544,69 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             rateB: row.rateB !== undefined ? String(row.rateB) : (linkedInventory?.rateB !== undefined ? String(linkedInventory.rateB) : ''),
             rateC: row.rateC !== undefined ? String(row.rateC) : (linkedInventory?.rateC !== undefined ? String(linkedInventory.rateC) : ''),
         });
+        setSelectedRateTierAction('save');
         setIsRateTierModalOpen(true);
     }, [inventory, items]);
+
+    useEffect(() => {
+        if (!isRateTierModalOpen) return;
+        setTimeout(() => {
+            rateAInputRef.current?.focus();
+            rateAInputRef.current?.select();
+        }, 0);
+    }, [isRateTierModalOpen]);
+
+    const focusSelectedRateTierAction = useCallback((action: 'skip' | 'save') => {
+        if (action === 'skip') {
+            skipRateButtonRef.current?.focus();
+            return;
+        }
+        saveRateButtonRef.current?.focus();
+    }, []);
+
+    const handleRateInputEnter = (e: React.KeyboardEvent<HTMLInputElement>, nextField?: 'rateB' | 'rateC' | 'action') => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (nextField === 'rateB') {
+            rateBInputRef.current?.focus();
+            rateBInputRef.current?.select();
+            return;
+        }
+        if (nextField === 'rateC') {
+            rateCInputRef.current?.focus();
+            rateCInputRef.current?.select();
+            return;
+        }
+        focusSelectedRateTierAction(selectedRateTierAction);
+    };
+
+    const handleRateActionKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            setSelectedRateTierAction('skip');
+            focusSelectedRateTierAction('skip');
+            return;
+        }
+
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            setSelectedRateTierAction('save');
+            focusSelectedRateTierAction('save');
+            return;
+        }
+
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (selectedRateTierAction === 'save') {
+                saveTierRatesForRow();
+            } else {
+                skipTierRatesForRow();
+            }
+        }
+    };
 
     const closeRateTierModal = () => {
         const currentRowId = activeRateTierRowId;
@@ -1054,34 +1121,58 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         <div>
                             <label className="text-[11px] font-bold uppercase text-gray-500">Rate A</label>
                             <input
+                                ref={rateAInputRef}
                                 type="number"
                                 value={rateTierDraft.rateA}
                                 onChange={(e) => setRateTierDraft(prev => ({ ...prev, rateA: e.target.value }))}
+                                onKeyDown={(e) => handleRateInputEnter(e, 'rateB')}
                                 className="w-full border border-gray-400 p-2 outline-none"
                             />
                         </div>
                         <div>
                             <label className="text-[11px] font-bold uppercase text-gray-500">Rate B</label>
                             <input
+                                ref={rateBInputRef}
                                 type="number"
                                 value={rateTierDraft.rateB}
                                 onChange={(e) => setRateTierDraft(prev => ({ ...prev, rateB: e.target.value }))}
+                                onKeyDown={(e) => handleRateInputEnter(e, 'rateC')}
                                 className="w-full border border-gray-400 p-2 outline-none"
                             />
                         </div>
                         <div>
                             <label className="text-[11px] font-bold uppercase text-gray-500">Rate C</label>
                             <input
+                                ref={rateCInputRef}
                                 type="number"
                                 value={rateTierDraft.rateC}
                                 onChange={(e) => setRateTierDraft(prev => ({ ...prev, rateC: e.target.value }))}
+                                onKeyDown={(e) => handleRateInputEnter(e, 'action')}
                                 className="w-full border border-gray-400 p-2 outline-none"
                             />
                         </div>
                     </div>
                     <div className="flex justify-end gap-2">
-                        <button type="button" onClick={skipTierRatesForRow} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Skip</button>
-                        <button type="button" onClick={saveTierRatesForRow} className="px-4 py-2 bg-primary text-white text-xs font-black uppercase">Save Rates</button>
+                        <button
+                            ref={skipRateButtonRef}
+                            type="button"
+                            onFocus={() => setSelectedRateTierAction('skip')}
+                            onKeyDown={handleRateActionKeyDown}
+                            onClick={skipTierRatesForRow}
+                            className={`px-4 py-2 border text-xs font-black uppercase ${selectedRateTierAction === 'skip' ? 'border-primary text-primary' : 'border-gray-400 text-gray-700'}`}
+                        >
+                            Skip
+                        </button>
+                        <button
+                            ref={saveRateButtonRef}
+                            type="button"
+                            onFocus={() => setSelectedRateTierAction('save')}
+                            onKeyDown={handleRateActionKeyDown}
+                            onClick={saveTierRatesForRow}
+                            className={`px-4 py-2 text-xs font-black uppercase ${selectedRateTierAction === 'save' ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}
+                        >
+                            Save Rates
+                        </button>
                     </div>
                 </div>
             </Modal>
