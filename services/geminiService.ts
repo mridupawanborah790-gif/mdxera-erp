@@ -21,7 +21,7 @@ const toNumeric = (value: any): number | undefined => {
 
 const getPreferredGeminiModel = (): string => {
     const env = (import.meta as any).env || {};
-    return String(env.VITE_GEMINI_MODEL || env.VITE_GOOGLE_MODEL || 'gemini-2.0-flash').trim();
+    return String(env.VITE_GEMINI_MODEL || env.VITE_GOOGLE_MODEL || 'gemini-flash-lite-latest').trim();
 };
 
 const callGeminiOcr = async (userPrompt: string): Promise<any> => {
