@@ -326,6 +326,7 @@ export const configurableModules = [
       { id: 'colReferred', name: 'Referred By' },
       { id: 'colName', name: 'Name of Item' },
       { id: 'colBatch', name: 'Batch' },
+      { id: 'colExpiry', name: 'Expiry' },
       { id: 'colMrp', name: 'MRP' },
       { id: 'colPQty', name: 'P. Qty' },
       { id: 'colLQty', name: 'L. Qty' },
