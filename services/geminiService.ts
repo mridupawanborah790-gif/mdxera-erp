@@ -19,28 +19,65 @@ const toNumeric = (value: any): number | undefined => {
     return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const DEFAULT_GEMINI_MODEL = 'gemini-flash-lite-latest';
+
+const getPreferredGeminiModel = (): string => {
+    const env = (import.meta as any).env || {};
+    return String(env.VITE_GEMINI_MODEL || env.VITE_GOOGLE_MODEL || DEFAULT_GEMINI_MODEL).trim();
+};
+
+const getCandidateGeminiModels = (): string[] => {
+    const preferred = getPreferredGeminiModel();
+    const fallbacks = ['gemini-1.5-flash', 'gemini-2.0-flash'];
+    return [preferred, ...fallbacks].filter((model, idx, arr) => !!model && arr.indexOf(model) === idx);
+};
+
+const isRetryableModelError = (status: number, details: string): boolean => {
+    const lowerDetails = String(details || '').toLowerCase();
+    const modelError =
+        lowerDetails.includes('model is not available') ||
+        lowerDetails.includes('unsupported model') ||
+        lowerDetails.includes('not found for api version') ||
+        (lowerDetails.includes('model') && lowerDetails.includes('not found')) ||
+        (lowerDetails.includes('models/') && lowerDetails.includes('not found'));
+
+    return modelError || status === 404;
+};
+
 const callGeminiOcr = async (userPrompt: string): Promise<any> => {
-    const response = await fetch(`${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/gemini_ocr`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${(import.meta as any).env.VITE_SUPABASE_ANON_KEY}`,
-            'apikey': (import.meta as any).env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({ prompt: userPrompt }),
-    });
+    const models = getCandidateGeminiModels();
+    let lastError: Error | null = null;
 
-    if (!response.ok) {
-        const details = await response.text();
-        throw new Error(`OCR function failed (${response.status}): ${details}`);
+    for (const model of models) {
+        const response = await fetch(`${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/gemini_ocr`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${(import.meta as any).env.VITE_SUPABASE_ANON_KEY}`,
+                'apikey': (import.meta as any).env.VITE_SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({ prompt: userPrompt, model }),
+        });
+
+        if (!response.ok) {
+            const details = await response.text();
+            lastError = new Error(`OCR function failed for model "${model}" (${response.status}): ${details}`);
+            if (isRetryableModelError(response.status, details)) continue;
+            throw lastError;
+        }
+
+        const result = await response.json();
+        if (!result?.success) {
+            const details = String(result?.error || 'OCR function returned unsuccessful response');
+            lastError = new Error(details.includes('model') ? `${details} (model: ${model})` : details);
+            if (isRetryableModelError(400, details)) continue;
+            throw lastError;
+        }
+
+        return result.data;
     }
 
-    const result = await response.json();
-    if (!result?.success) {
-        throw new Error(result?.error || 'OCR function returned unsuccessful response');
-    }
-
-    return result.data;
+    throw lastError || new Error('OCR function failed: no Gemini model could be used for this project/key.');
 };
 
 const getTextFromResultData = (data: any): string => {

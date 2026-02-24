@@ -17,5 +17,6 @@ View your app in AI Studio: https://ai.studio/apps/drive/1-ft3jAPllCaQ4oDvr40B50
    `npm install`
 2. Set `VITE_GEMINI_PRIMARY_API_KEY` in [.env.local](.env.local) to your Gemini API key
    (fallbacks supported in code: `VITE_GEMINI_API_KEY`, `VITE_API_KEY`, `GEMINI_PRIMARY_API_KEY`, `GEMINI_API_KEY`, `API_KEY`)
-3. Run the app:
+3. (Optional) Set `VITE_GEMINI_MODEL` to a model available for your project (default is `gemini-flash-lite-latest`, with automatic fallback retries to `gemini-1.5-flash` and `gemini-2.0-flash`).
+4. Run the app:
    `npm run dev`
