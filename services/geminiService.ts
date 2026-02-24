@@ -1,9 +1,9 @@
-import type { ExtractedPurchaseBill, PurchaseItem, SubstituteResult, ExtractedSalesBill } from "../types";
+import type { ExtractedPurchaseBill, PurchaseItem, SubstituteResult, ExtractedSalesBill, FileInput } from "../types";
 import { parseNetworkAndApiError } from '../utils/error';
 
-export interface FileInput {
-    mimeType: string;
-    data: string;
+interface GeminiOcrRequest {
+    prompt: string;
+    files?: FileInput[];
 }
 
 const cleanJsonString = (text: string): string => {
@@ -24,8 +24,10 @@ const getPreferredGeminiModel = (): string => {
     return String(env.VITE_GEMINI_MODEL || env.VITE_GOOGLE_MODEL || 'gemini-flash-lite-latest').trim();
 };
 
-const callGeminiOcr = async (userPrompt: string): Promise<any> => {
+const callGeminiOcr = async (request: string | GeminiOcrRequest): Promise<any> => {
     const model = getPreferredGeminiModel();
+    const payload: GeminiOcrRequest = typeof request === 'string' ? { prompt: request } : request;
+
     const response = await fetch(`${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/gemini_ocr`, {
         method: 'POST',
         headers: {
@@ -33,7 +35,11 @@ const callGeminiOcr = async (userPrompt: string): Promise<any> => {
             'Authorization': `Bearer ${(import.meta as any).env.VITE_SUPABASE_ANON_KEY}`,
             'apikey': (import.meta as any).env.VITE_SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ prompt: userPrompt, model }),
+        body: JSON.stringify({
+            prompt: payload.prompt,
+            files: payload.files,
+            model,
+        }),
     });
 
     if (!response.ok) {
@@ -82,21 +88,13 @@ export const extractPurchaseDetailsFromBill = async (
     pharmacyName: string
 ): Promise<ExtractedPurchaseBill> => {
     try {
-        const prompt = `
-            Analyze these purchase invoice images for "${pharmacyName}".
-            Extract supplier, supplierGstNumber, invoiceNumber, date, and items.
-            For each item extract: name, batch, packType, expiry, quantity, freeQuantity, purchasePrice, mrp, gstPercent, discountPercent.
-            Return ONLY valid JSON.
-        `;
+        const prompt = `Analyze purchase invoice images for \"${pharmacyName}\". Extract supplier, GST, invoice number, date and items. Return JSON only.`;
 
-        const extractedInvoiceText = [
+        const parsed = await callGeminiOcr({
             prompt,
-            '',
-            'INVOICE_IMAGE_DATA (base64 by page):',
-            ...inputFiles.map((file, index) => `Page ${index + 1} (${file.mimeType}): ${file.data}`),
-        ].join('\n');
+            files: inputFiles,
+        });
 
-        const parsed = await callGeminiOcr(extractedInvoiceText);
         const root = parsed?.data && typeof parsed.data === 'object' ? parsed.data : parsed;
         const rawItems = Array.isArray(root?.items) ? root.items : [];
 
