@@ -122,11 +122,6 @@ const POS = forwardRef<any, POSProps>(({
         return `${digits.slice(0, 2)}/${digits.slice(2)}`;
     }, []);
 
-    const isValidRateInput = useCallback((value: string) => {
-        if (value === '') return true;
-        return /^\d{0,6}(\.\d{0,2})?$/.test(value);
-    }, []);
-
     const totals = useMemo(() => {
         let gross = 0, tradeDiscount = 0, tax = 0, schemeTotal = 0;
         cartItems.forEach(item => {
@@ -529,19 +524,12 @@ const POS = forwardRef<any, POSProps>(({
         }, 50);
     };
 
-    const handleUpdateCartItem = useCallback((id: string, field: keyof BillItem, value: any) => {
+    const handleUpdateCartItem = (id: string, field: keyof BillItem, value: any) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === id) {
                 const updated = { ...item, [field]: value };
                 if (field === 'expiry') {
                     updated.expiry = normalizeExpiryInput(String(value || ''));
-                    return updated;
-                }
-                if (field === 'rate') {
-                    const rateText = String(value || '');
-                    if (!isValidRateInput(rateText)) return item;
-                    const parsedRate = rateText === '' ? 0 : (parseFloat(rateText) || 0);
-                    updated.rate = Math.min(parsedRate, 999999.99);
                     return updated;
                 }
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
@@ -551,15 +539,7 @@ const POS = forwardRef<any, POSProps>(({
             }
             return item;
         }));
-    }, [isValidRateInput, normalizeExpiryInput]);
-
-    const handleExpiryBlur = useCallback((id: string, value: string) => {
-        if (!value) return;
-        if (!isValidExpiry(value)) {
-            addNotification('Expiry must be in MM/YY format with month between 01 and 12.', 'error');
-            setCartItems(prev => prev.map(item => item.id === id ? { ...item, expiry: '' } : item));
-        }
-    }, [addNotification, isValidExpiry]);
+    };
 
     const handleExpiryBlur = useCallback((id: string, value: string) => {
         if (!value) return;
@@ -943,10 +923,7 @@ const POS = forwardRef<any, POSProps>(({
                                                                 handleItemKeyDown(e, item.id, idx);
                                                                 handleRowKeyNavigation(e, item.id);
                                                             }}
-                                                            className="w-24 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed border-gray-300 focus:border-primary" 
-                                                            min="0"
-                                                            max="999999.99"
-                                                            step="0.01"
+                                                            className="w-16 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed border-gray-300 focus:border-primary" 
                                                             disabled={isReadOnly}
                                                         />
                                                     </div>
