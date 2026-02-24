@@ -105,7 +105,7 @@ const MappingImportPreviewModal = ({ isOpen, onClose, onSave, data, distributors
     </Modal>
 );
 
-type ConfigSection = 'general' | 'posConfig' | 'purchaseConfig' | 'invoiceNumbering' | 'dashboardShortcuts' | 'displayOptions' | 'discountMaster' | 'moduleVisibility' | 'dataManagement';
+type ConfigSection = 'general' | 'posConfig' | 'purchaseConfig' | 'invoiceNumbering' | 'dashboardShortcuts' | 'dashboardModuleConfig' | 'displayOptions' | 'discountMaster' | 'moduleVisibility' | 'dataManagement';
 
 interface ConfigurationPageProps {
     configurations: AppConfigurations;
@@ -241,6 +241,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                             { id: 'discountMaster', name: 'Discount Master', icon: '🏷️' },
                             { id: 'invoiceNumbering', name: 'Voucher Series', icon: '🔢' },
                             { id: 'dashboardShortcuts', name: 'Gateway Shortcuts', icon: '🚀' },
+                            { id: 'dashboardModuleConfig', name: 'Dashboard Module Configuration', icon: '📈' },
                             { id: 'displayOptions', name: 'Printing & Display', icon: '🖥️' },
                             { id: 'moduleVisibility', name: 'Module Columns', icon: '📊' },
                         ].map(item => (
@@ -371,6 +372,56 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                             </button>
                                         );
                                     })}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeSection === 'dashboardModuleConfig' && (
+                            <div className="space-y-8 animate-in fade-in duration-300 max-w-3xl">
+                                <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter border-b-2 border-primary pb-2">Dashboard Module Configuration</h2>
+                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Enable or disable dashboard summary components from the main dashboard view.</p>
+
+                                <div className="bg-gray-50/60 border border-gray-200 p-5 space-y-1">
+                                    <Toggle
+                                        label="Sales (with amount display)"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.statSales) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'statSales')}
+                                    />
+                                    <Toggle
+                                        label="Profit (with amount display)"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.statProfit) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'statProfit')}
+                                    />
+                                    <Toggle
+                                        label="Purchases"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.statPurchases) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'statPurchases')}
+                                    />
+                                    <Toggle
+                                        label="Inventory"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.statStockValue) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'statStockValue')}
+                                    />
+                                    <Toggle
+                                        label="Recent Vouchers"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.recentVouchers) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'recentVouchers')}
+                                    />
+                                    <Toggle
+                                        label="Low Stock"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.kpiLowStock) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'kpiLowStock')}
+                                    />
+                                    <Toggle
+                                        label="Audit"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.kpiAudits) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'kpiAudits')}
+                                    />
+                                    <Toggle
+                                        label="Purchase Return"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.kpiReturns) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'kpiReturns')}
+                                    />
                                 </div>
                             </div>
                         )}
