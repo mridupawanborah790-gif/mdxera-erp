@@ -37,19 +37,42 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
     const isVisible = (fieldId: string) => configurations.modules?.dashboard?.fields?.[fieldId] === true;
 
-    const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+    const todayLocalStr = useMemo(() => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }, []);
+
+    const isSameLocalDay = (dateValue?: string) => {
+        if (!dateValue) return false;
+        const raw = String(dateValue).trim();
+        if (!raw) return false;
+
+        // Fast path for ISO-like values.
+        if (raw.startsWith(todayLocalStr)) return true;
+
+        // Fallback for other date formats saved in legacy records.
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) return false;
+        const year = parsed.getFullYear();
+        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+        const day = String(parsed.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}` === todayLocalStr;
+    };
 
     const todayTransactions = useMemo(() => {
-        return transactions.filter(t => (t.date || '').startsWith(todayStr) && t.status !== 'cancelled');
-    }, [transactions, todayStr]);
+        return transactions.filter(t => isSameLocalDay(t.date) && t.status !== 'cancelled');
+    }, [transactions, todayLocalStr]);
 
     const todaySales = useMemo(() => todayTransactions.reduce((sum, t) => sum + t.total, 0), [todayTransactions]);
 
     const todayPurchases = useMemo(() => {
         return purchases
-            .filter(p => (p.date || '').startsWith(todayStr) && p.status !== 'cancelled')
+            .filter(p => isSameLocalDay(p.date) && p.status !== 'cancelled')
             .reduce((sum, p) => sum + (p.totalAmount || 0), 0);
-    }, [purchases, todayStr]);
+    }, [purchases, todayLocalStr]);
 
     const todayProfit = useMemo(() => {
         const netSales = todayTransactions.reduce((sum, t) => sum + (t.total - (t.totalGst || 0)), 0);

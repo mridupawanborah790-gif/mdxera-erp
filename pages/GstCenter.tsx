@@ -4,8 +4,7 @@ import Card from '../components/Card';
 import { Transaction, Purchase, RegisteredPharmacy, Customer, AppConfigurations } from '../types';
 import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import Modal from '../components/Modal';
-import { getAiClient } from '../services/geminiService';
-import { Type } from '@google/genai';
+import { getAiInsights } from '../services/geminiService';
 import { categorizeSalesForAnx1 } from '../utils/gstUtils';
 
 // SheetJS is global from index.html
@@ -176,7 +175,6 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
     const runAiAudit = async () => {
         setIsAnalyzing(true);
         try {
-            const ai = getAiClient();
             const summary = {
                 salesMismatches: salesRecon.filter(r => r.status !== 'matched').length,
                 purchaseMismatches: purchaseRecon.filter(r => r.status !== 'matched').length,
@@ -192,15 +190,8 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
             Return type: ${returnType}.
             Provide 3 professional statutory compliance tips to avoid penalties. Return as JSON array of strings.`;
 
-            const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
-                }
-            });
-            setAiInsights(JSON.parse(response.text || '[]'));
+            const insights = await getAiInsights({ prompt, periodicity, returnType, summary });
+            setAiInsights(insights);
         } catch (e) {
             console.error(e);
         } finally {
