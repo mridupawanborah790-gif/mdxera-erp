@@ -1,8 +1,28 @@
 
 
 export const parseNetworkAndApiError = (error: any): string => {
-    const message = String(error?.message || error || "Unknown Error").toLowerCase();
+    const rawMessage = String(error?.message || error || "Unknown Error");
+    const message = rawMessage.toLowerCase();
+
+    // OCR/gemini_ocr specific request-shape hints (put before generic 400 handling)
+    if (message.includes('ocr function failed (400)') || message.includes('/functions/v1/gemini_ocr') || message.includes('gemini_ocr')) {
+        if (message.includes('request payload size exceeds the limit') || message.includes('payload too large') || message.includes('413') || message.includes('token')) {
+            return "Invoice image payload is too large for AI extraction. Upload fewer pages, reduce image resolution, or scan one page at a time.";
+        }
+        if (message.includes('invalid argument') || message.includes('invalid json') || message.includes('malformed')) {
+            return "AI extraction request format is invalid. Re-upload a clear JPG/PNG/PDF file and try again.";
+        }
+        if (message.includes('unsupported') || message.includes('mime')) {
+            return "Unsupported invoice file format for AI extraction. Use JPG, PNG, or PDF.";
+        }
+        return `AI extraction request was rejected by the OCR service. ${rawMessage}`;
+    }
     
+
+    if (message.includes('unsupported file:') || message.includes('file too large:') || message.includes('upload up to')) {
+        return rawMessage;
+    }
+
     // Specific API Key errors (can apply to Gemini or Supabase)
     if (message.includes('api_key_not_found') || message.includes('invalid api key') || message.includes('api key not valid')) {
         return "AI/API Configuration Error: Invalid API Key. Please check your settings or contact support.";
@@ -52,7 +72,7 @@ export const parseNetworkAndApiError = (error: any): string => {
     if (message.includes('model is not available') || message.includes('unsupported model') || message.includes('not found for api version')) {
         return "Selected Gemini model is unavailable for this key/project. Set a supported model via VITE_GEMINI_MODEL (for example gemini-flash-lite-latest), and ensure Gemini API is enabled for the same Google project as your key.";
     }
-    if (message.includes('ocr function failed (404)') || message.includes('/functions/v1/gemini_ocr') || message.includes('gemini_ocr')) {
+    if (message.includes('ocr function failed (404)')) {
         return "AI extraction service is not deployed or reachable. Deploy Supabase Edge Function 'gemini_ocr' and verify VITE_SUPABASE_URL points to the correct project.";
     }
     if (message.includes('500') || message.includes('internal server error')) {
