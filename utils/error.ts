@@ -49,6 +49,9 @@ export const parseNetworkAndApiError = (error: any): string => {
     if (message.includes('403') || message.includes('forbidden')) {
         return "Access forbidden: You do not have permission to use this AI model.";
     }
+    if (message.includes('model is not available') || message.includes('unsupported model') || message.includes('not found for api version')) {
+        return "Selected Gemini model is unavailable for this key/project. Set a supported model via VITE_GEMINI_MODEL (for example gemini-flash-lite-latest), and ensure Gemini API is enabled for the same Google project as your key.";
+    }
     if (message.includes('500') || message.includes('internal server error')) {
         return "AI service temporarily unavailable. Please try again later.";
     }

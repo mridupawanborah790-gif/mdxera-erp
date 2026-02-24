@@ -19,7 +19,13 @@ const toNumeric = (value: any): number | undefined => {
     return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const getPreferredGeminiModel = (): string => {
+    const env = (import.meta as any).env || {};
+    return String(env.VITE_GEMINI_MODEL || env.VITE_GOOGLE_MODEL || 'gemini-flash-lite-latest').trim();
+};
+
 const callGeminiOcr = async (userPrompt: string): Promise<any> => {
+    const model = getPreferredGeminiModel();
     const response = await fetch(`${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/gemini_ocr`, {
         method: 'POST',
         headers: {
@@ -27,7 +33,7 @@ const callGeminiOcr = async (userPrompt: string): Promise<any> => {
             'Authorization': `Bearer ${(import.meta as any).env.VITE_SUPABASE_ANON_KEY}`,
             'apikey': (import.meta as any).env.VITE_SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ prompt: userPrompt }),
+        body: JSON.stringify({ prompt: userPrompt, model }),
     });
 
     if (!response.ok) {
