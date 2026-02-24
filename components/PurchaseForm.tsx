@@ -95,6 +95,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     organizationId,
 }, ref) => {
     const isEditing = !!purchaseToEdit;
+    const isFieldVisible = useCallback((fieldId: string) => configurations.modules?.purchase?.fields?.[fieldId] !== false, [configurations.modules]);
 
     // Standard State
     const [Supplier, setSupplier] = useState('');
@@ -124,6 +125,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [supplierNameError, setSupplierNameError] = useState<string | null>(null);
     const [invoiceNumberError, setInvoiceNumberError] = useState<string | null>(null);
     const [isSupplierSearchModalOpen, setIsSupplierSearchModalOpen] = useState(false);
+    const [isRateTierModalOpen, setIsRateTierModalOpen] = useState(false);
+    const [activeRateTierRowId, setActiveRateTierRowId] = useState<string | null>(null);
+    const [rateTierDraft, setRateTierDraft] = useState({ rateA: '', rateB: '', rateC: '' });
+    const [rateTierHandledRows, setRateTierHandledRows] = useState<Set<string>>(new Set());
+    const [selectedRateTierAction, setSelectedRateTierAction] = useState<'skip' | 'save'>('save');
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
@@ -132,6 +138,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const modalSearchInputRef = useRef<HTMLInputElement>(null);
     const searchResultsRef = useRef<HTMLDivElement>(null);
     const lastSourceRef = useRef<string | null>(null);
+    const rateAInputRef = useRef<HTMLInputElement>(null);
+    const rateBInputRef = useRef<HTMLInputElement>(null);
+    const rateCInputRef = useRef<HTMLInputElement>(null);
+    const skipRateButtonRef = useRef<HTMLButtonElement>(null);
+    const saveRateButtonRef = useRef<HTMLButtonElement>(null);
 
     const currentsupplier = useMemo(() => {
         const lowerSupplier = (Supplier || '').toLowerCase().trim();
@@ -211,6 +222,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             const linked = attemptAutoLink(mappedItems as PurchaseItem[], matchedDist || null);
             setItems(linked.length > 0 ? [...linked, createBlankItem()] : [createBlankItem()]);
+            setRateTierHandledRows(new Set());
         } else if (draftItems) {
             setSupplier(draftSupplier || '');
             const matchedDist = suppliers.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
@@ -219,8 +231,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             })) : [];
             const linked = attemptAutoLink(newItems as PurchaseItem[], matchedDist || null);
             setItems([...linked, createBlankItem()]);
+            setRateTierHandledRows(new Set());
         } else {
             setSupplier(''); setSupplierGst(''); setInvoiceNumber(''); setDate(new Date().toISOString().split('T')[0]); setItems([createBlankItem()]);
+            setRateTierHandledRows(new Set());
             // Focus Supplier name on new voucher
             setTimeout(() => supplierNameInputRef.current?.focus(), 200);
         }
@@ -437,6 +451,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             freeQuantity: 0,
             purchasePrice: batch.purchasePrice || 0,
             mrp: batch.mrp || 0,
+            rateA: batch.rateA,
+            rateB: batch.rateB,
+            rateC: batch.rateC,
             gstPercent: batch.gstPercent || 5,
             hsnCode: batch.hsnCode || '',
             discountPercent: 0,
@@ -492,6 +509,151 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         });
     };
 
+    const moveToNextProductSelection = useCallback((rowId: string) => {
+        let nextRowId: string | null = null;
+
+        setItems(prev => {
+            const currentIndex = prev.findIndex(p => p.id === rowId);
+            if (currentIndex === -1) return prev;
+
+            let nextItems = prev;
+            if (currentIndex === prev.length - 1 && (prev[currentIndex].name || '').trim() !== '') {
+                nextItems = [...prev, createBlankItem()];
+            }
+
+            nextRowId = nextItems[currentIndex + 1]?.id || null;
+            return nextItems;
+        });
+
+        setTimeout(() => {
+            if (!nextRowId) return;
+            const nameInput = document.getElementById(`name-${nextRowId}`) as HTMLInputElement | null;
+            nameInput?.focus();
+            nameInput?.select();
+        }, 50);
+    }, []);
+
+    const openRateTierModal = useCallback((rowId: string) => {
+        const row = items.find(p => p.id === rowId);
+        if (!row) return;
+        const linkedInventory = row.inventoryItemId ? inventory.find(inv => inv.id === row.inventoryItemId) : undefined;
+
+        setActiveRateTierRowId(rowId);
+        setRateTierDraft({
+            rateA: row.rateA !== undefined ? String(row.rateA) : (linkedInventory?.rateA !== undefined ? String(linkedInventory.rateA) : ''),
+            rateB: row.rateB !== undefined ? String(row.rateB) : (linkedInventory?.rateB !== undefined ? String(linkedInventory.rateB) : ''),
+            rateC: row.rateC !== undefined ? String(row.rateC) : (linkedInventory?.rateC !== undefined ? String(linkedInventory.rateC) : ''),
+        });
+        setSelectedRateTierAction('save');
+        setIsRateTierModalOpen(true);
+    }, [inventory, items]);
+
+    useEffect(() => {
+        if (!isRateTierModalOpen) return;
+        setTimeout(() => {
+            rateAInputRef.current?.focus();
+            rateAInputRef.current?.select();
+        }, 0);
+    }, [isRateTierModalOpen]);
+
+    const focusSelectedRateTierAction = useCallback((action: 'skip' | 'save') => {
+        if (action === 'skip') {
+            skipRateButtonRef.current?.focus();
+            return;
+        }
+        saveRateButtonRef.current?.focus();
+    }, []);
+
+    const handleRateInputEnter = (e: React.KeyboardEvent<HTMLInputElement>, nextField?: 'rateB' | 'rateC' | 'action') => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (nextField === 'rateB') {
+            rateBInputRef.current?.focus();
+            rateBInputRef.current?.select();
+            return;
+        }
+        if (nextField === 'rateC') {
+            rateCInputRef.current?.focus();
+            rateCInputRef.current?.select();
+            return;
+        }
+        focusSelectedRateTierAction(selectedRateTierAction);
+    };
+
+    const handleRateActionKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            setSelectedRateTierAction('skip');
+            focusSelectedRateTierAction('skip');
+            return;
+        }
+
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            setSelectedRateTierAction('save');
+            focusSelectedRateTierAction('save');
+            return;
+        }
+
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (selectedRateTierAction === 'save') {
+                saveTierRatesForRow();
+            } else {
+                skipTierRatesForRow();
+            }
+        }
+    };
+
+    const closeRateTierModal = () => {
+        const currentRowId = activeRateTierRowId;
+        setIsRateTierModalOpen(false);
+        setActiveRateTierRowId(null);
+        setTimeout(() => {
+            if (!currentRowId) return;
+            const schInput = document.getElementById(`sch-${currentRowId}`) as HTMLInputElement | null;
+            schInput?.focus();
+            schInput?.select();
+        }, 50);
+    };
+
+    const saveTierRatesForRow = () => {
+        if (!activeRateTierRowId) return;
+
+        setItems(prev => prev.map(item => item.id === activeRateTierRowId ? {
+            ...item,
+            rateA: rateTierDraft.rateA === '' ? undefined : (parseFloat(rateTierDraft.rateA) || 0),
+            rateB: rateTierDraft.rateB === '' ? undefined : (parseFloat(rateTierDraft.rateB) || 0),
+            rateC: rateTierDraft.rateC === '' ? undefined : (parseFloat(rateTierDraft.rateC) || 0),
+        } : item));
+        setRateTierHandledRows(prev => new Set(prev).add(activeRateTierRowId));
+        closeRateTierModal();
+    };
+
+    const skipTierRatesForRow = () => {
+        if (activeRateTierRowId) {
+            setRateTierHandledRows(prev => new Set(prev).add(activeRateTierRowId));
+        }
+        closeRateTierModal();
+    };
+
+    const handleRateTierLastFieldEnter = (e: React.KeyboardEvent<HTMLInputElement>, rowId: string) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (isReadOnly || !Supplier.trim()) return;
+        if (!rateTierHandledRows.has(rowId)) {
+            openRateTierModal(rowId);
+            return;
+        }
+
+        moveToNextProductSelection(rowId);
+    };
+
     const processAiExtraction = useCallback(async (fileInputs: FileInput[]) => {
         if (!fileInputs || fileInputs.length === 0) return;
         console.log(`MDXERA AI: Starting extraction for ${fileInputs.length} page(s).`);
@@ -521,6 +683,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 }));
                 const linked = attemptAutoLink(newItems as PurchaseItem[], currentsupplier || null);
                 setItems([...linked, createBlankItem()]);
+                setRateTierHandledRows(new Set());
             }
 
             addNotification("AI Extracted bill details successfully.", "success");
@@ -657,12 +820,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
                                     <th className="p-2 border-r border-gray-400 text-left w-72">Name of Item</th>
                                     <th className="p-2 border-r border-gray-400 text-left w-24">MFR</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>
+                                    {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
                                     <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-20">Exp.</th>
                                     <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-16">Qty</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">Free</th>
+                                    {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">FREE</th>}
                                     <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-16">Sch%</th>
@@ -693,15 +856,19 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             />
                                         </td>
                                         <td className={`p-1 border-r border-gray-400 ${uniformTextStyle}`}><input type="text" id={`mfr-${p.id}`} value={p.brand} onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)} className={`w-full bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        {isFieldVisible('colPack') && (
+                                            <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        )}
                                         <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center text-emerald-600 font-bold ${uniformTextStyle}`}><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        {isFieldVisible('colFree') && (
+                                            <td className={`p-1 border-r border-gray-400 text-center text-emerald-600 font-bold ${uniformTextStyle}`}><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        )}
                                         <td className={`p-1 border-r border-gray-400 text-right font-bold text-blue-900 ${uniformTextStyle}`}><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" value={p.discountPercent || ''} onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" id={`sch-${p.id}`} value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} onKeyDown={(e) => handleRateTierLastFieldEnter(e, p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap ${uniformTextStyle}`}>₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.discountPercent || 0) / 100) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
                                     </tr>
                                 ))}
@@ -942,6 +1109,69 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             className="px-16 py-4 bg-primary text-white text-[12px] font-black uppercase tracking-[0.3em] shadow-2xl active:translate-y-1 transform transition-all"
                         >
                             Select Material (Enter)
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
+            <Modal isOpen={isRateTierModalOpen} onClose={skipTierRatesForRow} title="Maintain Tier Rates" widthClass="max-w-md">
+                <div className="space-y-4 p-2">
+                    <p className="text-xs font-bold text-gray-600 uppercase">Maintain Tier A / B / C rates for this product.</p>
+                    <div className="grid grid-cols-1 gap-3">
+                        <div>
+                            <label className="text-[11px] font-bold uppercase text-gray-500">Rate A</label>
+                            <input
+                                ref={rateAInputRef}
+                                type="number"
+                                value={rateTierDraft.rateA}
+                                onChange={(e) => setRateTierDraft(prev => ({ ...prev, rateA: e.target.value }))}
+                                onKeyDown={(e) => handleRateInputEnter(e, 'rateB')}
+                                className="w-full border border-gray-400 p-2 outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-[11px] font-bold uppercase text-gray-500">Rate B</label>
+                            <input
+                                ref={rateBInputRef}
+                                type="number"
+                                value={rateTierDraft.rateB}
+                                onChange={(e) => setRateTierDraft(prev => ({ ...prev, rateB: e.target.value }))}
+                                onKeyDown={(e) => handleRateInputEnter(e, 'rateC')}
+                                className="w-full border border-gray-400 p-2 outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-[11px] font-bold uppercase text-gray-500">Rate C</label>
+                            <input
+                                ref={rateCInputRef}
+                                type="number"
+                                value={rateTierDraft.rateC}
+                                onChange={(e) => setRateTierDraft(prev => ({ ...prev, rateC: e.target.value }))}
+                                onKeyDown={(e) => handleRateInputEnter(e, 'action')}
+                                className="w-full border border-gray-400 p-2 outline-none"
+                            />
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <button
+                            ref={skipRateButtonRef}
+                            type="button"
+                            onFocus={() => setSelectedRateTierAction('skip')}
+                            onKeyDown={handleRateActionKeyDown}
+                            onClick={skipTierRatesForRow}
+                            className={`px-4 py-2 border text-xs font-black uppercase ${selectedRateTierAction === 'skip' ? 'border-primary text-primary' : 'border-gray-400 text-gray-700'}`}
+                        >
+                            Skip
+                        </button>
+                        <button
+                            ref={saveRateButtonRef}
+                            type="button"
+                            onFocus={() => setSelectedRateTierAction('save')}
+                            onKeyDown={handleRateActionKeyDown}
+                            onClick={saveTierRatesForRow}
+                            className={`px-4 py-2 text-xs font-black uppercase ${selectedRateTierAction === 'save' ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}
+                        >
+                            Save Rates
                         </button>
                     </div>
                 </div>
