@@ -11,6 +11,7 @@ interface TemplateProps {
 const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
+  const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
   
   const billDetails = useMemo(() => {
     let subtotal = 0;
@@ -150,7 +151,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                         <th className="p-1 border-r border-black text-center w-[6%]">Qty</th>
                         <th className="p-1 border-r border-black text-right w-[7%]">Rate</th>
                         <th className="p-1 border-r border-black text-right w-[5%]">Disc%</th>
-                        <th className="p-1 border-r border-black text-right w-[5%]">Sch%</th>
+                        {showSchemeColumn && <th className="p-1 border-r border-black text-right w-[5%]">Sch%</th>}
                         {!isNonGst && <th className="p-1 border-r border-black text-right w-[5%]">GST%</th>}
                         <th className="p-1 text-right w-[11%]">Amount</th>
                     </tr>
@@ -168,7 +169,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             </td>
                             <td className="p-1 border-r border-black text-right">{(item.mrp || 0).toFixed(2)}</td>
                             <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>
-                            <td className="p-1 border-r border-black text-right">{item.schemeDiscountPercent || 0}</td>
+                            {showSchemeColumn && <td className="p-1 border-r border-black text-right">{item.schemeDiscountPercent ? item.schemeDiscountPercent : '-'}</td>}
                             {!isNonGst && <td className="p-1 border-r border-black text-right">{item.gstPercent}</td>}
                             <td className="p-1 text-right font-bold">{(item.finalAmount || 0).toFixed(2)}</td>
                         </tr>
@@ -183,7 +184,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
+                            {showSchemeColumn && <td className="border-r border-black"></td>}
                             {!isNonGst && <td className="border-r border-black"></td>}
                             <td></td>
                         </tr>
