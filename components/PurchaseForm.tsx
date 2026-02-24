@@ -18,6 +18,7 @@ import SupplierSearchModal from './SupplierSearchModal';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { parseNetworkAndApiError } from '../utils/error';
 import { prepareAiFileInputs } from '../utils/aiFilePrep';
+import { parsePurchaseCsv } from '../utils/csv';
 
 const UploadIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>;
 const CameraIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="4" /></svg>;
@@ -535,14 +536,56 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
-        const fileInputs = await prepareAiFileInputs(files);
-        if (fileInputs.length === 0) {
-            addNotification('Please upload an image or PDF file for AI extraction.', 'error');
-            return;
-        }
+        try {
+            const fileList = Array.from(files);
+            const csvFile = fileList.find(file => file.type === 'text/csv' || file.name.toLowerCase().endsWith('.csv'));
 
-        await processAiExtraction(fileInputs);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+            if (csvFile) {
+                const csvText = await csvFile.text();
+                const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== '');
+                const purchases = parsePurchaseCsv(lines);
+                const parsedBill = purchases[0];
+
+                if (!parsedBill) {
+                    addNotification('CSV does not contain a valid purchase bill row.', 'error');
+                    return;
+                }
+
+                if (parsedBill.supplier) setSupplier(parsedBill.supplier);
+                if (parsedBill.invoiceNumber) setInvoiceNumber(parsedBill.invoiceNumber);
+                if (parsedBill.date) setDate(normalizeImportDate(parsedBill.date) || date);
+
+                if (parsedBill.items && parsedBill.items.length > 0) {
+                    const newItems = parsedBill.items.map(item => ({
+                        ...createBlankItem(),
+                        ...item,
+                        quantity: parseNumber(item.quantity),
+                        purchasePrice: parseNumber(item.purchasePrice),
+                        mrp: parseNumber(item.mrp),
+                        gstPercent: parseNumber(item.gstPercent) || 5,
+                        discountPercent: parseNumber(item.discountPercent),
+                        matchStatus: 'pending' as const
+                    }));
+                    const linked = attemptAutoLink(newItems as PurchaseItem[], currentsupplier || null);
+                    setItems([...linked, createBlankItem()]);
+                }
+
+                addNotification('CSV purchase bill imported successfully.', 'success');
+                return;
+            }
+
+            const fileInputs = await prepareAiFileInputs(files);
+            if (fileInputs.length === 0) {
+                addNotification('Please upload an image, PDF, or CSV file for bill import.', 'error');
+                return;
+            }
+
+            await processAiExtraction(fileInputs);
+        } catch (err: any) {
+            addNotification(`Import failed: ${parseNetworkAndApiError(err)}`, 'error');
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
     };
 
     const handleWebcamCapture = async (data: string, mimeType: string) => {
