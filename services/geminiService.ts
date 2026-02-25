@@ -90,8 +90,11 @@ export const extractPurchaseDetailsFromBill = async (
     inputFiles: FileInput[],
     pharmacyName: string
 ): Promise<ExtractedPurchaseBill> => {
+    let root: any = {};
+    let normalizedItems: PurchaseItem[] = [];
+
     try {
-        const prompt = `Analyze purchase invoice images for \"${pharmacyName}\". Extract supplier, GST, invoice number, date and items. Return JSON only with fields: supplier, supplierGstNumber, invoiceNumber, date, items: [{name, batch, packType, expiry, quantity, purchasePrice, mrp, gstPercent, discountPercent}].`;
+        const prompt = `Analyze purchase invoice images for "${pharmacyName}". Extract supplier, GST, invoice number, date and items. Return JSON only with fields: supplier, supplierGstNumber, invoiceNumber, date, items: [{name, batch, packType, expiry, quantity, purchasePrice, mrp, gstPercent, discountPercent}].`;
 
         const responseData = await callGeminiOcr({
             prompt,
@@ -100,11 +103,11 @@ export const extractPurchaseDetailsFromBill = async (
 
         // Extract text and parse JSON
         const jsonText = getTextFromResultData(responseData?.data || responseData);
-        const root = JSON.parse(cleanJsonString(jsonText) || '{}');
-        
+        root = JSON.parse(cleanJsonString(jsonText) || '{}');
+
         const rawItems = Array.isArray(root?.items) ? root.items : [];
 
-        const normalizedItems = rawItems
+        normalizedItems = rawItems
             .map((item: any) => ({
                 name: String(item?.name || item?.product || '').trim(),
                 batch: String(item?.batch || item?.batchNo || '').trim(),
@@ -114,8 +117,8 @@ export const extractPurchaseDetailsFromBill = async (
                 freeQuantity: toNumeric(item?.freeQuantity) ?? 0,
                 purchasePrice: toNumeric(item?.purchasePrice ?? item?.rate) ?? 0,
                 mrp: toNumeric(item?.mrp) ?? 0,
-                gstPercent: toNumeric(item?.gstPercent ?? item?.gst) ?? undefined,
-                discountPercent: toNumeric(item?.discountPercent ?? item?.discount) ?? undefined,
+                gstPercent: toNumeric(item?.gstPercent ?? item?.gst),
+                discountPercent: toNumeric(item?.discountPercent ?? item?.discount),
             }))
             .filter((item: any) => item.name && (item.quantity > 0 || item.purchasePrice > 0 || item.mrp > 0));
 
@@ -127,9 +130,32 @@ export const extractPurchaseDetailsFromBill = async (
             items: normalizedItems,
             ...(normalizedItems.length === 0 ? { error: 'AI could not detect line items from this image. Try a full-page, well-lit photo with item rows clearly visible.' } : {}),
         };
+
     } catch (error: any) {
-        console.error('OCR Extraction Error:', error);
-        return { supplier: '', invoiceNumber: '', date: '', items: [], error: `AI Extraction failed. ${parseNetworkAndApiError(error)}` };
+        console.error("Gemini Extraction Error Details:", error);
+
+        let errorMessage = "AI Extraction failed. Please ensure all uploaded images are clear, properly aligned, and belong to the same bill. Make sure the supplier name and bill number are visible and consistent across all pages. Then re-upload and try again.";
+
+        const apiError = String(error?.message || error).toLowerCase();
+        if (apiError.includes('429') || apiError.includes('limit')) {
+            errorMessage = "AI limit reached. Please try again in a few moments.";
+        } else if (apiError.includes('not enabled') || apiError.includes('not available') || apiError.includes('model not found')) {
+            errorMessage = "Gemini AI model is not enabled for this API key. Please activate Gemini API in Google AI Studio and use a valid API key to continue AI bill extraction.";
+        } else if (apiError.includes('quota')) {
+            errorMessage = "Monthly AI quota exceeded.";
+        } else if (apiError.includes('safety')) {
+            errorMessage = "Document content was flagged by AI safety filters.";
+        } else {
+            errorMessage += ` [DEBUG: ${error?.message || error}]`;
+        }
+
+        return {
+            supplier: String(root?.supplier || root?.vendor || '').trim(),
+            invoiceNumber: String(root?.invoiceNumber || root?.billNumber || '').trim(),
+            date: String(root?.date || root?.invoiceDate || '').trim(),
+            items: normalizedItems,
+            error: errorMessage
+        };
     }
 };
 
