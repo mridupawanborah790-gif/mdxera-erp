@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
 const corsHeaders = {
@@ -13,37 +12,44 @@ serve(async (req) => {
   }
 
   try {
-    const { prompt, files, model = 'gemini-1.5-flash' } = await req.json()
+    const { prompt, files, model = 'gemini-2.5-flash' } = await req.json()
     
-    // Use the provided API key from environment or fallback
-    const apiKey = Deno.env.get("GEMINI_API_KEY") || "AIzaSyBFk9jkrx3uZMhaA9sfua9oypRSvME_f7c";
+    // This key must be set in your Supabase Dashboard -> Settings -> API -> Secrets
+    const apiKey = Deno.env.get("GEMINI_API_KEY");
 
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is not configured")
+      throw new Error("GEMINI_API_KEY is not configured in Supabase Secrets.")
     }
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    const contents = [
-      {
-        parts: [
-          { text: prompt },
-          ...(files || []).map((file: any) => ({
+    const parts = [];
+    
+    // Add text prompt
+    if (prompt) {
+      parts.push({ text: prompt });
+    }
+
+    // Add multimodal files
+    if (Array.isArray(files)) {
+      for (const file of files) {
+        if (file?.mimeType && file?.data) {
+          parts.push({
             inline_data: {
               mime_type: file.mimeType,
-              data: file.data,
+              data: file.data.replace(/^data:.*;base64,/, ''), 
             },
-          })),
-        ],
-      },
-    ];
+          });
+        }
+      }
+    }
 
     const response = await fetch(geminiUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ contents }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        contents: [{ role: 'user', parts }] 
+      }),
     });
 
     const result = await response.json();
