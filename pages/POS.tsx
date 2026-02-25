@@ -272,7 +272,8 @@ const POS = forwardRef<any, POSProps>(({
                             batch: match.batch,
                             expiry: match.expiry,
                             rate: match.mrp,
-                            unitsPerPack
+                            unitsPerPack,
+                            packType: match.packType
                         });
                     } else {
                         newBillItems.push({
@@ -446,12 +447,53 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const triggerBatchSelection = (productWrapper: { item: InventoryItem; batches: InventoryItem[] }) => {
-        if (productWrapper.batches.length === 0) {
-            addSelectedBatchToGrid(productWrapper.item);
+        const isValidBatch = (batchNo?: string) => {
+            const normalized = (batchNo || '').trim().toUpperCase();
+            return normalized !== '' && !['NEW-STOCK', 'NEW-BATCH', 'N/A', 'NA'].includes(normalized);
+        };
+
+        const candidateBatches = productWrapper.batches.filter(b => isValidBatch(b.batch));
+
+        if (candidateBatches.length === 1) {
+            addSelectedBatchToGrid(candidateBatches[0]);
             return;
         }
-        setPendingBatchSelection(productWrapper);
-        setIsSearchModalOpen(false);
+
+        if (candidateBatches.length > 1) {
+            setPendingBatchSelection({ item: candidateBatches[0], batches: candidateBatches });
+            setIsSearchModalOpen(false);
+            return;
+        }
+
+        const itemName = (productWrapper.item.name || '').toLowerCase().trim();
+        const itemBrand = (productWrapper.item.brand || '').toLowerCase().trim();
+        const itemCode = (productWrapper.item.code || '').toLowerCase().trim();
+
+        const fallbackBatches = inventory.filter(inv => {
+            if (!isValidBatch(inv.batch)) return false;
+
+            const invName = (inv.name || '').toLowerCase().trim();
+            const invBrand = (inv.brand || '').toLowerCase().trim();
+            const invCode = (inv.code || '').toLowerCase().trim();
+
+            const codeMatch = itemCode !== '' && invCode !== '' && invCode === itemCode;
+            const nameBrandMatch = invName === itemName && invBrand === itemBrand;
+
+            return codeMatch || nameBrandMatch;
+        });
+
+        if (fallbackBatches.length === 1) {
+            addSelectedBatchToGrid(fallbackBatches[0]);
+            return;
+        }
+
+        if (fallbackBatches.length > 1) {
+            setPendingBatchSelection({ item: fallbackBatches[0], batches: fallbackBatches });
+            setIsSearchModalOpen(false);
+            return;
+        }
+
+        addSelectedBatchToGrid(productWrapper.item);
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
@@ -478,10 +520,11 @@ const POS = forwardRef<any, POSProps>(({
             gstPercent: batch.gstPercent,
             discountPercent: selectedCustomer?.defaultDiscount || 0,
             itemFlatDiscount: 0,
-            batch: batch.batch || 'NEW-BATCH',
+            batch: ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (batch.batch || ''),
             expiry: batch.expiry ? String(batch.expiry) : 'N/A',
             rate: rateValue,
-            unitsPerPack: batch.unitsPerPack || 1
+            unitsPerPack: batch.unitsPerPack || 1,
+            packType: batch.packType
         };
 
         setCartItems(prev => {
@@ -807,7 +850,7 @@ const POS = forwardRef<any, POSProps>(({
                                                 </td>
                                             )}
                                             {isFieldVisible('colBatch') && <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>{item.batch}</td>}
-                                            {isFieldVisible('colPack') && <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>{item.unitsPerPack || 1}</td>}
+                                            {isFieldVisible('colPack') && <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>{item.packType?.trim() || item.unitsPerPack || 1}</td>}
                                             {isFieldVisible('colMrp') && <td className={`p-2 border-r border-gray-200 text-right text-gray-600 ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colPQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
