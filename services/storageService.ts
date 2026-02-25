@@ -133,17 +133,30 @@ export const getData = async (tableName: string, defaultValue: any[] = [], user:
 
     // Priority 2: Fetch updates in background if online
     if (navigator.onLine) {
-        setTimeout(async () => {
+        if (cached.length === 0) {
             try {
                 const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
                 if (allData.length > 0) {
                     const normalized = allData.map(d => toCamel(d));
                     await idb.putBulk(STORES[storeKey], normalized);
+                    return normalized;
                 }
             } catch (e) {
-                console.error(`Background fetch failed for ${tableName}:`, e);
+                console.error(`Initial fetch failed for ${tableName}:`, e);
             }
-        }, 0);
+        } else {
+            setTimeout(async () => {
+                try {
+                    const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
+                    if (allData.length > 0) {
+                        const normalized = allData.map(d => toCamel(d));
+                        await idb.putBulk(STORES[storeKey], normalized);
+                    }
+                } catch (e) {
+                    console.error(`Background fetch failed for ${tableName}:`, e);
+                }
+            }, 0);
+        }
     }
     return cached.length > 0 ? cached : defaultValue;
 };

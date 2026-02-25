@@ -54,22 +54,22 @@ const createBlankItem = (): BillItem => ({
     itemFlatDiscount: 0,
 });
 
-const POS = forwardRef<any, POSProps>(({ 
-    inventory, 
+const POS = forwardRef<any, POSProps>(({
+    inventory,
     purchases,
     medicines,
-    customers, 
-    onSaveOrUpdateTransaction, 
-    onPrintBill, 
-    currentUser, 
-    config, 
-    configurations, 
-    billType = 'regular', 
-    addNotification, 
-    transactionToEdit, 
-    isReadOnly, 
-    onCancel, 
-    onAddMedicineMaster 
+    customers,
+    onSaveOrUpdateTransaction,
+    onPrintBill,
+    currentUser,
+    config,
+    configurations,
+    billType = 'regular',
+    addNotification,
+    transactionToEdit,
+    isReadOnly,
+    onCancel,
+    onAddMedicineMaster
 }, ref) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -100,7 +100,7 @@ const POS = forwardRef<any, POSProps>(({
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
-    
+
     const activeRowIdRef = useRef<string | null>(null);
 
     const isNonGst = billMode === 'EST';
@@ -111,16 +111,19 @@ const POS = forwardRef<any, POSProps>(({
     const totals = useMemo(() => {
         let gross = 0, tradeDiscount = 0, tax = 0, schemeTotal = 0;
         cartItems.forEach(item => {
-            const unitsPerPack = item.unitsPerPack || 1;
-            const totalUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-            const unitRate = (item.rate || item.mrp) / unitsPerPack;
-            const itemGross = unitRate * totalUnits;
+            // Formula: Amount = (P.Qty / L.Qty) × Rate
+            // P.Qty = item.quantity (pack quantity)
+            // L.Qty = item.looseQuantity (loose quantity)
+            const packQty = item.quantity || 0;
+            const looseQty = item.looseQuantity || 1; // Use 1 as fallback to avoid division by zero
+            const rate = item.rate || item.mrp || 0;
+            const itemGross = (packQty / looseQty) * rate;
             const itemTradeDisc = itemGross * ((item.discountPercent || 0) / 100);
             const itemNet = itemGross - itemTradeDisc - (item.schemeDiscountAmount || 0);
             const taxableValue = itemNet / (1 + ((isNonGst ? 0 : item.gstPercent) / 100));
-            
-            gross += itemGross; 
-            tradeDiscount += itemTradeDisc; 
+
+            gross += itemGross;
+            tradeDiscount += itemTradeDisc;
             schemeTotal += (item.schemeDiscountAmount || 0);
             tax += (itemNet - taxableValue);
         });
@@ -173,10 +176,10 @@ const POS = forwardRef<any, POSProps>(({
         }
 
         setIsSaving(true);
-        
+
         const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
         const { id, nextExternalNumber } = generateNewInvoiceId(configurations[configKey], isNonGst ? 'non-gst' : 'regular');
-        
+
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
 
         const transaction: Transaction = {
@@ -188,7 +191,7 @@ const POS = forwardRef<any, POSProps>(({
             customerPhone: customerPhone || selectedCustomer?.phone,
             referredBy: referredBy || '',
             items: cartItems,
-            total: totals.roundedNet,
+            total: isNonGst ? totals.roundedNet : parseFloat((totals.roundedNet + totals.tax).toFixed(2)),
             subtotal: parseFloat((totals.net - totals.tax).toFixed(2)),
             totalItemDiscount: totals.tradeDiscount,
             totalGst: totals.tax,
@@ -200,7 +203,7 @@ const POS = forwardRef<any, POSProps>(({
             itemCount: cartItems.length,
             prescriptionImages: prescriptions.map(p => p.data),
         };
-        
+
         try {
             await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, transactionToEdit ? undefined : nextExternalNumber);
             if (onPrintBill) onPrintBill(transaction);
@@ -253,7 +256,7 @@ const POS = forwardRef<any, POSProps>(({
                         const unitsPerPack = match.unitsPerPack || 1;
                         const qty = Math.floor((aiItem.quantity || 0) / unitsPerPack);
                         const loose = (aiItem.quantity || 0) % unitsPerPack;
-                        
+
                         newBillItems.push({
                             id: crypto.randomUUID(),
                             inventoryItemId: match.id,
@@ -282,7 +285,7 @@ const POS = forwardRef<any, POSProps>(({
                 setCartItems(prev => [...prev.filter(i => i.name !== ''), ...newBillItems]);
                 addNotification(`Extracted ${result.items.length} items from prescription.`, "success");
             }
-            
+
             setPrescriptions(prev => [...prev, {
                 id: crypto.randomUUID(),
                 data: fileInput.data,
@@ -324,7 +327,7 @@ const POS = forwardRef<any, POSProps>(({
     const deduplicatedSearchInventory = useMemo(() => {
         const grouped = new Map<string, { item: InventoryItem; batches: InventoryItem[] }>();
         const term = modalSearchTerm.toLowerCase().trim();
-        
+
         inventory.forEach(i => {
             const name = i.name.toLowerCase();
             const code = (i.code || '').toLowerCase();
@@ -382,26 +385,26 @@ const POS = forwardRef<any, POSProps>(({
 
     const intelDetails = useMemo(() => {
         if (!activeIntelItem) return null;
-        
+
         const matchingPurchases = (purchases || []).filter(p => {
             if (p.status === 'cancelled' || !p.items) return false;
             const items = Array.isArray(p.items) ? p.items : (typeof p.items === 'string' ? JSON.parse(p.items) : []);
             return Array.isArray(items) && items.some((i: any) => i.name === activeIntelItem.name);
         }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        
-        const lastPurRate = matchingPurchases.length > 0 
+
+        const lastPurRate = matchingPurchases.length > 0
             ? (matchingPurchases[0].items.find((i: any) => i.name === activeIntelItem.name)?.purchasePrice || activeIntelItem.purchasePrice)
             : activeIntelItem.purchasePrice;
-            
+
         const profitAmount = activeIntelItem.mrp - lastPurRate;
         const profitMargin = activeIntelItem.mrp > 0 ? (profitAmount / activeIntelItem.mrp) * 100 : 0;
-        
+
         return { lastPurRate, profitAmount, profitMargin };
     }, [activeIntelItem, purchases]);
 
     const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
         if (deduplicatedSearchInventory.length === 0) return;
-        
+
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             setSelectedSearchIndex(prev => (prev + 1) % deduplicatedSearchInventory.length);
@@ -455,7 +458,7 @@ const POS = forwardRef<any, POSProps>(({
         let rateValue = batch.mrp;
         const globalDefaultRateTier = configurations?.displayOptions?.defaultRateTier || 'mrp';
         let rateTierToUse = selectedCustomer?.defaultRateTier !== 'none' ? selectedCustomer?.defaultRateTier : globalDefaultRateTier;
-        
+
         if (rateTierToUse === 'rateA' && batch.rateA) rateValue = batch.rateA;
         else if (rateTierToUse === 'rateB' && batch.rateB) rateValue = batch.rateB;
         else if (rateTierToUse === 'rateC' && batch.rateC) rateValue = batch.rateC;
@@ -490,7 +493,7 @@ const POS = forwardRef<any, POSProps>(({
             }
             return [...prev, newItem];
         });
-        
+
         setSearchTerm('');
         setIsSearchModalOpen(false);
         setPendingBatchSelection(null);
@@ -560,7 +563,7 @@ const POS = forwardRef<any, POSProps>(({
 
     const handleDeleteRow = useCallback((id: string, index: number) => {
         if (isReadOnly) return;
-        
+
         setCartItems(prev => {
             if (prev.length <= 1) {
                 return [createBlankItem()];
@@ -606,11 +609,11 @@ const POS = forwardRef<any, POSProps>(({
             const el = document.getElementById(id);
             return el && !el.hasAttribute('disabled');
         });
-        
+
         const target = e.target as HTMLElement;
         const currentId = target.id;
         const currentIndex = fields.indexOf(currentId);
-        
+
         if (currentIndex === -1) return;
 
         const moveNext = () => {
@@ -692,13 +695,13 @@ const POS = forwardRef<any, POSProps>(({
                     {isFieldVisible('colDate') && (
                         <div>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Date</label>
-                            <input 
+                            <input
                                 ref={dateInputRef}
-                                type="date" 
-                                value={invoiceDate} 
-                                onChange={e => setInvoiceDate(e.target.value)} 
+                                type="date"
+                                value={invoiceDate}
+                                onChange={e => setInvoiceDate(e.target.value)}
                                 onKeyDown={handleDateKeyDown}
-                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50" 
+                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50"
                                 disabled={isReadOnly}
                             />
                         </div>
@@ -706,10 +709,10 @@ const POS = forwardRef<any, POSProps>(({
                     {isFieldVisible('colCustomer') && (
                         <div className="md:col-span-2 relative">
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Particulars (Customer Name)</label>
-                            <input 
+                            <input
                                 ref={customerSearchInputRef}
-                                type="text" 
-                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold uppercase focus:bg-yellow-50 outline-none" 
+                                type="text"
+                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold uppercase focus:bg-yellow-50 outline-none"
                                 value={customerSearch}
                                 onChange={e => {
                                     setCustomerSearch(e.target.value);
@@ -725,10 +728,10 @@ const POS = forwardRef<any, POSProps>(({
                     {isFieldVisible('colPhone') && (
                         <div>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Phone Number</label>
-                            <input 
+                            <input
                                 ref={phoneInputRef}
-                                type="text" 
-                                value={customerPhone} 
+                                type="text"
+                                value={customerPhone}
                                 onChange={e => setCustomerPhone(e.target.value)}
                                 className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50"
                                 placeholder="Customer Phone"
@@ -739,13 +742,13 @@ const POS = forwardRef<any, POSProps>(({
                     {isFieldVisible('colReferred') && (
                         <div>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Referred By</label>
-                            <input 
-                                type="text" 
-                                value={referredBy} 
-                                onChange={e => setReferredBy(e.target.value)} 
+                            <input
+                                type="text"
+                                value={referredBy}
+                                onChange={e => setReferredBy(e.target.value)}
                                 onKeyDown={handleReferredByKeyDown}
-                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50" 
-                                placeholder="Doctor Name" 
+                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50"
+                                placeholder="Doctor Name"
                                 disabled={isReadOnly}
                             />
                         </div>
@@ -774,10 +777,13 @@ const POS = forwardRef<any, POSProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
-                                    const unitsPerPack = item.unitsPerPack || 1;
-                                    const totalUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-                                    const unitRate = (item.rate || item.mrp) / unitsPerPack;
-                                    const lineGross = unitRate * totalUnits;
+                                    // Formula: Amount = (P.Qty / L.Qty) × Rate
+                                    // P.Qty = item.quantity (pack quantity)
+                                    // L.Qty = item.looseQuantity (loose quantity)
+                                    const packQty = item.quantity || 0;
+                                    const looseQty = item.looseQuantity || 1; // Use 1 as fallback to avoid division by zero
+                                    const rate = item.rate || item.mrp || 0;
+                                    const lineGross = (packQty / looseQty) * rate;
                                     const tradeDiscAmt = lineGross * ((item.discountPercent || 0) / 100);
                                     const lineAmount = lineGross - tradeDiscAmt - (item.schemeDiscountAmount || 0);
 
@@ -786,7 +792,7 @@ const POS = forwardRef<any, POSProps>(({
                                             <td className={`p-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-2 border-r border-gray-200 text-primary uppercase w-72 truncate ${uniformTextStyle}`} title={item.name}>
-                                                    <input 
+                                                    <input
                                                         id={`name-${item.id}`}
                                                         type="text"
                                                         value={item.name}
@@ -805,16 +811,16 @@ const POS = forwardRef<any, POSProps>(({
                                             {isFieldVisible('colMrp') && <td className={`p-2 border-r border-gray-200 text-right text-gray-600 ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colPQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
-                                                    <input 
+                                                    <input
                                                         id={`qty-p-${item.id}`}
-                                                        type="number" 
-                                                        value={item.quantity === 0 ? '' : item.quantity} 
+                                                        type="number"
+                                                        value={item.quantity === 0 ? '' : item.quantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'quantity', e.target.value)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-full text-center bg-transparent font-normal no-spinner outline-none" 
+                                                        className="w-full text-center bg-transparent font-normal no-spinner outline-none"
                                                         placeholder="0"
                                                         disabled={isReadOnly}
                                                     />
@@ -822,16 +828,16 @@ const POS = forwardRef<any, POSProps>(({
                                             )}
                                             {isFieldVisible('colLQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
-                                                    <input 
+                                                    <input
                                                         id={`qty-l-${item.id}`}
-                                                        type="number" 
-                                                        value={item.looseQuantity === 0 ? '' : item.looseQuantity} 
+                                                        type="number"
+                                                        value={item.looseQuantity === 0 ? '' : item.looseQuantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'looseQuantity', e.target.value)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-full text-center bg-transparent font-normal no-spinner outline-none text-gray-500" 
+                                                        className="w-full text-center bg-transparent font-normal no-spinner outline-none text-gray-500"
                                                         placeholder="0"
                                                         disabled={isReadOnly}
                                                     />
@@ -839,16 +845,16 @@ const POS = forwardRef<any, POSProps>(({
                                             )}
                                             {isFieldVisible('colFree') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
-                                                    <input 
+                                                    <input
                                                         id={`free-${item.id}`}
-                                                        type="number" 
-                                                        value={item.freeQuantity === 0 ? '' : item.freeQuantity} 
+                                                        type="number"
+                                                        value={item.freeQuantity === 0 ? '' : item.freeQuantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'freeQuantity', e.target.value)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-12 text-center bg-transparent font-normal no-spinner outline-none text-emerald-700" 
+                                                        className="w-12 text-center bg-transparent font-normal no-spinner outline-none text-emerald-700"
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
@@ -857,16 +863,16 @@ const POS = forwardRef<any, POSProps>(({
                                                 <td className={`p-2 border-r border-gray-200 text-right font-normal ${uniformTextStyle}`}>
                                                     <div className="flex items-center justify-end">
                                                         <span className="mr-0.5 text-[10px] opacity-40">₹</span>
-                                                        <input 
+                                                        <input
                                                             id={`rate-${item.id}`}
-                                                            type="number" 
-                                                            value={item.rate === 0 ? '' : item.rate} 
+                                                            type="number"
+                                                            value={item.rate === 0 ? '' : item.rate}
                                                             onChange={e => handleUpdateCartItem(item.id, 'rate', e.target.value)}
                                                             onKeyDown={e => {
                                                                 handleItemKeyDown(e, item.id, idx);
                                                                 handleRowKeyNavigation(e, item.id);
                                                             }}
-                                                            className="w-16 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed border-gray-300 focus:border-primary" 
+                                                            className="w-16 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed border-gray-300 focus:border-primary"
                                                             disabled={isReadOnly}
                                                         />
                                                     </div>
@@ -874,39 +880,39 @@ const POS = forwardRef<any, POSProps>(({
                                             )}
                                             {isFieldVisible('colDisc') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center text-red-700 ${uniformTextStyle}`}>
-                                                    <input 
+                                                    <input
                                                         id={`disc-${item.id}`}
-                                                        type="number" 
-                                                        value={item.discountPercent === 0 ? '' : item.discountPercent} 
+                                                        type="number"
+                                                        value={item.discountPercent === 0 ? '' : item.discountPercent}
                                                         onChange={e => handleUpdateCartItem(item.id, 'discountPercent', e.target.value)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-12 text-center bg-transparent font-normal no-spinner outline-none" 
+                                                        className="w-12 text-center bg-transparent font-normal no-spinner outline-none"
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
                                             )}
                                             {isFieldVisible('colGst') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center text-gray-600 ${uniformTextStyle}`}>
-                                                    <input 
+                                                    <input
                                                         id={`gst-${item.id}`}
-                                                        type="number" 
-                                                        value={item.gstPercent === 0 ? '' : item.gstPercent} 
+                                                        type="number"
+                                                        value={item.gstPercent === 0 ? '' : item.gstPercent}
                                                         onChange={e => handleUpdateCartItem(item.id, 'gstPercent', e.target.value)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-12 text-center bg-transparent font-normal no-spinner outline-none" 
+                                                        className="w-12 text-center bg-transparent font-normal no-spinner outline-none"
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
                                             )}
                                             {isFieldVisible('colSch') && (
                                                 <td className={`p-2 border-r border-gray-400 text-center ${uniformTextStyle}`}>
-                                                    <button 
+                                                    <button
                                                         id={`scheme-${item.id}`}
                                                         onClick={() => !isReadOnly && setSchemeItem(item)}
                                                         onKeyDown={e => {
@@ -934,11 +940,11 @@ const POS = forwardRef<any, POSProps>(({
                                     <tr className="bg-yellow-50/30 h-10">
                                         <td className={`p-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{cartItems.length + 1}</td>
                                         <td className="p-2 border-r border-gray-200 relative w-72">
-                                            <input 
+                                            <input
                                                 ref={productSearchInputRef}
-                                                type="text" 
-                                                className={`w-full bg-transparent outline-none ${uniformTextStyle}`} 
-                                                placeholder="Type item name or code..." 
+                                                type="text"
+                                                className={`w-full bg-transparent outline-none ${uniformTextStyle}`}
+                                                placeholder="Type item name or code..."
                                                 value={searchTerm}
                                                 onChange={e => {
                                                     const val = e.target.value;
@@ -976,19 +982,19 @@ const POS = forwardRef<any, POSProps>(({
                             <div className="flex justify-between text-red-600"><span>Trade Discount</span> <span className="text-sm">-₹{(totals.tradeDiscount || 0).toFixed(2)}</span></div>
                             <div className="flex justify-between text-emerald-600"><span>Scheme Benefit</span> <span className="text-sm">-₹{(totals.schemeTotal || 0).toFixed(2)}</span></div>
                             <div className="flex justify-between text-indigo-700 items-center">
-                                <span>Bill Discount</span> 
-                                <input 
-                                    type="number" 
-                                    value={lumpsumDiscount === 0 ? '' : lumpsumDiscount} 
+                                <span>Bill Discount</span>
+                                <input
+                                    type="number"
+                                    value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
                                     onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
-                                    className="w-20 text-right bg-white border border-gray-300 font-normal no-spinner outline-none px-1 py-0.5" 
+                                    className="w-20 text-right bg-white border border-gray-300 font-normal no-spinner outline-none px-1 py-0.5"
                                     disabled={isReadOnly}
                                 />
                             </div>
                             {!isNonGst && <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="text-sm">+₹{(totals.tax || 0).toFixed(2)}</span></div>}
                             <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-2xl font-black text-primary">
                                 <span>TOTAL</span>
-                                <span>₹{(totals.roundedNet || 0).toFixed(2)}</span>
+                                <span>₹{((totals.roundedNet + (isNonGst ? 0 : totals.tax)) || 0).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
@@ -998,12 +1004,12 @@ const POS = forwardRef<any, POSProps>(({
                             <div className="bg-slate-100 p-4 h-full tally-border !rounded-none shadow-md animate-in fade-in duration-200 flex flex-col">
                                 <div className="flex justify-between items-center border-b border-gray-300 pb-2 mb-3 flex-shrink-0">
                                     <div className="flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
                                         <span className="text-xs font-black uppercase text-primary tracking-[0.2em]">Inventory Insight</span>
                                     </div>
                                     <span className="text-2xl font-black text-emerald-700 leading-none">QTY: {activeIntelItem.stock}</span>
                                 </div>
-                                
+
                                 <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-hidden">
                                     {isFieldVisible('intelIdentity') && (
                                         <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
@@ -1052,7 +1058,7 @@ const POS = forwardRef<any, POSProps>(({
                                     {isFieldVisible('optPrescription') && (
                                         <>
                                             <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4 text-center">Prescription Management</h4>
-                                            
+
                                             <div className="w-full flex flex-wrap justify-center gap-3 mb-6">
                                                 {prescriptions.map((p) => (
                                                     <div key={p.id} className="relative group">
@@ -1061,34 +1067,34 @@ const POS = forwardRef<any, POSProps>(({
                                                                 <img src={p.data.startsWith('data:') ? p.data : `data:image/jpeg;base64,${p.data}`} alt={p.name} className="w-full h-full object-cover" />
                                                             ) : (
                                                                 <div className="w-full h-full flex items-center justify-center text-red-500">
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /></svg>
                                                                 </div>
                                                             )}
                                                         </div>
-                                                        <button 
+                                                        <button
                                                             onClick={() => setPrescriptions(prev => prev.filter(x => x.id !== p.id))}
                                                             className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-lg transition-opacity group-hover:opacity-100 opacity-100"
                                                         >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                                                         </button>
                                                     </div>
                                                 ))}
-                                                
+
                                                 {!isReadOnly && (
                                                     <>
-                                                        <button 
+                                                        <button
                                                             onClick={() => fileInputRef.current?.click()}
                                                             disabled={isProcessingRx}
                                                             className="w-16 h-16 border-2 border-dashed border-primary/20 rounded-none flex flex-col items-center justify-center text-primary/40 hover:bg-primary/5 hover:border-primary/40 transition-all disabled:opacity-50"
                                                         >
-                                                            {isProcessingRx ? <div className="w-4 h-4 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
+                                                            {isProcessingRx ? <div className="w-4 h-4 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>}
                                                             <span className="text-[8px] font-black mt-1 uppercase">{isProcessingRx ? 'SCAN' : 'ADD Rx'}</span>
                                                         </button>
-                                                        <button 
+                                                        <button
                                                             onClick={() => setIsWebcamOpen(true)}
                                                             className="w-16 h-16 border-2 border-dashed border-primary/20 rounded-none flex flex-col items-center justify-center text-primary/40 hover:bg-primary/5 hover:border-primary/40 transition-all"
                                                         >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="4"/></svg>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="4" /></svg>
                                                             <span className="text-[8px] font-black mt-1 uppercase">CAMERA</span>
                                                         </button>
                                                     </>
@@ -1098,7 +1104,7 @@ const POS = forwardRef<any, POSProps>(({
                                     )}
 
                                     <div className="flex flex-col items-center text-gray-300">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-2 opacity-30"><path d="m21 21-4.3-4.3"/><circle cx="11" cy="11" r="8"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-2 opacity-30"><path d="m21 21-4.3-4.3" /><circle cx="11" cy="11" r="8" /><path d="M11 8v6" /><path d="M8 11h6" /></svg>
                                         <p className="text-[11px] font-black uppercase tracking-[0.4em] italic">Scan Rx or type name for live intel</p>
                                     </div>
                                 </div>
@@ -1110,9 +1116,9 @@ const POS = forwardRef<any, POSProps>(({
                         {isFieldVisible('optBillingCategory') && (
                             <div className="bg-white p-2 tally-border shadow-sm">
                                 <label className="text-[9px] font-bold text-gray-500 uppercase block mb-1">Billing Category</label>
-                                <select 
+                                <select
                                     ref={billCategorySelectRef}
-                                    value={billCategory} 
+                                    value={billCategory}
                                     onChange={e => setBillCategory(e.target.value as any)}
                                     className="w-full border border-gray-300 p-1.5 text-xs font-black uppercase outline-none focus:bg-yellow-50 h-8"
                                     disabled={isReadOnly}
@@ -1122,15 +1128,15 @@ const POS = forwardRef<any, POSProps>(({
                                 </select>
                             </div>
                         )}
-                        <button 
-                            onClick={() => { if(confirm("Discard current voucher?")) { setCartItems([]); if(onCancel) onCancel(); } }} 
+                        <button
+                            onClick={() => { if (confirm("Discard current voucher?")) { setCartItems([]); if (onCancel) onCancel(); } }}
                             className="w-full py-3 tally-border bg-white font-black text-[11px] hover:bg-red-50 text-red-600 transition-colors uppercase tracking-[0.2em] shadow-sm"
                         >
                             Discard
                         </button>
-                        <button 
-                            onClick={handleSave} 
-                            disabled={isSaving || isReadOnly || cartItems.length === 0} 
+                        <button
+                            onClick={handleSave}
+                            disabled={isSaving || isReadOnly || cartItems.length === 0}
                             className="w-full py-6 tally-button-primary shadow-2xl active:translate-y-1 uppercase tracking-widest text-[12px] flex items-center justify-center gap-2"
                         >
                             {isSaving ? (
@@ -1142,15 +1148,15 @@ const POS = forwardRef<any, POSProps>(({
                 </div>
             </div>
 
-            <Modal 
-                isOpen={isSearchModalOpen} 
-                onClose={() => setIsSearchModalOpen(false)} 
+            <Modal
+                isOpen={isSearchModalOpen}
+                onClose={() => setIsSearchModalOpen(false)}
                 title="Product selection Matrix"
             >
                 <div className="flex flex-col h-full bg-[#fffde7] dark:bg-zinc-950 font-normal outline-none" onKeyDown={handleSearchKeyDown}>
                     <div className="py-1.5 px-4 bg-primary text-white flex-shrink-0 flex justify-between items-center">
                         <div className="flex items-center gap-3">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                             <span className="text-xs font-black uppercase tracking-[0.2em]">Material Discovery Engine</span>
                         </div>
                         <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Enter Select</span>
@@ -1159,9 +1165,9 @@ const POS = forwardRef<any, POSProps>(({
                     <div className="flex flex-1 overflow-hidden">
                         <div className="flex-1 flex flex-col overflow-hidden">
                             <div className="p-2 bg-white dark:bg-zinc-900 border-b-2 border-primary/10">
-                                <input 
+                                <input
                                     ref={modalSearchInputRef}
-                                    type="text" 
+                                    type="text"
                                     value={modalSearchTerm}
                                     onChange={e => setModalSearchTerm(e.target.value)}
                                     placeholder="Type medicine name or code..."
@@ -1186,8 +1192,8 @@ const POS = forwardRef<any, POSProps>(({
                                                 const isSelected = sIdx === selectedSearchIndex;
                                                 const item = res.item;
                                                 return (
-                                                    <tr 
-                                                        key={item.id} 
+                                                    <tr
+                                                        key={item.id}
                                                         data-index={sIdx}
                                                         onClick={() => triggerBatchSelection(res)}
                                                         onMouseEnter={() => setSelectedSearchIndex(sIdx)}
@@ -1209,7 +1215,7 @@ const POS = forwardRef<any, POSProps>(({
                                     </table>
                                 ) : (
                                     <div className="h-full flex flex-col items-center justify-center opacity-20 p-20 text-center">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-6"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-6"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                                         <p className="text-4xl font-black uppercase tracking-widest">No Matches</p>
                                     </div>
                                 )}
@@ -1222,7 +1228,7 @@ const POS = forwardRef<any, POSProps>(({
                                     {isFieldVisible('intelHub') && (
                                         <div className="mb-8 pb-4 border-b border-primary/10">
                                             <div className="flex items-center gap-2 mb-4">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
                                                 <span className="text-xs font-black uppercase tracking-[0.25em] text-primary">Intelligence Hub</span>
                                             </div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Current Stock Level</p>
@@ -1273,14 +1279,14 @@ const POS = forwardRef<any, POSProps>(({
                                             </div>
                                         )}
                                     </div>
-                                    
+
                                     <div className="mt-auto pt-6 opacity-40">
                                         <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest text-center italic">Updated in Real-time</p>
                                     </div>
                                 </div>
                             ) : (
                                 <div className="flex-1 flex flex-col items-center justify-center p-8 text-center opacity-20">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-4"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-4"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>
                                     <p className="text-xs font-black uppercase tracking-widest">Select item for live intelligence</p>
                                 </div>
                             )}
@@ -1288,16 +1294,16 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
 
                     <div className="p-4 bg-slate-100 border-t border-app-border flex justify-end gap-3 flex-shrink-0">
-                         <button onClick={() => setIsSearchModalOpen(false)} className="px-8 py-3 text-[11px] font-black uppercase tracking-widest text-gray-500 hover:text-black">Discard (Esc)</button>
-                         <button 
+                        <button onClick={() => setIsSearchModalOpen(false)} className="px-8 py-3 text-[11px] font-black uppercase tracking-widest text-gray-500 hover:text-black">Discard (Esc)</button>
+                        <button
                             onClick={() => {
                                 const selection = deduplicatedSearchInventory[selectedSearchIndex];
                                 if (selection) triggerBatchSelection(selection);
                             }}
                             className="px-16 py-4 bg-primary text-white text-[12px] font-black uppercase tracking-[0.3em] shadow-2xl active:translate-y-1 transform transition-all"
-                         >
+                        >
                             Select Material (Enter)
-                         </button>
+                        </button>
                     </div>
                 </div>
             </Modal>
@@ -1314,7 +1320,7 @@ const POS = forwardRef<any, POSProps>(({
             />
 
             {schemeItem && (
-                <SchemeModal 
+                <SchemeModal
                     isOpen={!!schemeItem}
                     onClose={() => { setSchemeItem(null); setTimeout(() => productSearchInputRef.current?.focus(), 100); }}
                     item={schemeItem}
@@ -1323,7 +1329,7 @@ const POS = forwardRef<any, POSProps>(({
                 />
             )}
 
-            <BatchSelectionModal 
+            <BatchSelectionModal
                 isOpen={!!pendingBatchSelection}
                 onClose={() => { setPendingBatchSelection(null); setTimeout(() => productSearchInputRef.current?.focus(), 100); }}
                 productName={pendingBatchSelection?.item.name || ''}
@@ -1331,17 +1337,17 @@ const POS = forwardRef<any, POSProps>(({
                 onSelect={addSelectedBatchToGrid}
             />
 
-            <WebcamCaptureModal 
-                isOpen={isWebcamOpen} 
-                onClose={() => setIsWebcamOpen(false)} 
-                onCapture={handleWebcamCapture} 
+            <WebcamCaptureModal
+                isOpen={isWebcamOpen}
+                onClose={() => setIsWebcamOpen(false)}
+                onCapture={handleWebcamCapture}
             />
 
-            <input 
+            <input
                 ref={fileInputRef}
-                type="file" 
-                className="hidden" 
-                multiple 
+                type="file"
+                className="hidden"
+                multiple
                 accept="image/*,application/pdf"
                 onChange={handleFileChange}
             />

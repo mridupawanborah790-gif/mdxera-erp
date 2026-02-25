@@ -272,10 +272,16 @@ const App: React.FC = () => {
                 setIsAppLoading(false);
             } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 if (session?.user) {
-                    storage.getCurrentUser().then(user => {
+                    storage.getCurrentUser().then(async user => {
                         if (user) {
                             setCurrentUser(user);
                             loadData(user, 'background');
+                        } else {
+                            const profile = await storage.fetchProfile(session.user.id);
+                            if (profile) {
+                                setCurrentUser(profile);
+                                loadData(profile, 'sync'); // Use sync mode to show progress
+                            }
                         }
                     });
                 }
