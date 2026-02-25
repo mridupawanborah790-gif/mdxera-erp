@@ -18,6 +18,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const showBillDiscount = displayOptions.showBillDiscountOnPrint !== false;
   const isMode8 = displayOptions.calculationMode === '8';
   const showItemWiseDisc = displayOptions.showItemWiseDiscountOnPrint !== false;
+  const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -172,6 +173,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                 <th className="w-[8%] text-right">M.R.P</th>
                 <th className="w-[8%] text-right">RATE</th>
                 {showItemWiseDisc && <th className="w-[5%]">D%</th>}
+                {showSchemeColumn && <th className="w-[5%]">SCH%</th>}
                 <th className="w-[5%]">GST%</th>
                 <th className="w-[11%] text-right border-r-0">AMOUNT</th>
               </tr>
@@ -189,6 +191,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <td className="text-right">{(item.mrp || 0).toFixed(2)}</td>
                     <td className="text-right text-blue-900">{(item.rate || 0).toFixed(2)}</td>
                     {showItemWiseDisc && <td className="text-center text-red-600">{item.discountPercent || '0'}</td>}
+                    {showSchemeColumn && <td className="text-center text-emerald-700">{item.schemeDiscountPercent || '-'}</td>}
                     <td className="text-center">{(item.gstPercent || 0).toFixed(0)}</td>
                     <td className="text-right font-black border-r-0 text-gray-950">{(item.lineTotal || 0).toFixed(2)}</td>
                   </tr>
@@ -204,6 +207,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     {showItemWiseDisc && <td className="border-r border-black"></td>}
+                    {showSchemeColumn && <td className="border-r border-black"></td>}
                     <td className="border-r border-black"></td>
                     <td className=""></td>
                 </tr>
