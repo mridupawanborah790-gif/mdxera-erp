@@ -564,13 +564,13 @@ const POS = forwardRef<any, POSProps>(({
         }
     }, [addNotification, isValidExpiry]);
 
-    const handleExpiryBlur = useCallback((id: string, value: string) => {
-        if (!value) return;
-        if (!isValidExpiry(value)) {
-            addNotification('Expiry must be in MM/YY format with month between 01 and 12.', 'error');
-            setCartItems(prev => prev.map(item => item.id === id ? { ...item, expiry: '' } : item));
-        }
-    }, [addNotification, isValidExpiry]);
+    // const handleExpiryBlur = useCallback((id: string, value: string) => {
+    //     if (!value) return;
+    //     if (!isValidExpiry(value)) {
+    //         addNotification('Expiry must be in MM/YY format with month between 01 and 12.', 'error');
+    //         setCartItems(prev => prev.map(item => item.id === id ? { ...item, expiry: '' } : item));
+    //     }
+    // }, [addNotification, isValidExpiry]);
 
     const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, schemeTotalQty?: number) => {
         setCartItems(prev => prev.map(item => {
