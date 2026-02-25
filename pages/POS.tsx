@@ -272,7 +272,8 @@ const POS = forwardRef<any, POSProps>(({
                             batch: match.batch,
                             expiry: match.expiry,
                             rate: match.mrp,
-                            unitsPerPack
+                            unitsPerPack,
+                            packType: match.packType
                         });
                     } else {
                         newBillItems.push({
@@ -481,7 +482,8 @@ const POS = forwardRef<any, POSProps>(({
             batch: batch.batch || 'NEW-BATCH',
             expiry: batch.expiry ? String(batch.expiry) : 'N/A',
             rate: rateValue,
-            unitsPerPack: batch.unitsPerPack || 1
+            unitsPerPack: batch.unitsPerPack || 1,
+            packType: batch.packType
         };
 
         setCartItems(prev => {
@@ -807,7 +809,7 @@ const POS = forwardRef<any, POSProps>(({
                                                 </td>
                                             )}
                                             {isFieldVisible('colBatch') && <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>{item.batch}</td>}
-                                            {isFieldVisible('colPack') && <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>{item.unitsPerPack || 1}</td>}
+                                            {isFieldVisible('colPack') && <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>{item.packType?.trim() || item.unitsPerPack || 1}</td>}
                                             {isFieldVisible('colMrp') && <td className={`p-2 border-r border-gray-200 text-right text-gray-600 ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colPQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
