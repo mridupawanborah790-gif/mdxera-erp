@@ -143,7 +143,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
     return (
         <div className="relative min-h-full flex flex-col overflow-hidden bg-app-bg dark:bg-zinc-950">
-            <main className="p-6 space-y-6 view-enter flex-1 pb-48">
+            <main className="p-6 space-y-6 view-enter flex-1 pb-12">
                 
                 {/* Header Strip */}
                 <div className="flex justify-between items-center bg-primary text-white px-4 py-3 tally-shadow">
@@ -164,16 +164,68 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     {/* Left Panel: Main View Content */}
                     <div className="lg:col-span-8 space-y-6">
-                        <div className="grid grid-cols-1 gap-6">
-                            <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white">
-                                <img
-                                    src={promoImageUrl}
-                                    alt="Dashboard promotion"
-                                    className="w-full h-40 md:h-52 object-contain bg-white"
-                                    loading="lazy"
-                                />
+                        <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white">
+                            <img
+                                src={promoImageUrl}
+                                alt="Dashboard promotion"
+                                className="w-full h-40 md:h-52 object-contain bg-white"
+                                loading="lazy"
+                            />
+                        </Card>
+
+                        {isVisible('recentVouchers') && (
+                            <Card className="p-0 tally-border !rounded-none overflow-hidden h-[340px] flex flex-col bg-white">
+                                <div className="bg-gray-100 p-3 border-b border-gray-300 font-bold text-[12px] uppercase tracking-wide flex justify-between items-center">
+                                    <span>Recent Vouchers</span>
+                                    <button onClick={onReload} disabled={isReloading} className={`p-1.5 rounded-full hover:bg-gray-200 transition-colors ${isReloading ? 'animate-spin opacity-50' : ''}`} title="Refresh Records">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-auto bg-white">
+                                    <table className="w-full text-[13px] border-collapse">
+                                        <tbody className="divide-y divide-gray-100">
+                                            {transactions.slice(0, 15).map(tx => (
+                                                <tr key={tx.id} className="hover:bg-accent transition-colors cursor-pointer group">
+                                                    <td className="p-3 font-bold font-mono text-primary group-hover:text-black">{tx.id}</td>
+                                                    <td className="p-3 truncate font-medium group-hover:text-black uppercase">{tx.customerName}</td>
+                                                    <td className="p-3 text-right font-black group-hover:text-black">₹{tx.total}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </Card>
-                        </div>
+                        )}
+
+                        {expiryAlerts.length > 0 && (
+                            <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white">
+                                <div className="bg-red-700 text-white p-3 border-b border-red-800 font-bold text-[12px] uppercase tracking-wide">
+                                    Attention Required: Expiry Alerts
+                                </div>
+                                <div className="max-h-72 overflow-auto">
+                                    <table className="w-full text-[13px] border-collapse">
+                                        <thead className="bg-red-50 text-red-900 uppercase text-[11px] tracking-wide">
+                                            <tr>
+                                                <th className="p-3 text-left">Item</th>
+                                                <th className="p-3 text-left">Batch</th>
+                                                <th className="p-3 text-left">Expiry</th>
+                                                <th className="p-3 text-right">Stock</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-red-100">
+                                            {expiryAlerts.slice(0, 20).map(item => (
+                                                <tr key={item.id} className="hover:bg-red-50 transition-colors">
+                                                    <td className="p-3 font-semibold text-gray-800">{item.name}</td>
+                                                    <td className="p-3 font-mono text-gray-600 uppercase">{item.batch || '—'}</td>
+                                                    <td className="p-3 font-medium text-red-700">{item.expiry}</td>
+                                                    <td className="p-3 text-right font-black text-gray-900">{item.stock}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+                        )}
                     </div>
 
                     {/* Right Panel: Gateway Menu Style */}
@@ -227,41 +279,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                     </div>
                 </div>
 
-                {isVisible('recentVouchers') && (
-                    <Card className="p-0 tally-border !rounded-none overflow-hidden h-[340px] flex flex-col">
-                        <div className="bg-gray-100 p-3 border-b border-gray-300 font-bold text-[12px] uppercase tracking-wide flex justify-between items-center">
-                            <span>Recent Vouchers</span>
-                            <button onClick={onReload} disabled={isReloading} className={`p-1.5 rounded-full hover:bg-gray-200 transition-colors ${isReloading ? 'animate-spin opacity-50' : ''}`} title="Refresh Records">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-auto bg-white">
-                            <table className="w-full text-[13px] border-collapse">
-                                <tbody className="divide-y divide-gray-100">
-                                    {transactions.slice(0, 15).map(tx => (
-                                        <tr key={tx.id} className="hover:bg-accent transition-colors cursor-pointer group">
-                                            <td className="p-3 font-bold font-mono text-primary group-hover:text-black">{tx.id}</td>
-                                            <td className="p-3 truncate font-medium group-hover:text-black uppercase">{tx.customerName}</td>
-                                            <td className="p-3 text-right font-black group-hover:text-black">₹{tx.total}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
-                )}
             </main>
-
-            <div className="fixed bottom-8 left-6 right-6 lg:left-64 lg:right-10 z-30">
-                <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white shadow-2xl border border-gray-200">
-                    <img
-                        src={promoImageUrl}
-                        alt="Dashboard promotional banner"
-                        className="w-full h-24 sm:h-28 md:h-32 object-contain bg-white"
-                        loading="lazy"
-                    />
-                </Card>
-            </div>
 
             <Chatbot appData={cleanAppData} />
         </div>
