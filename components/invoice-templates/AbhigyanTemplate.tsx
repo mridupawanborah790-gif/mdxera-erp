@@ -42,6 +42,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
         taxableVal,
         gstAmt,
         lineTotal: lineNet,
+        displayName: item.packType?.trim() ? `${item.name} (${item.packType.trim()})` : item.name,
         unitLabel: item.packType || 'pkt'
       };
     });
@@ -156,7 +157,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
               {(chunk || []).map((item, index) => (
                   <tr key={item.id} className="row-min-h">
                       <td className="text-center">{(pageIdx * ITEMS_PER_PAGE) + index + 1}</td>
-                      <td className="font-bold truncate">{item.name}</td>
+                      <td className="font-bold truncate">{item.displayName}</td>
                       <td className="text-center">{item.hsn}</td>
                       <td className="text-center">{item.gstRate}%</td>
                       <td className="text-center">{item.quantity.toFixed(2)} {item.unitLabel}</td>

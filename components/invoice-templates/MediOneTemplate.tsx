@@ -49,7 +49,8 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : ''),
         taxableVal,
         gstAmt,
-        lineTotal: lineNet
+        lineTotal: lineNet,
+        displayName: item.packType?.trim() ? `${item.name} (${item.packType.trim()})` : item.name
       };
     });
 
@@ -159,7 +160,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
               {chunk.map((item, idx) => (
                 <tr key={item.id}>
                   <td className="text-center">{(pageIdx * ITEMS_PER_PAGE) + idx + 1}</td>
-                  <td className="font-semibold uppercase truncate">{item.name}</td>
+                  <td className="font-semibold uppercase truncate">{item.displayName}</td>
                   <td className="text-center font-mono text-[7.5pt]">{item.batch}</td>
                   <td className="text-center text-[7pt]">{item.expiry}</td>
                   <td className="text-center font-semibold">{item.quantity}</td>
