@@ -938,7 +938,6 @@
 
 // export default App;
 
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -1792,7 +1791,7 @@ const App: React.FC = () => {
                     salesReturns={salesReturns} purchaseReturns={purchaseReturns} purchases={purchases}
                     onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(() => loadData(currentUser!, 'background'))}
                     onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    addNotification={addNotification} defaultTab={currentPage === 'sales' ? 'sales' : 'purchase'} isFixedMode={true}
+                    addNotification={addNotification} defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'} isFixedMode={true}
                 />;
             default:
                 return <Dashboard

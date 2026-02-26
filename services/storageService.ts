@@ -1078,15 +1078,23 @@ export const requestPasswordReset = async (email: string) => {
 };
 
 export const verifyRecoveryToken = async (email: string, token: string) => {
-    const isOtp = /^\d{6}$/.test(token.trim());
+    const cleanToken = token.trim();
+    const isOtp = /^\d{6}$/.test(cleanToken);
     
-    const { error } = await supabase.auth.verifyOtp({
-        email: isOtp ? email : undefined,
-        token: isOtp ? token.trim() : undefined,
-        token_hash: !isOtp ? token.trim() : undefined,
-        type: 'recovery',
-    });
-    if (error) throw error;
+    if (isOtp) {
+        const { error } = await supabase.auth.verifyOtp({
+            email,
+            token: cleanToken,
+            type: 'recovery',
+        });
+        if (error) throw error;
+    } else {
+        const { error } = await supabase.auth.verifyOtp({
+            token_hash: cleanToken,
+            type: 'recovery',
+        });
+        if (error) throw error;
+    }
 };
 
 export const updatePassword = async (newPassword: string) => {
