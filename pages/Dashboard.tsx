@@ -133,6 +133,12 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
         return [...filteredExpiryAlerts, ...filteredExpiryAlerts];
     }, [filteredExpiryAlerts]);
 
+    const tickerDuration = useMemo(() => {
+        const secondsPerItem = 10;
+        const minDuration = 55;
+        return Math.max(minDuration, filteredExpiryAlerts.length * secondsPerItem);
+    }, [filteredExpiryAlerts.length]);
+
     const cleanAppData = useMemo(() => ({
         inventory, transactions, purchases, distributors, customers, medicines,
     }), [inventory, transactions, purchases, distributors, customers, medicines]);
@@ -303,7 +309,10 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
                     <div className="overflow-hidden border-t border-red-500/70 bg-red-800/80 py-2">
                         {filteredExpiryAlerts.length > 0 ? (
-                            <div className="expiry-ticker-track flex min-w-max items-center gap-3 px-4">
+                            <div
+                                className="expiry-ticker-track flex min-w-max items-center gap-3 px-4"
+                                style={{ animationDuration: `${tickerDuration}s` }}
+                            >
                                 {tickerItems.map((item, idx) => (
                                     <div
                                         key={`${item.id}-${idx}`}
@@ -327,7 +336,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
             <style>{`
                 .expiry-ticker-track {
-                    animation: expiryTickerMove 36s linear infinite;
+                    animation: expiryTickerMove 55s linear infinite;
                     will-change: transform;
                 }
 
