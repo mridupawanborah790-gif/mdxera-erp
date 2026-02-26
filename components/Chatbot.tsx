@@ -80,7 +80,7 @@ const Chatbot: React.FC<ChatbotProps> = ({ appData }) => {
                 <div className="flex items-center justify-between p-4 border-b border-[var(--modal-footer-border-light)] dark:border-[var(--modal-footer-border-dark)] bg-primary text-white rounded-none">
                     <div className="flex items-center space-x-2">
                         <AiIcon className="w-5 h-5 text-accent"/>
-                        <h3 className="font-black text-xs uppercase tracking-widest">MDXERA ERP Assistant</h3>
+                        <h3 className="font-black text-xs uppercase tracking-widest">Assistant</h3>
                     </div>
                     <button onClick={() => setIsOpen(false)} className="text-white hover:text-accent">✕</button>
                 </div>
