@@ -193,8 +193,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           </button>
         </div>
 
-        <div className={`flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:overflow-visible print:bg-white`}>
-            <div id="print-area" className={`${isLandscape ? 'w-[210mm]' : 'w-[148mm]'} min-h-fit p-0 text-black bg-white shadow-lg print:shadow-none mx-auto`}>
+        <div className={`flex-1 overflow-y-auto bg-gray-100 p-4 print:overflow-visible`}>
+            <div id="print-area" className={`${isLandscape ? 'w-[210mm]' : 'w-[148mm]'} min-h-fit p-0 text-black bg-white shadow-lg mx-auto`}>
                 {renderTemplate()}
                 <DosageInstructions items={bill.items} medicines={medicines} />
             </div>
@@ -254,23 +254,12 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           }
 
           #print-bill-modal-container > div {
-            width: 100% !important;
-            max-width: 100% !important;
             max-height: none !important;
             overflow: visible !important;
-            box-shadow: none !important;
           }
 
           #print-bill-modal-container .no-print {
             display: none !important;
-          }
-
-          #print-area {
-            width: ${isLandscape ? '210mm' : '148mm'} !important;
-            max-width: ${isLandscape ? '210mm' : '148mm'} !important;
-            margin: 0 auto !important;
-            box-shadow: none !important;
-            background: #fff !important;
           }
 
           #print-area,
