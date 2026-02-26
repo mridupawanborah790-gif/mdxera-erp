@@ -449,7 +449,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin, initialView = 'auth' }) =>
                                     onClick={() => setShowManualToken(!showManualToken)}
                                     className="text-[9px] font-black uppercase text-primary hover:underline"
                                 >
-                                    {showManualToken ? 'Send Email Link instead' : 'Have a token? Enter manually'}
+                                    {showManualToken ? 'Send Email Link instead' : 'Input OTP'}
                                 </button>
                             </div>
                         )}
