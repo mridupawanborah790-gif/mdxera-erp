@@ -33,6 +33,7 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
 
 const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
     const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(-1);
+    const [expiryFilter, setExpiryFilter] = useState<'expired' | 'nearExpiry'>('expired');
     const promoImageUrl = 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/Purple%20and%20Yellow%20Modern%20Website%20Development%20Solution%20Instagram%20Post%20(5%20x%208%20in)%20(3%20x%206%20cm)%20(6%20x%206.5%20cm).png';
 
     const isVisible = (fieldId: string) => configurations.modules?.dashboard?.fields?.[fieldId] === true;
@@ -98,14 +99,39 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
     const expiryAlerts = useMemo(() => {
         const threshold = configurations.displayOptions?.expiryThreshold || 90;
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const alertDate = new Date();
         alertDate.setDate(alertDate.getDate() + threshold);
         return inventory.filter(item => {
             if (!item.expiry) return false;
             const expDate = new Date(item.expiry);
-            return expDate <= alertDate;
+            if (Number.isNaN(expDate.getTime())) return false;
+            return expDate < todayStart || expDate <= alertDate;
         }).sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime());
     }, [inventory, configurations.displayOptions]);
+
+    const filteredExpiryAlerts = useMemo(() => {
+        const threshold = configurations.displayOptions?.expiryThreshold || 90;
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const alertDate = new Date(todayStart);
+        alertDate.setDate(alertDate.getDate() + threshold);
+
+        return expiryAlerts.filter(item => {
+            const expDate = new Date(item.expiry);
+            if (Number.isNaN(expDate.getTime())) return false;
+            if (expiryFilter === 'expired') {
+                return expDate < todayStart;
+            }
+            return expDate >= todayStart && expDate <= alertDate;
+        });
+    }, [expiryAlerts, expiryFilter, configurations.displayOptions]);
+
+    const tickerItems = useMemo(() => {
+        if (filteredExpiryAlerts.length === 0) return [];
+        return [...filteredExpiryAlerts, ...filteredExpiryAlerts];
+    }, [filteredExpiryAlerts]);
 
     const cleanAppData = useMemo(() => ({
         inventory, transactions, purchases, distributors, customers, medicines,
@@ -143,7 +169,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
     return (
         <div className="relative min-h-full flex flex-col overflow-hidden bg-app-bg dark:bg-zinc-950">
-            <main className="p-6 space-y-6 view-enter flex-1 pb-12">
+            <main className="p-6 space-y-6 view-enter flex-1 pb-28">
                 
                 {/* Header Strip */}
                 <div className="flex justify-between items-center bg-primary text-white px-4 py-3 tally-shadow">
@@ -189,36 +215,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                                                     <td className="p-3 font-bold font-mono text-primary group-hover:text-black">{tx.id}</td>
                                                     <td className="p-3 truncate font-medium group-hover:text-black uppercase">{tx.customerName}</td>
                                                     <td className="p-3 text-right font-black group-hover:text-black">₹{tx.total}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </Card>
-                        )}
-
-                        {expiryAlerts.length > 0 && (
-                            <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white">
-                                <div className="bg-red-700 text-white p-3 border-b border-red-800 font-bold text-[12px] uppercase tracking-wide">
-                                    Attention Required: Expiry Alerts
-                                </div>
-                                <div className="max-h-72 overflow-auto">
-                                    <table className="w-full text-[13px] border-collapse">
-                                        <thead className="bg-red-50 text-red-900 uppercase text-[11px] tracking-wide">
-                                            <tr>
-                                                <th className="p-3 text-left">Item</th>
-                                                <th className="p-3 text-left">Batch</th>
-                                                <th className="p-3 text-left">Expiry</th>
-                                                <th className="p-3 text-right">Stock</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-red-100">
-                                            {expiryAlerts.slice(0, 20).map(item => (
-                                                <tr key={item.id} className="hover:bg-red-50 transition-colors">
-                                                    <td className="p-3 font-semibold text-gray-800">{item.name}</td>
-                                                    <td className="p-3 font-mono text-gray-600 uppercase">{item.batch || '—'}</td>
-                                                    <td className="p-3 font-medium text-red-700">{item.expiry}</td>
-                                                    <td className="p-3 text-right font-black text-gray-900">{item.stock}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -280,6 +276,70 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                 </div>
 
             </main>
+
+            {expiryAlerts.length > 0 && (
+                <div className="sticky bottom-0 z-20 border-t-2 border-red-900 bg-red-700 text-white shadow-[0_-4px_16px_rgba(127,29,29,0.3)]">
+                    <div className="flex flex-col gap-3 px-3 py-2 md:flex-row md:items-center md:justify-between md:px-5">
+                        <div className="text-xs font-extrabold uppercase tracking-[0.12em]">
+                            ATTENTION REQUIRED: EXPIRY ALERTS
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setExpiryFilter('expired')}
+                                className={`rounded px-3 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors ${expiryFilter === 'expired' ? 'bg-white text-red-700' : 'bg-red-900/40 text-white hover:bg-red-900/70'}`}
+                            >
+                                Expiry
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setExpiryFilter('nearExpiry')}
+                                className={`rounded px-3 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors ${expiryFilter === 'nearExpiry' ? 'bg-white text-red-700' : 'bg-red-900/40 text-white hover:bg-red-900/70'}`}
+                            >
+                                Near Expiry
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="overflow-hidden border-t border-red-500/70 bg-red-800/80 py-2">
+                        {filteredExpiryAlerts.length > 0 ? (
+                            <div className="expiry-ticker-track flex min-w-max items-center gap-3 px-4">
+                                {tickerItems.map((item, idx) => (
+                                    <div
+                                        key={`${item.id}-${idx}`}
+                                        className="flex items-center gap-2 whitespace-nowrap rounded border border-red-200/25 bg-red-950/30 px-3 py-1 text-xs md:text-sm"
+                                    >
+                                        <span className="font-bold uppercase text-red-100">{item.name}</span>
+                                        <span className="font-mono uppercase text-red-200">{item.batch || 'NO-BATCH'}</span>
+                                        <span className="font-semibold text-amber-200">EXP: {item.expiry}</span>
+                                        <span className="font-black text-white">STOCK {item.stock}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="px-4 py-1 text-xs font-semibold uppercase tracking-wide text-red-100 md:text-sm">
+                                No materials found for selected filter.
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            <style>{`
+                .expiry-ticker-track {
+                    animation: expiryTickerMove 36s linear infinite;
+                    will-change: transform;
+                }
+
+                @keyframes expiryTickerMove {
+                    0% {
+                        transform: translateX(0);
+                    }
+                    100% {
+                        transform: translateX(-50%);
+                    }
+                }
+            `}</style>
 
             <Chatbot appData={cleanAppData} />
         </div>
