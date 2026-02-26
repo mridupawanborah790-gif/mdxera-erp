@@ -114,8 +114,8 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           }
         }
         .erp-table { border: 1px solid black; }
-        .erp-table th { border: 1px solid black; padding: 1px 3px; font-weight: 800 !important; font-size: 7.5pt; }
-        .erp-table td { border-left: 1px solid black; border-right: 1px solid black; padding: 1px 3px; font-size: 8pt; }
+        .erp-table th { border: 1px solid black; padding: 1px 3px; font-weight: 600 !important; font-size: 7.5pt; }
+        .erp-table td { border-left: 1px solid black; border-right: 1px solid black; padding: 1px 3px; font-size: 8pt; font-weight: 500; }
         .font-mono-erp { font-family: 'Courier New', Courier, monospace; }
         .footer-border { border: 1px solid black; border-top: 0; }
         .row-height { height: 26px; }
@@ -164,7 +164,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
           <table className="w-full erp-table border-collapse flex-1 bg-white">
             <thead>
-              <tr className="bg-gray-100 text-[7pt] font-black uppercase border-b border-black">
+              <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
                 <th className="w-[10%]">QTY+F</th>
                 <th className="text-left w-[32%]">DESCRIPTION</th>
@@ -178,7 +178,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                 <th className="w-[11%] text-right border-r-0">AMOUNT</th>
               </tr>
             </thead>
-            <tbody className="text-[8.5pt] font-bold">
+            <tbody className="text-[8.5pt] font-medium">
               {chunk.map((item, idx) => {
                 const sn = (pageIdx * ITEMS_PER_PAGE) + idx + 1;
                 return (
@@ -215,8 +215,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
             </tbody>
           </table>
 
-          {pageIdx === calculations.itemChunks.length - 1 ? (
-            <div className="grid grid-cols-2 footer-border flex-shrink-0 bg-white">
+          <div className="grid grid-cols-2 footer-border flex-shrink-0 bg-white">
                 <div className="border-r border-black p-1.5 flex flex-col justify-between">
                   {!isNonGst && (
                     <table className="w-full text-[6.5pt] border-collapse erp-table mb-1">
@@ -283,11 +282,6 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                   </div>
                 </div>
             </div>
-          ) : (
-            <div className="footer-border p-3 bg-gray-100 flex justify-center items-center flex-shrink-0">
-                <p className="text-[9px] font-black uppercase tracking-[0.4em] text-gray-400">Continued on Page {pageIdx + 2} ...</p>
-            </div>
-          )}
         </div>
       ))}
     </div>

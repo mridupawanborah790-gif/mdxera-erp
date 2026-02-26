@@ -6,6 +6,8 @@ interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
 }
 
+const ITEMS_PER_PAGE = 10;
+
 const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
 
@@ -53,17 +55,23 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
         gstSummary[r].sgst += item.gstAmt / 2;
     });
 
-    return { items, subTotalTaxable, totalDiscount, gstSummary };
+    const chunks = [];
+    for (let i = 0; i < items.length; i += ITEMS_PER_PAGE) {
+      chunks.push(items.slice(i, i + ITEMS_PER_PAGE));
+    }
+    const itemChunks = chunks.length > 0 ? chunks : [[]];
+
+    return { items, itemChunks, subTotalTaxable, totalDiscount, gstSummary };
   }, [bill, isNonGst]);
 
   const totalQty = (bill.items || []).reduce((acc, i) => acc + i.quantity, 0);
 
   return (
-    <div className="bg-white text-black font-sans p-2 w-full mx-auto leading-tight text-[9pt] border border-gray-300 print:border-0 print:p-0 overflow-hidden">
+    <div className="bg-white text-black font-sans w-full mx-auto leading-tight text-[9pt] border border-gray-300 print:border-0 print:p-0 overflow-hidden" style={{ fontWeight: 400 }}>
       <style>{`
         .abhigyan-table { border-collapse: collapse; width: 100%; border: 1px solid black; }
-        .abhigyan-table th { border: 1px solid black; padding: 2px; background-color: transparent; font-weight: bold; text-transform: none; font-size: 8pt; }
-        .abhigyan-table td { border-left: 1px solid black; border-right: 1px solid black; padding: 1px 4px; border-top: 0; border-bottom: 0; font-size: 8.5pt; }
+        .abhigyan-table th { border: 1px solid black; padding: 2px; background-color: transparent; font-weight: 600; text-transform: none; font-size: 8pt; }
+        .abhigyan-table td { border-left: 1px solid black; border-right: 1px solid black; padding: 1px 4px; border-top: 0; border-bottom: 0; font-size: 8.5pt; font-weight: 500; }
         .abhigyan-table tfoot tr { border-top: 1px solid black; }
         .text-right { text-align: right; }
         .text-center { text-align: center; }
@@ -71,7 +79,14 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
         .uppercase { text-transform: uppercase; }
         .border-t-black { border-top: 1px solid black !important; }
         .row-min-h { height: 19px; }
+        @media print {
+          .abhigyan-page { page-break-after: always; }
+          .abhigyan-page:last-child { page-break-after: auto; }
+        }
       `}</style>
+
+      {calculations.itemChunks.map((chunk, pageIdx) => (
+      <div key={pageIdx} className="abhigyan-page p-2">
 
       {/* Header Grid */}
       <div className="text-center mb-0.5">
@@ -138,9 +153,9 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
               </tr>
           </thead>
           <tbody>
-              {(calculations.items || []).map((item) => (
+              {(chunk || []).map((item, index) => (
                   <tr key={item.id} className="row-min-h">
-                      <td className="text-center">{item.sn}</td>
+                      <td className="text-center">{(pageIdx * ITEMS_PER_PAGE) + index + 1}</td>
                       <td className="font-bold truncate">{item.name}</td>
                       <td className="text-center">{item.hsn}</td>
                       <td className="text-center">{item.gstRate}%</td>
@@ -151,8 +166,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   </tr>
               ))}
               
-              {/* Target total of 8 rows to ensure single page fitment */}
-              {Array.from({ length: Math.max(0, 8 - (calculations.items || []).length) }).map((_, i) => (
+              {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                   <tr key={`spacer-${i}`} className="row-min-h">
                       <td className="border-l border-r border-black"></td>
                       <td className="border-l border-r border-black"></td>
@@ -279,6 +293,8 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
           SUBJECT TO {(bill.pharmacy.address || '').split(',').pop()?.trim() || 'NAGAON'} JURISDICTION
           <p className="text-[6pt] font-normal lowercase opacity-50 mt-0.5">Computer Generated Invoice - MDXERA ERP</p>
       </div>
+      </div>
+      ))}
     </div>
   );
 };
