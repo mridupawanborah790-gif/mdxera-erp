@@ -60,7 +60,7 @@ const MassUpdateInventoryModal: React.FC<MassUpdateInventoryModalProps> = ({ isO
                         />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-app-text-secondary">New Pack Type</label>
+                        <label className="block text-sm font-medium text-app-text-secondary">New Pack</label>
                         <input 
                             type="text" 
                             value={packType} 

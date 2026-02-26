@@ -76,6 +76,16 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
             return;
         }
 
+        if (name === 'packType') {
+            const inferredUnitsPerPack = parseInt(value.match(/\d+/)?.[0] || '1', 10);
+            setProduct(prev => prev ? ({
+                ...prev,
+                packType: value,
+                unitsPerPack: Number.isFinite(inferredUnitsPerPack) && inferredUnitsPerPack > 0 ? inferredUnitsPerPack : 1,
+            }) : null);
+            return;
+        }
+
         setProduct(prev => prev ? ({
             ...prev,
             [name]: type === 'number' ? (parseFloat(value) || 0) : value,
@@ -220,15 +230,9 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-4">
                         <div className="space-y-4">
                             <h4 className="text-[10px] font-black uppercase text-gray-500 border-b border-gray-100 pb-1">Packaging Utility</h4>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Units/Pack</label>
-                                    <input type="number" name="unitsPerPack" value={product.unitsPerPack} onChange={handleChange} className="w-full tally-input" />
-                                </div>
-                                <div>
-                                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Pack Type</label>
-                                    <input name="packType" value={product.packType || ''} onChange={handleChange} placeholder="e.g. 10's" className="w-full tally-input" />
-                                </div>
+                            <div>
+                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Pack</label>
+                                <input name="packType" value={product.packType || ''} onChange={handleChange} placeholder="e.g. 10s, 100ml" className="w-full tally-input" />
                             </div>
                         </div>
                         <div className="space-y-4">
