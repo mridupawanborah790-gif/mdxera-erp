@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 // Fix: Added AppConfigurations to imports
 import type { DetailedBill, InventoryItem, Medicine, AppConfigurations } from '../types';
@@ -29,27 +29,6 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   // Define isLandscape from orientation
   const isLandscape = orientation === 'landscape';
     
-  // NEW: Automatically trigger print when modal opens
-  useEffect(() => {
-    if (isOpen && bill) {
-      const originalTitle = document.title;
-      const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
-      document.title = `Invoice_${bill.id}_${sanitizedCustomerName}`;
-
-      // A slight delay to ensure the DOM is fully rendered before printing
-      const printTimeout = setTimeout(() => {
-        window.print();
-        // Restore title after a safe delay
-        setTimeout(() => {
-          document.title = originalTitle;
-        }, 1000); 
-      }, 200); // Increased delay to 200ms for better rendering
-
-      return () => clearTimeout(printTimeout);
-    }
-  }, [isOpen, bill]);
-
-
   if (!isOpen || !bill) return null;
 
   const handlePrint = () => {
@@ -215,7 +194,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         </div>
 
         <div className={`flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:overflow-visible print:bg-white`}>
-            <div id="print-area" className={`${isLandscape ? 'max-w-[210mm]' : 'max-w-[148mm]'} min-h-fit p-0 text-black bg-white shadow-lg print:shadow-none mx-auto`}>
+            <div id="print-area" className={`${isLandscape ? 'w-[210mm]' : 'w-[148mm]'} min-h-fit p-0 text-black bg-white shadow-lg print:shadow-none mx-auto`}>
                 {renderTemplate()}
                 <DosageInstructions items={bill.items} medicines={medicines} />
             </div>
@@ -289,8 +268,15 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           #print-area {
             width: ${isLandscape ? '210mm' : '148mm'} !important;
             max-width: ${isLandscape ? '210mm' : '148mm'} !important;
-            margin: 0 !important;
+            margin: 0 auto !important;
             box-shadow: none !important;
+            background: #fff !important;
+          }
+
+          #print-area,
+          #print-area * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
         }
       `}</style>
