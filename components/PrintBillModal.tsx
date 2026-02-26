@@ -235,27 +235,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             print-color-adjust: exact !important;
           }
 
-          body > *:not(#print-bill-modal-container) {
-            display: none !important;
-          }
-
-          #print-bill-modal-container,
-          #print-bill-modal-container * {
-            visibility: visible;
-          }
-
-          #print-bill-modal-container {
-            position: static !important;
-            inset: auto !important;
-            background: #fff !important;
-            display: block !important;
-            height: auto !important;
-            overflow: visible !important;
-          }
-
-          #print-bill-modal-container > div {
-            max-height: none !important;
-            overflow: visible !important;
+          body * {
+            visibility: hidden !important;
           }
 
           #print-bill-modal-container .no-print {
@@ -264,8 +245,16 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
           #print-area,
           #print-area * {
+            visibility: visible !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+          }
+
+          #print-area {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            margin: 0 !important;
           }
         }
       `}</style>
