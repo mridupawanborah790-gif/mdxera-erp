@@ -502,6 +502,51 @@ const App: React.FC = () => {
         return saved;
     };
 
+    const handleUpdateMedicineMaster = useCallback(async (updatedMedicine: Medicine) => {
+        if (!currentUser) throw new Error("Unauthorized");
+
+        const normalize = (value?: string) => (value || '').trim().toLowerCase();
+        const updatedPack = (updatedMedicine.pack || '').trim();
+        const inferredUnitsPerPack = Math.max(1, parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10));
+
+        const isLinkedInventoryItem = (item: InventoryItem) => {
+            const itemCode = normalize(item.code);
+            const materialCode = normalize(updatedMedicine.materialCode);
+            if (itemCode && materialCode && itemCode === materialCode) return true;
+
+            const sameName = normalize(item.name) === normalize(updatedMedicine.name);
+            if (!sameName) return false;
+
+            const masterBrand = normalize(updatedMedicine.brand);
+            const inventoryBrand = normalize(item.brand);
+            return !masterBrand || !inventoryBrand || masterBrand === inventoryBrand;
+        };
+
+        await storage.saveData('material_master', updatedMedicine, currentUser);
+
+        const linkedInventoryItems = inventory.filter(isLinkedInventoryItem);
+        if (linkedInventoryItems.length > 0) {
+            await Promise.all(
+                linkedInventoryItems.map(item =>
+                    storage.saveData('inventory', {
+                        ...item,
+                        packType: updatedPack,
+                        unitsPerPack: inferredUnitsPerPack,
+                    }, currentUser)
+                )
+            );
+
+            setInventory(prev => prev.map(item =>
+                isLinkedInventoryItem(item)
+                    ? { ...item, packType: updatedPack, unitsPerPack: inferredUnitsPerPack }
+                    : item
+            ));
+        }
+
+        setMedicines(prev => prev.map(m => (m.id === updatedMedicine.id ? updatedMedicine : m)));
+        await loadData(currentUser, 'background');
+    }, [currentUser, inventory, loadData]);
+
     const handleAddDistributor = async (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
         if (!currentUser) throw new Error("Unauthorized");
         const newDist = await storage.saveData('suppliers', data, currentUser);
@@ -687,7 +732,7 @@ const App: React.FC = () => {
             case 'bulkUtility':
                 return <MaterialMaster
                     medicines={medicines} onAddMedicine={handleAddMedicineMaster}
-                    onUpdateMedicine={(updated) => storage.saveData('material_master', updated, currentUser).then(() => loadData(currentUser!, 'background'))} currentUser={currentUser}
+                    onUpdateMedicine={handleUpdateMedicineMaster} currentUser={currentUser}
                     suppliers={suppliers} onAddPurchase={handleAddPurchase as any}
                     onBulkAddMedicines={(list) => storage.saveBulkData('material_master', list, currentUser)}
                     onSearchMedicines={() => { }} onMassUpdateClick={() => { }}
