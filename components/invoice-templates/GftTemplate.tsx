@@ -8,6 +8,8 @@ interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
 }
 
+const ITEMS_PER_PAGE = 10;
+
 const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
@@ -56,7 +58,13 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
         };
     });
 
-    return { items: itemsWithCalculations, subtotal, totalCgst, totalSgst, totalDiscount, totalTradeDiscount, totalItemSchemeDiscount };
+    const chunks = [];
+    for (let i = 0; i < itemsWithCalculations.length; i += ITEMS_PER_PAGE) {
+      chunks.push(itemsWithCalculations.slice(i, i + ITEMS_PER_PAGE));
+    }
+    const itemChunks = chunks.length > 0 ? chunks : [[]];
+
+    return { items: itemsWithCalculations, itemChunks, subtotal, totalCgst, totalSgst, totalDiscount, totalTradeDiscount, totalItemSchemeDiscount };
   }, [bill, isNonGst]);
 
   const termsList = bill.pharmacy.terms_and_conditions 
@@ -68,7 +76,19 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     ];
 
   return (
-    <div className="bg-white text-black font-sans p-8 min-h-full leading-tight text-xs w-full max-w-4xl mx-auto">
+    <div className="bg-white text-black font-sans min-h-full leading-tight text-xs w-full max-w-4xl mx-auto" style={{ fontWeight: 400 }}>
+      <style>{`
+        @media print {
+          .gft-page {
+            page-break-after: always;
+          }
+          .gft-page:last-child {
+            page-break-after: auto;
+          }
+        }
+      `}</style>
+      {billDetails.itemChunks.map((chunk, pageIdx) => (
+      <div key={pageIdx} className="gft-page p-8">
         <div className="flex justify-between items-start mb-2">
             <div className="flex-1">
                 <h1 className="text-3xl font-extrabold text-[#2e3b84] uppercase tracking-wide">
@@ -157,9 +177,9 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     </tr>
                 </thead>
                 <tbody>
-                    {billDetails.items.map((item, index) => (
+                    {chunk.map((item, index) => (
                         <tr key={item.id} className="border-b border-gray-300 last:border-b-0">
-                            <td className="p-1 border-r border-black text-center">{index + 1}</td>
+                            <td className="p-1 border-r border-black text-center">{(pageIdx * ITEMS_PER_PAGE) + index + 1}</td>
                             <td className="p-1 border-r border-black font-semibold">{item.name}</td>
                             <td className="p-1 border-r border-black">{item.hsn}</td>
                             <td className="p-1 border-r border-black">{item.batch}</td>
@@ -174,7 +194,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="p-1 text-right font-bold">{(item.finalAmount || 0).toFixed(2)}</td>
                         </tr>
                     ))}
-                    {Array.from({ length: Math.max(0, 15 - billDetails.items.length) }).map((_, i) => (
+                    {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                         <tr key={`empty-${i}`} className="border-b border-gray-300 last:border-b-0 h-6">
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
@@ -261,6 +281,8 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 </div>
             </div>
         </div>
+      </div>
+      ))}
     </div>
   );
 };
