@@ -5,6 +5,7 @@ import BatchSelectionModal from './BatchSelectionModal';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine } from '../types';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { fuzzyMatch } from '../utils/search';
+import * as storage from '../services/storageService';
 
 interface NewBillModalProps {
     isOpen: boolean;
@@ -483,10 +484,13 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({ isOpen, onClose, inv
                             <span>₹{totals.roundedNet.toFixed(2)}</span>
                         </div>
                         <button
-                            onClick={() => {
-                                const { id } = generateNewInvoiceId(configurations.invoiceConfig, 'regular');
+                            onClick={async () => {
+                                const { id: templateId } = generateNewInvoiceId(configurations.invoiceConfig, 'regular');
+                                const generatedId = currentUser
+                                    ? await storage.generateNextSalesBillId(templateId, currentUser)
+                                    : templateId;
                                 const tx: Transaction = {
-                                    id,
+                                    id: generatedId,
                                     organization_id: currentUser?.organization_id || '',
                                     date: new Date(invoiceDate).toISOString(),
                                     customerName: selectedCustomer?.name || 'Walking Customer',
@@ -502,7 +506,7 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({ isOpen, onClose, inv
                                     itemCount: cartItems.length,
                                     paymentMode: 'Cash'
                                 };
-                                onSaveOrUpdateTransaction(tx, false);
+                                await onSaveOrUpdateTransaction(tx, false);
                                 onClose();
                             }}
                             disabled={isSaving || cartItems.length === 0}
