@@ -45,6 +45,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
         ...item,
         sn: idx + 1,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
+        packSize: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : ''),
         batch: item.batch || inventoryItem?.batch || '',
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : ''),
         taxableVal,
@@ -159,7 +160,10 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
               {chunk.map((item, idx) => (
                 <tr key={item.id}>
                   <td className="text-center">{(pageIdx * ITEMS_PER_PAGE) + idx + 1}</td>
-                  <td className="font-semibold uppercase truncate">{item.name}</td>
+                  <td className="font-semibold uppercase leading-tight">
+                    <p className="truncate">{item.name}</p>
+                    <p className="text-[7pt] normal-case text-gray-600">Pack Size: {item.packSize || '-'}</p>
+                  </td>
                   <td className="text-center font-mono text-[7.5pt]">{item.batch}</td>
                   <td className="text-center text-[7pt]">{item.expiry}</td>
                   <td className="text-center font-semibold">{item.quantity}</td>

@@ -47,12 +47,14 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
         const batch = item.batch || inventoryItem?.batch || '';
         const expiry = item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : '');
         const hsn = item.hsnCode || inventoryItem?.hsnCode || '';
+        const packSize = item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : '');
 
         return {
             ...item,
             batch,
             expiry,
             hsn,
+            packSize,
             finalAmount: finalAmount,
             taxableValue
         };
@@ -180,7 +182,10 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     {chunk.map((item, index) => (
                         <tr key={item.id} className="border-b border-gray-300 last:border-b-0">
                             <td className="p-1 border-r border-black text-center">{(pageIdx * ITEMS_PER_PAGE) + index + 1}</td>
-                            <td className="p-1 border-r border-black font-semibold">{item.name}</td>
+                            <td className="p-1 border-r border-black font-semibold leading-tight">
+                                <p className="truncate">{item.name}</p>
+                                <p className="text-[9px] font-medium normal-case text-gray-600">Pack Size: {item.packSize || '-'}</p>
+                            </td>
                             <td className="p-1 border-r border-black">{item.hsn}</td>
                             <td className="p-1 border-r border-black">{item.batch}</td>
                             <td className="p-1 border-r border-black text-center">{item.expiry}</td>
