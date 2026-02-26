@@ -56,7 +56,10 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         taxableVal,
         gstAmt,
         lineTotal: lineNet,
-        displayName: item.packType?.trim() ? `${item.name} (${item.packType.trim()})` : item.name
+        displayName: (() => {
+          const packLabel = item.packType?.trim() || inventoryItem?.packType?.trim() || '';
+          return packLabel ? `${item.name} (${packLabel})` : item.name;
+        })()
       };
     });
 

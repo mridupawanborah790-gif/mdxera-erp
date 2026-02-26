@@ -931,7 +931,14 @@ const POS = forwardRef<any, POSProps>(({
                                                     />
                                                 </td>
                                             )}
-                                            {isFieldVisible('colPack') && <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>{item.packType?.trim() || item.unitsPerPack || 1}</td>}
+                                            {isFieldVisible('colPack') && (
+                                                <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>
+                                                    {(() => {
+                                                        const inventoryPack = inventory.find(inv => inv.id === item.inventoryItemId)?.packType?.trim();
+                                                        return item.packType?.trim() || inventoryPack || '—';
+                                                    })()}
+                                                </td>
+                                            )}
                                             {isFieldVisible('colMrp') && <td className={`p-2 border-r border-gray-200 text-right text-gray-600 ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colPQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
