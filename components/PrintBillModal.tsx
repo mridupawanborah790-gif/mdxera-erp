@@ -176,7 +176,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
   return createPortal(
     <div id="print-bill-modal-container" className="fixed inset-0 bg-black bg-opacity-60 z-[999] flex justify-center items-center backdrop-blur-sm print:bg-white print:backdrop-blur-none">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl transform transition-all flex flex-col max-h-[95vh] overflow-hidden print:max-h-none print:shadow-none print:rounded-none">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl transform transition-all flex flex-col max-h-[95vh] overflow-hidden print:max-h-none print:overflow-visible print:shadow-none print:rounded-none">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border-b no-print bg-white z-10 relative gap-4">
           <div className="flex flex-col gap-2">
             <h3 className="text-lg font-semibold text-gray-800 leading-none">Invoice Preview</h3>
@@ -258,10 +258,20 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           }
 
           #print-bill-modal-container {
-            position: fixed !important;
-            inset: 0 !important;
+            position: static !important;
+            inset: auto !important;
             background: #fff !important;
             display: block !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          #print-bill-modal-container > div {
+            width: 100% !important;
+            max-width: 100% !important;
+            max-height: none !important;
+            overflow: visible !important;
+            box-shadow: none !important;
           }
 
           #print-bill-modal-container .no-print {
@@ -273,7 +283,6 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             max-width: 100% !important;
             margin: 0 !important;
             box-shadow: none !important;
-            break-inside: avoid;
           }
         }
       `}</style>
