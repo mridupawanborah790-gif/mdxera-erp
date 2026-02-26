@@ -33,6 +33,7 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
 
 const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
     const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(-1);
+    const promoImageUrl = 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/Purple%20and%20Yellow%20Modern%20Website%20Development%20Solution%20Instagram%20Post%20(5%20x%208%20in)%20(3%20x%206%20cm)%20(6%20x%206.5%20cm).png';
 
     const isVisible = (fieldId: string) => configurations.modules?.dashboard?.fields?.[fieldId] === true;
 
@@ -142,7 +143,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
     return (
         <div className="relative min-h-full flex flex-col overflow-hidden bg-app-bg dark:bg-zinc-950">
-            <main className="p-6 space-y-6 view-enter flex-1 pb-16">
+            <main className="p-6 space-y-6 view-enter flex-1 pb-48">
                 
                 {/* Header Strip */}
                 <div className="flex justify-between items-center bg-primary text-white px-4 py-3 tally-shadow">
@@ -163,30 +164,15 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     {/* Left Panel: Main View Content */}
                     <div className="lg:col-span-8 space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {isVisible('recentVouchers') && (
-                                <Card className="p-0 tally-border !rounded-none overflow-hidden h-[340px] flex flex-col">
-                                    <div className="bg-gray-100 p-3 border-b border-gray-300 font-bold text-[12px] uppercase tracking-wide flex justify-between items-center">
-                                        <span>Recent Vouchers</span>
-                                        <button onClick={onReload} disabled={isReloading} className={`p-1.5 rounded-full hover:bg-gray-200 transition-colors ${isReloading ? 'animate-spin opacity-50' : ''}`} title="Refresh Records">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                                        </button>
-                                    </div>
-                                    <div className="flex-1 overflow-auto bg-white">
-                                        <table className="w-full text-[13px] border-collapse">
-                                            <tbody className="divide-y divide-gray-100">
-                                                {transactions.slice(0, 15).map(tx => (
-                                                    <tr key={tx.id} className="hover:bg-accent transition-colors cursor-pointer group">
-                                                        <td className="p-3 font-bold font-mono text-primary group-hover:text-black">{tx.id}</td>
-                                                        <td className="p-3 truncate font-medium group-hover:text-black uppercase">{tx.customerName}</td>
-                                                        <td className="p-3 text-right font-black group-hover:text-black">₹{tx.total}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </Card>
-                            )}
+                        <div className="grid grid-cols-1 gap-6">
+                            <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white">
+                                <img
+                                    src={promoImageUrl}
+                                    alt="Dashboard promotion"
+                                    className="w-full h-40 md:h-52 object-contain bg-white"
+                                    loading="lazy"
+                                />
+                            </Card>
                         </div>
                     </div>
 
@@ -240,26 +226,42 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                         </div>
                     </div>
                 </div>
+
+                {isVisible('recentVouchers') && (
+                    <Card className="p-0 tally-border !rounded-none overflow-hidden h-[340px] flex flex-col">
+                        <div className="bg-gray-100 p-3 border-b border-gray-300 font-bold text-[12px] uppercase tracking-wide flex justify-between items-center">
+                            <span>Recent Vouchers</span>
+                            <button onClick={onReload} disabled={isReloading} className={`p-1.5 rounded-full hover:bg-gray-200 transition-colors ${isReloading ? 'animate-spin opacity-50' : ''}`} title="Refresh Records">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto bg-white">
+                            <table className="w-full text-[13px] border-collapse">
+                                <tbody className="divide-y divide-gray-100">
+                                    {transactions.slice(0, 15).map(tx => (
+                                        <tr key={tx.id} className="hover:bg-accent transition-colors cursor-pointer group">
+                                            <td className="p-3 font-bold font-mono text-primary group-hover:text-black">{tx.id}</td>
+                                            <td className="p-3 truncate font-medium group-hover:text-black uppercase">{tx.customerName}</td>
+                                            <td className="p-3 text-right font-black group-hover:text-black">₹{tx.total}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+                )}
             </main>
 
-            {/* Expiry Ticker */}
-            {expiryAlerts.length > 0 && (
-                <div className="fixed bottom-8 left-64 right-10 bg-red-800 text-white h-10 flex items-center overflow-hidden z-30 tally-shadow border border-red-900">
-                    <div className="bg-black px-5 h-full flex items-center font-black text-[11px] uppercase tracking-tighter shrink-0 border-r border-red-900">
-                        ATTENTION REQUIRED: EXPIRY ALERTS
-                    </div>
-                    <div className="flex-1 h-full overflow-hidden whitespace-nowrap">
-                        <div className="animate-marquee h-full flex items-center">
-                            {[...expiryAlerts, ...expiryAlerts].map((item, idx) => (
-                                <div key={`${item.id}-${idx}`} className="flex items-center px-10 shrink-0 text-[13px] font-bold uppercase">
-                                    <span className="text-accent mr-3">•</span>
-                                    {item.name} (EXP: {item.expiry})
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            )}
+            <div className="fixed bottom-8 left-6 right-6 lg:left-64 lg:right-10 z-30">
+                <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white shadow-2xl border border-gray-200">
+                    <img
+                        src={promoImageUrl}
+                        alt="Dashboard promotional banner"
+                        className="w-full h-24 sm:h-28 md:h-32 object-contain bg-white"
+                        loading="lazy"
+                    />
+                </Card>
+            </div>
 
             <Chatbot appData={cleanAppData} />
         </div>
