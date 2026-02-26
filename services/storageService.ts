@@ -14,6 +14,33 @@ import { normalizeImportDate } from '../utils/helpers';
 
 export const generateUUID = () => crypto.randomUUID();
 
+const extractTrailingNumber = (value: string): { digits: string; startIndex: number; endIndex: number } | null => {
+    const match = value.match(/(\d+)(?!.*\d)/);
+    if (!match || match.index === undefined) return null;
+    return {
+        digits: match[1],
+        startIndex: match.index,
+        endIndex: match.index + match[1].length
+    };
+};
+
+const buildSequentialSalesBillId = (templateId: string, latestId?: string | null): string => {
+    if (!latestId) return templateId;
+
+    const latestNumberPart = extractTrailingNumber(latestId);
+    const templateNumberPart = extractTrailingNumber(templateId);
+
+    if (!latestNumberPart || !templateNumberPart) return templateId;
+
+    const nextNumber = Number(latestNumberPart.digits) + 1;
+    if (!Number.isFinite(nextNumber)) return templateId;
+
+    const targetPadding = Math.max(templateNumberPart.digits.length, latestNumberPart.digits.length);
+    const paddedNext = String(nextNumber).padStart(targetPadding, '0');
+
+    return `${templateId.slice(0, templateNumberPart.startIndex)}${paddedNext}${templateId.slice(templateNumberPart.endIndex)}`;
+};
+
 const SALES_BILL_ALLOWED_FIELDS = [
     'id', 'organization_id', 'user_id', 'date',
     'customerName', 'customerId', 'customerPhone', 'referredBy',
@@ -219,6 +246,37 @@ export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) 
         }
     }
     return res;
+};
+
+export const generateNextSalesBillId = async (templateId: string, user: RegisteredPharmacy): Promise<string> => {
+    const localBills = await idb.getAll(STORES.SALES_BILL) as Transaction[];
+    const localLatest = localBills
+        .filter(bill => bill.organization_id === user.organization_id)
+        .sort((a, b) => {
+            const aDate = new Date(a.createdAt || a.date || 0).getTime();
+            const bDate = new Date(b.createdAt || b.date || 0).getTime();
+            return bDate - aDate;
+        })[0]?.id;
+
+    if (!navigator.onLine) {
+        return buildSequentialSalesBillId(templateId, localLatest);
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from('sales_bill')
+            .select('id')
+            .eq('organization_id', user.organization_id)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (error) throw error;
+        return buildSequentialSalesBillId(templateId, data?.id || localLatest);
+    } catch {
+        return buildSequentialSalesBillId(templateId, localLatest);
+    }
 };
 
 export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {

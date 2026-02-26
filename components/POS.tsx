@@ -8,6 +8,7 @@ import BatchSelectionModal from './BatchSelectionModal';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import CustomerSearchModal from './CustomerSearchModal';
 import { extractPrescription } from '../services/geminiService';
+import * as storage from '../services/storageService';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
@@ -198,12 +199,15 @@ const POS = forwardRef<any, POSProps>(({
         setIsSaving(true);
 
         const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-        const { id, nextExternalNumber } = generateNewInvoiceId(configurations[configKey], isNonGst ? 'non-gst' : 'regular');
+        const { id: templateId, nextExternalNumber } = generateNewInvoiceId(configurations[configKey], isNonGst ? 'non-gst' : 'regular');
+        const generatedId = transactionToEdit
+            ? transactionToEdit.id
+            : await storage.generateNextSalesBillId(templateId, currentUser!);
 
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
 
         const transaction: Transaction = {
-            id: transactionToEdit?.id || id,
+            id: generatedId,
             organization_id: currentUser?.organization_id || '',
             user_id: currentUser?.user_id, // Clerk identifier for audit
             date: new Date(invoiceDate).toISOString(),
