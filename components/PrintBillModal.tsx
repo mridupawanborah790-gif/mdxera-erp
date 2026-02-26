@@ -248,8 +248,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             margin: 0;
           }
 
-          body * {
-            visibility: hidden;
+          body > *:not(#print-bill-modal-container) {
+            display: none !important;
           }
 
           #print-bill-modal-container,
