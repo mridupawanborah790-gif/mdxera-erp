@@ -58,7 +58,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     
     const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
     const opt = {
-        margin: [2, 2, 2, 2], // T, L, B, R in mm
+        margin: 0,
         filename: `Invoice_${bill.id}_${sanitizedCustomerName}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { 
@@ -70,7 +70,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         },
         jsPDF: { 
             unit: 'mm', 
-            format: 'a5', 
+            format: orientation === 'landscape' ? 'a4' : 'a5', 
             orientation: orientation, 
             compress: true 
         }
@@ -106,11 +106,11 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
     const element = document.getElementById('print-area');
     const opt = {
-        margin: [5, 5, 5, 5],
+        margin: 0,
         filename: `Invoice_${bill.id}.pdf`,
         image: { type: 'jpeg', quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a5', orientation: orientation }
+        jsPDF: { unit: 'mm', format: orientation === 'landscape' ? 'a4' : 'a5', orientation: orientation }
     };
 
     try {
@@ -258,6 +258,16 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
           #print-area {
             box-shadow: none !important;
+            margin: 0 !important;
+            width: ${isLandscape ? '210mm' : '148mm'} !important;
+            max-width: none !important;
+          }
+
+          #print-bill-modal-container .print\\:overflow-visible {
+            overflow: visible !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: #fff !important;
           }
         }
       `}</style>
