@@ -2,7 +2,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import Card from '../components/Card';
 import type { InventoryItem, RegisteredPharmacy, Transaction, Purchase, Medicine, Customer, Distributor, AppConfigurations } from '../types';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Chatbot from '../components/Chatbot'; // Import Chatbot here
 import { MASTER_SHORTCUT_OPTIONS } from '../constants';
 
@@ -164,23 +163,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     {/* Left Panel: Main View Content */}
                     <div className="lg:col-span-8 space-y-6">
-                        {isVisible('chartCashFlow') && (
-                            <Card className="p-5 tally-border !rounded-none h-[300px]">
-                                <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4">Cash Flow Performance (7 Days)</h3>
-                                <div className="h-52 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={transactions.slice(0, 7).reverse().map(t => ({ date: (t.date || '').split('T')[0], amount: t.total }))}>
-                                            <CartesianGrid strokeDasharray="1 1" stroke="#ddd" vertical={false} />
-                                            <XAxis dataKey="date" hide />
-                                            <YAxis tick={{fontSize: 10, fontStyle: 'bold'}} />
-                                            <Tooltip contentStyle={{fontSize: '11px', borderRadius: '0px', border: '1px solid #004242'}} />
-                                            <Area type="step" dataKey="amount" stroke="#004242" fill="#00424220" strokeWidth={3} />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </Card>
-                        )}
-
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {isVisible('recentVouchers') && (
                                 <Card className="p-0 tally-border !rounded-none overflow-hidden h-[340px] flex flex-col">
