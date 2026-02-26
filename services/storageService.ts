@@ -14,6 +14,52 @@ import { normalizeImportDate } from '../utils/helpers';
 
 export const generateUUID = () => crypto.randomUUID();
 
+const SALES_BILL_ALLOWED_FIELDS = [
+    'id', 'organization_id', 'user_id', 'date',
+    'customerName', 'customerId', 'customerPhone', 'referredBy',
+    'items', 'itemCount',
+    'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'roundOff', 'total', 'amountReceived',
+    'status', 'paymentMode', 'billType',
+    'prescriptionUrl', 'prescriptionImages', 'linkedChallans',
+    'createdAt', 'updatedAt'
+];
+
+const PURCHASES_ALLOWED_FIELDS = [
+    'id', 'organization_id', 'user_id',
+    'purchaseSerialId', 'supplier', 'invoiceNumber', 'date',
+    'subtotal', 'totalGst', 'totalItemDiscount', 'totalItemSchemeDiscount', 'schemeDiscount', 'roundOff', 'totalAmount',
+    'items',
+    'status', 'eWayBillNo', 'eWayBillDate', 'referenceDocNumber', 'idempotency_key', 'linkedChallans',
+    'createdAt', 'updatedAt'
+];
+
+const isValidUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const pickFields = (payload: Record<string, any>, allowedFields: string[]) => {
+    return allowedFields.reduce((acc, key) => {
+        if (payload[key] !== undefined) {
+            acc[key] = payload[key];
+        }
+        return acc;
+    }, {} as Record<string, any>);
+};
+
+const getSupabasePayload = (tableName: string, payload: Record<string, any>): Record<string, any> => {
+    if (tableName === 'sales_bill') {
+        return pickFields(payload, SALES_BILL_ALLOWED_FIELDS);
+    }
+
+    if (tableName === 'purchases') {
+        const sanitized = pickFields(payload, PURCHASES_ALLOWED_FIELDS);
+        if (!sanitized.id || !isValidUuid(String(sanitized.id))) {
+            sanitized.id = generateUUID();
+        }
+        return sanitized;
+    }
+
+    return payload;
+};
+
 const toCamel = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
     if (Array.isArray(obj)) return obj.map(toCamel);
@@ -49,12 +95,13 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
     if (navigator.onLine) {
         try {
-            const snakeData = toSnake(dbPayload);
+            const remotePayload = getSupabasePayload(tableName, dbPayload);
+            const snakeData = toSnake(remotePayload);
             const { data: saved, error } = await supabase.from(tableName).upsert(snakeData).select().single();
             if (error) throw error;
             return saved ? toCamel(saved) : dbPayload;
         } catch (e) {
-            console.warn("Supabase sync failed, local copy preserved.");
+            console.warn(`Supabase sync failed for ${tableName}, local copy preserved.`, e);
         }
     }
     return dbPayload;
