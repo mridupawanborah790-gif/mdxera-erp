@@ -47,12 +47,14 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
         const batch = item.batch || inventoryItem?.batch || '';
         const expiry = item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : '');
         const hsn = item.hsnCode || inventoryItem?.hsnCode || '';
+        const packSize = item.packType || inventoryItem?.packType || (item.unitsPerPack ? String(item.unitsPerPack) : '');
 
         return {
             ...item,
             batch,
             expiry,
             hsn,
+            packSize,
             finalAmount: finalAmount,
             taxableValue
         };
@@ -164,7 +166,8 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 <thead>
                     <tr className="border-b-2 border-black bg-gray-100">
                         <th className="p-1 border-r border-black w-[4%] text-center">Sr.</th>
-                        <th className="p-1 border-r border-black text-left w-[24%]">Product Description</th>
+                        <th className="p-1 border-r border-black text-left w-[20%]">Product Description</th>
+                        <th className="p-1 border-r border-black text-left w-[7%]">Pack</th>
                         <th className="p-1 border-r border-black text-left w-[7%]">HSN</th>
                         <th className="p-1 border-r border-black text-left w-[9%]">Batch</th>
                         <th className="p-1 border-r border-black text-center w-[7%]">Exp.</th>
@@ -181,6 +184,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                         <tr key={item.id} className="border-b border-gray-300 last:border-b-0">
                             <td className="p-1 border-r border-black text-center">{(pageIdx * ITEMS_PER_PAGE) + index + 1}</td>
                             <td className="p-1 border-r border-black font-semibold">{item.name}</td>
+                            <td className="p-1 border-r border-black">{item.packSize || '-'}</td>
                             <td className="p-1 border-r border-black">{item.hsn}</td>
                             <td className="p-1 border-r border-black">{item.batch}</td>
                             <td className="p-1 border-r border-black text-center">{item.expiry}</td>
@@ -196,6 +200,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     ))}
                     {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                         <tr key={`empty-${i}`} className="border-b border-gray-300 last:border-b-0 h-6">
+                            <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
