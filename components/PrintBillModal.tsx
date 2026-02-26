@@ -248,6 +248,14 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             margin: 0;
           }
 
+          html,
+          body {
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
           body > *:not(#print-bill-modal-container) {
             display: none !important;
           }
@@ -279,8 +287,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           }
 
           #print-area {
-            width: 100% !important;
-            max-width: 100% !important;
+            width: ${isLandscape ? '210mm' : '148mm'} !important;
+            max-width: ${isLandscape ? '210mm' : '148mm'} !important;
             margin: 0 !important;
             box-shadow: none !important;
           }
