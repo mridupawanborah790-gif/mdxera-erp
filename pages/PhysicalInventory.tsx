@@ -189,10 +189,15 @@ const CountingView: React.FC<{
     const [countedItems, setCountedItems] = useState<PhysicalInventoryCountItem[]>(session.items || []);
     const [reason, setReason] = useState(session.reason || '');
     const [searchTerm, setSearchTerm] = useState('');
+    const [isDiscoveryModalOpen, setIsDiscoveryModalOpen] = useState(false);
+    const [modalSearchTerm, setModalSearchTerm] = useState('');
+    const [selectedDiscoveryIndex, setSelectedDiscoveryIndex] = useState(0);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isReviewOpen, setIsReviewOpen] = useState(false);
     const isEndingRef = useRef(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
+    const discoveryListRef = useRef<HTMLDivElement>(null);
+    const discoverySearchInputRef = useRef<HTMLInputElement>(null);
 
     const totalVarianceValue = useMemo(() => {
         return countedItems.reduce((sum, item) => sum + (item.variance * item.cost), 0);
@@ -215,13 +220,26 @@ const CountingView: React.FC<{
         }
     }, [countedItems, reason, session, debouncedUpdate, totalVarianceValue]);
 
-    const searchResults = useMemo(() => {
-        if (!searchTerm) return [];
+    const discoveryResults = useMemo(() => {
+        if (!modalSearchTerm) return [];
         return inventory.filter(i => 
-            fuzzyMatch(i.name, searchTerm) ||
-            (i.barcode && fuzzyMatch(i.barcode, searchTerm))
-        ).slice(0, 10);
-    }, [searchTerm, inventory]);
+            fuzzyMatch(i.name, modalSearchTerm) ||
+            (i.barcode && fuzzyMatch(i.barcode, modalSearchTerm)) ||
+            (i.code && fuzzyMatch(i.code, modalSearchTerm))
+        );
+    }, [modalSearchTerm, inventory]);
+
+    useEffect(() => {
+        if (!isDiscoveryModalOpen) return;
+        setTimeout(() => discoverySearchInputRef.current?.focus(), 50);
+    }, [isDiscoveryModalOpen]);
+
+    useEffect(() => {
+        const activeRow = discoveryListRef.current?.querySelector(`[data-index="${selectedDiscoveryIndex}"]`);
+        if (activeRow) {
+            activeRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }, [selectedDiscoveryIndex]);
 
     const addItemToCount = (item: InventoryItem, increment = false) => {
         setCountedItems(prev => {
@@ -266,8 +284,52 @@ const CountingView: React.FC<{
 
             return [newItem, ...prev];
         });
+    };
+
+    const addItemFromDiscovery = (item: InventoryItem) => {
+        addItemToCount(item);
+        setTimeout(() => discoverySearchInputRef.current?.focus(), 50);
+    };
+
+    const openDiscoveryModal = () => {
+        const query = searchTerm.trim();
+        if (!query) return;
+        setModalSearchTerm(query);
+        setSelectedDiscoveryIndex(0);
+        setIsDiscoveryModalOpen(true);
         setSearchTerm('');
     };
+
+    const handleDiscoveryKeyDown = (e: React.KeyboardEvent) => {
+        if (!isDiscoveryModalOpen) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedDiscoveryIndex(prev => Math.min(prev + 1, Math.max(discoveryResults.length - 1, 0)));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedDiscoveryIndex(prev => Math.max(prev - 1, 0));
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const target = discoveryResults[selectedDiscoveryIndex] || discoveryResults[0];
+            if (target) {
+                addItemFromDiscovery(target);
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setIsDiscoveryModalOpen(false);
+        }
+    };
+
+    useEffect(() => {
+        setSelectedDiscoveryIndex(0);
+    }, [modalSearchTerm]);
+
+    useEffect(() => {
+        if (!isDiscoveryModalOpen) {
+            setModalSearchTerm('');
+        }
+    }, [isDiscoveryModalOpen]);
     
     const handleCountChange = (itemId: string, packs: number, loose: number) => {
         const inventoryItem = inventory.find(i => i.id === itemId);
@@ -333,19 +395,15 @@ const CountingView: React.FC<{
                                 type="text" 
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        openDiscoveryModal();
+                                    }
+                                }}
                                 placeholder="Type name or Scan..."
                                 className="w-full p-2 border border-gray-400 rounded-none bg-input-bg text-sm font-bold focus:bg-yellow-50 outline-none"
                             />
-                            {searchTerm && (
-                                <ul className="absolute z-[100] w-full mt-1 bg-white border border-gray-400 shadow-2xl divide-y divide-gray-100">
-                                    {searchResults.map(item => (
-                                        <li key={item.id} onClick={() => addItemToCount(item)} className="p-2 hover:bg-primary hover:text-white cursor-pointer flex justify-between text-xs font-bold uppercase">
-                                            <span>{item.name}</span>
-                                            <span className="opacity-50">Batch: {item.batch}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
                         </div>
                         <div className="w-48">
                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Audit Goal</label>
@@ -434,6 +492,77 @@ const CountingView: React.FC<{
             </div>
             <BarcodeScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScanSuccess={handleScanSuccess} />
             <ReviewModal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} session={{...session, items: countedItems, reason: reason, totalVarianceValue}} onConfirm={handleFinalizeClick} />
+            <Modal
+                isOpen={isDiscoveryModalOpen}
+                onClose={() => setIsDiscoveryModalOpen(false)}
+                title="Product selection Matrix"
+            >
+                <div className="flex flex-col h-full bg-[#fffde7] font-normal outline-none" onKeyDown={handleDiscoveryKeyDown}>
+                    <div className="py-1.5 px-4 bg-primary text-white flex-shrink-0 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+                            <span className="text-xs font-black uppercase tracking-[0.2em]">Material Discovery Engine</span>
+                        </div>
+                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Enter Select</span>
+                    </div>
+
+                    <div className="p-2 bg-white border-b-2 border-primary/10">
+                        <input
+                            ref={discoverySearchInputRef}
+                            type="text"
+                            value={modalSearchTerm}
+                            onChange={e => setModalSearchTerm(e.target.value)}
+                            placeholder="Type medicine name or code..."
+                            className="w-full p-2 border-2 border-primary/20 bg-white text-base font-black focus:border-primary outline-none shadow-inner uppercase tracking-tighter"
+                        />
+                    </div>
+
+                    <div className="flex-1 overflow-auto bg-white" ref={discoveryListRef}>
+                        {discoveryResults.length > 0 ? (
+                            <table className="min-w-full border-collapse">
+                                <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-400 shadow-sm">
+                                    <tr className="text-[10px] font-black uppercase text-gray-500 tracking-widest">
+                                        <th className="p-1.5 px-3 text-left border-r border-gray-200">Description of Medicine</th>
+                                        <th className="p-1.5 px-3 text-left border-r border-gray-200 w-32 text-center">Code</th>
+                                        <th className="p-1.5 px-3 text-left border-r border-gray-200">MFR / Brand</th>
+                                        <th className="p-1.5 px-3 text-center border-r border-gray-200">Stock</th>
+                                        <th className="p-1.5 px-3 text-right">MRP</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {discoveryResults.map((item, idx) => {
+                                        const isSelected = idx === selectedDiscoveryIndex;
+                                        return (
+                                            <tr
+                                                key={item.id}
+                                                data-index={idx}
+                                                onMouseEnter={() => setSelectedDiscoveryIndex(idx)}
+                                                onClick={() => addItemFromDiscovery(item)}
+                                                className={`cursor-pointer transition-all border-b border-gray-100 ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : 'hover:bg-yellow-50'}`}
+                                            >
+                                                <td className="p-1.5 px-3 border-r border-gray-200">
+                                                    <p className={`leading-none ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
+                                                </td>
+                                                <td className={`p-1.5 px-3 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-primary'}`}>
+                                                    {item.code || '--'}
+                                                </td>
+                                                <td className={`p-1.5 px-3 border-r border-gray-200 ${uniformTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
+                                                <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${uniformTextStyle} ${isSelected ? 'text-white' : (item.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{item.stock}</td>
+                                                <td className={`p-1.5 px-3 text-right ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <div className="h-full flex flex-col items-center justify-center opacity-20 p-20 text-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-6"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+                                <p className="text-4xl font-black uppercase tracking-widest">No Matches</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };
