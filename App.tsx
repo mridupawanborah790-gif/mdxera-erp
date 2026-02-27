@@ -820,7 +820,12 @@
 //             case 'purchaseOrders':
 //                 return <PurchaseOrders
 //                     distributors={suppliers} inventory={inventory} purchaseOrders={purchaseOrders}
-//                     onAddPurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+//                     onAddPurchaseOrder={async (d) => {
+//                         const reserved = await storage.reserveVoucherNumber('purchase-order', currentUser!);
+//                         const payload = { ...d, serialId: reserved.documentNumber };
+//                         await storage.saveData('purchase_orders', payload, currentUser);
+//                         await loadData(currentUser!, 'background');
+//                     }}
 //                     onUpdatePurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
 //                     onCreatePurchaseEntry={() => { }} onPrintPurchaseOrder={setPrintPO as any}
 //                     onCancelPurchaseOrder={(id) => storage.deleteData('purchase_orders', id).then(() => loadData(currentUser!, 'background'))}
@@ -1351,15 +1356,6 @@ const App: React.FC = () => {
                 setTransactions(prev => [savedTx, ...prev]);
             }
 
-            if (nextCounter && !isUpdate) {
-                const configKey = tx.billType === 'non-gst' ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-                const updatedConfigs = {
-                    ...configurations,
-                    [configKey]: { ...configurations[configKey], currentNumber: nextCounter }
-                };
-                await storage.saveData('configurations', updatedConfigs, currentUser);
-                setConfigurations(updatedConfigs);
-            }
             // Background reload for other potential changes (stock, etc.)
             loadData(currentUser, 'background');
         } catch (e) {
@@ -1388,14 +1384,6 @@ const App: React.FC = () => {
             // Immediate local state update
             setPurchases(prev => [savedPurchase, ...prev]);
 
-            if (nextCounter) {
-                const updatedConfigs = {
-                    ...configurations,
-                    purchaseConfig: { ...configurations.purchaseConfig!, currentNumber: nextCounter }
-                };
-                await storage.saveData('configurations', updatedConfigs, currentUser);
-                setConfigurations(updatedConfigs);
-            }
             loadData(currentUser, 'background');
             addNotification("Purchase entry posted.", "success");
         } catch (e) {
@@ -1772,7 +1760,12 @@ const App: React.FC = () => {
             case 'purchaseOrders':
                 return <PurchaseOrders
                     distributors={suppliers} inventory={inventory} purchaseOrders={purchaseOrders}
-                    onAddPurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                    onAddPurchaseOrder={async (d) => {
+                        const reserved = await storage.reserveVoucherNumber('purchase-order', currentUser!);
+                        const payload = { ...d, serialId: reserved.documentNumber };
+                        await storage.saveData('purchase_orders', payload, currentUser);
+                        await loadData(currentUser!, 'background');
+                    }}
                     onUpdatePurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
                     onCreatePurchaseEntry={() => { }} onPrintPurchaseOrder={setPrintPO as any}
                     onCancelPurchaseOrder={(id) => storage.deleteData('purchase_orders', id).then(() => loadData(currentUser!, 'background'))}

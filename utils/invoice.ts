@@ -3,8 +3,14 @@ import type { InvoiceNumberConfig } from '../types';
 
 export function getFiscalYearSuffix(date = new Date()): number {
     const year = date.getFullYear();
-    const month = date.getMonth(); 
+    const month = date.getMonth();
     return month >= 3 ? year : year - 1;
+}
+
+export function getFinancialYearLabel(date = new Date()): string {
+    const startYear = getFiscalYearSuffix(date);
+    const endYear = (startYear + 1) % 100;
+    return `${startYear}-${String(endYear).padStart(2, '0')}`;
 }
 
 export interface GeneratedInvoiceIds {
@@ -49,9 +55,12 @@ export function generateNewInvoiceId(config?: Partial<InvoiceNumberConfig>, type
     }
     
     const defaults: InvoiceNumberConfig = {
+        fy: getFinancialYearLabel(),
         prefix: defaultPrefix,
         startingNumber: 1,
         paddingLength: defaultPadding,
+        endNumber: undefined,
+        resetRule: 'financial-year',
         useFiscalYear: defaultFiscal,
         currentNumber: 1,
         internalCurrentNumber: 1,
@@ -68,7 +77,8 @@ export function generateNewInvoiceId(config?: Partial<InvoiceNumberConfig>, type
     ); 
     
     const externalPadded = String(currentNumInDb).padStart(Number(cfg.paddingLength) || defaultPadding, '0');
-    const externalFiscalSuffix = cfg.useFiscalYear ? `-${getFiscalYearSuffix()}` : '';
+    const fyLabel = cfg.fy || getFinancialYearLabel();
+    const externalFiscalSuffix = cfg.useFiscalYear ? `-${fyLabel}` : '';
     
     const prefix = cfg.prefix || defaultPrefix;
     const externalId = `${prefix}${externalPadded}${externalFiscalSuffix}`;
@@ -77,7 +87,7 @@ export function generateNewInvoiceId(config?: Partial<InvoiceNumberConfig>, type
 
     const internalNumToUse = Number(cfg.internalCurrentNumber) || 1;
     const internalPadded = String(internalNumToUse).padStart(7, '0');
-    const internalFiscalSuffix = `-${getFiscalYearSuffix()}`;
+    const internalFiscalSuffix = `-${fyLabel}`;
     
     const systemIdPrefix = type === 'non-gst' ? 'NG' : (type === 'purchase-order' ? 'PUR-' : (type === 'physical-inventory' ? 'PHY-' : (type === 'purchase-bill' ? 'PB-' : (type === 'delivery-challan' ? 'DC-' : (type === 'sales-challan' ? 'SC-' : (type === 'medicine-master' ? 'SKU-' : 'INV-'))))));
     const systemId = `${systemIdPrefix}${internalPadded}${internalFiscalSuffix}`;
