@@ -27,6 +27,34 @@ const Spinner = () => (
     </svg>
 );
 
+const currencyFormatter = new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
+const formatCurrency = (value: number) => currencyFormatter.format(Number.isFinite(value) ? value : 0);
+
+const normalizeExpiryInput = (value: string) => {
+    const digitsOnly = value.replace(/\D/g, '').slice(0, 4);
+    if (digitsOnly.length <= 2) return digitsOnly;
+    return `${digitsOnly.slice(0, 2)}/${digitsOnly.slice(2)}`;
+};
+
+const isExpiryComplete = (value: string) => /^((0[1-9])|(1[0-2]))\/(\d{2})$/.test(value);
+
+const getLineTotal = (item: PurchaseItem) => {
+    const gross = (item.purchasePrice || 0) * (item.quantity || 0);
+    const tradeDisc = gross * ((item.discountPercent || 0) / 100);
+    const afterTrade = gross - tradeDisc;
+    const schemeDiscPercentAmount = afterTrade * ((item.schemeDiscountPercent || 0) / 100);
+    const schemeDisc = item.schemeDiscountAmount > 0 ? item.schemeDiscountAmount : schemeDiscPercentAmount;
+    const taxable = afterTrade - schemeDisc;
+    const gst = taxable * ((item.gstPercent || 0) / 100);
+    return taxable + gst;
+};
+
 // Fix: Added missing createBlankItem helper function to initialize empty purchase items
 const createBlankItem = (): PurchaseItem => ({
     id: crypto.randomUUID(),
@@ -218,8 +246,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [purchaseToEdit, draftItems, distributors, draftSupplier, attemptAutoLink]);
 
     const calculatedTotals = useMemo(() => {
+        const billDiscount = 0;
         let subtotal = 0;
         let totalGst = 0;
+        let grossAmount = 0;
         let totalItemDiscount = 0;
         let totalItemSchemeDiscount = 0;
 
@@ -228,11 +258,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const gross = (p.purchasePrice || 0) * (p.quantity || 0);
             const tradeDisc = gross * ((p.discountPercent || 0) / 100);
             const afterTrade = gross - tradeDisc;
-            const schemeDisc = (p.schemeDiscountAmount || 0);
+            const schemeDiscPercentAmount = afterTrade * ((p.schemeDiscountPercent || 0) / 100);
+            const schemeDisc = p.schemeDiscountAmount > 0 ? p.schemeDiscountAmount : schemeDiscPercentAmount;
             const taxable = afterTrade - schemeDisc;
             const gst = taxable * ((p.gstPercent || 0) / 100);
             const total = taxable + gst;
 
+            grossAmount += gross;
             subtotal += taxable;
             totalGst += gst;
             totalItemDiscount += tradeDisc;
@@ -249,11 +281,20 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             };
         });
 
+        const preRoundTotal = subtotal + totalGst - billDiscount;
+        const grandTotal = Math.round(preRoundTotal);
+        const roundOff = Number((grandTotal - preRoundTotal).toFixed(2));
+
         return {
             itemsWithCalculations,
+            grossAmount,
             subtotal,
             totalGst,
-            totalAmount: subtotal + totalGst,
+            billDiscount,
+            preRoundTotal,
+            roundOff,
+            grandTotal,
+            totalAmount: grandTotal,
             totalItemDiscount,
             totalItemSchemeDiscount
         };
@@ -290,7 +331,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 totalItemSchemeDiscount: calculatedTotals.totalItemSchemeDiscount,
                 status: 'completed' as const,
                 organization_id: organizationId,
-                roundOff: 0,
+                roundOff: calculatedTotals.roundOff,
                 schemeDiscount: 0
             };
 
@@ -317,6 +358,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             let updatedItem = { ...prev[index], [field]: value };
             if (field === 'name') { updatedItem.matchStatus = 'pending'; updatedItem.inventoryItemId = undefined; }
             if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
+            if (field === 'expiry') {
+                updatedItem.expiry = normalizeExpiryInput(String(value).toUpperCase());
+            }
             const updated = prev.map(p => p.id === id ? updatedItem : p);
             // Fix: createBlankItem now defined
             if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
@@ -509,14 +553,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         <td className="p-1 border-r border-gray-400"><input type="text" id={`mfr-${p.id}`} value={p.brand} onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)} className="w-full bg-transparent text-[10px] outline-none" /></td>
                                         <td className="p-1 border-r border-gray-200 text-center"><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className="w-full text-center bg-transparent text-[10px] outline-none" /></td>
                                         <td className="p-1 border-r border-gray-200 text-center font-mono text-[10px] uppercase"><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className="w-full text-center bg-transparent outline-none" /></td>
-                                        <td className="p-1 border-r border-gray-200 text-center text-[10px]"><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className="w-full text-center bg-transparent outline-none" /></td>
+                                        <td className="p-1 border-r border-gray-200 text-center text-[10px]"><input type="text" id={`expiry-${p.id}`} value={p.expiry} maxLength={5} placeholder="MM/YY" onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} onBlur={e => { if (e.target.value && !isExpiryComplete(e.target.value)) { handleUpdateItem(p.id, 'expiry', ''); } }} className="w-full text-center bg-transparent outline-none" /></td>
                                         <td className="p-1 border-r border-gray-400 text-right text-[11px] font-mono whitespace-nowrap"><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className="w-full text-right bg-transparent outline-none no-spinner" /></td>
                                         <td className="p-1 border-r border-gray-400 text-center font-black"><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
                                         <td className="p-1 border-r border-gray-400 text-center text-emerald-600 font-bold"><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
                                         <td className="p-1 border-r border-gray-400 text-right font-bold text-blue-900"><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} className="w-full text-right bg-transparent outline-none no-spinner font-mono" /></td>
                                         {isFieldVisible('colDisc') && <td className="p-1 border-r border-gray-400 text-center text-red-600"><input type="number" value={p.discountPercent || ''} onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>}
                                         <td className="p-1 border-r border-gray-400 text-center text-red-600"><input type="number" value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
-                                        <td className="p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap">₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.discountPercent || 0) / 100) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
+                                        <td className="p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap">{formatCurrency(getLineTotal(p))}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -527,9 +571,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 <div className="flex justify-end gap-6">
                     <div className="w-full md:w-1/3 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md">
                         <div className="space-y-1.5 font-bold text-xs uppercase tracking-tight">
-                            <div className="flex justify-between text-gray-500"><span>Subtotal</span> <span className="font-mono">₹{calculatedTotals.subtotal.toFixed(2)}</span></div>
-                            <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="font-mono">+₹{calculatedTotals.totalGst.toFixed(2)}</span></div>
-                            <div className="border-t border-gray-400 pt-2 flex justify-between text-xl font-black text-primary"><span>TOTAL</span><span className="font-mono">₹{calculatedTotals.totalAmount.toFixed(2)}</span></div>
+                            <div className="flex justify-between text-gray-500"><span>Gross</span> <span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                            <div className="flex justify-between text-red-600"><span>Trade Discount</span> <span className="font-mono">-{formatCurrency(calculatedTotals.totalItemDiscount)}</span></div>
+                            <div className="flex justify-between text-emerald-600"><span>Scheme Benefit</span> <span className="font-mono">-{formatCurrency(calculatedTotals.totalItemSchemeDiscount)}</span></div>
+                            <div className="flex justify-between text-red-700"><span>Bill Discount</span> <span className="font-mono">-{formatCurrency(calculatedTotals.billDiscount)}</span></div>
+                            <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="font-mono">+{formatCurrency(calculatedTotals.totalGst)}</span></div>
+                            <div className="flex justify-between text-gray-700"><span>Round Off</span> <span className="font-mono">{formatCurrency(calculatedTotals.roundOff)}</span></div>
+                            <div className="border-t border-gray-400 pt-2 flex justify-between text-xl font-black text-primary"><span>GRAND TOTAL</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
                         </div>
                     </div>
                 </div>
