@@ -217,9 +217,10 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch('');
             setLumpsumDiscount(0);
             setReferredBy('');
-            addNotification("Bill Saved Successfully", "success");
+            addNotification(`Bill saved successfully. Bill No: ${transaction.id}`, "success");
         } catch (e: any) {
-            addNotification("Failed to save: " + e.message, "error");
+            const errorMessage = e?.message || String(e) || "Unknown error";
+            addNotification(`Failed to save bill: ${errorMessage}`, "error");
         } finally {
             setIsSaving(false);
         }
