@@ -10,7 +10,7 @@ import MobileSyncModal from '../components/MobileSyncModal';
 import LinkToMasterModal from '../components/LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
 import { fetchSupplierProductMaps, generateUUID, saveData } from '../services/storageService';
-import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
+import { parseNumber, normalizeImportDate, getOutstandingBalance, formatExpiryToMMYY } from '../utils/helpers';
 import SupplierLedgerModal from '../components/SupplierLedgerModal';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { parseNetworkAndApiError } from '../utils/error';
@@ -218,6 +218,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 // Fix: createBlankItem now defined
                 ...createBlankItem(),
                 ...item,
+                expiry: normalizeExpiryInput(formatExpiryToMMYY(item.expiry || '')),
                 quantity: Number(item.quantity || 0),
                 purchasePrice: Number(item.purchasePrice || 0),
                 mrp: Number(item.mrp || 0),
@@ -234,7 +235,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const matchedDist = distributors.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
             const newItems = Array.isArray(draftItems) ? draftItems.map(item => ({
                 // Fix: createBlankItem now defined
-                ...createBlankItem(), ...item, quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
+                ...createBlankItem(), ...item,
+                expiry: normalizeExpiryInput(formatExpiryToMMYY(item.expiry || '')),
+                quantity: item.quantity,
+                freeQuantity: item.freeQuantity || 0,
+                purchasePrice: item.purchasePrice,
+                matchStatus: 'pending' as const
             })) : [];
             const linked = attemptAutoLink(newItems as PurchaseItem[], matchedDist || null);
             // Fix: createBlankItem now defined
@@ -368,6 +374,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         });
     };
 
+    const handleExpiryBlur = (id: string, value: string) => {
+        if (!value) return;
+        if (!isExpiryComplete(value)) {
+            addNotification('Expiry must be in MM/YY format with month between 01 and 12.', 'error');
+            handleUpdateItem(id, 'expiry', '');
+        }
+    };
+
     const processAiExtraction = useCallback(async (fileInputs: FileInput[]) => {
         if (!fileInputs || fileInputs.length === 0) return;
 
@@ -386,6 +400,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 const newItems = bill.items.map(item => ({
                     ...createBlankItem(),
                     ...item,
+                    expiry: normalizeExpiryInput(formatExpiryToMMYY(item.expiry || '')),
                     quantity: parseNumber(item.quantity),
                     purchasePrice: parseNumber(item.purchasePrice),
                     mrp: parseNumber(item.mrp),
@@ -533,7 +548,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     <th className="p-1 border-r border-gray-400 text-left w-20">MFR</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Pack</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-20">Batch</th>
-                                    <th className="p-1 border-r border-gray-400 text-center w-16">Exp.</th>
+                                    <th className="p-1 border-r border-gray-400 text-center w-20">Expiry Date</th>
                                     <th className="p-1 border-r border-gray-400 text-right w-24">MRP</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Qty</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Free</th>
@@ -553,7 +568,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         <td className="p-1 border-r border-gray-400"><input type="text" id={`mfr-${p.id}`} value={p.brand} onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)} className="w-full bg-transparent text-[10px] outline-none" /></td>
                                         <td className="p-1 border-r border-gray-200 text-center"><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className="w-full text-center bg-transparent text-[10px] outline-none" /></td>
                                         <td className="p-1 border-r border-gray-200 text-center font-mono text-[10px] uppercase"><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className="w-full text-center bg-transparent outline-none" /></td>
-                                        <td className="p-1 border-r border-gray-200 text-center text-[10px]"><input type="text" id={`expiry-${p.id}`} value={p.expiry} maxLength={5} placeholder="MM/YY" onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} onBlur={e => { if (e.target.value && !isExpiryComplete(e.target.value)) { handleUpdateItem(p.id, 'expiry', ''); } }} className="w-full text-center bg-transparent outline-none" /></td>
+                                        <td className="p-1 border-r border-gray-200 text-center text-[10px]"><input type="text" id={`expiry-${p.id}`} value={p.expiry} maxLength={5} inputMode="numeric" pattern="(0[1-9]|1[0-2])\/\d{2}" placeholder="MM/YY" title="Enter expiry as MM/YY" onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} onBlur={e => handleExpiryBlur(p.id, e.target.value)} className="w-full text-center bg-transparent outline-none" /></td>
                                         <td className="p-1 border-r border-gray-400 text-right text-[11px] font-mono whitespace-nowrap"><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className="w-full text-right bg-transparent outline-none no-spinner" /></td>
                                         <td className="p-1 border-r border-gray-400 text-center font-black"><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
                                         <td className="p-1 border-r border-gray-400 text-center text-emerald-600 font-bold"><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
