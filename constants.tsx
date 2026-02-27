@@ -305,7 +305,6 @@ export const configurableModules = [
     id: 'dashboard',
     name: 'Dashboard',
     fields: [
-      { id: 'chartCashFlow', name: 'Cash Flow Performance (7 Days)' },
       { id: 'statSales', name: 'Today’s Sales' },
       { id: 'statProfit', name: 'Today’s Profit' },
       { id: 'statStockValue', name: 'Stock Value' },

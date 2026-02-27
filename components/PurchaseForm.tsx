@@ -11,7 +11,7 @@ import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchSupplierProductMaps, generateUUID, saveData } from '../services/storageService';
+import { fetchSupplierProductMaps, generateUUID, reserveVoucherNumber, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
@@ -32,6 +32,53 @@ const Spinner = () => (
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
+const EXPIRY_MM_YY_REGEX = /^(0[1-9]|1[0-2])\/\d{2}$/;
+const currencyFormatter = new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
+const formatCurrency = (value: number) => currencyFormatter.format(Number.isFinite(value) ? value : 0);
+
+const formatSignedCurrency = (value: number, sign: '+' | '-') => {
+    const normalizedValue = Math.abs(Number.isFinite(value) ? value : 0);
+    return `${sign}${formatCurrency(normalizedValue)}`;
+};
+
+const formatRoundOffCurrency = (value: number) => {
+    if (!Number.isFinite(value) || value === 0) return formatCurrency(0);
+    return `${value > 0 ? '+' : '-'}${formatCurrency(Math.abs(value))}`;
+};
+
+const formatExpiryToMMYY = (value?: string | null): string => {
+    if (!value || String(value).toUpperCase() === 'N/A') return '';
+    const clean = String(value).trim();
+    const slashMatch = clean.match(/^(\d{1,2})[/-](\d{2}|\d{4})$/);
+    if (slashMatch) {
+        const month = Number(slashMatch[1]);
+        if (month < 1 || month > 12) return '';
+        const yearPart = slashMatch[2].slice(-2);
+        return `${String(month).padStart(2, '0')}/${yearPart}`;
+    }
+
+    const dateLike = clean.split('T')[0].match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+    if (dateLike) {
+        const month = Number(dateLike[2]);
+        if (month < 1 || month > 12) return '';
+        return `${String(month).padStart(2, '0')}/${dateLike[1].slice(-2)}`;
+    }
+
+    return EXPIRY_MM_YY_REGEX.test(clean) ? clean : '';
+};
+
+const normalizeExpiryInput = (rawValue: string): string => {
+    const cleaned = rawValue.replace(/[^\d/]/g, '');
+    const digits = cleaned.replace(/\D/g, '').slice(0, 4);
+    if (digits.length <= 2) return digits;
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+};
 
 const createBlankItem = (): PurchaseItem => ({
     id: crypto.randomUUID(),
@@ -144,6 +191,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const skipRateButtonRef = useRef<HTMLButtonElement>(null);
     const saveRateButtonRef = useRef<HTMLButtonElement>(null);
 
+    const resetFormForNewEntry = useCallback(() => {
+        setSupplier('');
+        setSupplierGst('');
+        setInvoiceNumber('');
+        setDate(new Date().toISOString().split('T')[0]);
+        setItems([createBlankItem()]);
+        setRateTierHandledRows(new Set());
+        setSupplierNameError(null);
+        setInvoiceNumberError(null);
+    }, []);
+
     const currentsupplier = useMemo(() => {
         const lowerSupplier = (Supplier || '').toLowerCase().trim();
         if (!lowerSupplier) return null;
@@ -212,6 +270,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const mappedItems = pItems.map(item => ({
                 ...createBlankItem(),
                 ...item,
+                expiry: formatExpiryToMMYY(String(item.expiry || '')),
                 quantity: Number(item.quantity || 0),
                 purchasePrice: Number(item.purchasePrice || 0),
                 mrp: Number(item.mrp || 0),
@@ -227,22 +286,23 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setSupplier(draftSupplier || '');
             const matchedDist = suppliers.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
             const newItems = Array.isArray(draftItems) ? draftItems.map(item => ({
-                ...createBlankItem(), ...item, quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
+                ...createBlankItem(), ...item, expiry: formatExpiryToMMYY(String(item.expiry || '')), quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
             })) : [];
             const linked = attemptAutoLink(newItems as PurchaseItem[], matchedDist || null);
             setItems([...linked, createBlankItem()]);
             setRateTierHandledRows(new Set());
         } else {
-            setSupplier(''); setSupplierGst(''); setInvoiceNumber(''); setDate(new Date().toISOString().split('T')[0]); setItems([createBlankItem()]);
-            setRateTierHandledRows(new Set());
+            resetFormForNewEntry();
             // Focus Supplier name on new voucher
             setTimeout(() => supplierNameInputRef.current?.focus(), 200);
         }
-    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink]);
+    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink, resetFormForNewEntry]);
 
     const calculatedTotals = useMemo(() => {
+        const billDiscount = 0;
         let subtotal = 0;
         let totalGst = 0;
+        let grossAmount = 0;
         let totalItemDiscount = 0;
         let totalItemSchemeDiscount = 0;
 
@@ -251,11 +311,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const gross = (p.purchasePrice || 0) * (p.quantity || 0);
             const tradeDisc = gross * ((p.discountPercent || 0) / 100);
             const afterTrade = gross - tradeDisc;
-            const schemeDisc = (p.schemeDiscountAmount || 0);
+            const schemeDiscPercentAmount = afterTrade * ((p.schemeDiscountPercent || 0) / 100);
+            const schemeDisc = p.schemeDiscountAmount > 0 ? p.schemeDiscountAmount : schemeDiscPercentAmount;
             const taxable = afterTrade - schemeDisc;
             const gst = taxable * ((p.gstPercent || 0) / 100);
             const total = taxable + gst;
 
+            grossAmount += gross;
             subtotal += taxable;
             totalGst += gst;
             totalItemDiscount += tradeDisc;
@@ -272,32 +334,75 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             };
         });
 
+        const preRoundTotal = subtotal + totalGst - billDiscount;
+        const grandTotal = Math.round(preRoundTotal);
+        const roundOff = Number((grandTotal - preRoundTotal).toFixed(2));
+
         return {
             itemsWithCalculations,
+            grossAmount,
             subtotal,
             totalGst,
-            totalAmount: subtotal + totalGst,
+            billDiscount,
+            preRoundTotal,
+            roundOff,
+            grandTotal,
+            totalAmount: grandTotal,
             totalItemDiscount,
             totalItemSchemeDiscount
         };
     }, [items]);
 
+    const hasDuplicateSupplierInvoice = useCallback(() => {
+        const normalizedSupplier = Supplier.toLowerCase().trim();
+        const normalizedInvoice = invoiceNumber.toLowerCase().trim();
+        if (!normalizedSupplier || !normalizedInvoice) return false;
+
+        const currentFy = (purchaseToEdit as any)?.fy;
+
+        return purchases.some(p => {
+            if (purchaseToEdit?.id && p.id === purchaseToEdit.id) return false;
+            if ((p.organization_id || '').trim() !== (organizationId || '').trim()) return false;
+
+            const sameSupplier = (p.supplier || '').toLowerCase().trim() === normalizedSupplier;
+            const sameInvoice = (p.invoiceNumber || '').toLowerCase().trim() === normalizedInvoice;
+            if (!sameSupplier || !sameInvoice) return false;
+
+            const purchaseFy = (p as any).fy;
+            if (currentFy && purchaseFy) return purchaseFy === currentFy;
+            return true;
+        });
+    }, [Supplier, invoiceNumber, purchaseToEdit, purchases, organizationId]);
+
     const handleSubmit = async () => {
         if (isSubmitting) return;
         if (!Supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
         if (!invoiceNumber.trim()) { setInvoiceNumberError("Invoice number is required."); return; }
+        if (hasDuplicateSupplierInvoice()) {
+            const duplicateMessage = "Duplicate Supplier Invoice # already recorded. Please verify Purchase History.";
+            setInvoiceNumberError(duplicateMessage);
+            addNotification(duplicateMessage, "error");
+            return;
+        }
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
+
+        const invalidExpiryItem = activeItems.find(item => {
+            const expiryValue = (item.expiry || '').trim();
+            return expiryValue !== '' && !EXPIRY_MM_YY_REGEX.test(expiryValue);
+        });
+        if (invalidExpiryItem) {
+            addNotification(`Invalid expiry for ${invalidExpiryItem.name}. Use MM/YY format (e.g., 01/25).`, "error");
+            return;
+        }
 
         setIsSubmitting(true);
         try {
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;
-            let nextExternalNumber;
 
-            if (!purchaseToEdit) {
-                const { id: generatedSerialId, nextExternalNumber: nextNum } = generateNewInvoiceId(configurations.purchaseConfig, 'purchase-bill');
-                purchaseSerialId = generatedSerialId;
-                nextExternalNumber = nextNum;
+            if (!purchaseToEdit && currentUser) {
+                const reserved = await reserveVoucherNumber('purchase-entry', currentUser);
+                purchaseSerialId = reserved.documentNumber;
             }
 
             const payload = {
@@ -305,7 +410,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 supplier: Supplier,
                 invoiceNumber: invoiceNumber.trim(),
                 date,
-                items: calculatedTotals.itemsWithCalculations,
+                items: calculatedTotals.itemsWithCalculations.map(item => ({
+                    ...item,
+                    expiry: formatExpiryToMMYY(item.expiry)
+                })),
                 subtotal: calculatedTotals.subtotal,
                 totalGst: calculatedTotals.totalGst,
                 totalAmount: calculatedTotals.totalAmount,
@@ -313,20 +421,26 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 totalItemSchemeDiscount: calculatedTotals.totalItemSchemeDiscount,
                 status: 'completed' as const,
                 organization_id: organizationId,
-                roundOff: 0,
+                roundOff: calculatedTotals.roundOff,
                 schemeDiscount: 0
             };
 
             if (purchaseToEdit) {
                 await onUpdatePurchase({ ...purchaseToEdit, ...payload } as any, supplierGst);
             } else {
-                await onAddPurchase(payload, supplierGst, nextExternalNumber);
+                await onAddPurchase(payload, supplierGst);
             }
             onClearDraft(); if (onCancel) onCancel();
         } catch (e: any) {
             addNotification(`Error: ${parseNetworkAndApiError(e)}`, "error");
         } finally { setIsSubmitting(false); }
     };
+
+    const handleDiscard = useCallback(() => {
+        resetFormForNewEntry();
+        onClearDraft();
+        if (onCancel) onCancel();
+    }, [onCancel, onClearDraft, resetFormForNewEntry]);
 
     useImperativeHandle(ref, () => ({
         handleSubmit,
@@ -445,7 +559,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             brand: batch.brand || '',
             category: batch.category || 'General',
             batch: batch.batch || 'NEW-BATCH',
-            expiry: batch.expiry ? String(batch.expiry) : 'N/A',
+            expiry: formatExpiryToMMYY(batch.expiry ? String(batch.expiry) : ''),
             quantity: 1,
             looseQuantity: 0,
             freeQuantity: 0,
@@ -502,6 +616,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const index = prev.findIndex(p => p.id === id); if (index === -1) return prev;
             let updatedItem = { ...prev[index], [field]: value };
             if (field === 'name') { updatedItem.matchStatus = 'pending'; updatedItem.inventoryItemId = undefined; }
+            if (field === 'expiry') { updatedItem.expiry = normalizeExpiryInput(String(value)); }
             if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
             const updated = prev.map(p => p.id === id ? updatedItem : p);
             if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
@@ -760,7 +875,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             type="text"
                             value={Supplier}
                             autoComplete="off"
-                            onChange={e => { setSupplier(e.target.value); setIsSupplierDropdownOpen(true); }}
+                            onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
                             className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                             placeholder="Press Enter to Select Supplier..."
@@ -787,9 +902,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             ref={invoiceNumberInputRef}
                             type="text"
                             value={invoiceNumber}
-                            onChange={e => setInvoiceNumber(e.target.value)}
+                            onChange={e => { setInvoiceNumber(e.target.value); setInvoiceNumberError(null); }}
                             className={`w-full border p-2 text-sm font-bold outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                         />
+                        {invoiceNumberError && <p className="mt-1 text-[10px] font-bold text-red-600">{invoiceNumberError}</p>}
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase block mb-1">Date</label>
@@ -812,7 +928,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 )}
 
-                <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
+                <Card className="flex-1 min-h-[420px] md:min-h-[500px] flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
                     <div className="flex-1 overflow-auto">
                         <table className="min-w-full border-collapse text-sm">
                             <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400 z-10">
@@ -860,7 +976,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         )}
                                         <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} placeholder="MM/YY" inputMode="numeric" maxLength={5} pattern="(0[1-9]|1[0-2])/[0-9]{2}" className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         {isFieldVisible('colFree') && (
@@ -877,12 +993,25 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </Card>
 
-                <div className="flex justify-between items-stretch flex-shrink-0 gap-4 min-h-[140px]">
-                    <div className="w-80 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center">
-                        <div className="space-y-1.5 font-bold text-[11px] uppercase tracking-tight">
-                            <div className="flex justify-between text-gray-500"><span>Subtotal</span> <span className="text-sm font-mono">₹{calculatedTotals.subtotal.toFixed(2)}</span></div>
-                            <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="text-sm font-mono">+₹{calculatedTotals.totalGst.toFixed(2)}</span></div>
-                            <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-2xl font-black text-primary"><span>TOTAL</span><span className="font-mono">₹{calculatedTotals.totalAmount.toFixed(2)}</span></div>
+                <div className="flex flex-col xl:flex-row justify-between items-stretch flex-shrink-0 gap-4 min-h-[148px]">
+                    <div className="w-full xl:w-[360px] bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center gap-3">
+                        <div>
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
+                            <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-tight">
+                                <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                                <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                                <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                                <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                                <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
+                                <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatRoundOffCurrency(calculatedTotals.roundOff)}</span></div>
+                                <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={handleDiscard} className="px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
+                            <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
+                                {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Accept (Enter)')}
+                            </button>
                         </div>
                     </div>
 
@@ -942,12 +1071,6 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-3 pb-2">
-                    <button onClick={onCancel} className="px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
-                    <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
-                        {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Accept (Enter)')}
-                    </button>
-                </div>
             </div>
 
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleWebcamCapture} />}
