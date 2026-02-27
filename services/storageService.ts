@@ -871,13 +871,49 @@ export const getData = async (tableName: string, defaultValue: any[] = [], user:
 export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) => {
     if (!tx.user_id) tx.user_id = user.user_id;
     const res = await saveData('sales_bill', tx, user);
+
+    // Batch inventory updates to avoid one network/database roundtrip per line item.
+    const unitsToDeductByInventoryId = new Map<string, number>();
     for (const item of tx.items) {
-        const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem;
-        if (inv) {
-            inv.stock -= (item.quantity * (inv.unitsPerPack || 1)) + (item.looseQuantity || 0);
-            await saveData('inventory', inv, user);
+        if (!item.inventoryItemId) continue;
+        const current = unitsToDeductByInventoryId.get(item.inventoryItemId) || 0;
+        unitsToDeductByInventoryId.set(
+            item.inventoryItemId,
+            current + ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0)
+        );
+    }
+
+    if (unitsToDeductByInventoryId.size > 0) {
+        const inventoryIds = Array.from(unitsToDeductByInventoryId.keys());
+        const inventoryRecords = await Promise.all(
+            inventoryIds.map(id => idb.get(STORES.INVENTORY, id) as Promise<InventoryItem | null>)
+        );
+
+        const updatedInventory: InventoryItem[] = inventoryRecords
+            .filter((inv): inv is InventoryItem => Boolean(inv))
+            .map(inv => {
+                const unitsToDeduct = unitsToDeductByInventoryId.get(inv.id) || 0;
+                return {
+                    ...inv,
+                    stock: Number(inv.stock || 0) - unitsToDeduct,
+                };
+            });
+
+        if (updatedInventory.length > 0) {
+            await idb.putBulk(STORES.INVENTORY, updatedInventory);
+
+            if (navigator.onLine) {
+                try {
+                    const remotePayload = updatedInventory.map(inv => toSnake(getSupabasePayload('inventory', inv)));
+                    const { error } = await supabase.from('inventory').upsert(remotePayload);
+                    if (error) throw error;
+                } catch (e) {
+                    console.warn('Supabase batch inventory sync failed after sales transaction, local copy preserved.', e);
+                }
+            }
         }
     }
+
     return res;
 };
 
