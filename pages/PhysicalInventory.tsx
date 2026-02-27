@@ -224,12 +224,12 @@ const CountingView: React.FC<{
 
     const discoveryResults = useMemo(() => {
         const term = modalSearchTerm.trim();
-        if (!term) return [];
 
         const grouped = new Map<string, InventoryItem>();
 
         inventory.forEach(i => {
             if (
+                !term ||
                 fuzzyMatch(i.name, term) ||
                 (i.barcode && fuzzyMatch(i.barcode, term)) ||
                 (i.code && fuzzyMatch(i.code, term))
@@ -240,6 +240,7 @@ const CountingView: React.FC<{
 
         medicines.forEach(m => {
             if (
+                !term ||
                 fuzzyMatch(m.name, term) ||
                 (m.barcode && fuzzyMatch(m.barcode, term)) ||
                 (m.materialCode && fuzzyMatch(m.materialCode, term))
@@ -339,7 +340,6 @@ const CountingView: React.FC<{
 
     const openDiscoveryModal = () => {
         const query = searchTerm.trim();
-        if (!query) return;
         setModalSearchTerm(query);
         setSelectedDiscoveryIndex(0);
         setIsDiscoveryModalOpen(true);
