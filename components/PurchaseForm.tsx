@@ -457,7 +457,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (!term || name.startsWith(term) || code.startsWith(term)) {
                 const key = `${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
                 if (!grouped.has(key)) grouped.set(key, { item: i, batches: [i] });
-                else grouped.get(key)!.batches.push(i);
+                else {
+                    const existing = grouped.get(key)!;
+                    existing.batches.push(i);
+                    existing.item = {
+                        ...existing.item,
+                        stock: existing.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0),
+                    };
+                }
             }
         });
 
@@ -1123,7 +1130,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">Description of Medicine</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200 w-32 text-center">Code</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">MFR / Brand</th>
-                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Strips Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Loose Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Total Stock</th>
                                                 <th className="p-1.5 px-3 text-right">MRP</th>
                                             </tr>
                                         </thead>
@@ -1131,6 +1140,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             {deduplicatedSearchInventory.map((res, sIdx) => {
                                                 const isSelected = sIdx === selectedSearchIndex;
                                                 const item = res.item;
+                                                const totalStock = res.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0);
+                                                const unitsPerPack = item.unitsPerPack || 1;
+                                                const stripsStock = Math.floor(totalStock / unitsPerPack);
+                                                const looseStock = totalStock % unitsPerPack;
                                                 return (
                                                     <tr
                                                         key={item.id}
@@ -1146,7 +1159,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                             {item.code}
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (item.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{item.stock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{stripsStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{looseStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{totalStock}</td>
                                                         <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>
                                                 );
