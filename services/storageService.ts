@@ -1389,6 +1389,8 @@ export const pushPartnerOrder = async (senderOrgId: string, senderName: string, 
     }
 };
 
+const latestSyncPayloadBySession = new Map<string, any>();
+
 export const broadcastSyncMessage = async (sessionId: string, data: any) => {
     const channel = supabase.channel(`sync:${sessionId}`);
     await channel.subscribe(async (status) => {
@@ -1397,8 +1399,16 @@ export const broadcastSyncMessage = async (sessionId: string, data: any) => {
 };
 
 export const listenForSyncMessage = (sessionId: string, callback: (data: any) => void) => {
-    return supabase.channel(`sync:${sessionId}`).on('broadcast', { event: 'capture' }, ({ payload }) => callback(payload)).subscribe();
+    return supabase
+        .channel(`sync:${sessionId}`)
+        .on('broadcast', { event: 'capture' }, ({ payload }) => {
+            latestSyncPayloadBySession.set(sessionId, payload);
+            callback(payload);
+        })
+        .subscribe();
 };
+
+export const getLatestSyncMessage = (sessionId: string) => latestSyncPayloadBySession.get(sessionId) ?? null;
 
 export const updateSalesChallanStatus = async (id: string, status: SalesChallanStatus, user: RegisteredPharmacy) => {
     const challan = await idb.get(STORES.SALES_CHALLANS, id) as SalesChallan;

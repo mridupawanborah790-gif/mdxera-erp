@@ -11,7 +11,7 @@ import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchSupplierProductMaps, generateUUID, listenForSyncMessage, reserveVoucherNumber, saveData } from '../services/storageService';
+import { fetchSupplierProductMaps, generateUUID, getLatestSyncMessage, listenForSyncMessage, reserveVoucherNumber, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
@@ -100,7 +100,7 @@ const createBlankItem = (): PurchaseItem => ({
     matchStatus: 'pending'
 });
 
-type MobileSyncStatus = 'pending' | 'uploading' | 'synced' | 'imported' | 'failed';
+type MobileSyncStatus = 'pending' | 'syncing' | 'uploading' | 'synced' | 'imported' | 'failed';
 
 interface MobileSyncPage {
     image: string;
@@ -120,9 +120,10 @@ interface MobileSyncInvoicePayload {
 const getSyncStatusLabel = (status: MobileSyncStatus) => {
     switch (status) {
         case 'pending': return 'Pending';
+        case 'syncing': return 'Syncing…';
         case 'uploading': return 'Uploading';
         case 'synced': return 'Synced';
-        case 'imported': return 'Imported';
+        case 'imported': return 'Imported Successfully';
         case 'failed': return 'Failed';
     }
 };
@@ -206,6 +207,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [selectedRateTierAction, setSelectedRateTierAction] = useState<'skip' | 'save'>('save');
     const [mobileSyncStatus, setMobileSyncStatus] = useState<MobileSyncStatus>('pending');
     const [mobileSyncError, setMobileSyncError] = useState<string | null>(null);
+    const [isMobileSyncing, setIsMobileSyncing] = useState(false);
     const [mobileInvoiceId, setMobileInvoiceId] = useState<string | null>(null);
     const [mobilePageCount, setMobilePageCount] = useState(0);
 
@@ -848,7 +850,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, currentsupplier, date]);
 
 
-    const processMobileSyncPayload = useCallback(async (payload: MobileSyncInvoicePayload) => {
+    const processMobileSyncPayload = useCallback(async (payload: MobileSyncInvoicePayload, options?: { skipSyncingStatus?: boolean }) => {
         const pages = Array.isArray(payload.pages) && payload.pages.length > 0
             ? payload.pages
             : (payload.image ? [{ image: payload.image, mimeType: payload.mimeType || 'image/jpeg', pageNumber: 1 }] : []);
@@ -864,7 +866,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setMobilePageCount(orderedPages.length);
         setMobileInvoiceId(payload.invoiceId || null);
         setMobileSyncError(null);
-        setMobileSyncStatus('synced');
+        if (!options?.skipSyncingStatus) setMobileSyncStatus('syncing');
 
         try {
             const fileInputs: FileInput[] = orderedPages.map((page, index) => ({
@@ -897,7 +899,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setMobileSyncError(null);
         const channel = listenForSyncMessage(mobileSyncSessionId, (payload: MobileSyncInvoicePayload) => {
             setMobileSyncStatus('uploading');
-            processMobileSyncPayload(payload);
+            setMobileSyncError(null);
+            setMobilePageCount(Array.isArray(payload.pages) ? payload.pages.length : (payload.image ? 1 : 0));
+            setMobileInvoiceId(payload.invoiceId || null);
         });
 
         return () => {
@@ -906,6 +910,34 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             }
         };
     }, [mobileSyncSessionId, processMobileSyncPayload]);
+
+    const handleSyncBill = useCallback(async () => {
+        if (!mobileSyncSessionId) {
+            setMobileSyncStatus('failed');
+            setMobileSyncError('Open Magic Mobile Link first to sync a bill.');
+            addNotification('Please open Magic Mobile Link before syncing bill.', 'warning');
+            return;
+        }
+
+        setIsMobileSyncing(true);
+        setMobileSyncStatus('syncing');
+        setMobileSyncError(null);
+
+        const latestPayload = getLatestSyncMessage(mobileSyncSessionId) as MobileSyncInvoicePayload | null;
+        if (!latestPayload) {
+            setIsMobileSyncing(false);
+            setMobileSyncStatus('failed');
+            setMobileSyncError('No mobile bill found yet. Upload bill pages from mobile and retry Sync Bill.');
+            addNotification('Sync Bill failed: no mobile upload found for this session.', 'error');
+            return;
+        }
+
+        try {
+            await processMobileSyncPayload(latestPayload, { skipSyncingStatus: true });
+        } finally {
+            setIsMobileSyncing(false);
+        }
+    }, [addNotification, mobileSyncSessionId, processMobileSyncPayload]);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -1022,6 +1054,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     <div className="flex space-x-2 flex-shrink-0 px-2">
                         <button onClick={() => setIsWebcamModalOpen(true)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><CameraIcon /> Webcam Scan</button>
                         <button onClick={() => { setMobileSyncStatus('pending'); setMobileSyncError(null); setMobilePageCount(0); setMobileInvoiceId(null); setMobileSyncSessionId(generateUUID()); }} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><SmartphoneIcon /> Mobile Sync</button>
+                        <button onClick={handleSyncBill} disabled={!mobileSyncSessionId || isMobileSyncing} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{isMobileSyncing ? <Spinner /> : <SmartphoneIcon />} Sync Bill</button>
                         <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><UploadIcon /> {isUploading ? <Spinner /> : 'Import Document'}</button>
                         <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*,application/pdf" />
                     </div>
