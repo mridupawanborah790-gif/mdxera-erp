@@ -190,14 +190,12 @@ const CountingView: React.FC<{
 }> = ({ session, inventory, medicines, onUpdate, onFinalize, onCancel }) => {
     const [countedItems, setCountedItems] = useState<PhysicalInventoryCountItem[]>(session.items || []);
     const [reason, setReason] = useState(session.reason || '');
-    const [searchTerm, setSearchTerm] = useState('');
     const [isDiscoveryModalOpen, setIsDiscoveryModalOpen] = useState(false);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
     const [selectedDiscoveryIndex, setSelectedDiscoveryIndex] = useState(0);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isReviewOpen, setIsReviewOpen] = useState(false);
     const isEndingRef = useRef(false);
-    const searchInputRef = useRef<HTMLInputElement>(null);
     const discoveryListRef = useRef<HTMLDivElement>(null);
     const discoverySearchInputRef = useRef<HTMLInputElement>(null);
 
@@ -335,15 +333,13 @@ const CountingView: React.FC<{
 
     const addItemFromDiscovery = (item: InventoryItem) => {
         addItemToCount(item);
-        setTimeout(() => discoverySearchInputRef.current?.focus(), 50);
+        setIsDiscoveryModalOpen(false);
     };
 
     const openDiscoveryModal = () => {
-        const query = searchTerm.trim();
-        setModalSearchTerm(query);
+        setModalSearchTerm('');
         setSelectedDiscoveryIndex(0);
         setIsDiscoveryModalOpen(true);
-        setSearchTerm('');
     };
 
     const handleDiscoveryKeyDown = (e: React.KeyboardEvent) => {
@@ -433,23 +429,6 @@ const CountingView: React.FC<{
             <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
                 <div className="flex justify-between items-end gap-4 px-2">
                     <div className="flex gap-4 items-end flex-1">
-                        <div className="flex-1 max-sm relative">
-                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Item Discovery</label>
-                            <input 
-                                ref={searchInputRef}
-                                type="text" 
-                                value={searchTerm}
-                                onChange={e => setSearchTerm(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        openDiscoveryModal();
-                                    }
-                                }}
-                                placeholder="Type name or Scan..."
-                                className="w-full p-2 border border-gray-400 rounded-none bg-input-bg text-sm font-bold focus:bg-yellow-50 outline-none"
-                            />
-                        </div>
                         <div className="w-48">
                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Audit Goal</label>
                             <select 
@@ -529,6 +508,21 @@ const CountingView: React.FC<{
                                         </tr>
                                     );
                                 })}
+                                <tr className="bg-primary/5 hover:bg-primary/10 transition-colors">
+                                    <td className="p-2 border-r border-gray-200">
+                                        <button
+                                            type="button"
+                                            onClick={openDiscoveryModal}
+                                            className="w-full text-left text-primary font-black uppercase text-[11px] tracking-wide"
+                                        >
+                                            + Add Product in Particulars
+                                        </button>
+                                    </td>
+                                    <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">--</td>
+                                    <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">Select product to begin</td>
+                                    <td className="p-2 border-r border-gray-200 text-right text-gray-400 font-bold">--</td>
+                                    <td className="p-2"></td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -539,7 +533,7 @@ const CountingView: React.FC<{
             <Modal
                 isOpen={isDiscoveryModalOpen}
                 onClose={() => setIsDiscoveryModalOpen(false)}
-                title="Product selection Matrix"
+                title="Product Selection Matrix"
             >
                 <div className="flex flex-col h-full bg-[#fffde7] font-normal outline-none" onKeyDown={handleDiscoveryKeyDown}>
                     <div className="py-1.5 px-4 bg-primary text-white flex-shrink-0 flex justify-between items-center">
