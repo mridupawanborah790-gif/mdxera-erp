@@ -81,6 +81,14 @@ const normalizeExpiryInput = (rawValue: string): string => {
     return `${digits.slice(0, 2)}/${digits.slice(2)}`;
 };
 
+const normalizeSupplierKey = (value: string): string => (
+    (value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+);
+
 const createBlankItem = (): PurchaseItem => ({
     id: crypto.randomUUID(),
     name: '',
@@ -237,9 +245,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, []);
 
     const currentsupplier = useMemo(() => {
-        const lowerSupplier = (Supplier || '').toLowerCase().trim();
-        if (!lowerSupplier) return null;
-        return suppliers.find(d => (d.name || '').toLowerCase().trim() === lowerSupplier);
+        const supplierKey = normalizeSupplierKey(Supplier);
+        if (!supplierKey) return null;
+
+        const exact = suppliers.find(d => normalizeSupplierKey(d.name || '') === supplierKey);
+        if (exact) return exact;
+
+        return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
     }, [suppliers, Supplier]);
 
     const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetsupplier: Supplier | null) => {
@@ -951,6 +963,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             return;
         }
 
+        setSupplier(currentsupplier.name || Supplier);
         setIsLinkModalOpen(true);
     }, [Supplier, addNotification, currentsupplier]);
 
