@@ -34,7 +34,9 @@ interface GstReconRow {
 }
 
 type PeriodFilter = 'monthly' | 'quarterly' | 'half-yearly' | 'yearly';
-type ReportType = 'summary' | 'anx1' | 'anx2' | 'hsn-gstr1' | 'hsn-gstr2' | 'recon-sales' | 'recon-purchase';
+type ReportType = 'summary' | 'anx1' | 'anx2' | 'invoice-summary' | 'hsn-gstr1' | 'hsn-gstr2' | 'hsn-combined' | 'recon-sales' | 'recon-purchase';
+
+type GstTab = 'summary' | 'invoice-summary' | 'anx1' | 'anx2' | 'hsn1' | 'hsn2' | 'hsn-combined' | 'recon' | 'profile';
 
 interface HsnRow {
     hsnCode: string;
@@ -47,6 +49,47 @@ interface HsnRow {
     cess: number;
     totalTax: number;
     invoiceValue: number;
+}
+
+interface InvoiceSeriesRow {
+    series: string;
+    startInvoiceNo: string;
+    endInvoiceNo: string;
+    totalSalesBills: number;
+    cancelledBills: number;
+    taxableValue: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+    grandTotal: number;
+    cancelledInvoices: { invoiceNo: string; date: string; customer: string; value: number; }[];
+}
+
+interface CombinedHsnRow {
+    hsnCode: string;
+    description: string;
+    uqc: string;
+    salesQty: number;
+    purchaseQty: number;
+    combinedQty: number;
+    salesTaxable: number;
+    purchaseTaxable: number;
+    combinedTaxable: number;
+    salesCgst: number;
+    purchaseCgst: number;
+    combinedCgst: number;
+    salesSgst: number;
+    purchaseSgst: number;
+    combinedSgst: number;
+    salesIgst: number;
+    purchaseIgst: number;
+    combinedIgst: number;
+    salesTotalTax: number;
+    purchaseTotalTax: number;
+    combinedTotalTax: number;
+    salesTotalValue: number;
+    purchaseTotalValue: number;
+    combinedTotalValue: number;
 }
 
 const round2 = (value: number) => Number((value || 0).toFixed(2));
@@ -77,7 +120,7 @@ const generateFyOptions = (transactions: Transaction[], purchases: Purchase[]) =
 };
 
 const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customers, currentUser, configurations, onUpdateConfigurations }) => {
-    const [activeTab, setActiveTab] = useState<'summary' | 'anx1' | 'anx2' | 'hsn1' | 'hsn2' | 'recon' | 'profile'>('summary');
+    const [activeTab, setActiveTab] = useState<GstTab>('summary');
     const [reconTab, setReconTab] = useState<'sales' | 'purchase'>('sales');
     const [isExporting, setIsExporting] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -139,7 +182,8 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
         return true;
     };
 
-    const filteredTransactions = useMemo(() => transactions.filter(t => t.status === 'completed' && isDateInScope(t.date)), [transactions, reportPeriodFilter, selectedFy, rangeStart, rangeEnd]);
+    const scopedSalesTransactions = useMemo(() => transactions.filter(t => (t.status === 'completed' || t.status === 'cancelled') && isDateInScope(t.date)), [transactions, reportPeriodFilter, selectedFy, rangeStart, rangeEnd]);
+    const filteredTransactions = useMemo(() => scopedSalesTransactions.filter(t => t.status === 'completed'), [scopedSalesTransactions]);
     const filteredPurchases = useMemo(() => purchases.filter(p => p.status === 'completed' && isDateInScope(p.date)), [purchases, reportPeriodFilter, selectedFy, rangeStart, rangeEnd]);
 
     const hsnGstr1Rows = useMemo(() => {
@@ -233,6 +277,133 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
             invoiceValue: round2(row.invoiceValue)
         }));
     }, [filteredPurchases]);
+
+    const invoiceSeriesSummary = useMemo(() => {
+        const parseInvoice = (invoiceNo: string) => {
+            const match = invoiceNo.match(/^(.*?)(\d+)$/);
+            if (!match) return { series: 'UNSTRUCTURED', numericPart: Number.NaN };
+            return { series: match[1] || 'DEFAULT', numericPart: Number(match[2]) };
+        };
+
+        const seriesMap = new Map<string, { bills: Transaction[]; cancelled: Transaction[]; }>();
+        scopedSalesTransactions.forEach(tx => {
+            const { series } = parseInvoice(tx.id);
+            const existing = seriesMap.get(series) || { bills: [], cancelled: [] };
+            existing.bills.push(tx);
+            if (tx.status === 'cancelled') existing.cancelled.push(tx);
+            seriesMap.set(series, existing);
+        });
+
+        return Array.from(seriesMap.entries()).map(([series, data]) => {
+            const sortedInvoices = [...data.bills].sort((a, b) => {
+                const aMeta = parseInvoice(a.id);
+                const bMeta = parseInvoice(b.id);
+                if (!Number.isNaN(aMeta.numericPart) && !Number.isNaN(bMeta.numericPart)) {
+                    return aMeta.numericPart - bMeta.numericPart;
+                }
+                return a.id.localeCompare(b.id);
+            });
+            const completed = data.bills.filter(tx => tx.status === 'completed');
+            const totalTax = completed.reduce((sum, tx) => sum + Number(tx.totalGst || 0), 0);
+            return {
+                series,
+                startInvoiceNo: sortedInvoices[0]?.id || '-',
+                endInvoiceNo: sortedInvoices[sortedInvoices.length - 1]?.id || '-',
+                totalSalesBills: completed.length,
+                cancelledBills: data.cancelled.length,
+                taxableValue: round2(completed.reduce((sum, tx) => sum + Number(tx.subtotal || 0), 0)),
+                cgst: round2(totalTax / 2),
+                sgst: round2(totalTax / 2),
+                igst: 0,
+                grandTotal: round2(completed.reduce((sum, tx) => sum + Number(tx.total || 0), 0)),
+                cancelledInvoices: data.cancelled.map(tx => ({
+                    invoiceNo: tx.id,
+                    date: formatDate(tx.date),
+                    customer: tx.customerName,
+                    value: round2(tx.total)
+                }))
+            };
+        }).sort((a, b) => a.series.localeCompare(b.series));
+    }, [scopedSalesTransactions]);
+
+    const combinedHsnRows = useMemo(() => {
+        const hsnMap = new Map<string, CombinedHsnRow>();
+        const seed = (hsnCode: string, description: string): CombinedHsnRow => ({
+            hsnCode,
+            description,
+            uqc: 'NOS',
+            salesQty: 0,
+            purchaseQty: 0,
+            combinedQty: 0,
+            salesTaxable: 0,
+            purchaseTaxable: 0,
+            combinedTaxable: 0,
+            salesCgst: 0,
+            purchaseCgst: 0,
+            combinedCgst: 0,
+            salesSgst: 0,
+            purchaseSgst: 0,
+            combinedSgst: 0,
+            salesIgst: 0,
+            purchaseIgst: 0,
+            combinedIgst: 0,
+            salesTotalTax: 0,
+            purchaseTotalTax: 0,
+            combinedTotalTax: 0,
+            salesTotalValue: 0,
+            purchaseTotalValue: 0,
+            combinedTotalValue: 0
+        });
+
+        hsnGstr1Rows.forEach(row => {
+            const existing = hsnMap.get(row.hsnCode) || seed(row.hsnCode, row.description);
+            existing.salesQty += row.quantity;
+            existing.salesTaxable += row.taxableValue;
+            existing.salesCgst += row.cgst;
+            existing.salesSgst += row.sgst;
+            existing.salesIgst += row.igst;
+            existing.salesTotalTax += row.totalTax;
+            existing.salesTotalValue += row.invoiceValue;
+            hsnMap.set(row.hsnCode, existing);
+        });
+
+        hsnGstr2Rows.forEach(row => {
+            const existing = hsnMap.get(row.hsnCode) || seed(row.hsnCode, row.description);
+            existing.purchaseQty += row.quantity;
+            existing.purchaseTaxable += row.taxableValue;
+            existing.purchaseCgst += row.cgst;
+            existing.purchaseSgst += row.sgst;
+            existing.purchaseIgst += row.igst;
+            existing.purchaseTotalTax += row.totalTax;
+            existing.purchaseTotalValue += row.invoiceValue;
+            hsnMap.set(row.hsnCode, existing);
+        });
+
+        return Array.from(hsnMap.values()).map(row => ({
+            ...row,
+            combinedQty: round2(row.salesQty + row.purchaseQty),
+            combinedTaxable: round2(row.salesTaxable + row.purchaseTaxable),
+            combinedCgst: round2(row.salesCgst + row.purchaseCgst),
+            combinedSgst: round2(row.salesSgst + row.purchaseSgst),
+            combinedIgst: round2(row.salesIgst + row.purchaseIgst),
+            combinedTotalTax: round2(row.salesTotalTax + row.purchaseTotalTax),
+            combinedTotalValue: round2(row.salesTotalValue + row.purchaseTotalValue),
+            salesQty: round2(row.salesQty),
+            purchaseQty: round2(row.purchaseQty),
+            salesTaxable: round2(row.salesTaxable),
+            purchaseTaxable: round2(row.purchaseTaxable),
+            salesCgst: round2(row.salesCgst),
+            purchaseCgst: round2(row.purchaseCgst),
+            salesSgst: round2(row.salesSgst),
+            purchaseSgst: round2(row.purchaseSgst),
+            salesIgst: round2(row.salesIgst),
+            purchaseIgst: round2(row.purchaseIgst),
+            salesTotalTax: round2(row.salesTotalTax),
+            purchaseTotalTax: round2(row.purchaseTotalTax),
+            salesTotalValue: round2(row.salesTotalValue),
+            purchaseTotalValue: round2(row.purchaseTotalValue)
+        })).sort((a, b) => a.hsnCode.localeCompare(b.hsnCode));
+    }, [hsnGstr1Rows, hsnGstr2Rows]);
 
     // --- RECONCILIATION LOGIC ---
 
@@ -422,6 +593,22 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
             }));
         }
 
+        if (reportType === 'invoice-summary') {
+            return invoiceSeriesSummary.map(row => ({
+                series: row.series,
+                startInvoiceNo: row.startInvoiceNo,
+                endInvoiceNo: row.endInvoiceNo,
+                totalSalesBills: row.totalSalesBills,
+                cancelledBills: row.cancelledBills,
+                taxableValue: row.taxableValue,
+                cgst: row.cgst,
+                sgst: row.sgst,
+                igst: row.igst,
+                grandTotal: row.grandTotal,
+                cancelledInvoiceDetails: row.cancelledInvoices.map(item => `${item.invoiceNo} (${item.date})`).join('; ')
+            }));
+        }
+
         if (reportType === 'hsn-gstr1' || reportType === 'hsn-gstr2') {
             return (reportType === 'hsn-gstr1' ? hsnGstr1Rows : hsnGstr2Rows).map(row => ({
                 hsnCode: row.hsnCode,
@@ -434,6 +621,23 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
                 cess: row.cess,
                 totalTax: row.totalTax,
                 invoiceValue: row.invoiceValue
+            }));
+        }
+
+        if (reportType === 'hsn-combined') {
+            return combinedHsnRows.map(row => ({
+                hsnCode: row.hsnCode,
+                description: row.description,
+                uqc: row.uqc,
+                qty: row.combinedQty,
+                taxableValue: row.combinedTaxable,
+                cgst: row.combinedCgst,
+                sgst: row.combinedSgst,
+                igst: row.combinedIgst,
+                totalTax: row.combinedTotalTax,
+                totalValue: row.combinedTotalValue,
+                salesTotalValue: row.salesTotalValue,
+                purchaseTotalValue: row.purchaseTotalValue
             }));
         }
 
@@ -457,6 +661,10 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
                 ? 'hsn-gstr1'
                 : activeTab === 'hsn2'
                     ? 'hsn-gstr2'
+                    : activeTab === 'invoice-summary'
+                        ? 'invoice-summary'
+                        : activeTab === 'hsn-combined'
+                            ? 'hsn-combined'
                     : activeTab === 'recon'
                         ? (reconTab === 'sales' ? 'recon-sales' : 'recon-purchase')
                         : 'summary';
@@ -465,8 +673,10 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
         summary: 'GST Summary Report',
         anx1: 'GSTR-1 Outward Report',
         anx2: 'GSTR-2 Inward Report',
+        'invoice-summary': 'Invoice Series Summary Report',
         'hsn-gstr1': 'HSN-wise GSTR-1 Report',
         'hsn-gstr2': 'HSN-wise GSTR-2 Report',
+        'hsn-combined': 'HSN Combined Summary Report',
         'recon-sales': 'Sales Reconciliation Report',
         'recon-purchase': 'Purchase Reconciliation Report'
     };
@@ -611,10 +821,12 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
                 <div className="flex justify-between items-center px-2 gap-2 flex-wrap">
                     <div className="flex bg-white p-1 tally-border shadow-sm flex-wrap">
                         <button onClick={() => setActiveTab('summary')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'summary' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>Summary</button>
+                        <button onClick={() => setActiveTab('invoice-summary')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'invoice-summary' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>Invoice Summary</button>
                         <button onClick={() => setActiveTab('anx1')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'anx1' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>ANX-1 (Out)</button>
                         <button onClick={() => setActiveTab('anx2')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'anx2' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>ANX-2 (In)</button>
                         <button onClick={() => setActiveTab('hsn1')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'hsn1' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>HSN-wise GSTR-1</button>
                         <button onClick={() => setActiveTab('hsn2')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'hsn2' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>HSN-wise GSTR-2</button>
+                        <button onClick={() => setActiveTab('hsn-combined')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'hsn-combined' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>HSN Combined</button>
                         <button onClick={() => setActiveTab('recon')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'recon' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>Reconciliation</button>
                         <button onClick={() => setActiveTab('profile')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'profile' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>Periodicity</button>
                     </div>
@@ -655,8 +867,10 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
 
                     {activeTab === 'anx1' && <Anx1Grid transactions={filteredTransactions} customers={customers} />}
                     {activeTab === 'anx2' && <Anx2Grid purchases={filteredPurchases} />}
+                    {activeTab === 'invoice-summary' && <InvoiceSummaryGrid rows={invoiceSeriesSummary} />}
                     {activeTab === 'hsn1' && <HsnGrid title="HSN-wise GSTR-1 Report" rows={hsnGstr1Rows} />}
                     {activeTab === 'hsn2' && <HsnGrid title="HSN-wise GSTR-2 Report" rows={hsnGstr2Rows} />}
+                    {activeTab === 'hsn-combined' && <CombinedHsnGrid rows={combinedHsnRows} />}
 
                     {activeTab === 'recon' && (
                         <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden bg-white shadow-xl">
@@ -799,6 +1013,152 @@ const StatusBadge = ({ status }: { status: string }) => {
         <span className={`px-3 py-1 text-[9px] font-black uppercase border rounded-none shadow-sm ${styles[status]}`}>
             {labels[status]}
         </span>
+    );
+};
+
+
+const InvoiceSummaryGrid = ({ rows }: { rows: InvoiceSeriesRow[] }) => {
+    const totals = rows.reduce((acc, row) => ({
+        totalSalesBills: acc.totalSalesBills + row.totalSalesBills,
+        cancelledBills: acc.cancelledBills + row.cancelledBills,
+        taxableValue: acc.taxableValue + row.taxableValue,
+        cgst: acc.cgst + row.cgst,
+        sgst: acc.sgst + row.sgst,
+        igst: acc.igst + row.igst,
+        grandTotal: acc.grandTotal + row.grandTotal,
+    }), { totalSalesBills: 0, cancelledBills: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0, grandTotal: 0 });
+
+    return (
+        <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden bg-white shadow-xl">
+            <div className="bg-primary text-white p-3 font-black text-[11px] uppercase tracking-widest">Invoice Summary (Sales Bills)</div>
+            <div className="flex-1 overflow-auto">
+                <table className="min-w-full border-collapse">
+                    <thead className="bg-gray-100 sticky top-0 border-b border-gray-400">
+                        <tr className="text-[10px] font-black uppercase text-gray-600 h-10">
+                            <th className="p-2 border-r border-gray-400 text-left">Series</th>
+                            <th className="p-2 border-r border-gray-400 text-left">Start Invoice No</th>
+                            <th className="p-2 border-r border-gray-400 text-left">End Invoice No</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Total Sales Bills</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Cancelled Bills</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Taxable Value</th>
+                            <th className="p-2 border-r border-gray-400 text-right">CGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">SGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">IGST</th>
+                            <th className="p-2 text-right">Grand Total</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                        {rows.map(row => (
+                            <React.Fragment key={row.series}>
+                                <tr className="h-11 hover:bg-accent transition-colors">
+                                    <td className="p-2 border-r border-gray-200 font-mono">{row.series}</td>
+                                    <td className="p-2 border-r border-gray-200 font-black">{row.startInvoiceNo}</td>
+                                    <td className="p-2 border-r border-gray-200 font-black">{row.endInvoiceNo}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">{row.totalSalesBills}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right text-red-700 font-black">{row.cancelledBills}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">₹{row.taxableValue.toFixed(2)}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">₹{row.cgst.toFixed(2)}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">₹{row.sgst.toFixed(2)}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">₹{row.igst.toFixed(2)}</td>
+                                    <td className="p-2 text-right font-black">₹{row.grandTotal.toFixed(2)}</td>
+                                </tr>
+                                {row.cancelledInvoices.length > 0 && (
+                                    <tr className="bg-red-50/60">
+                                        <td className="p-2 text-[10px] text-red-700 font-black uppercase border-r border-gray-200">Cancelled Details</td>
+                                        <td className="p-2 text-[11px] text-red-800" colSpan={9}>
+                                            {row.cancelledInvoices.map(item => `${item.invoiceNo} (${item.date}, ${item.customer}, ₹${item.value.toFixed(2)})`).join(' | ')}
+                                        </td>
+                                    </tr>
+                                )}
+                            </React.Fragment>
+                        ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50 border-t-2 border-gray-400">
+                        <tr className="text-[10px] font-black uppercase">
+                            <td className="p-2 border-r border-gray-300" colSpan={3}>Total</td>
+                            <td className="p-2 border-r border-gray-300 text-right">{totals.totalSalesBills}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">{totals.cancelledBills}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.taxableValue.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.cgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.sgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.igst.toFixed(2)}</td>
+                            <td className="p-2 text-right">₹{totals.grandTotal.toFixed(2)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </Card>
+    );
+};
+
+const CombinedHsnGrid = ({ rows }: { rows: CombinedHsnRow[] }) => {
+    const totals = rows.reduce((acc, row) => ({
+        salesTotalValue: acc.salesTotalValue + row.salesTotalValue,
+        purchaseTotalValue: acc.purchaseTotalValue + row.purchaseTotalValue,
+        combinedTotalValue: acc.combinedTotalValue + row.combinedTotalValue,
+        qty: acc.qty + row.combinedQty,
+        taxable: acc.taxable + row.combinedTaxable,
+        cgst: acc.cgst + row.combinedCgst,
+        sgst: acc.sgst + row.combinedSgst,
+        igst: acc.igst + row.combinedIgst,
+        tax: acc.tax + row.combinedTotalTax,
+    }), { salesTotalValue: 0, purchaseTotalValue: 0, combinedTotalValue: 0, qty: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 });
+
+    return (
+        <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden bg-white shadow-xl">
+            <div className="bg-primary text-white p-3 font-black text-[11px] uppercase tracking-widest">Combined HSN Summary (Inward + Outward)</div>
+            <div className="px-3 py-2 bg-gray-50 border-b border-gray-300 text-[10px] font-black uppercase text-gray-600 tracking-wider flex gap-6 flex-wrap">
+                <span>Sales Total: ₹{totals.salesTotalValue.toFixed(2)}</span>
+                <span>Purchase Total: ₹{totals.purchaseTotalValue.toFixed(2)}</span>
+                <span>Combined Total: ₹{totals.combinedTotalValue.toFixed(2)}</span>
+            </div>
+            <div className="flex-1 overflow-auto">
+                <table className="min-w-full border-collapse">
+                    <thead className="bg-gray-100 sticky top-0 border-b border-gray-400">
+                        <tr className="text-[10px] font-black uppercase text-gray-600 h-10">
+                            <th className="p-2 border-r border-gray-400 text-left">HSN</th>
+                            <th className="p-2 border-r border-gray-400 text-left">Description</th>
+                            <th className="p-2 border-r border-gray-400 text-center">UQC</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Qty</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Taxable</th>
+                            <th className="p-2 border-r border-gray-400 text-right">CGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">SGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">IGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Total Tax</th>
+                            <th className="p-2 text-right">Total Value</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                        {rows.map(row => (
+                            <tr key={row.hsnCode} className="h-11">
+                                <td className="p-2 border-r border-gray-200 font-mono">{row.hsnCode}</td>
+                                <td className="p-2 border-r border-gray-200">{row.description}</td>
+                                <td className="p-2 border-r border-gray-200 text-center">{row.uqc}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">{row.combinedQty.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedTaxable.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedCgst.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedSgst.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedIgst.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedTotalTax.toFixed(2)}</td>
+                                <td className="p-2 text-right font-black">₹{row.combinedTotalValue.toFixed(2)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50 border-t-2 border-gray-400">
+                        <tr className="text-[10px] font-black uppercase">
+                            <td className="p-2 border-r border-gray-300" colSpan={3}>Combined Totals</td>
+                            <td className="p-2 border-r border-gray-300 text-right">{totals.qty.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.taxable.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.cgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.sgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.igst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.tax.toFixed(2)}</td>
+                            <td className="p-2 text-right">₹{totals.combinedTotalValue.toFixed(2)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </Card>
     );
 };
 
