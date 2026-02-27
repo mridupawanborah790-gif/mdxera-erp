@@ -102,6 +102,8 @@ const POS = forwardRef<any, POSProps>(({
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
+    const [roundOff, setRoundOff] = useState(0);
+    const [isRoundOffManuallyEdited, setIsRoundOffManuallyEdited] = useState(false);
 
     const activeRowIdRef = useRef<string | null>(null);
 
@@ -148,9 +150,20 @@ const POS = forwardRef<any, POSProps>(({
             tax += (itemNet - taxableValue);
         });
         const net = gross - tradeDiscount - schemeTotal - lumpsumDiscount;
-        const roundedNet = Math.round(net);
-        return { gross, tradeDiscount, schemeTotal, tax, net, roundedNet, roundOff: roundedNet - net };
+        const baseTotal = net + (isNonGst ? 0 : tax);
+        const autoRoundOff = Math.round(baseTotal) - baseTotal;
+        return { gross, tradeDiscount, schemeTotal, tax, net, baseTotal, autoRoundOff };
     }, [cartItems, lumpsumDiscount, isNonGst]);
+
+    useEffect(() => {
+        if (!isRoundOffManuallyEdited) {
+            setRoundOff(totals.autoRoundOff);
+        }
+    }, [totals.autoRoundOff, isRoundOffManuallyEdited]);
+
+    const grandTotal = useMemo(() => {
+        return parseFloat((totals.baseTotal + roundOff).toFixed(2));
+    }, [totals.baseTotal, roundOff]);
 
     useEffect(() => {
         setBillMode(billType === 'non-gst' ? 'EST' : 'GST');
@@ -165,7 +178,11 @@ const POS = forwardRef<any, POSProps>(({
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
             setCartItems(transactionToEdit.items || []);
             setLumpsumDiscount(transactionToEdit.schemeDiscount || 0);
+            setRoundOff(transactionToEdit.roundOff || 0);
+            setIsRoundOffManuallyEdited(true);
         } else {
+            setIsRoundOffManuallyEdited(false);
+            setRoundOff(0);
             // Default focus to Date field as requested
             setTimeout(() => dateInputRef.current?.focus(), 150);
         }
@@ -214,12 +231,12 @@ const POS = forwardRef<any, POSProps>(({
             customerPhone: customerPhone || selectedCustomer?.phone,
             referredBy: referredBy || '',
             items: cartItems,
-            total: isNonGst ? totals.roundedNet : parseFloat((totals.roundedNet + totals.tax).toFixed(2)),
+            total: grandTotal,
             subtotal: parseFloat((totals.net - totals.tax).toFixed(2)),
             totalItemDiscount: totals.tradeDiscount,
             totalGst: totals.tax,
             schemeDiscount: lumpsumDiscount,
-            roundOff: totals.roundOff,
+            roundOff,
             status: 'completed',
             paymentMode: finalPaymentMode,
             billType: isNonGst ? 'non-gst' : 'regular',
@@ -242,7 +259,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, strictStock, inventory]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, strictStock, inventory, roundOff, grandTotal]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -1117,9 +1134,23 @@ const POS = forwardRef<any, POSProps>(({
                                 />
                             </div>
                             {!isNonGst && <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="text-sm">+₹{(totals.tax || 0).toFixed(2)}</span></div>}
+                            <div className="flex justify-between text-purple-700 items-center">
+                                <span>Round Off</span>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    value={roundOff === 0 ? '' : roundOff}
+                                    onChange={e => {
+                                        setIsRoundOffManuallyEdited(true);
+                                        setRoundOff(parseFloat(e.target.value) || 0);
+                                    }}
+                                    className="w-20 text-right bg-white border border-gray-300 font-normal no-spinner outline-none px-1 py-0.5"
+                                    disabled={isReadOnly}
+                                />
+                            </div>
                             <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-2xl font-black text-primary">
-                                <span>TOTAL</span>
-                                <span>₹{((totals.roundedNet + (isNonGst ? 0 : totals.tax)) || 0).toFixed(2)}</span>
+                                <span>GRAND TOTAL</span>
+                                <span>₹{(grandTotal || 0).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
