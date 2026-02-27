@@ -32,6 +32,35 @@ const Spinner = () => (
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
+const EXPIRY_MM_YY_REGEX = /^(0[1-9]|1[0-2])\/\d{2}$/;
+
+const formatExpiryToMMYY = (value?: string | null): string => {
+    if (!value || String(value).toUpperCase() === 'N/A') return '';
+    const clean = String(value).trim();
+    const slashMatch = clean.match(/^(\d{1,2})[/-](\d{2}|\d{4})$/);
+    if (slashMatch) {
+        const month = Number(slashMatch[1]);
+        if (month < 1 || month > 12) return '';
+        const yearPart = slashMatch[2].slice(-2);
+        return `${String(month).padStart(2, '0')}/${yearPart}`;
+    }
+
+    const dateLike = clean.split('T')[0].match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+    if (dateLike) {
+        const month = Number(dateLike[2]);
+        if (month < 1 || month > 12) return '';
+        return `${String(month).padStart(2, '0')}/${dateLike[1].slice(-2)}`;
+    }
+
+    return EXPIRY_MM_YY_REGEX.test(clean) ? clean : '';
+};
+
+const normalizeExpiryInput = (rawValue: string): string => {
+    const cleaned = rawValue.replace(/[^\d/]/g, '');
+    const digits = cleaned.replace(/\D/g, '').slice(0, 4);
+    if (digits.length <= 2) return digits;
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+};
 
 const createBlankItem = (): PurchaseItem => ({
     id: crypto.randomUUID(),
@@ -212,6 +241,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const mappedItems = pItems.map(item => ({
                 ...createBlankItem(),
                 ...item,
+                expiry: formatExpiryToMMYY(String(item.expiry || '')),
                 quantity: Number(item.quantity || 0),
                 purchasePrice: Number(item.purchasePrice || 0),
                 mrp: Number(item.mrp || 0),
@@ -227,7 +257,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setSupplier(draftSupplier || '');
             const matchedDist = suppliers.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
             const newItems = Array.isArray(draftItems) ? draftItems.map(item => ({
-                ...createBlankItem(), ...item, quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
+                ...createBlankItem(), ...item, expiry: formatExpiryToMMYY(String(item.expiry || '')), quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
             })) : [];
             const linked = attemptAutoLink(newItems as PurchaseItem[], matchedDist || null);
             setItems([...linked, createBlankItem()]);
@@ -314,6 +344,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
 
+        const invalidExpiryItem = activeItems.find(item => {
+            const expiryValue = (item.expiry || '').trim();
+            return expiryValue !== '' && !EXPIRY_MM_YY_REGEX.test(expiryValue);
+        });
+        if (invalidExpiryItem) {
+            addNotification(`Invalid expiry for ${invalidExpiryItem.name}. Use MM/YY format (e.g., 01/25).`, "error");
+            return;
+        }
+
         setIsSubmitting(true);
         try {
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;
@@ -328,7 +367,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 supplier: Supplier,
                 invoiceNumber: invoiceNumber.trim(),
                 date,
-                items: calculatedTotals.itemsWithCalculations,
+                items: calculatedTotals.itemsWithCalculations.map(item => ({
+                    ...item,
+                    expiry: formatExpiryToMMYY(item.expiry)
+                })),
                 subtotal: calculatedTotals.subtotal,
                 totalGst: calculatedTotals.totalGst,
                 totalAmount: calculatedTotals.totalAmount,
@@ -468,7 +510,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             brand: batch.brand || '',
             category: batch.category || 'General',
             batch: batch.batch || 'NEW-BATCH',
-            expiry: batch.expiry ? String(batch.expiry) : 'N/A',
+            expiry: formatExpiryToMMYY(batch.expiry ? String(batch.expiry) : ''),
             quantity: 1,
             looseQuantity: 0,
             freeQuantity: 0,
@@ -525,6 +567,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const index = prev.findIndex(p => p.id === id); if (index === -1) return prev;
             let updatedItem = { ...prev[index], [field]: value };
             if (field === 'name') { updatedItem.matchStatus = 'pending'; updatedItem.inventoryItemId = undefined; }
+            if (field === 'expiry') { updatedItem.expiry = normalizeExpiryInput(String(value)); }
             if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
             const updated = prev.map(p => p.id === id ? updatedItem : p);
             if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
@@ -883,7 +926,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         )}
                                         <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} placeholder="MM/YY" inputMode="numeric" maxLength={5} pattern="(0[1-9]|1[0-2])/[0-9]{2}" className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         {isFieldVisible('colFree') && (
