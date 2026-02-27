@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
-import type { InventoryItem, PhysicalInventorySession, PhysicalInventoryCountItem } from '../types';
+import type { InventoryItem, Medicine, PhysicalInventorySession, PhysicalInventoryCountItem } from '../types';
 import { PhysicalInventoryStatus } from '../types';
 import { fuzzyMatch } from '../utils/search';
 
@@ -41,6 +41,7 @@ const debounce = (func: Function, waitFor: number) => {
 
 interface PhysicalInventoryPageProps {
     inventory: InventoryItem[];
+    medicines: Medicine[];
     physicalInventorySessions: PhysicalInventorySession[];
     onStartNewCount: () => void;
     onUpdateCount: (session: PhysicalInventorySession) => void;
@@ -48,13 +49,13 @@ interface PhysicalInventoryPageProps {
     onCancelCount: (session: PhysicalInventorySession) => void;
 }
 
-const PhysicalInventoryPage: React.FC<PhysicalInventoryPageProps> = ({ inventory, physicalInventorySessions, onStartNewCount, onUpdateCount, onFinalizeCount, onCancelCount }) => {
+const PhysicalInventoryPage: React.FC<PhysicalInventoryPageProps> = ({ inventory, medicines, physicalInventorySessions, onStartNewCount, onUpdateCount, onFinalizeCount, onCancelCount }) => {
     const [selectedSessionForView, setSelectedSessionForView] = useState<PhysicalInventorySession | null>(null);
     const sessions = useMemo(() => Array.isArray(physicalInventorySessions) ? physicalInventorySessions : [], [physicalInventorySessions]);
     const activeSession = useMemo(() => sessions.find(s => s.status === PhysicalInventoryStatus.IN_PROGRESS), [sessions]);
 
     if (activeSession) {
-        return <CountingView key={activeSession.id} session={activeSession} inventory={inventory} onUpdate={onUpdateCount} onFinalize={onFinalizeCount} onCancel={onCancelCount} />;
+        return <CountingView key={activeSession.id} session={activeSession} inventory={inventory} medicines={medicines} onUpdate={onUpdateCount} onFinalize={onFinalizeCount} onCancel={onCancelCount} />;
     }
 
     return (
@@ -182,10 +183,11 @@ const HistoryView: React.FC<{
 const CountingView: React.FC<{ 
     session: PhysicalInventorySession; 
     inventory: InventoryItem[]; 
+    medicines: Medicine[];
     onUpdate: (s: PhysicalInventorySession) => void; 
     onFinalize: (s: PhysicalInventorySession) => void; 
     onCancel: (s: PhysicalInventorySession) => void;
-}> = ({ session, inventory, onUpdate, onFinalize, onCancel }) => {
+}> = ({ session, inventory, medicines, onUpdate, onFinalize, onCancel }) => {
     const [countedItems, setCountedItems] = useState<PhysicalInventoryCountItem[]>(session.items || []);
     const [reason, setReason] = useState(session.reason || '');
     const [searchTerm, setSearchTerm] = useState('');
@@ -221,13 +223,56 @@ const CountingView: React.FC<{
     }, [countedItems, reason, session, debouncedUpdate, totalVarianceValue]);
 
     const discoveryResults = useMemo(() => {
-        if (!modalSearchTerm) return [];
-        return inventory.filter(i => 
-            fuzzyMatch(i.name, modalSearchTerm) ||
-            (i.barcode && fuzzyMatch(i.barcode, modalSearchTerm)) ||
-            (i.code && fuzzyMatch(i.code, modalSearchTerm))
-        );
-    }, [modalSearchTerm, inventory]);
+        const term = modalSearchTerm.trim();
+        if (!term) return [];
+
+        const grouped = new Map<string, InventoryItem>();
+
+        inventory.forEach(i => {
+            if (
+                fuzzyMatch(i.name, term) ||
+                (i.barcode && fuzzyMatch(i.barcode, term)) ||
+                (i.code && fuzzyMatch(i.code, term))
+            ) {
+                grouped.set(`${i.name.toLowerCase()}|${(i.brand || '').toLowerCase()}`, i);
+            }
+        });
+
+        medicines.forEach(m => {
+            if (
+                fuzzyMatch(m.name, term) ||
+                (m.barcode && fuzzyMatch(m.barcode, term)) ||
+                (m.materialCode && fuzzyMatch(m.materialCode, term))
+            ) {
+                const key = `${m.name.toLowerCase()}|${(m.brand || '').toLowerCase()}`;
+                if (!grouped.has(key)) {
+                    grouped.set(key, {
+                        id: `mm-${m.id}`,
+                        organization_id: m.organization_id || '',
+                        name: m.name,
+                        code: m.materialCode,
+                        brand: m.brand || '',
+                        category: 'Medicine',
+                        manufacturer: m.manufacturer || '',
+                        stock: 0,
+                        unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '1', 10),
+                        minStockLimit: 0,
+                        batch: 'UNTRACKED',
+                        expiry: 'N/A',
+                        purchasePrice: 0,
+                        mrp: parseFloat(m.mrp || '0'),
+                        gstPercent: m.gstRate || 0,
+                        hsnCode: m.hsnCode || '',
+                        composition: m.composition || '',
+                        barcode: m.barcode || '',
+                        is_active: true,
+                    });
+                }
+            }
+        });
+
+        return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }, [modalSearchTerm, inventory, medicines]);
 
     useEffect(() => {
         if (!isDiscoveryModalOpen) return;
@@ -274,6 +319,7 @@ const CountingView: React.FC<{
                 physicalCount: increment ? 1 : 0, 
                 variance: (increment ? 1 : 0) - item.stock, 
                 cost: item.cost || (item.purchasePrice / (item.unitsPerPack || 1)),
+                unitsPerPack: item.unitsPerPack || 1,
             };
             
             setTimeout(() => {
@@ -332,10 +378,9 @@ const CountingView: React.FC<{
     }, [isDiscoveryModalOpen]);
     
     const handleCountChange = (itemId: string, packs: number, loose: number) => {
+        const existingItem = countedItems.find(i => i.inventoryItemId === itemId);
         const inventoryItem = inventory.find(i => i.id === itemId);
-        if (!inventoryItem) return;
-        
-        const unitsPerPack = inventoryItem.unitsPerPack || 1;
+        const unitsPerPack = existingItem?.unitsPerPack || inventoryItem?.unitsPerPack || 1;
         const totalPhysical = (packs * unitsPerPack) + loose;
 
         setCountedItems(prev => prev.map(item => {
@@ -442,8 +487,7 @@ const CountingView: React.FC<{
                             <tbody className="divide-y divide-gray-200">
                                 {countedItems.map(item => {
                                     const invItem = inventory.find(i => i.id === item.inventoryItemId);
-                                    if (!invItem) return null;
-                                    const uPP = invItem.unitsPerPack || 1;
+                                    const uPP = item.unitsPerPack || invItem?.unitsPerPack || 1;
                                     const phyPacks = Math.floor(item.physicalCount / uPP);
                                     const phyLoose = item.physicalCount % uPP;
                                     return (

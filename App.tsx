@@ -1675,7 +1675,7 @@ const App: React.FC = () => {
                 />;
             case 'physicalInventory':
                 return <PhysicalInventory
-                    inventory={inventory} physicalInventorySessions={physicalInventory}
+                    inventory={inventory} medicines={medicines} physicalInventorySessions={physicalInventory}
                     onStartNewCount={async () => {
                         if (!currentUser) return;
 
