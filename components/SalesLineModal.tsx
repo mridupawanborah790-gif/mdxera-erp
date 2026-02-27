@@ -56,6 +56,8 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     const activeBatchRef = useRef<HTMLButtonElement>(null);
 
     const strictStock = configurations?.displayOptions?.strictStock ?? false;
+    const enableNegativeStock = configurations?.displayOptions?.enableNegativeStock ?? false;
+    const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
     const globalDefaultRateTier = configurations?.displayOptions?.defaultRateTier || 'mrp';
 
     const sortedBatches = useMemo(() => {
@@ -173,8 +175,11 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             return;
         }
 
-        // PERMIT SALES EVEN IF STOCK IS ZERO OR BELOW (NEGATIVE STOCK ENABLED)
-        // BLOCKING ALERT REMOVED TO ALLOW TRANSACTION PROCEEDING
+
+        if (shouldPreventNegativeStock && (currentAvailableStock <= 0 || lineTotals.units > currentAvailableStock)) {
+            alert(`Insufficient stock for ${activeBatch.name}. Available: ${currentAvailableStock}`);
+            return;
+        }
 
         let rateTierToUse = customer?.defaultRateTier !== 'none' ? customer?.defaultRateTier : globalDefaultRateTier;
         let rateValue = activeBatch.mrp;
@@ -211,7 +216,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
 
         onConfirm(item);
         onClose();
-    }, [activeBatch, packs, loose, freePacks, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, initialItem, onConfirm, onClose, isReadOnly, strictStock, currentAvailableStock, customer, globalDefaultRateTier, lineTotals]);
+    }, [activeBatch, packs, loose, freePacks, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, initialItem, onConfirm, onClose, isReadOnly, shouldPreventNegativeStock, currentAvailableStock, customer, globalDefaultRateTier, lineTotals]);
 
     const handleGlobalKeyDown = (e: React.KeyboardEvent) => {
         // Only trigger batch cycling if we are not in a select dropdown
