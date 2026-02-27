@@ -195,6 +195,7 @@ const CountingView: React.FC<{
     const [selectedDiscoveryIndex, setSelectedDiscoveryIndex] = useState(0);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isReviewOpen, setIsReviewOpen] = useState(false);
+    const [addProductQuery, setAddProductQuery] = useState('');
     const isEndingRef = useRef(false);
     const discoveryListRef = useRef<HTMLDivElement>(null);
     const discoverySearchInputRef = useRef<HTMLInputElement>(null);
@@ -333,13 +334,21 @@ const CountingView: React.FC<{
 
     const addItemFromDiscovery = (item: InventoryItem) => {
         addItemToCount(item);
+        setAddProductQuery('');
         setIsDiscoveryModalOpen(false);
     };
 
-    const openDiscoveryModal = () => {
-        setModalSearchTerm('');
+    const openDiscoveryModal = (initialSearchTerm = '') => {
+        setModalSearchTerm(initialSearchTerm);
         setSelectedDiscoveryIndex(0);
         setIsDiscoveryModalOpen(true);
+    };
+
+    const handleAddProductRowKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            openDiscoveryModal(addProductQuery.trim());
+        }
     };
 
     const handleDiscoveryKeyDown = (e: React.KeyboardEvent) => {
@@ -509,17 +518,28 @@ const CountingView: React.FC<{
                                     );
                                 })}
                                 <tr className="bg-primary/5 hover:bg-primary/10 transition-colors">
-                                    <td className="p-2 border-r border-gray-200">
-                                        <button
-                                            type="button"
-                                            onClick={openDiscoveryModal}
-                                            className="w-full text-left text-primary font-black uppercase text-[11px] tracking-wide"
-                                        >
-                                            + Add Product in Particulars
-                                        </button>
+                                    <td className="p-2 border-r border-gray-200 align-top">
+                                        <div className="grid grid-cols-[52px_minmax(0,1fr)] border border-gray-300 bg-white">
+                                            <div className="border-r border-gray-300 p-2">
+                                                <p className="text-[9px] font-black uppercase tracking-wide text-gray-500">Sl.</p>
+                                                <p className="text-sm font-black text-primary leading-none">{countedItems.length + 1}</p>
+                                            </div>
+                                            <div className="p-2">
+                                                <p className="text-[9px] font-black uppercase tracking-wide text-gray-500 mb-1">Name of Item</p>
+                                                <input
+                                                    type="text"
+                                                    value={addProductQuery}
+                                                    onChange={(e) => setAddProductQuery(e.target.value)}
+                                                    onKeyDown={handleAddProductRowKeyDown}
+                                                    onFocus={() => setSelectedDiscoveryIndex(0)}
+                                                    placeholder="Type item name or code..."
+                                                    className="w-full border border-gray-400 px-2 py-1 text-[11px] font-black uppercase tracking-wide outline-none focus:border-primary focus:bg-yellow-50"
+                                                />
+                                            </div>
+                                        </div>
                                     </td>
                                     <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">--</td>
-                                    <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">Select product to begin</td>
+                                    <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">Press Enter to open matrix</td>
                                     <td className="p-2 border-r border-gray-200 text-right text-gray-400 font-bold">--</td>
                                     <td className="p-2"></td>
                                 </tr>
