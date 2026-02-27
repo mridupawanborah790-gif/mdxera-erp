@@ -215,9 +215,18 @@ const POS = forwardRef<any, POSProps>(({
 
         setIsSaving(true);
 
-        const generatedId = transactionToEdit
-            ? transactionToEdit.id
-            : (await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!)).documentNumber;
+        let generatedId = transactionToEdit?.id;
+
+        if (!generatedId) {
+            try {
+                generatedId = (await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!)).documentNumber;
+            } catch (reservationError) {
+                // Keep sales flow resilient when RPC-based voucher reservation is temporarily unavailable.
+                generatedId = currentInvoiceNo;
+                const errorMessage = reservationError instanceof Error ? reservationError.message : 'Voucher reservation failed';
+                console.warn('Voucher reservation failed, falling back to local invoice number:', errorMessage);
+            }
+        }
 
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
 
