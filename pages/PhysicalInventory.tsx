@@ -199,6 +199,7 @@ const CountingView: React.FC<{
     const isEndingRef = useRef(false);
     const discoveryListRef = useRef<HTMLDivElement>(null);
     const discoverySearchInputRef = useRef<HTMLInputElement>(null);
+    const addProductInputRef = useRef<HTMLInputElement>(null);
 
     const totalVarianceValue = useMemo(() => {
         return countedItems.reduce((sum, item) => sum + (item.variance * item.cost), 0);
@@ -344,11 +345,34 @@ const CountingView: React.FC<{
         setIsDiscoveryModalOpen(true);
     };
 
+    const moveToNextRowAndOpenDiscovery = () => {
+        setAddProductQuery('');
+        setTimeout(() => {
+            addProductInputRef.current?.focus();
+            openDiscoveryModal('');
+        }, 0);
+    };
+
     const handleAddProductRowKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             openDiscoveryModal(addProductQuery.trim());
         }
+    };
+
+    const handleActualCountKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, itemId: string, field: 'packs' | 'loose') => {
+        if (e.key !== 'Enter') return;
+
+        e.preventDefault();
+
+        if (field === 'packs') {
+            const looseInput = document.getElementById(`count-loose-${itemId}`) as HTMLInputElement | null;
+            looseInput?.focus();
+            looseInput?.select();
+            return;
+        }
+
+        moveToNextRowAndOpenDiscovery();
     };
 
     const handleDiscoveryKeyDown = (e: React.KeyboardEvent) => {
@@ -492,6 +516,7 @@ const CountingView: React.FC<{
                                                         type="number" 
                                                         value={phyPacks} 
                                                         onChange={e => handleCountChange(item.inventoryItemId, parseInt(e.target.value) || 0, phyLoose)} 
+                                                        onKeyDown={e => handleActualCountKeyDown(e, item.inventoryItemId, 'packs')}
                                                         className="w-16 p-1 border border-gray-400 text-center font-black no-spinner outline-none focus:bg-yellow-50" 
                                                         placeholder="Pkts"
                                                     />
@@ -501,6 +526,7 @@ const CountingView: React.FC<{
                                                         type="number" 
                                                         value={phyLoose} 
                                                         onChange={e => handleCountChange(item.inventoryItemId, phyPacks, parseInt(e.target.value) || 0)} 
+                                                        onKeyDown={e => handleActualCountKeyDown(e, item.inventoryItemId, 'loose')}
                                                         className="w-12 p-1 border border-gray-400 text-center font-bold no-spinner outline-none focus:bg-yellow-50" 
                                                         placeholder="Lse"
                                                     />
@@ -527,6 +553,7 @@ const CountingView: React.FC<{
                                             <div className="p-2">
                                                 <p className="text-[9px] font-black uppercase tracking-wide text-gray-500 mb-1">Name of Item</p>
                                                 <input
+                                                    ref={addProductInputRef}
                                                     type="text"
                                                     value={addProductQuery}
                                                     onChange={(e) => setAddProductQuery(e.target.value)}
