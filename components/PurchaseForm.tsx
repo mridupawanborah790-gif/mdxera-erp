@@ -369,7 +369,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         if (!Supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
         if (!invoiceNumber.trim()) { setInvoiceNumberError("Invoice number is required."); return; }
         if (hasDuplicateSupplierInvoice()) {
-            setInvoiceNumberError("Duplicate Supplier Invoice # already recorded. Please verify Purchase History.");
+            const duplicateMessage = "Duplicate Supplier Invoice # already recorded. Please verify Purchase History.";
+            setInvoiceNumberError(duplicateMessage);
+            addNotification(duplicateMessage, "error");
             return;
         }
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
@@ -857,7 +859,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             type="text"
                             value={Supplier}
                             autoComplete="off"
-                            onChange={e => { setSupplier(e.target.value); setIsSupplierDropdownOpen(true); }}
+                            onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
                             className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                             placeholder="Press Enter to Select Supplier..."
@@ -884,9 +886,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             ref={invoiceNumberInputRef}
                             type="text"
                             value={invoiceNumber}
-                            onChange={e => setInvoiceNumber(e.target.value)}
+                            onChange={e => { setInvoiceNumber(e.target.value); setInvoiceNumberError(null); }}
                             className={`w-full border p-2 text-sm font-bold outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                         />
+                        {invoiceNumberError && <p className="mt-1 text-[10px] font-bold text-red-600">{invoiceNumberError}</p>}
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase block mb-1">Date</label>
