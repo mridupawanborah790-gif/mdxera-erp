@@ -482,8 +482,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
                 <span className="text-[10px] font-black uppercase text-accent">No. {isEditing ? purchaseToEdit?.purchaseSerialId : 'New'}</span>
             </div>
-            <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
-                <div className="p-3 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-4 gap-4 items-end flex-shrink-0">
+            <div className="p-2 md:p-3 flex-1 flex flex-col gap-2 md:gap-3 overflow-hidden">
+                <div className="p-2 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-4 gap-2 md:gap-3 items-end flex-shrink-0">
                     <div className="md:col-span-2 relative">
                         <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Particulars (Supplier Name)</label>
                         <input
@@ -535,7 +535,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
 
                 {!isEditing && !disableAIInput && !isManualEntry && (
-                    <div className="flex space-x-2 flex-shrink-0 px-2">
+                    <div className="flex flex-wrap gap-2 flex-shrink-0 px-1">
                         <button onClick={() => setIsWebcamModalOpen(true)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><CameraIcon /> Webcam Scan</button>
                         <button onClick={() => setMobileSyncSessionId(generateUUID())} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><SmartphoneIcon /> Mobile Sync</button>
                         <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><UploadIcon /> {isUploading ? <Spinner /> : 'Import Document'}</button>
@@ -543,11 +543,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 )}
 
-                <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
+                <Card className="flex-1 min-h-[380px] md:min-h-[460px] flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
                     <div className="flex-1 overflow-auto">
                         <table className="min-w-full border-collapse text-sm">
-                            <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400">
-                                <tr className="text-[10px] font-black uppercase text-gray-600">
+                            <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400 z-10">
+                                <tr className="text-[10px] font-black uppercase text-gray-600 h-9">
                                     <th className="p-1 border-r border-gray-400 text-left w-8">Sl.</th>
                                     <th className="p-1 border-r border-gray-400 text-left min-w-[200px]">Name of Item</th>
                                     <th className="p-1 border-r border-gray-400 text-left w-20">MFR</th>
@@ -565,7 +565,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {items.map((p, idx) => (
-                                    <tr key={p.id} className="hover:bg-gray-50 group">
+                                    <tr key={p.id} className="hover:bg-gray-50 group h-10">
                                         <td className="p-1 border-r border-gray-200 font-bold text-gray-400 text-center">{idx + 1}</td>
                                         <td className="p-1 border-r border-gray-200 font-bold text-primary uppercase relative">
                                             <input type="text" id={`name-${p.id}`} value={p.name} autoComplete="off" onChange={e => handleUpdateItem(p.id, 'name', e.target.value)} onFocus={() => setActiveRowId(p.id)} className="w-full bg-transparent outline-none focus:bg-yellow-50" />
@@ -588,17 +588,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </Card>
 
-                <div className="flex justify-end gap-6">
-                    <div className="w-full md:w-[420px] bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md">
-                        <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary mb-3">Summary</h3>
-                        <div className="space-y-2 text-sm">
-                            <div className="flex items-center justify-between text-gray-700"><span className="font-semibold">Gross</span><span className="font-mono font-bold">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
-                            <div className="flex items-center justify-between text-red-600"><span className="font-semibold">Trade Discount</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-emerald-700"><span className="font-semibold">Scheme Benefit</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-red-700"><span className="font-semibold">Bill Discount</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-blue-700"><span className="font-semibold">Tax (GST)</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
-                            <div className="flex items-center justify-between text-gray-700"><span className="font-semibold">Round Off</span><span className="font-mono font-bold">{formatCurrency(calculatedTotals.roundOff)}</span></div>
-                            <div className="border-t border-gray-400 pt-2 mt-1 flex items-center justify-between text-xl font-black text-primary"><span>GRAND TOTAL</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                <div className="flex justify-end gap-3 flex-shrink-0">
+                    <div className="w-full md:w-[380px] bg-[#e5f0f0] p-3 tally-border !rounded-none shadow-md">
+                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
+                        <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-tight">
+                            <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                            <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
+                            <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatCurrency(calculatedTotals.roundOff)}</span></div>
+                            <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
                         </div>
                     </div>
                 </div>
