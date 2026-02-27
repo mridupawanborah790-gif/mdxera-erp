@@ -912,7 +912,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 )}
 
-                <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
+                <Card className="flex-1 min-h-[420px] md:min-h-[500px] flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
                     <div className="flex-1 overflow-auto">
                         <table className="min-w-full border-collapse text-sm">
                             <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400 z-10">
@@ -977,17 +977,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </Card>
 
-                <div className="flex justify-between items-stretch flex-shrink-0 gap-4 min-h-[140px]">
-                    <div className="w-80 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center">
-                        <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary mb-3">Summary</h3>
-                        <div className="space-y-2 text-sm">
-                            <div className="flex items-center justify-between text-gray-700"><span className="font-semibold">Gross</span><span className="font-mono font-bold">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
-                            <div className="flex items-center justify-between text-red-600"><span className="font-semibold">Trade Discount</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-emerald-700"><span className="font-semibold">Scheme Benefit</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-red-700"><span className="font-semibold">Bill Discount</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-blue-700"><span className="font-semibold">Tax (GST)</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
-                            <div className="flex items-center justify-between text-gray-700"><span className="font-semibold">Round Off</span><span className="font-mono font-bold">{formatRoundOffCurrency(calculatedTotals.roundOff)}</span></div>
-                            <div className="border-t border-gray-400 pt-2 mt-1 flex items-center justify-between text-xl font-black text-primary"><span>GRAND TOTAL</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                <div className="flex flex-col xl:flex-row justify-between items-stretch flex-shrink-0 gap-4 min-h-[110px]">
+                    <div className="w-full xl:w-80 bg-[#e5f0f0] p-3 tally-border !rounded-none shadow-md flex flex-col justify-center">
+                        <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-tight">
+                            <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                            <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
+                            <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatRoundOffCurrency(calculatedTotals.roundOff)}</span></div>
+                            <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
                         </div>
                     </div>
 
