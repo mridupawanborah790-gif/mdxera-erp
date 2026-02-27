@@ -36,6 +36,11 @@ const currencyFormatter = new Intl.NumberFormat('en-IN', {
 
 const formatCurrency = (value: number) => currencyFormatter.format(Number.isFinite(value) ? value : 0);
 
+const formatSignedCurrency = (value: number, sign: '+' | '-' = '-') => {
+    const normalizedValue = Number.isFinite(value) ? Math.abs(value) : 0;
+    return `${sign}${formatCurrency(normalizedValue)}`;
+};
+
 const normalizeExpiryInput = (value: string) => {
     const digitsOnly = value.replace(/\D/g, '').slice(0, 4);
     if (digitsOnly.length <= 2) return digitsOnly;
@@ -585,14 +590,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
                 <div className="flex justify-end gap-6">
                     <div className="w-full md:w-1/3 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md">
+                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-3">Summary</h3>
                         <div className="space-y-1.5 font-bold text-xs uppercase tracking-tight">
-                            <div className="flex justify-between text-gray-500"><span>Gross Amount -</span> <span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
-                            <div className="flex justify-between text-red-600"><span>Trade Discount -</span> <span className="font-mono">-{formatCurrency(calculatedTotals.totalItemDiscount)}</span></div>
-                            <div className="flex justify-between text-emerald-600"><span>Scheme Benefit -</span> <span className="font-mono">-{formatCurrency(calculatedTotals.totalItemSchemeDiscount)}</span></div>
-                            <div className="flex justify-between text-red-700"><span>Bill Discount -</span> <span className="font-mono">-{formatCurrency(calculatedTotals.billDiscount)}</span></div>
-                            <div className="flex justify-between text-blue-700"><span>Tax (GST) +</span> <span className="font-mono">+{formatCurrency(calculatedTotals.totalGst)}</span></div>
+                            <div className="flex justify-between text-gray-600"><span>Gross</span> <span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                            <div className="flex justify-between text-red-600"><span>Trade Discount</span> <span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                            <div className="flex justify-between text-emerald-600"><span>Scheme Benefit</span> <span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                            <div className="flex justify-between text-red-700"><span>Bill Discount</span> <span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                            <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
                             <div className="flex justify-between text-gray-700"><span>Round Off</span> <span className="font-mono">{formatCurrency(calculatedTotals.roundOff)}</span></div>
-                            <div className="border-t border-gray-400 pt-2 flex justify-between text-xl font-black text-primary"><span>GRAND TOTAL</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                            <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-xl font-black text-primary"><span>GRAND TOTAL</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
                         </div>
                     </div>
                 </div>
