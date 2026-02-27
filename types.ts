@@ -732,6 +732,7 @@ export interface PhysicalInventoryCountItem {
     physicalCount: number;
     variance: number;
     cost: number;
+    unitsPerPack?: number;
 }
 
 export enum PhysicalInventoryStatus {
