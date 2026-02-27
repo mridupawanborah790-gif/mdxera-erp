@@ -178,11 +178,9 @@ const POS = forwardRef<any, POSProps>(({
 
         setIsSaving(true);
 
-        const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-        const { id: templateId, nextExternalNumber } = generateNewInvoiceId(configurations[configKey], isNonGst ? 'non-gst' : 'regular');
         const generatedId = transactionToEdit
             ? transactionToEdit.id
-            : await storage.generateNextSalesBillId(templateId, currentUser!);
+            : (await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!)).documentNumber;
 
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
 
@@ -209,7 +207,7 @@ const POS = forwardRef<any, POSProps>(({
         };
 
         try {
-            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, transactionToEdit ? undefined : nextExternalNumber);
+            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit);
             if (onPrintBill) onPrintBill(transaction);
             setCartItems([]);
             setPrescriptions([]);
