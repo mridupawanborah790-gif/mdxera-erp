@@ -994,16 +994,24 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </Card>
 
                 <div className="flex flex-col xl:flex-row justify-between items-stretch flex-shrink-0 gap-4 min-h-[148px]">
-                    <div className="w-full xl:w-[360px] bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center">
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
-                        <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-tight">
-                            <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
-                            <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
-                            <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatRoundOffCurrency(calculatedTotals.roundOff)}</span></div>
-                            <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                    <div className="w-full xl:w-[360px] bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center gap-3">
+                        <div>
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
+                            <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-tight">
+                                <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                                <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                                <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                                <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                                <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
+                                <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatRoundOffCurrency(calculatedTotals.roundOff)}</span></div>
+                                <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={handleDiscard} className="px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
+                            <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
+                                {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Accept (Enter)')}
+                            </button>
                         </div>
                     </div>
 
@@ -1063,12 +1071,6 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </div>
 
-                <div className="flex flex-wrap justify-end gap-3 pt-2 pb-1">
-                    <button onClick={handleDiscard} className="px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
-                    <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
-                        {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Accept (Enter)')}
-                    </button>
-                </div>
             </div>
 
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleWebcamCapture} />}
