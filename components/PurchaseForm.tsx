@@ -1063,7 +1063,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </div>
 
-                <div className="sticky bottom-0 z-20 -mx-4 px-4 py-3 bg-app-bg/95 backdrop-blur-sm border-t border-app-border flex justify-end gap-3">
+                <div className="flex flex-wrap justify-end gap-3 pt-2 pb-1">
                     <button onClick={handleDiscard} className="px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
                     <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
                         {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Accept (Enter)')}
