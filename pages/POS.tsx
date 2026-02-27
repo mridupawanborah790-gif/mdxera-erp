@@ -178,11 +178,9 @@ const POS = forwardRef<any, POSProps>(({
 
         setIsSaving(true);
 
-        const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-        const { id: templateId, nextExternalNumber } = generateNewInvoiceId(configurations[configKey], isNonGst ? 'non-gst' : 'regular');
         const generatedId = transactionToEdit
             ? transactionToEdit.id
-            : await storage.generateNextSalesBillId(templateId, currentUser!);
+            : (await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!)).documentNumber;
 
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
 
@@ -209,7 +207,7 @@ const POS = forwardRef<any, POSProps>(({
         };
 
         try {
-            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, transactionToEdit ? undefined : nextExternalNumber);
+            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit);
             if (onPrintBill) onPrintBill(transaction);
             setCartItems([]);
             setPrescriptions([]);
@@ -217,9 +215,10 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch('');
             setLumpsumDiscount(0);
             setReferredBy('');
-            addNotification("Bill Saved Successfully", "success");
+            addNotification(`Bill saved successfully. Bill No: ${transaction.id}`, "success");
         } catch (e: any) {
-            addNotification("Failed to save: " + e.message, "error");
+            const errorMessage = e?.message || String(e) || "Unknown error";
+            addNotification(`Failed to save bill: ${errorMessage}`, "error");
         } finally {
             setIsSaving(false);
         }
