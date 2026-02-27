@@ -1676,9 +1676,49 @@ const App: React.FC = () => {
             case 'physicalInventory':
                 return <PhysicalInventory
                     inventory={inventory} physicalInventorySessions={physicalInventory}
-                    onStartNewCount={() => { }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
+                    onStartNewCount={async () => {
+                        if (!currentUser) return;
+
+                        const hasOpenSession = physicalInventory.some(s => s.status === PhysicalInventoryStatus.IN_PROGRESS);
+                        if (hasOpenSession) {
+                            addNotification('An audit session is already in progress.', 'warning');
+                            return;
+                        }
+
+                        const { id, nextExternalNumber } = generateNewInvoiceId(configurations.physicalInventoryConfig, 'physical-inventory');
+                        const session: PhysicalInventorySession = {
+                            id,
+                            organization_id: currentUser.organization_id,
+                            status: PhysicalInventoryStatus.IN_PROGRESS,
+                            startDate: new Date().toISOString(),
+                            reason: '',
+                            items: [],
+                            totalVarianceValue: 0,
+                            performedById: currentUser.id,
+                            performedByName: currentUser.full_name,
+                        };
+
+                        const updatedConfig = {
+                            ...configurations,
+                            physicalInventoryConfig: {
+                                ...configurations.physicalInventoryConfig,
+                                currentNumber: nextExternalNumber,
+                            },
+                        };
+
+                        await storage.saveData('configurations', updatedConfig, currentUser);
+                        await storage.saveData('physical_inventory', session, currentUser);
+                        await loadData(currentUser, 'background');
+                    }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
                     onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
-                    onCancelCount={() => { }}
+                    onCancelCount={(session) => {
+                        const cancelledSession: PhysicalInventorySession = {
+                            ...session,
+                            status: PhysicalInventoryStatus.CANCELLED,
+                            endDate: new Date().toISOString(),
+                        };
+                        return storage.saveData('physical_inventory', cancelledSession, currentUser).then(() => loadData(currentUser!, 'background'));
+                    }}
                 />;
             case 'suppliers':
                 return <Suppliers
