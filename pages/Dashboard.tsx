@@ -34,7 +34,7 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
 const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
     const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(-1);
     const [expiryFilter, setExpiryFilter] = useState<'expired' | 'nearExpiry'>('expired');
-    const promoImageUrl = 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/Purple%20and%20Yellow%20Modern%20Website%20Development%20Solution%20Instagram%20Post%20(5%20x%208%20in)%20(3%20x%206%20cm)%20(6%20x%206.5%20cm).png';
+    const promoImageUrl = 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
 
     const isVisible = (fieldId: string) => configurations.modules?.dashboard?.fields?.[fieldId] === true;
 
@@ -209,7 +209,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                             <img
                                 src={promoImageUrl}
                                 alt="Dashboard promotion"
-                                className="w-full h-40 md:h-52 object-contain bg-white"
+                                className="w-full h-44 md:h-52 lg:h-56 object-contain bg-white"
                                 loading="lazy"
                             />
                         </Card>
