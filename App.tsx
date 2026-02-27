@@ -1349,6 +1349,30 @@ const App: React.FC = () => {
             throw new Error("Unauthorized: please log in again.");
         }
 
+        const strictStock = configurations.displayOptions?.strictStock ?? false;
+        const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
+        const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
+
+        if (shouldPreventNegativeStock) {
+            const requiredUnitsByInventoryId = new Map<string, number>();
+            for (const item of tx.items || []) {
+                if (!item.inventoryItemId) continue;
+                const requiredUnits = ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0);
+                requiredUnitsByInventoryId.set(
+                    item.inventoryItemId,
+                    (requiredUnitsByInventoryId.get(item.inventoryItemId) || 0) + requiredUnits
+                );
+            }
+
+            for (const [inventoryItemId, requiredUnits] of requiredUnitsByInventoryId.entries()) {
+                const invItem = inventory.find(i => i.id === inventoryItemId);
+                if (!invItem) continue;
+                if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
+                    throw new Error(`Insufficient stock for ${invItem.name}. Available: ${Number(invItem.stock || 0)}`);
+                }
+            }
+        }
+
         try {
             const savedTx = await storage.addTransaction(tx, currentUser);
 
