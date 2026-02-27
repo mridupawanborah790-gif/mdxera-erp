@@ -282,10 +282,37 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         };
     }, [items]);
 
+    const hasDuplicateSupplierInvoice = useCallback(() => {
+        const normalizedSupplier = Supplier.toLowerCase().trim();
+        const normalizedInvoice = invoiceNumber.toLowerCase().trim();
+        if (!normalizedSupplier || !normalizedInvoice) return false;
+
+        const currentFy = (purchaseToEdit as any)?.fy;
+
+        return purchases.some(p => {
+            if (purchaseToEdit?.id && p.id === purchaseToEdit.id) return false;
+            if ((p.organization_id || '').trim() !== (organizationId || '').trim()) return false;
+
+            const sameSupplier = (p.supplier || '').toLowerCase().trim() === normalizedSupplier;
+            const sameInvoice = (p.invoiceNumber || '').toLowerCase().trim() === normalizedInvoice;
+            if (!sameSupplier || !sameInvoice) return false;
+
+            const purchaseFy = (p as any).fy;
+            if (currentFy && purchaseFy) return purchaseFy === currentFy;
+            return true;
+        });
+    }, [Supplier, invoiceNumber, purchaseToEdit, purchases, organizationId]);
+
     const handleSubmit = async () => {
         if (isSubmitting) return;
         if (!Supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
         if (!invoiceNumber.trim()) { setInvoiceNumberError("Invoice number is required."); return; }
+        if (hasDuplicateSupplierInvoice()) {
+            const duplicateMessage = "Duplicate Supplier Invoice # already recorded. Please verify Purchase History.";
+            setInvoiceNumberError(duplicateMessage);
+            addNotification(duplicateMessage, "error");
+            return;
+        }
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
 
@@ -758,7 +785,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             type="text"
                             value={Supplier}
                             autoComplete="off"
-                            onChange={e => { setSupplier(e.target.value); setIsSupplierDropdownOpen(true); }}
+                            onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
                             className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                             placeholder="Press Enter to Select Supplier..."
@@ -785,9 +812,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             ref={invoiceNumberInputRef}
                             type="text"
                             value={invoiceNumber}
-                            onChange={e => setInvoiceNumber(e.target.value)}
+                            onChange={e => { setInvoiceNumber(e.target.value); setInvoiceNumberError(null); }}
                             className={`w-full border p-2 text-sm font-bold outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                         />
+                        {invoiceNumberError && <p className="mt-1 text-[10px] font-bold text-red-600">{invoiceNumberError}</p>}
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase block mb-1">Date</label>
