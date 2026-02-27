@@ -1008,15 +1008,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                 <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
                             </div>
                         </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
-                            <button onClick={handleDiscard} className="w-full sm:w-auto px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
-                            <button onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
-                                {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Save')}
-                            </button>
-                        </div>
                     </div>
 
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                         {activeIntelItem ? (
                             <div className="bg-slate-100 p-4 h-full tally-border !rounded-none shadow-md animate-in fade-in duration-200 flex flex-col">
                                 <div className="flex justify-between items-center border-b border-gray-300 pb-2 mb-3 flex-shrink-0">
@@ -1070,8 +1064,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             </div>
                         )}
                     </div>
+
+                    <div className="w-full xl:w-56 flex flex-col xl:items-end xl:justify-end gap-2 xl:self-stretch">
+                        <button onClick={handleDiscard} className="w-full px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
+                        <button onClick={handleSubmit} disabled={isSubmitting} className="w-full px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
+                            {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Save')}
+                        </button>
+                    </div>
                 </div>
-                </div>
+            </div>
 
             </div>
 
