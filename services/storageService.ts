@@ -7,7 +7,8 @@
 //     Customer, PurchaseOrder, TransactionLedgerItem, UserRole, OrganizationMember,
 //     Medicine, SupplierProductMap, EWayBill,
 //     DeliveryChallan, DeliveryChallanStatus, PhysicalInventorySession, PhysicalInventoryStatus,
-//     CustomerPriceListEntry, SalesChallanStatus, SalesChallan, AppConfigurations
+//     CustomerPriceListEntry, SalesChallanStatus, SalesChallan, AppConfigurations,
+//     SalesReturn, PurchaseReturn
 // } from '../types';
 // import { parseNetworkAndApiError } from '../utils/error';
 // import { normalizeImportDate } from '../utils/helpers';
@@ -582,7 +583,8 @@ import {
     Customer, PurchaseOrder, TransactionLedgerItem, UserRole, OrganizationMember,
     Medicine, SupplierProductMap, EWayBill,
     DeliveryChallan, DeliveryChallanStatus, PhysicalInventorySession, PhysicalInventoryStatus,
-    CustomerPriceListEntry, SalesChallanStatus, SalesChallan, AppConfigurations
+    CustomerPriceListEntry, SalesChallanStatus, SalesChallan, AppConfigurations,
+    SalesReturn, PurchaseReturn
 } from '../types';
 import { parseNetworkAndApiError } from '../utils/error';
 import { normalizeImportDate } from '../utils/helpers';
@@ -914,6 +916,7 @@ export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) 
         }
     }
 
+    await syncSalesLedger(tx, user);
     return res;
 };
 
@@ -1019,6 +1022,7 @@ export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
             await saveData('inventory', newInv, user);
         }
     }
+    await syncPurchaseLedger(p, user);
     return res;
 };
 
@@ -1108,6 +1112,7 @@ export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
         }
     }
 
+    await syncPurchaseLedger(p, user);
     return res;
 };
 export const saveCustomerPriceList = (entry: CustomerPriceListEntry, user: RegisteredPharmacy) => saveData('customer_price_list', entry, user);
@@ -1232,6 +1237,149 @@ export const addLedgerEntry = async (entry: TransactionLedgerItem, owner: { type
     const newBalance = prevBalance + (entry.debit || 0) - (entry.credit || 0);
     entity.ledger = [...ledger, { ...entry, balance: newBalance }];
     return await saveData(type === 'customer' ? 'customers' : 'suppliers', entity, user);
+};
+
+const AUTO_LEDGER_PREFIX = '[AUTO_LEDGER]';
+
+const sortLedgerEntries = (entries: TransactionLedgerItem[]) => {
+    return [...entries].sort((a, b) => {
+        const dateDiff = new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        return (a.id || '').localeCompare(b.id || '');
+    });
+};
+
+const recalculateLedger = (entries: TransactionLedgerItem[], openingBalance = 0): TransactionLedgerItem[] => {
+    let runningBalance = Number(openingBalance || 0);
+    return sortLedgerEntries(entries).map((entry) => {
+        runningBalance += Number(entry.debit || 0) - Number(entry.credit || 0);
+        return { ...entry, balance: runningBalance };
+    });
+};
+
+const isAutoLedgerEntry = (entry: TransactionLedgerItem, referenceKey: string): boolean => {
+    return entry.id === referenceKey || (entry.description || '').includes(`${AUTO_LEDGER_PREFIX}:${referenceKey}`);
+};
+
+const upsertAutoLedgerEntry = async (
+    owner: { type: 'customer' | 'supplier', id: string },
+    user: RegisteredPharmacy,
+    entry: Omit<TransactionLedgerItem, 'balance'>,
+    shouldPost: boolean
+) => {
+    const storeName = owner.type === 'customer' ? STORES.CUSTOMERS : STORES.SUPPLIERS;
+    const tableName = owner.type === 'customer' ? 'customers' : 'suppliers';
+    const entity = await idb.get(storeName, owner.id) as (Customer | Supplier | undefined);
+    if (!entity) return;
+
+    const nextLedger = (entity.ledger || []).filter((item) => !isAutoLedgerEntry(item, entry.id));
+    if (shouldPost) {
+        nextLedger.push({
+            ...entry,
+            description: `${entry.description} ${AUTO_LEDGER_PREFIX}:${entry.id}`.trim(),
+            balance: 0,
+        });
+    }
+
+    entity.ledger = recalculateLedger(nextLedger, entity.opening_balance || 0);
+    await saveData(tableName, entity, user);
+};
+
+const findCustomerForTransaction = async (tx: Transaction): Promise<Customer | undefined> => {
+    const customers = await idb.getAll(STORES.CUSTOMERS) as Customer[];
+    if (tx.customerId) {
+        const byId = customers.find(c => c.id === tx.customerId);
+        if (byId) return byId;
+    }
+
+    const customerName = (tx.customerName || '').trim().toLowerCase();
+    return customers.find(c => (c.name || '').trim().toLowerCase() === customerName);
+};
+
+const findSupplierForPurchase = async (purchase: Purchase): Promise<Supplier | undefined> => {
+    const suppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
+    const supplierName = (purchase.supplier || '').trim().toLowerCase();
+    return suppliers.find(s => (s.name || '').trim().toLowerCase() === supplierName);
+};
+
+export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy) => {
+    const customer = await findCustomerForTransaction(tx);
+    if (!customer) return;
+
+    await upsertAutoLedgerEntry(
+        { type: 'customer', id: customer.id },
+        user,
+        {
+            id: `auto-sale-${tx.id}`,
+            date: tx.date,
+            type: 'sale',
+            description: `Sales Voucher ${tx.id}`,
+            debit: Number(tx.total || 0),
+            credit: 0,
+        },
+        tx.status !== 'cancelled'
+    );
+};
+
+export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPharmacy) => {
+    const supplier = await findSupplierForPurchase(purchase);
+    if (!supplier) return;
+
+    await upsertAutoLedgerEntry(
+        { type: 'supplier', id: supplier.id },
+        user,
+        {
+            id: `auto-purchase-${purchase.id}`,
+            date: purchase.date,
+            type: 'purchase',
+            description: `Purchase Voucher ${purchase.invoiceNumber || purchase.id}`,
+            debit: Number(purchase.totalAmount || 0),
+            credit: 0,
+        },
+        purchase.status !== 'cancelled'
+    );
+};
+
+export const syncSalesReturnLedger = async (salesReturn: SalesReturn, user: RegisteredPharmacy) => {
+    const customers = await idb.getAll(STORES.CUSTOMERS) as Customer[];
+    const customer = salesReturn.customerId
+        ? customers.find(c => c.id === salesReturn.customerId)
+        : customers.find(c => (c.name || '').trim().toLowerCase() === (salesReturn.customerName || '').trim().toLowerCase());
+    if (!customer) return;
+
+    await upsertAutoLedgerEntry(
+        { type: 'customer', id: customer.id },
+        user,
+        {
+            id: `auto-sales-return-${salesReturn.id}`,
+            date: salesReturn.date,
+            type: 'return',
+            description: `Sales Return ${salesReturn.id}`,
+            debit: 0,
+            credit: Number(salesReturn.totalRefund || 0),
+        },
+        true
+    );
+};
+
+export const syncPurchaseReturnLedger = async (purchaseReturn: PurchaseReturn, user: RegisteredPharmacy) => {
+    const suppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
+    const supplier = suppliers.find(s => (s.name || '').trim().toLowerCase() === (purchaseReturn.supplier || '').trim().toLowerCase());
+    if (!supplier) return;
+
+    await upsertAutoLedgerEntry(
+        { type: 'supplier', id: supplier.id },
+        user,
+        {
+            id: `auto-purchase-return-${purchaseReturn.id}`,
+            date: purchaseReturn.date,
+            type: 'return',
+            description: `Purchase Return ${purchaseReturn.id}`,
+            debit: 0,
+            credit: Number(purchaseReturn.totalValue || 0),
+        },
+        true
+    );
 };
 
 export const pushPartnerOrder = async (senderOrgId: string, senderName: string, receiverEmail: string, payload: any, senderPoId: string) => {

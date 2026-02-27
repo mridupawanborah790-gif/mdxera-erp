@@ -605,7 +605,9 @@
 //         if (!currentUser) return;
 //         const tx = transactions.find(t => t.id === id);
 //         if (tx) {
-//             await storage.saveData('sales_bill', { ...tx, status: 'cancelled' }, currentUser);
+//             const cancelledTx = { ...tx, status: 'cancelled' as const };
+// await storage.saveData('sales_bill', cancelledTx, currentUser);
+// await storage.syncSalesLedger(cancelledTx, currentUser);
 //             for (const item of tx.items) {
 //                 const inv = inventory.find(i => i.id === item.inventoryItemId);
 //                 if (inv) {
@@ -1429,6 +1431,7 @@ const App: React.FC = () => {
             // 1. Mark status as cancelled
             const cancelledPurchase = { ...purchase, status: 'cancelled' as const };
             await storage.saveData('purchases', cancelledPurchase, currentUser);
+            await storage.syncPurchaseLedger(cancelledPurchase, currentUser);
 
             // 2. Reverse inventory (decrement stock that was added by this purchase)
             for (const item of purchase.items) {
@@ -1574,7 +1577,9 @@ const App: React.FC = () => {
         if (!currentUser) return;
         const tx = transactions.find(t => t.id === id);
         if (tx) {
-            await storage.saveData('sales_bill', { ...tx, status: 'cancelled' }, currentUser);
+            const cancelledTx = { ...tx, status: 'cancelled' as const };
+            await storage.saveData('sales_bill', cancelledTx, currentUser);
+            await storage.syncSalesLedger(cancelledTx, currentUser);
             for (const item of tx.items) {
                 const inv = inventory.find(i => i.id === item.inventoryItemId);
                 if (inv) {
@@ -1851,8 +1856,8 @@ const App: React.FC = () => {
                 return <Returns
                     currentUser={currentUser} transactions={transactions} inventory={inventory}
                     salesReturns={salesReturns} purchaseReturns={purchaseReturns} purchases={purchases}
-                    onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(() => loadData(currentUser!, 'background'))}
+                    onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(async () => { await storage.syncSalesReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
+                    onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(async () => { await storage.syncPurchaseReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
                     addNotification={addNotification} defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'} isFixedMode={true}
                 />;
             default:
