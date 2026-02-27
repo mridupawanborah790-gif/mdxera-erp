@@ -589,16 +589,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </Card>
 
                 <div className="flex justify-end gap-6">
-                    <div className="w-full md:w-1/3 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md">
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-3">Summary</h3>
-                        <div className="space-y-1.5 font-bold text-xs uppercase tracking-tight">
-                            <div className="flex justify-between text-gray-600"><span>Gross</span> <span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
-                            <div className="flex justify-between text-red-600"><span>Trade Discount</span> <span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
-                            <div className="flex justify-between text-emerald-600"><span>Scheme Benefit</span> <span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
-                            <div className="flex justify-between text-red-700"><span>Bill Discount</span> <span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
-                            <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
-                            <div className="flex justify-between text-gray-700"><span>Round Off</span> <span className="font-mono">{formatCurrency(calculatedTotals.roundOff)}</span></div>
-                            <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-xl font-black text-primary"><span>GRAND TOTAL</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                    <div className="w-full md:w-[420px] bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md">
+                        <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary mb-3">Summary</h3>
+                        <div className="space-y-2 text-sm">
+                            <div className="flex items-center justify-between text-gray-700"><span className="font-semibold">Gross</span><span className="font-mono font-bold">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                            <div className="flex items-center justify-between text-red-600"><span className="font-semibold">Trade Discount</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-emerald-700"><span className="font-semibold">Scheme Benefit</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-red-700"><span className="font-semibold">Bill Discount</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-blue-700"><span className="font-semibold">Tax (GST)</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
+                            <div className="flex items-center justify-between text-gray-700"><span className="font-semibold">Round Off</span><span className="font-mono font-bold">{formatCurrency(calculatedTotals.roundOff)}</span></div>
+                            <div className="border-t border-gray-400 pt-2 mt-1 flex items-center justify-between text-xl font-black text-primary"><span>GRAND TOTAL</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
                         </div>
                     </div>
                 </div>
