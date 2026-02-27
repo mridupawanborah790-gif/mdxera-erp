@@ -139,6 +139,15 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
         return Math.max(minDuration, filteredExpiryAlerts.length * secondsPerItem);
     }, [filteredExpiryAlerts.length]);
 
+    const getAlertType = (expiry?: string) => {
+        const expDate = expiry ? new Date(expiry) : null;
+        if (!expDate || Number.isNaN(expDate.getTime())) return 'nearExpiry' as const;
+
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        return expDate < todayStart ? 'expired' as const : 'nearExpiry' as const;
+    };
+
     const cleanAppData = useMemo(() => ({
         inventory, transactions, purchases, distributors, customers, medicines,
     }), [inventory, transactions, purchases, distributors, customers, medicines]);
@@ -284,7 +293,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
             </main>
 
             {expiryAlerts.length > 0 && (
-                <div className="sticky bottom-0 z-20 border-t-2 border-red-900 bg-red-700 text-white shadow-[0_-4px_16px_rgba(127,29,29,0.3)]">
+                <div className="sticky bottom-0 z-20 border-t-2 border-emerald-700/70 bg-emerald-200/60 text-emerald-950 shadow-[0_-4px_16px_rgba(6,78,59,0.15)] backdrop-blur-sm">
                     <div className="flex flex-col gap-3 px-3 py-2 md:flex-row md:items-center md:justify-between md:px-5">
                         <div className="text-xs font-extrabold uppercase tracking-[0.12em]">
                             ATTENTION REQUIRED: EXPIRY ALERTS
@@ -293,40 +302,43 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                             <button
                                 type="button"
                                 onClick={() => setExpiryFilter('expired')}
-                                className={`rounded px-3 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors ${expiryFilter === 'expired' ? 'bg-white text-red-700' : 'bg-red-900/40 text-white hover:bg-red-900/70'}`}
+                                className={`rounded px-3 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors ${expiryFilter === 'expired' ? 'bg-red-700 text-white shadow-sm' : 'bg-white/70 text-red-900 hover:bg-white'}`}
                             >
-                                Expiry
+                                Expired
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setExpiryFilter('nearExpiry')}
-                                className={`rounded px-3 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors ${expiryFilter === 'nearExpiry' ? 'bg-white text-red-700' : 'bg-red-900/40 text-white hover:bg-red-900/70'}`}
+                                className={`rounded px-3 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors ${expiryFilter === 'nearExpiry' ? 'bg-yellow-400 text-yellow-950 shadow-sm' : 'bg-white/70 text-yellow-900 hover:bg-white'}`}
                             >
                                 Near Expiry
                             </button>
                         </div>
                     </div>
 
-                    <div className="overflow-hidden border-t border-red-500/70 bg-red-800/80 py-2">
+                    <div className="overflow-hidden border-t border-emerald-700/30 bg-emerald-100/40 py-2">
                         {filteredExpiryAlerts.length > 0 ? (
                             <div
                                 className="expiry-ticker-track flex min-w-max items-center gap-3 px-4"
                                 style={{ animationDuration: `${tickerDuration}s` }}
                             >
-                                {tickerItems.map((item, idx) => (
-                                    <div
-                                        key={`${item.id}-${idx}`}
-                                        className="flex items-center gap-2 whitespace-nowrap rounded border border-red-200/25 bg-red-950/30 px-3 py-1 text-xs md:text-sm"
-                                    >
-                                        <span className="font-bold uppercase text-red-100">{item.name}</span>
-                                        <span className="font-mono uppercase text-red-200">{item.batch || 'NO-BATCH'}</span>
-                                        <span className="font-semibold text-amber-200">EXP: {item.expiry}</span>
-                                        <span className="font-black text-white">STOCK {item.stock}</span>
-                                    </div>
-                                ))}
+                                {tickerItems.map((item, idx) => {
+                                    const isExpiredAlert = getAlertType(item.expiry) === 'expired';
+                                    return (
+                                        <div
+                                            key={`${item.id}-${idx}`}
+                                            className={`flex items-center gap-2 whitespace-nowrap rounded border px-3 py-1 text-xs md:text-sm ${isExpiredAlert ? 'border-red-500/60 bg-red-100/95 text-red-900' : 'border-yellow-500/70 bg-yellow-100/95 text-yellow-950'}`}
+                                        >
+                                            <span className="font-bold uppercase">{item.name}</span>
+                                            <span className="font-mono uppercase">{item.batch || 'NO-BATCH'}</span>
+                                            <span className="font-semibold">EXP: {item.expiry}</span>
+                                            <span className="font-black">STOCK {item.stock}</span>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         ) : (
-                            <div className="px-4 py-1 text-xs font-semibold uppercase tracking-wide text-red-100 md:text-sm">
+                            <div className="px-4 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-900 md:text-sm">
                                 No materials found for selected filter.
                             </div>
                         )}
