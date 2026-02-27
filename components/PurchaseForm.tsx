@@ -993,11 +993,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </Card>
 
-                <div className="flex flex-col xl:flex-row justify-between items-stretch flex-shrink-0 gap-4 min-h-[148px]">
-                    <div className="w-full xl:w-[360px] bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center gap-3">
+                <div className="sticky bottom-0 z-20 -mx-4 px-4 pb-1 pt-2 bg-app-bg/95 backdrop-blur supports-[backdrop-filter]:bg-app-bg/80">
+                <div className="flex flex-col xl:flex-row justify-between items-stretch flex-shrink-0 gap-4 min-h-[184px]">
+                    <div className="w-full xl:w-[390px] bg-[#e5f0f0] p-5 tally-border !rounded-none shadow-md flex flex-col justify-between gap-4">
                         <div>
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
-                            <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-tight">
+                            <div className="space-y-2 text-[11px] font-bold uppercase tracking-tight">
                                 <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
                                 <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
                                 <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
@@ -1007,10 +1008,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                 <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
                             </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                            <button onClick={handleDiscard} className="px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
-                            <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
-                                {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Accept (Enter)')}
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+                            <button onClick={handleDiscard} className="w-full sm:w-auto px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
+                            <button onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
+                                {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Save')}
                             </button>
                         </div>
                     </div>
@@ -1069,6 +1070,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             </div>
                         )}
                     </div>
+                </div>
                 </div>
 
             </div>
