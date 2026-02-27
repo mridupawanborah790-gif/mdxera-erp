@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Modal from './Modal';
 
-type MobileSyncStatus = 'pending' | 'uploading' | 'synced' | 'imported' | 'failed';
+type MobileSyncStatus = 'pending' | 'syncing' | 'uploading' | 'synced' | 'imported' | 'failed';
 
 interface MobileSyncModalProps {
     isOpen: boolean;
@@ -17,9 +17,10 @@ interface MobileSyncModalProps {
 const getStatusLabel = (status: MobileSyncStatus) => {
     switch (status) {
         case 'pending': return 'Pending';
+        case 'syncing': return 'Syncing…';
         case 'uploading': return 'Uploading';
         case 'synced': return 'Synced';
-        case 'imported': return 'Imported';
+        case 'imported': return 'Imported Successfully';
         case 'failed': return 'Failed';
     }
 };
