@@ -25,7 +25,7 @@ const DosageInstructions: React.FC<DosageInstructionsProps> = ({ items, medicine
     if (itemsWithDirections.length === 0) return null;
 
     return (
-        <div className="dosage-instructions-page mt-10 p-8 bg-white text-black print:mt-0 print:page-break-before-always min-h-fit font-sans border-t-2 border-dashed border-gray-400">
+        <div className="dosage-instructions-page mt-10 p-8 bg-white text-black min-h-fit font-sans border-t-2 border-dashed border-gray-400">
             <div className="text-center mb-8 border-b-2 border-black pb-4">
                 <h2 className="text-xl font-black uppercase tracking-widest text-gray-900 leading-none mb-2">
                     Dosage Instructions
