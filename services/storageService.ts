@@ -741,6 +741,64 @@ export const fetchPhysicalInventory = (user: RegisteredPharmacy) => getData('phy
 // Added missing fetchEWayBills function
 export const fetchEWayBills = (user: RegisteredPharmacy) => getData('ewaybills', [], user);
 
+export type VoucherDocumentType = 'sales-gst' | 'sales-non-gst' | 'purchase-entry' | 'purchase-order';
+
+interface VoucherReservationResult {
+    documentNumber: string;
+    usedNumber: number;
+    nextNumber: number;
+    remainingCount: number | null;
+}
+
+const getVoucherConfigKey = (docType: VoucherDocumentType): keyof AppConfigurations => {
+    switch (docType) {
+        case 'sales-gst':
+            return 'invoiceConfig';
+        case 'sales-non-gst':
+            return 'nonGstInvoiceConfig';
+        case 'purchase-entry':
+            return 'purchaseConfig';
+        case 'purchase-order':
+            return 'purchaseOrderConfig';
+    }
+};
+
+
+export const reserveVoucherNumber = async (docType: VoucherDocumentType, user: RegisteredPharmacy): Promise<VoucherReservationResult> => {
+    const { data, error } = await supabase.rpc('reserve_voucher_number', {
+        p_organization_id: user.organization_id,
+        p_document_type: docType
+    });
+
+    if (error) {
+        throw new Error(parseNetworkAndApiError(error));
+    }
+
+    const payload = Array.isArray(data) ? data[0] : data;
+    if (!payload?.success) {
+        throw new Error(payload?.message || 'Unable to reserve voucher number.');
+    }
+
+    const configList = await getData('configurations', [], user) as AppConfigurations[];
+    const config = configList[0] || { organization_id: user.organization_id };
+    const configKey = getVoucherConfigKey(docType);
+    const existing = (config[configKey] as any) || {};
+    const updated = {
+        ...existing,
+        currentNumber: payload.used_number,
+        fy: payload.fy,
+        resetRule: 'financial-year'
+    };
+    await saveData('configurations', { ...config, [configKey]: updated }, user);
+
+    return {
+        documentNumber: payload.document_number,
+        usedNumber: payload.used_number,
+        nextNumber: payload.next_number,
+        remainingCount: payload.remaining_count ?? null
+    };
+};
+
 /**
  * Fetches all organization records from Supabase by handling PostgREST pagination (default 1000 limit).
  */

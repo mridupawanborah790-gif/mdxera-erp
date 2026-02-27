@@ -11,7 +11,7 @@ import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchSupplierProductMaps, generateUUID, saveData } from '../services/storageService';
+import { fetchSupplierProductMaps, generateUUID, reserveVoucherNumber, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
@@ -292,12 +292,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setIsSubmitting(true);
         try {
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;
-            let nextExternalNumber;
 
-            if (!purchaseToEdit) {
-                const { id: generatedSerialId, nextExternalNumber: nextNum } = generateNewInvoiceId(configurations.purchaseConfig, 'purchase-bill');
-                purchaseSerialId = generatedSerialId;
-                nextExternalNumber = nextNum;
+            if (!purchaseToEdit && currentUser) {
+                const reserved = await reserveVoucherNumber('purchase-entry', currentUser);
+                purchaseSerialId = reserved.documentNumber;
             }
 
             const payload = {
@@ -320,7 +318,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (purchaseToEdit) {
                 await onUpdatePurchase({ ...purchaseToEdit, ...payload } as any, supplierGst);
             } else {
-                await onAddPurchase(payload, supplierGst, nextExternalNumber);
+                await onAddPurchase(payload, supplierGst);
             }
             onClearDraft(); if (onCancel) onCancel();
         } catch (e: any) {
