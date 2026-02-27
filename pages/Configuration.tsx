@@ -317,30 +317,94 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                         <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={e => importType && handleFileImport(e, importType)} />
                         
                         {activeSection === 'general' && (
-                            <div className="space-y-8 animate-in fade-in duration-300 max-w-2xl">
+                            <div className="space-y-8 animate-in fade-in duration-300 max-w-3xl">
                                 <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter border-b-2 border-primary pb-2">Business Logic Settings</h2>
                                 
-                                <div className="space-y-4">
-                                    <Toggle 
-                                        label="Ask Calculation on Billing" 
-                                        enabled={localConfigs.displayOptions?.askCalculationOnBilling ?? true}
-                                        setEnabled={(v) => handleConfigChange('displayOptions', 'askCalculationOnBilling', v)}
-                                        description="Prompt for tax calculation basis (Inc/Excl) during Sale entry."
-                                    />
-                                    
-                                    <div className="py-4 border-b border-gray-100 flex items-center justify-between">
-                                        <div>
-                                            <span className="text-sm font-black text-gray-700 uppercase tracking-tight">Calculation Mode</span>
-                                            <p className="text-[10px] text-gray-400 mt-0.5 font-bold uppercase">Switch between Standard and Rounded (Mode 8) logic.</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
+                                    <div className="space-y-4">
+                                        <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4">General Settings</h3>
+                                        <Toggle 
+                                            label="Ask Calculation on Billing" 
+                                            enabled={localConfigs.displayOptions?.askCalculationOnBilling ?? true}
+                                            setEnabled={(v) => handleConfigChange('displayOptions', 'askCalculationOnBilling', v)}
+                                            description="Prompt for tax calculation basis (Inc/Excl) during Sale entry."
+                                        />
+                                        
+                                        <div className="py-4 border-b border-gray-100 flex items-center justify-between">
+                                            <div>
+                                                <span className="text-sm font-black text-gray-700 uppercase tracking-tight">Calculation Mode</span>
+                                                <p className="text-[10px] text-gray-400 mt-0.5 font-bold uppercase">Switch between Standard and Rounded (Mode 8) logic.</p>
+                                            </div>
+                                            <select 
+                                                value={localConfigs.displayOptions?.calculationMode || 'standard'}
+                                                onChange={e => handleConfigChange('displayOptions', 'calculationMode', e.target.value)}
+                                                className="p-2 border-2 border-gray-400 font-black text-xs uppercase focus:border-primary outline-none"
+                                            >
+                                                <option value="standard">Standard Accounting</option>
+                                                <option value="8">Mode 8 (Auto-Rounding)</option>
+                                            </select>
                                         </div>
-                                        <select 
-                                            value={localConfigs.displayOptions?.calculationMode || 'standard'}
-                                            onChange={e => handleConfigChange('displayOptions', 'calculationMode', e.target.value)}
-                                            className="p-2 border-2 border-gray-400 font-black text-xs uppercase focus:border-primary outline-none"
-                                        >
-                                            <option value="standard">Standard Accounting</option>
-                                            <option value="8">Mode 8 (Auto-Rounding)</option>
-                                        </select>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4">Stock Handling</h3>
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Near Expiry Threshold (Days)</label>
+                                            <input 
+                                                type="number" 
+                                                value={localConfigs.displayOptions?.expiryThreshold ?? 90}
+                                                onChange={e => handleConfigChange('displayOptions', 'expiryThreshold', parseInt(e.target.value) || 0)}
+                                                className="w-full tally-input !text-lg"
+                                            />
+                                        </div>
+                                        <Toggle 
+                                            label="Strict Stock Enforcement" 
+                                            enabled={localConfigs.displayOptions?.strictStock ?? false}
+                                            setEnabled={(v) => handleConfigChange('displayOptions', 'strictStock', v)}
+                                            description="Prevent billing of items with zero/negative stock."
+                                        />
+                                        <Toggle 
+                                            label="Enable Negative Stock" 
+                                            enabled={localConfigs.displayOptions?.enableNegativeStock ?? false}
+                                            setEnabled={(v) => handleConfigChange('displayOptions', 'enableNegativeStock', v)}
+                                            description="Allow inventory to drop below zero if needed."
+                                        />
+                                    </div>
+
+                                    <div className="space-y-4 md:col-span-2">
+                                        <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4">Invoice Preferences</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4">
+                                            <div className="flex flex-col gap-1.5">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Default Rate Tier</label>
+                                                <select 
+                                                    value={localConfigs.displayOptions?.defaultRateTier || 'mrp'}
+                                                    onChange={e => handleConfigChange('displayOptions', 'defaultRateTier', e.target.value)}
+                                                    className="w-full tally-input !text-sm"
+                                                >
+                                                    <option value="mrp">Maximum Retail Price (MRP)</option>
+                                                    <option value="ptr">Price to Retailer (PTR)</option>
+                                                    <option value="rateA">Tier A Rate</option>
+                                                    <option value="rateB">Tier B Rate</option>
+                                                    <option value="rateC">Tier C Rate</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex flex-col gap-1.5">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Default Print Copies</label>
+                                                <input 
+                                                    type="number" 
+                                                    value={localConfigs.displayOptions?.printCopies ?? 1}
+                                                    onChange={e => handleConfigChange('displayOptions', 'printCopies', parseInt(e.target.value) || 1)}
+                                                    className="w-full tally-input !text-lg"
+                                                />
+                                            </div>
+                                            <div className="md:col-span-2">
+                                                <Toggle 
+                                                    label="Show Bill Discount on Print" 
+                                                    enabled={localConfigs.displayOptions?.showBillDiscountOnPrint ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'showBillDiscountOnPrint', v)}
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -486,64 +550,9 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                             <div className="space-y-8 animate-in fade-in duration-300 max-w-3xl">
                                 <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter border-b-2 border-primary pb-2">Printing & Display Defaults</h2>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
-                                    <div className="space-y-4">
-                                        <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4">Stock Handling</h3>
-                                        <div className="flex flex-col gap-1.5">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Near Expiry Threshold (Days)</label>
-                                            <input 
-                                                type="number" 
-                                                value={localConfigs.displayOptions?.expiryThreshold ?? 90}
-                                                onChange={e => handleConfigChange('displayOptions', 'expiryThreshold', parseInt(e.target.value) || 0)}
-                                                className="w-full tally-input !text-lg"
-                                            />
-                                        </div>
-                                        <Toggle 
-                                            label="Strict Stock Enforcement" 
-                                            enabled={localConfigs.displayOptions?.strictStock ?? false}
-                                            setEnabled={(v) => handleConfigChange('displayOptions', 'strictStock', v)}
-                                            description="Prevent billing of items with zero/negative stock."
-                                        />
-                                        <Toggle 
-                                            label="Enable Negative Stock" 
-                                            enabled={localConfigs.displayOptions?.enableNegativeStock ?? false}
-                                            setEnabled={(v) => handleConfigChange('displayOptions', 'enableNegativeStock', v)}
-                                            description="Allow inventory to drop below zero if needed."
-                                        />
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4">Invoice Preferences</h3>
-                                        <div className="flex flex-col gap-1.5">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Default Rate Tier</label>
-                                            <select 
-                                                value={localConfigs.displayOptions?.defaultRateTier || 'mrp'}
-                                                onChange={e => handleConfigChange('displayOptions', 'defaultRateTier', e.target.value)}
-                                                className="w-full tally-input !text-sm"
-                                            >
-                                                <option value="mrp">Maximum Retail Price (MRP)</option>
-                                                <option value="ptr">Price to Retailer (PTR)</option>
-                                                <option value="rateA">Tier A Rate</option>
-                                                <option value="rateB">Tier B Rate</option>
-                                                <option value="rateC">Tier C Rate</option>
-                                            </select>
-                                        </div>
-                                        <div className="flex flex-col gap-1.5">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Default Print Copies</label>
-                                            <input 
-                                                type="number" 
-                                                value={localConfigs.displayOptions?.printCopies ?? 1}
-                                                onChange={e => handleConfigChange('displayOptions', 'printCopies', parseInt(e.target.value) || 1)}
-                                                className="w-full tally-input !text-lg"
-                                            />
-                                        </div>
-                                        <Toggle 
-                                            label="Show Bill Discount on Print" 
-                                            enabled={localConfigs.displayOptions?.showBillDiscountOnPrint ?? true}
-                                            setEnabled={(v) => handleConfigChange('displayOptions', 'showBillDiscountOnPrint', v)}
-                                        />
-                                    </div>
-                                </div>
+                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest max-w-xl">
+                                    Print layout and output presets remain available in this section.
+                                </p>
                             </div>
                         )}
 
