@@ -282,10 +282,35 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         };
     }, [items]);
 
+    const hasDuplicateSupplierInvoice = useCallback(() => {
+        const normalizedSupplier = Supplier.toLowerCase().trim();
+        const normalizedInvoice = invoiceNumber.toLowerCase().trim();
+        if (!normalizedSupplier || !normalizedInvoice) return false;
+
+        const currentFy = (purchaseToEdit as any)?.fy;
+
+        return purchases.some(p => {
+            if (purchaseToEdit?.id && p.id === purchaseToEdit.id) return false;
+            if ((p.organization_id || '').trim() !== (organizationId || '').trim()) return false;
+
+            const sameSupplier = (p.supplier || '').toLowerCase().trim() === normalizedSupplier;
+            const sameInvoice = (p.invoiceNumber || '').toLowerCase().trim() === normalizedInvoice;
+            if (!sameSupplier || !sameInvoice) return false;
+
+            const purchaseFy = (p as any).fy;
+            if (currentFy && purchaseFy) return purchaseFy === currentFy;
+            return true;
+        });
+    }, [Supplier, invoiceNumber, purchaseToEdit, purchases, organizationId]);
+
     const handleSubmit = async () => {
         if (isSubmitting) return;
         if (!Supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
         if (!invoiceNumber.trim()) { setInvoiceNumberError("Invoice number is required."); return; }
+        if (hasDuplicateSupplierInvoice()) {
+            setInvoiceNumberError("Duplicate Supplier Invoice # already recorded. Please verify Purchase History.");
+            return;
+        }
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
 
