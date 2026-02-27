@@ -1345,21 +1345,26 @@ const App: React.FC = () => {
     const [isFullScreen, setIsFullScreen] = useState(false);
 
     const handleSaveOrUpdateTransaction = async (tx: Transaction, isUpdate: boolean, nextCounter?: number) => {
-        if (!currentUser) return;
+        if (!currentUser) {
+            throw new Error("Unauthorized: please log in again.");
+        }
+
         try {
             const savedTx = await storage.addTransaction(tx, currentUser);
 
-            // Immediate local state update to ensure data shows in history without waiting for background reload
+            // Immediate local state update to ensure data shows in history without waiting for background reload.
             if (isUpdate) {
                 setTransactions(prev => prev.map(t => t.id === savedTx.id ? savedTx : t));
             } else {
                 setTransactions(prev => [savedTx, ...prev]);
             }
 
-            // Background reload for other potential changes (stock, etc.)
-            loadData(currentUser, 'background');
+            // Do not block UI success state on background refresh.
+            loadData(currentUser, 'background').catch((err) => {
+                console.warn('Background reload after sales save failed:', err);
+            });
         } catch (e) {
-            addNotification(parseNetworkAndApiError(e), "error");
+            throw new Error(parseNetworkAndApiError(e));
         }
     };
 
