@@ -32,6 +32,53 @@ const Spinner = () => (
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
+const EXPIRY_MM_YY_REGEX = /^(0[1-9]|1[0-2])\/\d{2}$/;
+const currencyFormatter = new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
+const formatCurrency = (value: number) => currencyFormatter.format(Number.isFinite(value) ? value : 0);
+
+const formatSignedCurrency = (value: number, sign: '+' | '-') => {
+    const normalizedValue = Math.abs(Number.isFinite(value) ? value : 0);
+    return `${sign}${formatCurrency(normalizedValue)}`;
+};
+
+const formatRoundOffCurrency = (value: number) => {
+    if (!Number.isFinite(value) || value === 0) return formatCurrency(0);
+    return `${value > 0 ? '+' : '-'}${formatCurrency(Math.abs(value))}`;
+};
+
+const formatExpiryToMMYY = (value?: string | null): string => {
+    if (!value || String(value).toUpperCase() === 'N/A') return '';
+    const clean = String(value).trim();
+    const slashMatch = clean.match(/^(\d{1,2})[/-](\d{2}|\d{4})$/);
+    if (slashMatch) {
+        const month = Number(slashMatch[1]);
+        if (month < 1 || month > 12) return '';
+        const yearPart = slashMatch[2].slice(-2);
+        return `${String(month).padStart(2, '0')}/${yearPart}`;
+    }
+
+    const dateLike = clean.split('T')[0].match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+    if (dateLike) {
+        const month = Number(dateLike[2]);
+        if (month < 1 || month > 12) return '';
+        return `${String(month).padStart(2, '0')}/${dateLike[1].slice(-2)}`;
+    }
+
+    return EXPIRY_MM_YY_REGEX.test(clean) ? clean : '';
+};
+
+const normalizeExpiryInput = (rawValue: string): string => {
+    const cleaned = rawValue.replace(/[^\d/]/g, '');
+    const digits = cleaned.replace(/\D/g, '').slice(0, 4);
+    if (digits.length <= 2) return digits;
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+};
 
 const createBlankItem = (): PurchaseItem => ({
     id: crypto.randomUUID(),
@@ -212,6 +259,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const mappedItems = pItems.map(item => ({
                 ...createBlankItem(),
                 ...item,
+                expiry: formatExpiryToMMYY(String(item.expiry || '')),
                 quantity: Number(item.quantity || 0),
                 purchasePrice: Number(item.purchasePrice || 0),
                 mrp: Number(item.mrp || 0),
@@ -227,7 +275,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setSupplier(draftSupplier || '');
             const matchedDist = suppliers.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
             const newItems = Array.isArray(draftItems) ? draftItems.map(item => ({
-                ...createBlankItem(), ...item, quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
+                ...createBlankItem(), ...item, expiry: formatExpiryToMMYY(String(item.expiry || '')), quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
             })) : [];
             const linked = attemptAutoLink(newItems as PurchaseItem[], matchedDist || null);
             setItems([...linked, createBlankItem()]);
@@ -241,8 +289,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink]);
 
     const calculatedTotals = useMemo(() => {
+        const billDiscount = 0;
         let subtotal = 0;
         let totalGst = 0;
+        let grossAmount = 0;
         let totalItemDiscount = 0;
         let totalItemSchemeDiscount = 0;
 
@@ -251,11 +301,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const gross = (p.purchasePrice || 0) * (p.quantity || 0);
             const tradeDisc = gross * ((p.discountPercent || 0) / 100);
             const afterTrade = gross - tradeDisc;
-            const schemeDisc = (p.schemeDiscountAmount || 0);
+            const schemeDiscPercentAmount = afterTrade * ((p.schemeDiscountPercent || 0) / 100);
+            const schemeDisc = p.schemeDiscountAmount > 0 ? p.schemeDiscountAmount : schemeDiscPercentAmount;
             const taxable = afterTrade - schemeDisc;
             const gst = taxable * ((p.gstPercent || 0) / 100);
             const total = taxable + gst;
 
+            grossAmount += gross;
             subtotal += taxable;
             totalGst += gst;
             totalItemDiscount += tradeDisc;
@@ -272,11 +324,20 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             };
         });
 
+        const preRoundTotal = subtotal + totalGst - billDiscount;
+        const grandTotal = Math.round(preRoundTotal);
+        const roundOff = Number((grandTotal - preRoundTotal).toFixed(2));
+
         return {
             itemsWithCalculations,
+            grossAmount,
             subtotal,
             totalGst,
-            totalAmount: subtotal + totalGst,
+            billDiscount,
+            preRoundTotal,
+            roundOff,
+            grandTotal,
+            totalAmount: grandTotal,
             totalItemDiscount,
             totalItemSchemeDiscount
         };
@@ -316,6 +377,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
 
+        const invalidExpiryItem = activeItems.find(item => {
+            const expiryValue = (item.expiry || '').trim();
+            return expiryValue !== '' && !EXPIRY_MM_YY_REGEX.test(expiryValue);
+        });
+        if (invalidExpiryItem) {
+            addNotification(`Invalid expiry for ${invalidExpiryItem.name}. Use MM/YY format (e.g., 01/25).`, "error");
+            return;
+        }
+
         setIsSubmitting(true);
         try {
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;
@@ -330,7 +400,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 supplier: Supplier,
                 invoiceNumber: invoiceNumber.trim(),
                 date,
-                items: calculatedTotals.itemsWithCalculations,
+                items: calculatedTotals.itemsWithCalculations.map(item => ({
+                    ...item,
+                    expiry: formatExpiryToMMYY(item.expiry)
+                })),
                 subtotal: calculatedTotals.subtotal,
                 totalGst: calculatedTotals.totalGst,
                 totalAmount: calculatedTotals.totalAmount,
@@ -338,7 +411,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 totalItemSchemeDiscount: calculatedTotals.totalItemSchemeDiscount,
                 status: 'completed' as const,
                 organization_id: organizationId,
-                roundOff: 0,
+                roundOff: calculatedTotals.roundOff,
                 schemeDiscount: 0
             };
 
@@ -470,7 +543,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             brand: batch.brand || '',
             category: batch.category || 'General',
             batch: batch.batch || 'NEW-BATCH',
-            expiry: batch.expiry ? String(batch.expiry) : 'N/A',
+            expiry: formatExpiryToMMYY(batch.expiry ? String(batch.expiry) : ''),
             quantity: 1,
             looseQuantity: 0,
             freeQuantity: 0,
@@ -527,6 +600,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const index = prev.findIndex(p => p.id === id); if (index === -1) return prev;
             let updatedItem = { ...prev[index], [field]: value };
             if (field === 'name') { updatedItem.matchStatus = 'pending'; updatedItem.inventoryItemId = undefined; }
+            if (field === 'expiry') { updatedItem.expiry = normalizeExpiryInput(String(value)); }
             if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
             const updated = prev.map(p => p.id === id ? updatedItem : p);
             if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
@@ -886,7 +960,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         )}
                                         <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} placeholder="MM/YY" inputMode="numeric" maxLength={5} pattern="(0[1-9]|1[0-2])/[0-9]{2}" className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         {isFieldVisible('colFree') && (
@@ -905,10 +979,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
                 <div className="flex justify-between items-stretch flex-shrink-0 gap-4 min-h-[140px]">
                     <div className="w-80 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center">
-                        <div className="space-y-1.5 font-bold text-[11px] uppercase tracking-tight">
-                            <div className="flex justify-between text-gray-500"><span>Subtotal</span> <span className="text-sm font-mono">₹{calculatedTotals.subtotal.toFixed(2)}</span></div>
-                            <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="text-sm font-mono">+₹{calculatedTotals.totalGst.toFixed(2)}</span></div>
-                            <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-2xl font-black text-primary"><span>TOTAL</span><span className="font-mono">₹{calculatedTotals.totalAmount.toFixed(2)}</span></div>
+                        <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary mb-3">Summary</h3>
+                        <div className="space-y-2 text-sm">
+                            <div className="flex items-center justify-between text-gray-700"><span className="font-semibold">Gross</span><span className="font-mono font-bold">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                            <div className="flex items-center justify-between text-red-600"><span className="font-semibold">Trade Discount</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-emerald-700"><span className="font-semibold">Scheme Benefit</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-red-700"><span className="font-semibold">Bill Discount</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-blue-700"><span className="font-semibold">Tax (GST)</span><span className="font-mono font-bold">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
+                            <div className="flex items-center justify-between text-gray-700"><span className="font-semibold">Round Off</span><span className="font-mono font-bold">{formatRoundOffCurrency(calculatedTotals.roundOff)}</span></div>
+                            <div className="border-t border-gray-400 pt-2 mt-1 flex items-center justify-between text-xl font-black text-primary"><span>GRAND TOTAL</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
                         </div>
                     </div>
 
