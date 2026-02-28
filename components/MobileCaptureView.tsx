@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { broadcastSyncMessage, saveMobileBillUpload } from '../services/storageService';
+import { broadcastSyncMessage, createMobileSyncedBill, getOrCreateMobileDeviceId } from '../services/storageService';
 
 interface MobileCaptureViewProps {
     sessionId: string;
@@ -95,12 +95,10 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
         setError(null);
 
         try {
-            if (!orgId || !userId || !deviceId) {
-                throw new Error('Missing mobile sync identity. Please reopen Magic Mobile Link from ERP and try again.');
-            }
-
-            const payload = {
-                type: 'invoice-upload' as const,
+            const deviceId = getOrCreateMobileDeviceId();
+            const userId = sessionId;
+            const syncPayload = {
+                type: 'invoice-upload',
                 invoiceId,
                 pages: capturedPages.map((page, index) => ({
                     image: page.image,
@@ -108,21 +106,27 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
                     pageNumber: index + 1,
                     capturedAt: page.capturedAt,
                 })),
+                metadata: {
+                    organizationId: orgId,
+                    userId,
+                    deviceId,
+                    sessionId,
+                },
             };
 
-            await saveMobileBillUpload({
-                sessionId,
-                organizationId: orgId,
-                userId,
-                deviceId,
-                payload,
+            await createMobileSyncedBill({
+                session_id: sessionId,
+                organization_id: orgId,
+                user_id: userId,
+                device_id: deviceId,
+                invoice_id: invoiceId,
+                payload: syncPayload,
             });
-
-            await broadcastSyncMessage(sessionId, payload);
+            await broadcastSyncMessage(sessionId, syncPayload);
             setUploadState('synced');
         } catch (err: any) {
             setUploadState('failed');
-            setError(err?.message || 'Upload failed. Please check network and retry.');
+            setError(err instanceof Error ? err.message : 'Upload failed. Please check network and retry.');
         }
     };
 
