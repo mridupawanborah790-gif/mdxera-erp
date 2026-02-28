@@ -115,39 +115,52 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         .medi-three-template {
           display: flex;
           flex-direction: column;
-          gap: 2mm;
+          gap: 1.5mm;
           box-sizing: border-box;
           width: ${isLandscape ? '210mm' : '148mm'};
         }
         .medi-three-page {
-          padding: 3mm;
+          padding: 1.5mm;
           box-sizing: border-box;
           width: ${isLandscape ? '210mm' : '148mm'};
-          min-height: ${isLandscape ? '148mm' : '210mm'};
-          max-height: ${isLandscape ? '148mm' : '210mm'};
+          height: ${isLandscape ? '148mm' : '210mm'};
           display: flex;
           flex-direction: column;
           overflow: hidden;
         }
-        .medi-three-box { border: 1px solid #111; }
+        .medi-three-box {
+          border: 1px solid #111;
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          min-height: 0;
+        }
+        .medi-three-header { flex: 0 0 auto; }
+        .medi-three-items { flex: 1; display: flex; min-height: 0; }
         .medi-three-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .medi-three-grid th,
         .medi-three-grid td { border: 1px solid #111; padding: 1px 2px; vertical-align: middle; }
         .medi-three-grid thead th { font-size: 6.4px; text-transform: uppercase; background: #fff; white-space: nowrap; }
-        .medi-three-grid tbody td { font-size: 6.4px; }
+        .medi-three-grid tbody td { font-size: 6.4px; padding-top: 1.8px; padding-bottom: 1.8px; }
         .medi-three-grid .right { text-align: right; }
         .medi-three-grid .center { text-align: center; }
         .medi-three-grid .left { text-align: left; }
         .medi-three-grid .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .medi-three-title { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-align: center; }
+        .medi-three-title { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-align: center; padding: 3px 0 2px; }
         .medi-three-meta { display: grid; grid-template-columns: 1fr 1fr; }
-        .medi-three-meta > div { border-top: 1px solid #111; padding: 2px 4px; min-height: 28px; }
+        .medi-three-meta > div { border-top: 1px solid #111; padding: 3px 4px; min-height: 28px; }
         .medi-three-meta > div:first-child { border-right: 1px solid #111; }
-        .medi-three-summary { border-top: 1px solid #111; display: grid; grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'}; }
-        .medi-three-summary-left { border-right: 1px solid #111; padding: 3px 4px; }
-        .medi-three-summary-right { padding: 3px 4px; }
-        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 2px; font-size: 7px; }
-        .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 3px; margin-top: 3px; font-size: 10px; font-weight: 700; }
+        .medi-three-summary {
+          border-top: 1px solid #111;
+          display: grid;
+          grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'};
+          margin-top: auto;
+          min-height: ${isLandscape ? '24mm' : '32mm'};
+        }
+        .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; }
+        .medi-three-summary-right { padding: 5px 4px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 7px; }
+        .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 10px; font-weight: 700; }
         @media print {
           @page { size: A5 ${orientation}; margin: 0; }
           .medi-three-template { gap: 0; }
@@ -183,31 +196,34 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         return (
           <div key={`page-${pageIndex + 1}`} className="medi-three-page">
             <div className="medi-three-box">
-              <div className="medi-three-title">GST INVOICE</div>
+              <div className="medi-three-header">
+                <div className="medi-three-title">GST INVOICE</div>
 
-              <div className="medi-three-meta">
-                <div>
-                  <div><strong>{bill.pharmacy.pharmacy_name}</strong></div>
-                  <div>{bill.pharmacy.address}</div>
-                  <div><strong>GSTIN:</strong> {bill.pharmacy.gstin || '-'}</div>
+                <div className="medi-three-meta">
+                  <div>
+                    <div><strong>{bill.pharmacy.pharmacy_name}</strong></div>
+                    <div>{bill.pharmacy.address}</div>
+                    <div><strong>GSTIN:</strong> {bill.pharmacy.gstin || '-'}</div>
+                  </div>
+                  <div>
+                    <div><strong>Invoice No:</strong> {bill.id}</div>
+                    <div><strong>Invoice Date:</strong> {new Date(bill.date).toLocaleDateString('en-GB')}</div>
+                    <div><strong>Terms:</strong> Cash</div>
+                    <div><strong>Page:</strong> {pageIndex + 1} / {paginatedItems.length}</div>
+                  </div>
                 </div>
-                <div>
-                  <div><strong>Invoice No:</strong> {bill.id}</div>
-                  <div><strong>Invoice Date:</strong> {new Date(bill.date).toLocaleDateString('en-GB')}</div>
-                  <div><strong>Terms:</strong> Cash</div>
-                  <div><strong>Page:</strong> {pageIndex + 1} / {paginatedItems.length}</div>
+
+                <div className="medi-three-meta" style={{ gridTemplateColumns: '1fr' }}>
+                  <div style={{ borderRight: 0 }}>
+                    <div><strong>Customer:</strong> {bill.customerName || 'Walk-in Customer'}</div>
+                    <div><strong>Address:</strong> {bill.customerDetails?.address || '-'}</div>
+                    <div><strong>Phone:</strong> {bill.customerDetails?.phone || bill.customerPhone || '-'}</div>
+                  </div>
                 </div>
               </div>
 
-              <div className="medi-three-meta" style={{ gridTemplateColumns: '1fr' }}>
-                <div style={{ borderRight: 0 }}>
-                  <div><strong>Customer:</strong> {bill.customerName || 'Walk-in Customer'}</div>
-                  <div><strong>Address:</strong> {bill.customerDetails?.address || '-'}</div>
-                  <div><strong>Phone:</strong> {bill.customerDetails?.phone || bill.customerPhone || '-'}</div>
-                </div>
-              </div>
-
-              <table className="medi-three-grid">
+              <div className="medi-three-items">
+                <table className="medi-three-grid">
                 <thead>
                   <tr>
                     <th style={{ width: '3%' }}>S.N</th>
@@ -246,7 +262,8 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
 
               {isLastPage && (
                 <div className="medi-three-summary">
