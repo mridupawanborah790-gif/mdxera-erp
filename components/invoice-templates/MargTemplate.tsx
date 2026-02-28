@@ -27,11 +27,18 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
     const items = (bill.items || []).map(item => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
-      
+
       const rate = item.rate ?? item.mrp ?? 0;
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-      const lineAmount = billedQty * rate;
+      const lineGross = billedQty * rate;
+      const tradeDiscount = lineGross * ((item.discountPercent || 0) / 100);
+      const schemeDiscount = item.schemeDiscountAmount || 0;
+      const lineAmount = Number.isFinite(item.finalAmount)
+        ? (item.finalAmount as number)
+        : Number.isFinite(item.amount)
+          ? (item.amount as number)
+          : (lineGross - tradeDiscount - schemeDiscount);
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
       const taxableVal = lineAmount / (1 + (effectiveGst / 100));
@@ -44,7 +51,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
       return {
         ...item,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
-        packSize: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : ''),
+        pack: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack}` : ''),
         batch: item.batch || inventoryItem?.batch || '',
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : ''),
         taxableVal,
@@ -167,9 +174,10 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
                 <th className="w-[10%]">QTY+F</th>
-                <th className="text-left w-[26%]">DESCRIPTION</th>
-                <th className="w-[8%]">PACK</th>
-                <th className="w-[10%]">BATCH</th>
+                <th className="text-left w-[23%]">DESCRIPTION</th>
+                <th className="w-[8%]">HSN</th>
+                <th className="w-[7%]">PACK</th>
+                <th className="w-[9%]">BATCH</th>
                 <th className="w-[7%]">EXP.</th>
                 <th className="w-[8%] text-right">M.R.P</th>
                 <th className="w-[8%] text-right">RATE</th>
@@ -188,9 +196,10 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <td className="text-center font-black">{item.quantity}+{item.freeQuantity || 0}</td>
                     <td className="font-black uppercase text-gray-900 leading-tight">
                       <p className="truncate">{item.name}</p>
-                      <p className="text-[7pt] normal-case text-gray-600">Pack Size: {item.packSize || '-'}</p>
                     </td>
-                    <td className="text-center font-mono-erp text-[7.5pt]">{item.batch}</td>
+                    <td className="text-center text-[7.5pt]">{item.hsn || '-'}</td>
+                    <td className="text-center font-mono-erp text-[7.5pt]">{item.pack || '-'}</td>
+                    <td className="text-center font-mono-erp text-[7.5pt]">{item.batch || '-'}</td>
                     <td className="text-center text-[7pt]">{item.expiry}</td>
                     <td className="text-right">{(item.mrp || 0).toFixed(2)}</td>
                     <td className="text-right text-blue-900">{(item.rate || 0).toFixed(2)}</td>
@@ -203,6 +212,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               })}
               {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                 <tr key={`spacer-${i}`} className="row-height border-b border-gray-100 last:border-b-0">
+                    <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
