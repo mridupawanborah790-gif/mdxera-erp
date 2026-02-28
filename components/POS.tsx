@@ -133,25 +133,59 @@ const POS = forwardRef<any, POSProps>(({
     }, []);
 
     const totals = useMemo(() => {
-        let gross = 0, tradeDiscount = 0, tax = 0, schemeTotal = 0;
+        let gross = 0;
+        let tradeDiscount = 0;
+        let tax = 0;
+        let schemeTotal = 0;
+        let subtotal = 0;
+        const taxableLines: { taxable: number; gstPercent: number }[] = [];
+
         cartItems.forEach(item => {
             const unitsPerPack = item.unitsPerPack || 1;
             const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
             const rate = item.rate || item.mrp || 0;
             const itemGross = billedQty * rate;
             const itemTradeDisc = itemGross * ((item.discountPercent || 0) / 100);
-            const itemNet = itemGross - itemTradeDisc - (item.schemeDiscountAmount || 0);
-            const taxableValue = itemNet / (1 + ((isNonGst ? 0 : item.gstPercent) / 100));
+            const itemFlatDisc = item.itemFlatDiscount || 0;
+            const lineSubtotal = itemGross - itemTradeDisc - itemFlatDisc;
+            const schemeDiscount = item.schemeDiscountAmount || 0;
+            const lineTaxable = Math.max(0, lineSubtotal - schemeDiscount);
 
             gross += itemGross;
             tradeDiscount += itemTradeDisc;
-            schemeTotal += (item.schemeDiscountAmount || 0);
-            tax += (itemNet - taxableValue);
+            subtotal += lineSubtotal;
+            schemeTotal += schemeDiscount;
+
+            if (!isNonGst && lineTaxable > 0) {
+                taxableLines.push({ taxable: lineTaxable, gstPercent: item.gstPercent || 0 });
+            }
         });
-        const net = gross - tradeDiscount - schemeTotal - lumpsumDiscount;
-        const baseTotal = net + (isNonGst ? 0 : tax);
+
+        const billDiscount = Math.max(0, lumpsumDiscount);
+        const taxableBeforeBillDiscount = Math.max(0, subtotal - schemeTotal);
+        const taxableAfterBillDiscount = Math.max(0, taxableBeforeBillDiscount - billDiscount);
+
+        if (!isNonGst && taxableBeforeBillDiscount > 0) {
+            const taxableScale = taxableAfterBillDiscount / taxableBeforeBillDiscount;
+            tax = taxableLines.reduce((sum, line) => {
+                const discountedTaxable = line.taxable * taxableScale;
+                return sum + (discountedTaxable * (line.gstPercent / 100));
+            }, 0);
+        }
+
+        const baseTotal = taxableAfterBillDiscount + tax;
         const autoRoundOff = Math.round(baseTotal) - baseTotal;
-        return { gross, tradeDiscount, schemeTotal, tax, net, baseTotal, autoRoundOff };
+        return {
+            gross,
+            subtotal,
+            tradeDiscount,
+            schemeTotal,
+            billDiscount,
+            taxableValue: taxableAfterBillDiscount,
+            tax,
+            baseTotal,
+            autoRoundOff,
+        };
     }, [cartItems, lumpsumDiscount, isNonGst]);
 
     useEffect(() => {
@@ -240,7 +274,7 @@ const POS = forwardRef<any, POSProps>(({
             referredBy: referredBy || '',
             items: cartItems,
             total: grandTotal,
-            subtotal: parseFloat((totals.net - totals.tax).toFixed(2)),
+            subtotal: parseFloat(totals.subtotal.toFixed(2)),
             totalItemDiscount: totals.tradeDiscount,
             totalGst: totals.tax,
             schemeDiscount: lumpsumDiscount,

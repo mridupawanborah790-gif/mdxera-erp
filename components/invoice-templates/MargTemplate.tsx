@@ -75,13 +75,15 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    const billDiscount = showBillDiscount ? (bill.schemeDiscount || 0) : 0;
-    const grandBeforeRoundOff = subtotalValue - billDiscount;
-    const calculatedRoundOff = Math.round(grandBeforeRoundOff) - grandBeforeRoundOff;
-    const roundOff = Number.isFinite(bill.roundOff) ? (bill.roundOff || 0) : calculatedRoundOff;
-    const grandTotal = grandBeforeRoundOff + roundOff;
+    const tradeDiscount = bill.totalItemDiscount || 0;
+    const schemeDiscount = bill.schemeDiscount || 0;
+    const billDiscount = showBillDiscount ? schemeDiscount : 0;
+    const taxableValue = Math.max(0, (bill.subtotal || 0) - schemeDiscount);
+    const totalGst = isNonGst ? 0 : (bill.totalGst || 0);
+    const roundOff = bill.roundOff || 0;
+    const grandTotal = bill.total || (taxableValue + totalGst + roundOff);
 
-    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, billDiscount, roundOff, grandTotal };
+    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, billDiscount, taxableValue, totalGst, roundOff, grandTotal };
   }, [bill, isNonGst]);
 
   return (
@@ -278,7 +280,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
                 <div className="flex flex-col bg-gray-50/80">
                   <div className="p-2 flex-1 space-y-1 text-[8.5pt] font-bold">
-                      <div className="flex justify-between"><span>SUB TOTAL</span> <span className="font-black">₹ {(calculations.subtotalValue || 0).toFixed(2)}</span></div>
+                      <div className="flex justify-between"><span>SUB TOTAL</span> <span className="font-black">₹ {(bill.subtotal || 0).toFixed(2)}</span></div>
                       
                       {showBillDiscount && calculations.billDiscount > 0 && (
                         <div className="flex justify-between text-indigo-700 font-black">
@@ -287,7 +289,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                         </div>
                       )}
 
-                      {!isNonGst && <div className="flex justify-between text-gray-600"><span>Tax Amount</span> <span className="font-black text-gray-900">{((calculations.totalSgst || 0) + (calculations.totalCgst || 0)).toFixed(2)}</span></div>}
+                      {!isNonGst && <div className="flex justify-between text-gray-600"><span>Tax Amount</span> <span className="font-black text-gray-900">{(calculations.totalGst || 0).toFixed(2)}</span></div>}
                       <div className="flex justify-between text-gray-500"><span>Round Off</span> <span className="text-[8pt] font-normal">{(calculations.roundOff || 0).toFixed(2)}</span></div>
                   </div>
                   <div className="p-2 bg-white border-t border-black flex justify-between items-center shadow-inner">

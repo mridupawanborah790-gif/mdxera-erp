@@ -56,14 +56,13 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-        const totalTax = Object.values(gstSummary).reduce((sum, slab) => sum + slab.cgst + slab.sgst + slab.igst, 0);
-    const subTotal = subTotalTaxable + totalTax;
+        const totalTax = isNonGst ? 0 : (bill.totalGst || Object.values(gstSummary).reduce((sum, slab) => sum + slab.cgst + slab.sgst + slab.igst, 0));
+    const subTotal = bill.subtotal || (subTotalTaxable + totalTax);
     const billDiscount = bill.schemeDiscount || 0;
-    const baseTotal = subTotal - billDiscount;
-    const roundOff = Number.isFinite(bill.roundOff) ? (bill.roundOff || 0) : (Math.round(baseTotal) - baseTotal);
-    const grandTotal = baseTotal + roundOff;
+    const roundOff = bill.roundOff || 0;
+    const grandTotal = bill.total || (subTotal - billDiscount + totalTax + roundOff);
 
-    return { items, itemChunks, subTotalTaxable, gstSummary, subTotal, totalTax, billDiscount, grandTotal };
+    return { items, itemChunks, subTotalTaxable, gstSummary, subTotal, totalTax, billDiscount, roundOff, grandTotal };
   }, [bill, isNonGst]);
 
   const totalQty = (bill.items || []).reduce((acc, i) => acc + i.quantity, 0);
