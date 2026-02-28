@@ -106,6 +106,8 @@ const POS = forwardRef<any, POSProps>(({
 
     const isNonGst = billMode === 'EST';
     const strictStock = configurations.displayOptions?.strictStock ?? false;
+    const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
+    const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
 
@@ -162,13 +164,13 @@ const POS = forwardRef<any, POSProps>(({
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
 
-        if (strictStock) {
+        if (shouldPreventNegativeStock) {
             for (const item of cartItems) {
                 const invItem = inventory.find(i => i.id === item.inventoryItemId);
                 if (invItem) {
                     const unitsPerPack = invItem.unitsPerPack || 1;
                     const requiredUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-                    if (invItem.stock < requiredUnits) {
+                    if (invItem.stock <= 0 || invItem.stock < requiredUnits) {
                         addNotification(`Insufficient stock for ${item.name}. Available: ${invItem.stock}`, "error");
                         return;
                     }
@@ -178,11 +180,9 @@ const POS = forwardRef<any, POSProps>(({
 
         setIsSaving(true);
 
-        const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-        const { id: templateId, nextExternalNumber } = generateNewInvoiceId(configurations[configKey], isNonGst ? 'non-gst' : 'regular');
         const generatedId = transactionToEdit
             ? transactionToEdit.id
-            : await storage.generateNextSalesBillId(templateId, currentUser!);
+            : (await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!)).documentNumber;
 
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
 
@@ -209,7 +209,7 @@ const POS = forwardRef<any, POSProps>(({
         };
 
         try {
-            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, transactionToEdit ? undefined : nextExternalNumber);
+            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit);
             if (onPrintBill) onPrintBill(transaction);
             setCartItems([]);
             setPrescriptions([]);
@@ -217,13 +217,14 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch('');
             setLumpsumDiscount(0);
             setReferredBy('');
-            addNotification("Bill Saved Successfully", "success");
+            addNotification(`Bill saved successfully. Bill No: ${transaction.id}`, "success");
         } catch (e: any) {
-            addNotification("Failed to save: " + e.message, "error");
+            const errorMessage = e?.message || String(e) || "Unknown error";
+            addNotification(`Failed to save bill: ${errorMessage}`, "error");
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, strictStock, inventory]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -339,7 +340,14 @@ const POS = forwardRef<any, POSProps>(({
             if (!term || name.startsWith(term) || code.startsWith(term)) {
                 const key = `${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
                 if (!grouped.has(key)) grouped.set(key, { item: i, batches: [i] });
-                else grouped.get(key)!.batches.push(i);
+                else {
+                    const existing = grouped.get(key)!;
+                    existing.batches.push(i);
+                    existing.item = {
+                        ...existing.item,
+                        stock: existing.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0),
+                    };
+                }
             }
         });
 
@@ -501,6 +509,11 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
+        if (shouldPreventNegativeStock && Number(batch.stock || 0) <= 0) {
+            addNotification(`Insufficient stock for ${batch.name}. Available: ${Number(batch.stock || 0)}`, 'error');
+            return;
+        }
+
         let rateValue = batch.mrp;
         const globalDefaultRateTier = configurations?.displayOptions?.defaultRateTier || 'mrp';
         let rateTierToUse = selectedCustomer?.defaultRateTier !== 'none' ? selectedCustomer?.defaultRateTier : globalDefaultRateTier;
@@ -1230,7 +1243,9 @@ const POS = forwardRef<any, POSProps>(({
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">Description of Medicine</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200 w-32 text-center">Code</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">MFR / Brand</th>
-                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Strips Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Loose Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Total Stock</th>
                                                 <th className="p-1.5 px-3 text-right">MRP</th>
                                             </tr>
                                         </thead>
@@ -1238,6 +1253,10 @@ const POS = forwardRef<any, POSProps>(({
                                             {deduplicatedSearchInventory.map((res, sIdx) => {
                                                 const isSelected = sIdx === selectedSearchIndex;
                                                 const item = res.item;
+                                                const totalStock = res.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0);
+                                                const unitsPerPack = item.unitsPerPack || 1;
+                                                const stripsStock = Math.floor(totalStock / unitsPerPack);
+                                                const looseStock = totalStock % unitsPerPack;
                                                 return (
                                                     <tr
                                                         key={item.id}
@@ -1253,7 +1272,9 @@ const POS = forwardRef<any, POSProps>(({
                                                             {item.code}
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (item.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{item.stock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{stripsStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{looseStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{totalStock}</td>
                                                         <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>
                                                 );

@@ -9,6 +9,7 @@ import { categorizeSalesForAnx1 } from '../utils/gstUtils';
 
 // SheetJS is global from index.html
 declare const XLSX: any;
+declare const html2pdf: any;
 
 interface GstCenterProps {
     transactions: Transaction[];
@@ -32,8 +33,94 @@ interface GstReconRow {
     anxTable: string;
 }
 
+type PeriodFilter = 'monthly' | 'quarterly' | 'half-yearly' | 'yearly';
+type ReportType = 'summary' | 'anx1' | 'anx2' | 'invoice-summary' | 'hsn-gstr1' | 'hsn-gstr2' | 'hsn-combined' | 'recon-sales' | 'recon-purchase';
+
+type GstTab = 'summary' | 'invoice-summary' | 'anx1' | 'anx2' | 'hsn1' | 'hsn2' | 'hsn-combined' | 'recon' | 'profile';
+
+interface HsnRow {
+    hsnCode: string;
+    description: string;
+    quantity: number;
+    taxableValue: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+    cess: number;
+    totalTax: number;
+    invoiceValue: number;
+}
+
+interface InvoiceSeriesRow {
+    series: string;
+    startInvoiceNo: string;
+    endInvoiceNo: string;
+    totalSalesBills: number;
+    cancelledBills: number;
+    taxableValue: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+    grandTotal: number;
+    cancelledInvoices: { invoiceNo: string; date: string; customer: string; value: number; }[];
+}
+
+interface CombinedHsnRow {
+    hsnCode: string;
+    description: string;
+    uqc: string;
+    salesQty: number;
+    purchaseQty: number;
+    combinedQty: number;
+    salesTaxable: number;
+    purchaseTaxable: number;
+    combinedTaxable: number;
+    salesCgst: number;
+    purchaseCgst: number;
+    combinedCgst: number;
+    salesSgst: number;
+    purchaseSgst: number;
+    combinedSgst: number;
+    salesIgst: number;
+    purchaseIgst: number;
+    combinedIgst: number;
+    salesTotalTax: number;
+    purchaseTotalTax: number;
+    combinedTotalTax: number;
+    salesTotalValue: number;
+    purchaseTotalValue: number;
+    combinedTotalValue: number;
+}
+
+const round2 = (value: number) => Number((value || 0).toFixed(2));
+const formatDate = (value?: string) => (value ? value.split('T')[0] : '');
+
+const toFinancialYear = (date: Date) => {
+    const year = date.getMonth() >= 3 ? date.getFullYear() : date.getFullYear() - 1;
+    return `${year}-${String((year + 1) % 100).padStart(2, '0')}`;
+};
+
+const financialYearRange = (fy: string) => {
+    const [startYearRaw] = fy.split('-');
+    const startYear = Number(startYearRaw);
+    return {
+        start: new Date(startYear, 3, 1),
+        end: new Date(startYear + 1, 2, 31, 23, 59, 59, 999)
+    };
+};
+
+const generateFyOptions = (transactions: Transaction[], purchases: Purchase[]) => {
+    const fySet = new Set<string>();
+    [...transactions.map(t => t.date), ...purchases.map(p => p.date)].forEach(d => {
+        const parsed = new Date(d);
+        if (!Number.isNaN(parsed.getTime())) fySet.add(toFinancialYear(parsed));
+    });
+    fySet.add(toFinancialYear(new Date()));
+    return Array.from(fySet).sort().reverse();
+};
+
 const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customers, currentUser, configurations, onUpdateConfigurations }) => {
-    const [activeTab, setActiveTab] = useState<'summary' | 'anx1' | 'anx2' | 'recon' | 'profile'>('summary');
+    const [activeTab, setActiveTab] = useState<GstTab>('summary');
     const [reconTab, setReconTab] = useState<'sales' | 'purchase'>('sales');
     const [isExporting, setIsExporting] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -42,6 +129,11 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
     // Periodicity State - Safe guards against undefined configurations
     const [periodicity, setPeriodicity] = useState(configurations?.gstSettings?.periodicity || 'monthly');
     const [returnType, setReturnType] = useState(configurations?.gstSettings?.returnType || 'Quarterly (Normal)');
+    const fyOptions = useMemo(() => generateFyOptions(transactions, purchases), [transactions, purchases]);
+    const [reportPeriodFilter, setReportPeriodFilter] = useState<PeriodFilter>('monthly');
+    const [selectedFy, setSelectedFy] = useState<string>(toFinancialYear(new Date()));
+    const [rangeStart, setRangeStart] = useState<string>('');
+    const [rangeEnd, setRangeEnd] = useState<string>('');
 
     // Sync local state if configurations change externally
     useEffect(() => {
@@ -51,9 +143,267 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
         }
     }, [configurations]);
 
+    useEffect(() => {
+        if (!fyOptions.includes(selectedFy)) {
+            setSelectedFy(fyOptions[0] || toFinancialYear(new Date()));
+        }
+    }, [fyOptions, selectedFy]);
+
     // Uploaded Data States (Reference Data)
     const [anx1RefData, setAnx1RefData] = useState<any[]>([]);
     const [anx2RefData, setAnx2RefData] = useState<any[]>([]);
+
+    const filterMeta = useMemo(() => {
+        const today = new Date();
+        const nowMonth = today.getMonth();
+        const quarter = Math.floor(nowMonth / 3);
+        const half = nowMonth < 6 ? 0 : 1;
+        return { quarter, half };
+    }, []);
+
+    const isDateInScope = (dateValue: string) => {
+        const date = new Date(dateValue);
+        if (Number.isNaN(date.getTime())) return false;
+
+        if (rangeStart && rangeEnd) {
+            const start = new Date(rangeStart);
+            const end = new Date(rangeEnd);
+            end.setHours(23, 59, 59, 999);
+            return date >= start && date <= end;
+        }
+
+        const fyRange = financialYearRange(selectedFy);
+        if (date < fyRange.start || date > fyRange.end) return false;
+
+        if (reportPeriodFilter === 'yearly') return true;
+        if (reportPeriodFilter === 'monthly') return date.getMonth() === new Date().getMonth() && date.getFullYear() === new Date().getFullYear();
+        if (reportPeriodFilter === 'quarterly') return Math.floor(date.getMonth() / 3) === filterMeta.quarter && date.getFullYear() === new Date().getFullYear();
+        if (reportPeriodFilter === 'half-yearly') return (date.getMonth() < 6 ? 0 : 1) === filterMeta.half && date.getFullYear() === new Date().getFullYear();
+        return true;
+    };
+
+    const scopedSalesTransactions = useMemo(() => transactions.filter(t => (t.status === 'completed' || t.status === 'cancelled') && isDateInScope(t.date)), [transactions, reportPeriodFilter, selectedFy, rangeStart, rangeEnd]);
+    const filteredTransactions = useMemo(() => scopedSalesTransactions.filter(t => t.status === 'completed'), [scopedSalesTransactions]);
+    const filteredPurchases = useMemo(() => purchases.filter(p => p.status === 'completed' && isDateInScope(p.date)), [purchases, reportPeriodFilter, selectedFy, rangeStart, rangeEnd]);
+
+    const hsnGstr1Rows = useMemo(() => {
+        const hsnMap = new Map<string, HsnRow>();
+        filteredTransactions.forEach(tx => {
+            tx.items.forEach(item => {
+                const qty = Number(item.quantity || 0) + Number(item.looseQuantity || 0);
+                const gstRate = Number(item.gstPercent || 0);
+                const lineAmount = Number(item.finalAmount || item.amount || 0);
+                const taxable = gstRate > 0 ? lineAmount / (1 + (gstRate / 100)) : lineAmount;
+                const tax = lineAmount - taxable;
+                const hsnCode = item.hsnCode || 'UNSPECIFIED';
+                const existing = hsnMap.get(hsnCode) || {
+                    hsnCode,
+                    description: item.name || 'N/A',
+                    quantity: 0,
+                    taxableValue: 0,
+                    cgst: 0,
+                    sgst: 0,
+                    igst: 0,
+                    cess: 0,
+                    totalTax: 0,
+                    invoiceValue: 0
+                };
+
+                existing.quantity += qty;
+                existing.taxableValue += taxable;
+                existing.cgst += tax / 2;
+                existing.sgst += tax / 2;
+                existing.totalTax += tax;
+                existing.invoiceValue += lineAmount;
+                hsnMap.set(hsnCode, existing);
+            });
+        });
+
+        return Array.from(hsnMap.values()).map(row => ({
+            ...row,
+            quantity: round2(row.quantity),
+            taxableValue: round2(row.taxableValue),
+            cgst: round2(row.cgst),
+            sgst: round2(row.sgst),
+            igst: round2(row.igst),
+            cess: round2(row.cess),
+            totalTax: round2(row.totalTax),
+            invoiceValue: round2(row.invoiceValue)
+        }));
+    }, [filteredTransactions]);
+
+    const hsnGstr2Rows = useMemo(() => {
+        const hsnMap = new Map<string, HsnRow>();
+        filteredPurchases.forEach(p => {
+            p.items.forEach(item => {
+                const qty = Number(item.quantity || 0) + Number(item.looseQuantity || 0);
+                const gstRate = Number(item.gstPercent || 0);
+                const lineAmount = Number(item.lineTotal || 0) || ((Number(item.purchasePrice || 0) * Number(item.quantity || 0)) + Number(item.gstAmount || 0));
+                const taxable = Number(item.taxableValue || 0) || (gstRate > 0 ? lineAmount / (1 + (gstRate / 100)) : lineAmount);
+                const tax = Number(item.gstAmount || 0) || (lineAmount - taxable);
+                const hsnCode = item.hsnCode || 'UNSPECIFIED';
+                const existing = hsnMap.get(hsnCode) || {
+                    hsnCode,
+                    description: item.name || 'N/A',
+                    quantity: 0,
+                    taxableValue: 0,
+                    cgst: 0,
+                    sgst: 0,
+                    igst: 0,
+                    cess: 0,
+                    totalTax: 0,
+                    invoiceValue: 0
+                };
+
+                existing.quantity += qty;
+                existing.taxableValue += taxable;
+                existing.cgst += tax / 2;
+                existing.sgst += tax / 2;
+                existing.totalTax += tax;
+                existing.invoiceValue += lineAmount;
+                hsnMap.set(hsnCode, existing);
+            });
+        });
+
+        return Array.from(hsnMap.values()).map(row => ({
+            ...row,
+            quantity: round2(row.quantity),
+            taxableValue: round2(row.taxableValue),
+            cgst: round2(row.cgst),
+            sgst: round2(row.sgst),
+            igst: round2(row.igst),
+            cess: round2(row.cess),
+            totalTax: round2(row.totalTax),
+            invoiceValue: round2(row.invoiceValue)
+        }));
+    }, [filteredPurchases]);
+
+    const invoiceSeriesSummary = useMemo(() => {
+        const parseInvoice = (invoiceNo: string) => {
+            const match = invoiceNo.match(/^(.*?)(\d+)$/);
+            if (!match) return { series: 'UNSTRUCTURED', numericPart: Number.NaN };
+            return { series: match[1] || 'DEFAULT', numericPart: Number(match[2]) };
+        };
+
+        const seriesMap = new Map<string, { bills: Transaction[]; cancelled: Transaction[]; }>();
+        scopedSalesTransactions.forEach(tx => {
+            const { series } = parseInvoice(tx.id);
+            const existing = seriesMap.get(series) || { bills: [], cancelled: [] };
+            existing.bills.push(tx);
+            if (tx.status === 'cancelled') existing.cancelled.push(tx);
+            seriesMap.set(series, existing);
+        });
+
+        return Array.from(seriesMap.entries()).map(([series, data]) => {
+            const sortedInvoices = [...data.bills].sort((a, b) => {
+                const aMeta = parseInvoice(a.id);
+                const bMeta = parseInvoice(b.id);
+                if (!Number.isNaN(aMeta.numericPart) && !Number.isNaN(bMeta.numericPart)) {
+                    return aMeta.numericPart - bMeta.numericPart;
+                }
+                return a.id.localeCompare(b.id);
+            });
+            const completed = data.bills.filter(tx => tx.status === 'completed');
+            const totalTax = completed.reduce((sum, tx) => sum + Number(tx.totalGst || 0), 0);
+            return {
+                series,
+                startInvoiceNo: sortedInvoices[0]?.id || '-',
+                endInvoiceNo: sortedInvoices[sortedInvoices.length - 1]?.id || '-',
+                totalSalesBills: completed.length,
+                cancelledBills: data.cancelled.length,
+                taxableValue: round2(completed.reduce((sum, tx) => sum + Number(tx.subtotal || 0), 0)),
+                cgst: round2(totalTax / 2),
+                sgst: round2(totalTax / 2),
+                igst: 0,
+                grandTotal: round2(completed.reduce((sum, tx) => sum + Number(tx.total || 0), 0)),
+                cancelledInvoices: data.cancelled.map(tx => ({
+                    invoiceNo: tx.id,
+                    date: formatDate(tx.date),
+                    customer: tx.customerName,
+                    value: round2(tx.total)
+                }))
+            };
+        }).sort((a, b) => a.series.localeCompare(b.series));
+    }, [scopedSalesTransactions]);
+
+    const combinedHsnRows = useMemo(() => {
+        const hsnMap = new Map<string, CombinedHsnRow>();
+        const seed = (hsnCode: string, description: string): CombinedHsnRow => ({
+            hsnCode,
+            description,
+            uqc: 'NOS',
+            salesQty: 0,
+            purchaseQty: 0,
+            combinedQty: 0,
+            salesTaxable: 0,
+            purchaseTaxable: 0,
+            combinedTaxable: 0,
+            salesCgst: 0,
+            purchaseCgst: 0,
+            combinedCgst: 0,
+            salesSgst: 0,
+            purchaseSgst: 0,
+            combinedSgst: 0,
+            salesIgst: 0,
+            purchaseIgst: 0,
+            combinedIgst: 0,
+            salesTotalTax: 0,
+            purchaseTotalTax: 0,
+            combinedTotalTax: 0,
+            salesTotalValue: 0,
+            purchaseTotalValue: 0,
+            combinedTotalValue: 0
+        });
+
+        hsnGstr1Rows.forEach(row => {
+            const existing = hsnMap.get(row.hsnCode) || seed(row.hsnCode, row.description);
+            existing.salesQty += row.quantity;
+            existing.salesTaxable += row.taxableValue;
+            existing.salesCgst += row.cgst;
+            existing.salesSgst += row.sgst;
+            existing.salesIgst += row.igst;
+            existing.salesTotalTax += row.totalTax;
+            existing.salesTotalValue += row.invoiceValue;
+            hsnMap.set(row.hsnCode, existing);
+        });
+
+        hsnGstr2Rows.forEach(row => {
+            const existing = hsnMap.get(row.hsnCode) || seed(row.hsnCode, row.description);
+            existing.purchaseQty += row.quantity;
+            existing.purchaseTaxable += row.taxableValue;
+            existing.purchaseCgst += row.cgst;
+            existing.purchaseSgst += row.sgst;
+            existing.purchaseIgst += row.igst;
+            existing.purchaseTotalTax += row.totalTax;
+            existing.purchaseTotalValue += row.invoiceValue;
+            hsnMap.set(row.hsnCode, existing);
+        });
+
+        return Array.from(hsnMap.values()).map(row => ({
+            ...row,
+            combinedQty: round2(row.salesQty + row.purchaseQty),
+            combinedTaxable: round2(row.salesTaxable + row.purchaseTaxable),
+            combinedCgst: round2(row.salesCgst + row.purchaseCgst),
+            combinedSgst: round2(row.salesSgst + row.purchaseSgst),
+            combinedIgst: round2(row.salesIgst + row.purchaseIgst),
+            combinedTotalTax: round2(row.salesTotalTax + row.purchaseTotalTax),
+            combinedTotalValue: round2(row.salesTotalValue + row.purchaseTotalValue),
+            salesQty: round2(row.salesQty),
+            purchaseQty: round2(row.purchaseQty),
+            salesTaxable: round2(row.salesTaxable),
+            purchaseTaxable: round2(row.purchaseTaxable),
+            salesCgst: round2(row.salesCgst),
+            purchaseCgst: round2(row.purchaseCgst),
+            salesSgst: round2(row.salesSgst),
+            purchaseSgst: round2(row.purchaseSgst),
+            salesIgst: round2(row.salesIgst),
+            purchaseIgst: round2(row.purchaseIgst),
+            salesTotalTax: round2(row.salesTotalTax),
+            purchaseTotalTax: round2(row.purchaseTotalTax),
+            salesTotalValue: round2(row.salesTotalValue),
+            purchaseTotalValue: round2(row.purchaseTotalValue)
+        })).sort((a, b) => a.hsnCode.localeCompare(b.hsnCode));
+    }, [hsnGstr1Rows, hsnGstr2Rows]);
 
     // --- RECONCILIATION LOGIC ---
 
@@ -61,7 +411,7 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
         const results: GstReconRow[] = [];
         const returnMap = new Map(anx1RefData.map(r => [String(r.invoiceId).toLowerCase(), r]));
 
-        transactions.forEach(tx => {
+        filteredTransactions.forEach(tx => {
             if (tx.status === 'cancelled') return;
             const retMatch: any = returnMap.get(tx.id.toLowerCase());
             const table = categorizeSalesForAnx1(tx, customers);
@@ -113,13 +463,13 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
         });
 
         return results;
-    }, [transactions, anx1RefData, customers]);
+    }, [filteredTransactions, anx1RefData, customers]);
 
     const purchaseRecon = useMemo(() => {
         const results: GstReconRow[] = [];
         const returnMap = new Map(anx2RefData.map(r => [String(r.invoiceNumber).toLowerCase(), r]));
 
-        purchases.forEach(p => {
+        filteredPurchases.forEach(p => {
             if (p.status === 'cancelled') return;
             const retMatch: any = returnMap.get(p.invoiceNumber.toLowerCase());
             if (retMatch) {
@@ -169,7 +519,7 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
         });
 
         return results;
-    }, [purchases, anx2RefData]);
+    }, [filteredPurchases, anx2RefData]);
 
     // --- AI COMPLIANCE AUDIT ---
     const runAiAudit = async () => {
@@ -180,8 +530,8 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
                 purchaseMismatches: purchaseRecon.filter(r => r.status !== 'matched').length,
                 missingInReturn: salesRecon.filter(r => r.status === 'missing_in_return').length,
                 missingInErp: purchaseRecon.filter(r => r.status === 'missing_in_register').length,
-                totalLiability: transactions.reduce((s, t) => s + (t.status === 'completed' ? t.totalGst : 0), 0),
-                itcClaimed: purchases.reduce((s, p) => s + (p.status === 'completed' ? p.totalGst : 0), 0)
+                totalLiability: filteredTransactions.reduce((s, t) => s + t.totalGst, 0),
+                itcClaimed: filteredPurchases.reduce((s, p) => s + p.totalGst, 0)
             };
 
             const prompt = `Act as a statutory GST Auditor for a medical pharmacy.
@@ -199,62 +549,216 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
         }
     };
 
-    // --- EXPORT TO MULTI-SHEET EXCEL ---
-    const handleExportExcel = () => {
+    const getReportRows = (reportType: ReportType) => {
+        if (reportType === 'summary') {
+            return [
+                {
+                    report: 'ANX-1 (Sales)',
+                    records: salesRecon.length,
+                    registerTotal: round2(salesRecon.reduce((s, r) => s + r.registerValue, 0)),
+                    portalTotal: round2(salesRecon.reduce((s, r) => s + r.returnValue, 0)),
+                    variance: round2(salesRecon.reduce((s, r) => s + r.difference, 0))
+                },
+                {
+                    report: 'ANX-2 (Purchase)',
+                    records: purchaseRecon.length,
+                    registerTotal: round2(purchaseRecon.reduce((s, r) => s + r.registerValue, 0)),
+                    portalTotal: round2(purchaseRecon.reduce((s, r) => s + r.returnValue, 0)),
+                    variance: round2(purchaseRecon.reduce((s, r) => s + r.difference, 0))
+                }
+            ];
+        }
+
+        if (reportType === 'anx1') {
+            return filteredTransactions.map(t => ({
+                table: categorizeSalesForAnx1(t, customers),
+                gstin: customers.find(c => c.id === t.customerId)?.gstNumber || 'B2C (UNREG)',
+                documentNo: t.id,
+                date: formatDate(t.date),
+                taxableValue: round2(t.subtotal),
+                taxAmount: round2(t.totalGst),
+                invoiceValue: round2(t.total)
+            }));
+        }
+
+        if (reportType === 'anx2') {
+            return filteredPurchases.map(p => ({
+                supplierGstin: '27AAAAA0000A1Z5',
+                tradeName: p.supplier,
+                invoiceNo: p.invoiceNumber,
+                date: formatDate(p.date),
+                taxableValue: round2(p.subtotal),
+                itcAvailable: round2(p.totalGst),
+                portalStatus: 'Filed (F)'
+            }));
+        }
+
+        if (reportType === 'invoice-summary') {
+            return invoiceSeriesSummary.map(row => ({
+                series: row.series,
+                startInvoiceNo: row.startInvoiceNo,
+                endInvoiceNo: row.endInvoiceNo,
+                totalSalesBills: row.totalSalesBills,
+                cancelledBills: row.cancelledBills,
+                taxableValue: row.taxableValue,
+                cgst: row.cgst,
+                sgst: row.sgst,
+                igst: row.igst,
+                grandTotal: row.grandTotal,
+                cancelledInvoiceDetails: row.cancelledInvoices.map(item => `${item.invoiceNo} (${item.date})`).join('; ')
+            }));
+        }
+
+        if (reportType === 'hsn-gstr1' || reportType === 'hsn-gstr2') {
+            return (reportType === 'hsn-gstr1' ? hsnGstr1Rows : hsnGstr2Rows).map(row => ({
+                hsnCode: row.hsnCode,
+                description: row.description,
+                quantity: row.quantity,
+                taxableValue: row.taxableValue,
+                cgst: row.cgst,
+                sgst: row.sgst,
+                igst: row.igst,
+                cess: row.cess,
+                totalTax: row.totalTax,
+                invoiceValue: row.invoiceValue
+            }));
+        }
+
+        if (reportType === 'hsn-combined') {
+            return combinedHsnRows.map(row => ({
+                hsnCode: row.hsnCode,
+                description: row.description,
+                uqc: row.uqc,
+                qty: row.combinedQty,
+                taxableValue: row.combinedTaxable,
+                cgst: row.combinedCgst,
+                sgst: row.combinedSgst,
+                igst: row.combinedIgst,
+                totalTax: row.combinedTotalTax,
+                totalValue: row.combinedTotalValue,
+                salesTotalValue: row.salesTotalValue,
+                purchaseTotalValue: row.purchaseTotalValue
+            }));
+        }
+
+        const reconRows = reportType === 'recon-sales' ? salesRecon : purchaseRecon;
+        return reconRows.map(row => ({
+            documentId: row.invoiceId,
+            party: row.partyName,
+            date: row.date,
+            valueErp: round2(row.registerValue),
+            valuePortal: round2(row.returnValue),
+            difference: round2(row.difference),
+            status: row.status
+        }));
+    };
+
+    const currentReportType: ReportType = activeTab === 'anx1'
+        ? 'anx1'
+        : activeTab === 'anx2'
+            ? 'anx2'
+            : activeTab === 'hsn1'
+                ? 'hsn-gstr1'
+                : activeTab === 'hsn2'
+                    ? 'hsn-gstr2'
+                    : activeTab === 'invoice-summary'
+                        ? 'invoice-summary'
+                        : activeTab === 'hsn-combined'
+                            ? 'hsn-combined'
+                    : activeTab === 'recon'
+                        ? (reconTab === 'sales' ? 'recon-sales' : 'recon-purchase')
+                        : 'summary';
+
+    const reportLabelMap: Record<ReportType, string> = {
+        summary: 'GST Summary Report',
+        anx1: 'GSTR-1 Outward Report',
+        anx2: 'GSTR-2 Inward Report',
+        'invoice-summary': 'Invoice Series Summary Report',
+        'hsn-gstr1': 'HSN-wise GSTR-1 Report',
+        'hsn-gstr2': 'HSN-wise GSTR-2 Report',
+        'hsn-combined': 'HSN Combined Summary Report',
+        'recon-sales': 'Sales Reconciliation Report',
+        'recon-purchase': 'Purchase Reconciliation Report'
+    };
+
+    const exportRows = (reportType: ReportType) => {
+        const rows = getReportRows(reportType);
+        if (!rows.length) {
+            addNotification('No records found for selected filter.', 'error');
+        }
+        return rows;
+    };
+
+    const handleExportExcel = (reportType: ReportType = currentReportType) => {
         setIsExporting(true);
         try {
+            if (typeof XLSX === 'undefined') {
+                addNotification('XLSX library missing in this environment.', 'error');
+                return;
+            }
+            const rows = exportRows(reportType);
+            if (!rows.length) return;
             const wb = XLSX.utils.book_new();
-
-            // 1. Summary Sheet
-            const summaryData = [
-                ['MDXERA ERP - STATUTORY GST COMPLIANCE REPORT'],
-                ['Pharmacy', currentUser?.pharmacy_name],
-                ['GSTIN', currentUser?.gstin],
-                ['Periodicity', periodicity.toUpperCase()],
-                ['Type', returnType],
-                [],
-                ['Form', 'Records', 'Register Total', 'Govt Portal Total', 'Variance'],
-                ['ANX-1 (Sales)', salesRecon.length, salesRecon.reduce((s, r) => s + r.registerValue, 0), salesRecon.reduce((s, r) => s + r.returnValue, 0), salesRecon.reduce((s, r) => s + r.difference, 0)],
-                ['ANX-2 (Purchase)', purchaseRecon.length, purchaseRecon.reduce((s, r) => s + r.registerValue, 0), purchaseRecon.reduce((s, r) => s + r.returnValue, 0), purchaseRecon.reduce((s, r) => s + r.difference, 0)],
-            ];
-            const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-            XLSX.utils.book_append_sheet(wb, wsSummary, 'Executive Summary');
-
-            // 2. Sales ANX-1 Grid
-            const salesData = salesRecon.map(r => ({
-                'ANX Table': r.anxTable,
-                'Invoice ID': r.invoiceId,
-                'Date': r.date,
-                'Customer': r.partyName,
-                'GSTIN/UIN': r.gstin,
-                'Value (ERP)': r.registerValue,
-                'Value (Portal)': r.returnValue,
-                'Difference': r.difference,
-                'Status': r.status.replace(/_/g, ' ').toUpperCase()
-            }));
-            const wsSales = XLSX.utils.json_to_sheet(salesData);
-            XLSX.utils.book_append_sheet(wb, wsSales, 'FORM GST ANX-1');
-
-            // 3. Purchase ANX-2 Grid
-            const purData = purchaseRecon.map(r => ({
-                'Invoice #': r.invoiceId,
-                'Date': r.date,
-                'Supplier': r.partyName,
-                'GSTIN': r.gstin,
-                'Value (ERP)': r.registerValue,
-                'Value (Portal)': r.returnValue,
-                'Difference': r.difference,
-                'Status': r.status.replace(/_/g, ' ').toUpperCase()
-            }));
-            const wsPur = XLSX.utils.json_to_sheet(purData);
-            XLSX.utils.book_append_sheet(wb, wsPur, 'FORM GST ANX-2');
-
-            XLSX.writeFile(wb, `GST_Statutory_Recon_${new Date().toISOString().split('T')[0]}.xlsx`);
-            addNotification("Statutory Excel workbook generated.", "success");
+            const ws = XLSX.utils.json_to_sheet(rows);
+            XLSX.utils.book_append_sheet(wb, ws, reportLabelMap[reportType].slice(0, 28));
+            XLSX.writeFile(wb, `${reportLabelMap[reportType].replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
+            addNotification('Excel export completed.', 'success');
         } catch (e) {
             console.error(e);
         } finally {
             setIsExporting(false);
+        }
+    };
+
+    const handleExportCsv = (reportType: ReportType = currentReportType) => {
+        const rows = exportRows(reportType);
+        if (!rows.length) return;
+        const headers = Object.keys(rows[0]);
+        const csvContent = [arrayToCsvRow(headers), ...rows.map(r => arrayToCsvRow(headers.map(h => (r as any)[h])))].join('\n');
+        downloadCsv(csvContent, `${reportLabelMap[reportType].replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+        addNotification('CSV export completed.', 'success');
+    };
+
+    const handleExportJson = (reportType: ReportType = currentReportType) => {
+        const rows = exportRows(reportType);
+        if (!rows.length) return;
+        const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${reportLabelMap[reportType].replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        addNotification('JSON export completed.', 'success');
+    };
+
+    const handleExportPdf = async (reportType: ReportType = currentReportType) => {
+        try {
+            if (typeof html2pdf === 'undefined') {
+                addNotification('PDF export engine unavailable.', 'error');
+                return;
+            }
+            const rows = exportRows(reportType);
+            if (!rows.length) return;
+            const headers = Object.keys(rows[0]);
+            const html = `
+                <div style="padding:16px;font-family:Arial;">
+                    <h2>${reportLabelMap[reportType]}</h2>
+                    <p>Filter: ${reportPeriodFilter} | FY: ${selectedFy} | Date Range: ${rangeStart || '-'} to ${rangeEnd || '-'}</p>
+                    <table style="width:100%;border-collapse:collapse;font-size:10px;">
+                        <thead><tr>${headers.map(h => `<th style="border:1px solid #ccc;padding:4px;">${h}</th>`).join('')}</tr></thead>
+                        <tbody>
+                            ${rows.map(r => `<tr>${headers.map(h => `<td style="border:1px solid #eee;padding:4px;">${(r as any)[h] ?? ''}</td>`).join('')}</tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+            const el = document.createElement('div');
+            el.innerHTML = html;
+            document.body.appendChild(el);
+            await html2pdf().set({ filename: `${reportLabelMap[reportType].replace(/\s+/g, '_')}.pdf`, margin: 8, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }).from(el).save();
+            document.body.removeChild(el);
+            addNotification('PDF export completed.', 'success');
+        } catch (e) {
+            console.error(e);
         }
     };
 
@@ -283,14 +787,15 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
 
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
-            <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
+            <div className="bg-primary text-white min-h-7 flex items-center px-4 py-1 justify-between border-b border-gray-600 shadow-md flex-wrap gap-2 flex-shrink-0">
                 <span className="text-[10px] font-black uppercase tracking-widest">Statutory Module: FORM GST RET-1 ({returnType})</span>
-                <div className="flex gap-4">
-                    <button onClick={handleExportExcel} disabled={isExporting} className="text-[10px] font-black uppercase text-accent hover:underline flex items-center gap-1">
-                        {isExporting ? <span className="animate-spin">⌛</span> : '⬇'} Export Statutory Sheets
-                    </button>
-                    <button onClick={runAiAudit} disabled={isAnalyzing} className="text-[10px] font-black uppercase text-white bg-white/10 px-2 rounded hover:bg-white/20 transition-all">
-                        {isAnalyzing ? 'Auditing...' : 'AI Statutory Auditor'}
+                <div className="flex gap-2 items-center flex-wrap">
+                    <button onClick={() => handleExportCsv()} className="text-[10px] font-black uppercase bg-white/10 px-2 py-1 rounded hover:bg-white/20">CSV</button>
+                    <button onClick={() => handleExportExcel()} disabled={isExporting} className="text-[10px] font-black uppercase bg-white/10 px-2 py-1 rounded hover:bg-white/20">{isExporting ? '...' : 'XLSX'}</button>
+                    <button onClick={() => handleExportPdf()} className="text-[10px] font-black uppercase bg-white/10 px-2 py-1 rounded hover:bg-white/20">PDF</button>
+                    <button onClick={() => handleExportJson()} className="text-[10px] font-black uppercase bg-white/10 px-2 py-1 rounded hover:bg-white/20">JSON</button>
+                    <button onClick={runAiAudit} disabled={isAnalyzing} className="text-[10px] font-black uppercase text-white bg-white/10 px-2 py-1 rounded hover:bg-white/20 transition-all">
+                        {isAnalyzing ? 'Auditing...' : 'AI Auditor'}
                     </button>
                 </div>
             </div>
@@ -313,16 +818,31 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
                     </div>
                 )}
 
-                <div className="flex justify-between items-center px-2">
-                    <div className="flex bg-white p-1 tally-border shadow-sm">
+                <div className="flex justify-between items-center px-2 gap-2 flex-wrap">
+                    <div className="flex bg-white p-1 tally-border shadow-sm flex-wrap">
                         <button onClick={() => setActiveTab('summary')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'summary' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>Summary</button>
+                        <button onClick={() => setActiveTab('invoice-summary')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'invoice-summary' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>Invoice Summary</button>
                         <button onClick={() => setActiveTab('anx1')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'anx1' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>ANX-1 (Out)</button>
                         <button onClick={() => setActiveTab('anx2')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'anx2' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>ANX-2 (In)</button>
+                        <button onClick={() => setActiveTab('hsn1')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'hsn1' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>HSN-wise GSTR-1</button>
+                        <button onClick={() => setActiveTab('hsn2')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'hsn2' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>HSN-wise GSTR-2</button>
+                        <button onClick={() => setActiveTab('hsn-combined')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'hsn-combined' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>HSN Combined</button>
                         <button onClick={() => setActiveTab('recon')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'recon' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>Reconciliation</button>
                         <button onClick={() => setActiveTab('profile')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'profile' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}>Periodicity</button>
                     </div>
-                    
-                    <div className="flex gap-2">
+
+                    <div className="flex gap-2 items-center flex-wrap">
+                        <select value={reportPeriodFilter} onChange={e => setReportPeriodFilter(e.target.value as PeriodFilter)} className="px-2 py-1 border border-gray-300 text-[11px] font-black uppercase">
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                            <option value="half-yearly">Half-Yearly</option>
+                            <option value="yearly">Yearly</option>
+                        </select>
+                        <select value={selectedFy} onChange={e => setSelectedFy(e.target.value)} className="px-2 py-1 border border-gray-300 text-[11px] font-black uppercase">
+                            {fyOptions.map(fy => <option key={fy} value={fy}>{fy}</option>)}
+                        </select>
+                        <input type="date" value={rangeStart} onChange={e => setRangeStart(e.target.value)} className="px-2 py-1 border border-gray-300 text-[11px]" />
+                        <input type="date" value={rangeEnd} onChange={e => setRangeEnd(e.target.value)} className="px-2 py-1 border border-gray-300 text-[11px]" />
                         <button onClick={loadMockData} className="px-4 py-2 bg-gray-100 border border-gray-400 text-[10px] font-black uppercase tracking-tighter hover:bg-gray-200">Sync Portal Data</button>
                     </div>
                 </div>
@@ -330,9 +850,9 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
                 <div className="flex-1 flex flex-col overflow-hidden">
                     {activeTab === 'summary' && (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in duration-300">
-                            <StatCard label="Total Output Liability (ANX-1)" value={transactions.reduce((s, t) => s + (t.status === 'completed' ? t.totalGst : 0), 0)} color="border-primary" />
-                            <StatCard label="ITC Eligible (ANX-2)" value={purchases.reduce((s, p) => s + (p.status === 'completed' ? p.totalGst : 0), 0)} color="border-emerald-600" />
-                            <StatCard label="Net Tax Payable" value={transactions.reduce((s, t) => s + (t.status === 'completed' ? t.totalGst : 0), 0) - purchases.reduce((s, p) => s + (p.status === 'completed' ? p.totalGst : 0), 0)} color="border-red-600" />
+                            <StatCard label="Total Output Liability (ANX-1)" value={filteredTransactions.reduce((s, t) => s + t.totalGst, 0)} color="border-primary" />
+                            <StatCard label="ITC Eligible (ANX-2)" value={filteredPurchases.reduce((s, p) => s + p.totalGst, 0)} color="border-emerald-600" />
+                            <StatCard label="Net Tax Payable" value={filteredTransactions.reduce((s, t) => s + t.totalGst, 0) - filteredPurchases.reduce((s, p) => s + p.totalGst, 0)} color="border-red-600" />
                             
                             <Card className="md:col-span-3 p-0 tally-border !rounded-none overflow-hidden bg-white">
                                 <div className="bg-gray-100 p-3 border-b border-gray-300 font-black text-[10px] uppercase tracking-widest text-gray-500">Document Matching Status</div>
@@ -345,8 +865,12 @@ const GstCenter: React.FC<GstCenterProps> = ({ transactions, purchases, customer
                         </div>
                     )}
 
-                    {activeTab === 'anx1' && <Anx1Grid transactions={transactions} customers={customers} />}
-                    {activeTab === 'anx2' && <Anx2Grid purchases={purchases} />}
+                    {activeTab === 'anx1' && <Anx1Grid transactions={filteredTransactions} customers={customers} />}
+                    {activeTab === 'anx2' && <Anx2Grid purchases={filteredPurchases} />}
+                    {activeTab === 'invoice-summary' && <InvoiceSummaryGrid rows={invoiceSeriesSummary} />}
+                    {activeTab === 'hsn1' && <HsnGrid title="HSN-wise GSTR-1 Report" rows={hsnGstr1Rows} />}
+                    {activeTab === 'hsn2' && <HsnGrid title="HSN-wise GSTR-2 Report" rows={hsnGstr2Rows} />}
+                    {activeTab === 'hsn-combined' && <CombinedHsnGrid rows={combinedHsnRows} />}
 
                     {activeTab === 'recon' && (
                         <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden bg-white shadow-xl">
@@ -492,6 +1016,152 @@ const StatusBadge = ({ status }: { status: string }) => {
     );
 };
 
+
+const InvoiceSummaryGrid = ({ rows }: { rows: InvoiceSeriesRow[] }) => {
+    const totals = rows.reduce((acc, row) => ({
+        totalSalesBills: acc.totalSalesBills + row.totalSalesBills,
+        cancelledBills: acc.cancelledBills + row.cancelledBills,
+        taxableValue: acc.taxableValue + row.taxableValue,
+        cgst: acc.cgst + row.cgst,
+        sgst: acc.sgst + row.sgst,
+        igst: acc.igst + row.igst,
+        grandTotal: acc.grandTotal + row.grandTotal,
+    }), { totalSalesBills: 0, cancelledBills: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0, grandTotal: 0 });
+
+    return (
+        <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden bg-white shadow-xl">
+            <div className="bg-primary text-white p-3 font-black text-[11px] uppercase tracking-widest">Invoice Summary (Sales Bills)</div>
+            <div className="flex-1 overflow-auto">
+                <table className="min-w-full border-collapse">
+                    <thead className="bg-gray-100 sticky top-0 border-b border-gray-400">
+                        <tr className="text-[10px] font-black uppercase text-gray-600 h-10">
+                            <th className="p-2 border-r border-gray-400 text-left">Series</th>
+                            <th className="p-2 border-r border-gray-400 text-left">Start Invoice No</th>
+                            <th className="p-2 border-r border-gray-400 text-left">End Invoice No</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Total Sales Bills</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Cancelled Bills</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Taxable Value</th>
+                            <th className="p-2 border-r border-gray-400 text-right">CGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">SGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">IGST</th>
+                            <th className="p-2 text-right">Grand Total</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                        {rows.map(row => (
+                            <React.Fragment key={row.series}>
+                                <tr className="h-11 hover:bg-accent transition-colors">
+                                    <td className="p-2 border-r border-gray-200 font-mono">{row.series}</td>
+                                    <td className="p-2 border-r border-gray-200 font-black">{row.startInvoiceNo}</td>
+                                    <td className="p-2 border-r border-gray-200 font-black">{row.endInvoiceNo}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">{row.totalSalesBills}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right text-red-700 font-black">{row.cancelledBills}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">₹{row.taxableValue.toFixed(2)}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">₹{row.cgst.toFixed(2)}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">₹{row.sgst.toFixed(2)}</td>
+                                    <td className="p-2 border-r border-gray-200 text-right">₹{row.igst.toFixed(2)}</td>
+                                    <td className="p-2 text-right font-black">₹{row.grandTotal.toFixed(2)}</td>
+                                </tr>
+                                {row.cancelledInvoices.length > 0 && (
+                                    <tr className="bg-red-50/60">
+                                        <td className="p-2 text-[10px] text-red-700 font-black uppercase border-r border-gray-200">Cancelled Details</td>
+                                        <td className="p-2 text-[11px] text-red-800" colSpan={9}>
+                                            {row.cancelledInvoices.map(item => `${item.invoiceNo} (${item.date}, ${item.customer}, ₹${item.value.toFixed(2)})`).join(' | ')}
+                                        </td>
+                                    </tr>
+                                )}
+                            </React.Fragment>
+                        ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50 border-t-2 border-gray-400">
+                        <tr className="text-[10px] font-black uppercase">
+                            <td className="p-2 border-r border-gray-300" colSpan={3}>Total</td>
+                            <td className="p-2 border-r border-gray-300 text-right">{totals.totalSalesBills}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">{totals.cancelledBills}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.taxableValue.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.cgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.sgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.igst.toFixed(2)}</td>
+                            <td className="p-2 text-right">₹{totals.grandTotal.toFixed(2)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </Card>
+    );
+};
+
+const CombinedHsnGrid = ({ rows }: { rows: CombinedHsnRow[] }) => {
+    const totals = rows.reduce((acc, row) => ({
+        salesTotalValue: acc.salesTotalValue + row.salesTotalValue,
+        purchaseTotalValue: acc.purchaseTotalValue + row.purchaseTotalValue,
+        combinedTotalValue: acc.combinedTotalValue + row.combinedTotalValue,
+        qty: acc.qty + row.combinedQty,
+        taxable: acc.taxable + row.combinedTaxable,
+        cgst: acc.cgst + row.combinedCgst,
+        sgst: acc.sgst + row.combinedSgst,
+        igst: acc.igst + row.combinedIgst,
+        tax: acc.tax + row.combinedTotalTax,
+    }), { salesTotalValue: 0, purchaseTotalValue: 0, combinedTotalValue: 0, qty: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 });
+
+    return (
+        <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden bg-white shadow-xl">
+            <div className="bg-primary text-white p-3 font-black text-[11px] uppercase tracking-widest">Combined HSN Summary (Inward + Outward)</div>
+            <div className="px-3 py-2 bg-gray-50 border-b border-gray-300 text-[10px] font-black uppercase text-gray-600 tracking-wider flex gap-6 flex-wrap">
+                <span>Sales Total: ₹{totals.salesTotalValue.toFixed(2)}</span>
+                <span>Purchase Total: ₹{totals.purchaseTotalValue.toFixed(2)}</span>
+                <span>Combined Total: ₹{totals.combinedTotalValue.toFixed(2)}</span>
+            </div>
+            <div className="flex-1 overflow-auto">
+                <table className="min-w-full border-collapse">
+                    <thead className="bg-gray-100 sticky top-0 border-b border-gray-400">
+                        <tr className="text-[10px] font-black uppercase text-gray-600 h-10">
+                            <th className="p-2 border-r border-gray-400 text-left">HSN</th>
+                            <th className="p-2 border-r border-gray-400 text-left">Description</th>
+                            <th className="p-2 border-r border-gray-400 text-center">UQC</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Qty</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Taxable</th>
+                            <th className="p-2 border-r border-gray-400 text-right">CGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">SGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">IGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Total Tax</th>
+                            <th className="p-2 text-right">Total Value</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                        {rows.map(row => (
+                            <tr key={row.hsnCode} className="h-11">
+                                <td className="p-2 border-r border-gray-200 font-mono">{row.hsnCode}</td>
+                                <td className="p-2 border-r border-gray-200">{row.description}</td>
+                                <td className="p-2 border-r border-gray-200 text-center">{row.uqc}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">{row.combinedQty.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedTaxable.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedCgst.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedSgst.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedIgst.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.combinedTotalTax.toFixed(2)}</td>
+                                <td className="p-2 text-right font-black">₹{row.combinedTotalValue.toFixed(2)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50 border-t-2 border-gray-400">
+                        <tr className="text-[10px] font-black uppercase">
+                            <td className="p-2 border-r border-gray-300" colSpan={3}>Combined Totals</td>
+                            <td className="p-2 border-r border-gray-300 text-right">{totals.qty.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.taxable.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.cgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.sgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.igst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.tax.toFixed(2)}</td>
+                            <td className="p-2 text-right">₹{totals.combinedTotalValue.toFixed(2)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </Card>
+    );
+};
+
 const Anx1Grid = ({ transactions, customers }: { transactions: Transaction[], customers: Customer[] }) => (
     <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden bg-white shadow-xl">
         <div className="bg-primary text-white p-3 font-black text-[11px] uppercase tracking-widest">FORM GST ANX-1: Details of Outward Supplies</div>
@@ -559,5 +1229,72 @@ const Anx2Grid = ({ purchases }: { purchases: Purchase[] }) => (
         </div>
     </Card>
 );
+
+
+const HsnGrid = ({ title, rows }: { title: string, rows: HsnRow[] }) => {
+    const totals = rows.reduce((acc, row) => ({
+        quantity: acc.quantity + row.quantity,
+        taxableValue: acc.taxableValue + row.taxableValue,
+        cgst: acc.cgst + row.cgst,
+        sgst: acc.sgst + row.sgst,
+        igst: acc.igst + row.igst,
+        cess: acc.cess + row.cess,
+        totalTax: acc.totalTax + row.totalTax,
+        invoiceValue: acc.invoiceValue + row.invoiceValue
+    }), { quantity: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, totalTax: 0, invoiceValue: 0 });
+
+    return (
+        <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden bg-white shadow-xl">
+            <div className="bg-primary text-white p-3 font-black text-[11px] uppercase tracking-widest">{title}</div>
+            <div className="flex-1 overflow-auto">
+                <table className="min-w-full border-collapse">
+                    <thead className="bg-gray-100 sticky top-0 border-b border-gray-400">
+                        <tr className="text-[10px] font-black uppercase text-gray-600 h-10">
+                            <th className="p-2 border-r border-gray-400 text-left">HSN</th>
+                            <th className="p-2 border-r border-gray-400 text-left">Description</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Qty</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Taxable</th>
+                            <th className="p-2 border-r border-gray-400 text-right">CGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">SGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">IGST</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Cess</th>
+                            <th className="p-2 border-r border-gray-400 text-right">Tax</th>
+                            <th className="p-2 text-right">Invoice</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                        {rows.map(row => (
+                            <tr key={row.hsnCode} className="h-11">
+                                <td className="p-2 border-r border-gray-200 font-mono">{row.hsnCode}</td>
+                                <td className="p-2 border-r border-gray-200">{row.description}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">{row.quantity.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.taxableValue.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.cgst.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.sgst.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.igst.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.cess.toFixed(2)}</td>
+                                <td className="p-2 border-r border-gray-200 text-right">₹{row.totalTax.toFixed(2)}</td>
+                                <td className="p-2 text-right font-black">₹{row.invoiceValue.toFixed(2)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50 border-t-2 border-gray-400">
+                        <tr className="text-[10px] font-black uppercase">
+                            <td className="p-2 border-r border-gray-300" colSpan={2}>Total</td>
+                            <td className="p-2 border-r border-gray-300 text-right">{totals.quantity.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.taxableValue.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.cgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.sgst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.igst.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.cess.toFixed(2)}</td>
+                            <td className="p-2 border-r border-gray-300 text-right">₹{totals.totalTax.toFixed(2)}</td>
+                            <td className="p-2 text-right">₹{totals.invoiceValue.toFixed(2)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </Card>
+    );
+};
 
 export default GstCenter;

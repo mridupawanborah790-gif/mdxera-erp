@@ -168,7 +168,8 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
                 <th className="w-[10%]">QTY+F</th>
-                <th className="text-left w-[32%]">DESCRIPTION</th>
+                <th className="text-left w-[26%]">DESCRIPTION</th>
+                <th className="w-[8%]">PACK</th>
                 <th className="w-[10%]">BATCH</th>
                 <th className="w-[7%]">EXP.</th>
                 <th className="w-[8%] text-right">M.R.P</th>
@@ -203,6 +204,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               })}
               {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                 <tr key={`spacer-${i}`} className="row-height border-b border-gray-100 last:border-b-0">
+                    <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>

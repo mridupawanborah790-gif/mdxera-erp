@@ -102,11 +102,15 @@ const POS = forwardRef<any, POSProps>(({
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
+    const [roundOff, setRoundOff] = useState(0);
+    const [isRoundOffManuallyEdited, setIsRoundOffManuallyEdited] = useState(false);
 
     const activeRowIdRef = useRef<string | null>(null);
 
     const isNonGst = billMode === 'EST';
     const strictStock = configurations.displayOptions?.strictStock ?? false;
+    const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
+    const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
     const isValidExpiry = useCallback((expiry: string) => /^(0[1-9]|1[0-2])\/\d{2}$/.test(expiry), []);
@@ -148,9 +152,20 @@ const POS = forwardRef<any, POSProps>(({
             tax += (itemNet - taxableValue);
         });
         const net = gross - tradeDiscount - schemeTotal - lumpsumDiscount;
-        const roundedNet = Math.round(net);
-        return { gross, tradeDiscount, schemeTotal, tax, net, roundedNet, roundOff: roundedNet - net };
+        const baseTotal = net + (isNonGst ? 0 : tax);
+        const autoRoundOff = Math.round(baseTotal) - baseTotal;
+        return { gross, tradeDiscount, schemeTotal, tax, net, baseTotal, autoRoundOff };
     }, [cartItems, lumpsumDiscount, isNonGst]);
+
+    useEffect(() => {
+        if (!isRoundOffManuallyEdited) {
+            setRoundOff(totals.autoRoundOff);
+        }
+    }, [totals.autoRoundOff, isRoundOffManuallyEdited]);
+
+    const grandTotal = useMemo(() => {
+        return parseFloat((totals.baseTotal + roundOff).toFixed(2));
+    }, [totals.baseTotal, roundOff]);
 
     useEffect(() => {
         setBillMode(billType === 'non-gst' ? 'EST' : 'GST');
@@ -165,7 +180,11 @@ const POS = forwardRef<any, POSProps>(({
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
             setCartItems(transactionToEdit.items || []);
             setLumpsumDiscount(transactionToEdit.schemeDiscount || 0);
+            setRoundOff(transactionToEdit.roundOff || 0);
+            setIsRoundOffManuallyEdited(true);
         } else {
+            setIsRoundOffManuallyEdited(false);
+            setRoundOff(0);
             // Default focus to Date field as requested
             setTimeout(() => dateInputRef.current?.focus(), 150);
         }
@@ -182,13 +201,13 @@ const POS = forwardRef<any, POSProps>(({
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
 
-        if (strictStock) {
+        if (shouldPreventNegativeStock) {
             for (const item of cartItems) {
                 const invItem = inventory.find(i => i.id === item.inventoryItemId);
                 if (invItem) {
                     const unitsPerPack = invItem.unitsPerPack || 1;
                     const requiredUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-                    if (invItem.stock < requiredUnits) {
+                    if (invItem.stock <= 0 || invItem.stock < requiredUnits) {
                         addNotification(`Insufficient stock for ${item.name}. Available: ${invItem.stock}`, "error");
                         return;
                     }
@@ -198,11 +217,18 @@ const POS = forwardRef<any, POSProps>(({
 
         setIsSaving(true);
 
-        const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-        const { id: templateId, nextExternalNumber } = generateNewInvoiceId(configurations[configKey], isNonGst ? 'non-gst' : 'regular');
-        const generatedId = transactionToEdit
-            ? transactionToEdit.id
-            : await storage.generateNextSalesBillId(templateId, currentUser!);
+        let generatedId = transactionToEdit?.id;
+
+        if (!generatedId) {
+            try {
+                generatedId = (await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!)).documentNumber;
+            } catch (reservationError) {
+                // Keep sales flow resilient when RPC-based voucher reservation is temporarily unavailable.
+                generatedId = currentInvoiceNo;
+                const errorMessage = reservationError instanceof Error ? reservationError.message : 'Voucher reservation failed';
+                console.warn('Voucher reservation failed, falling back to local invoice number:', errorMessage);
+            }
+        }
 
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
 
@@ -216,12 +242,12 @@ const POS = forwardRef<any, POSProps>(({
             customerPhone: customerPhone || selectedCustomer?.phone,
             referredBy: referredBy || '',
             items: cartItems,
-            total: isNonGst ? totals.roundedNet : parseFloat((totals.roundedNet + totals.tax).toFixed(2)),
+            total: grandTotal,
             subtotal: parseFloat((totals.net - totals.tax).toFixed(2)),
             totalItemDiscount: totals.tradeDiscount,
             totalGst: totals.tax,
             schemeDiscount: lumpsumDiscount,
-            roundOff: totals.roundOff,
+            roundOff,
             status: 'completed',
             paymentMode: finalPaymentMode,
             billType: isNonGst ? 'non-gst' : 'regular',
@@ -230,7 +256,7 @@ const POS = forwardRef<any, POSProps>(({
         };
 
         try {
-            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, transactionToEdit ? undefined : nextExternalNumber);
+            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit);
             if (onPrintBill) onPrintBill(transaction);
             setCartItems([]);
             setPrescriptions([]);
@@ -244,7 +270,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, strictStock, inventory]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -360,7 +386,14 @@ const POS = forwardRef<any, POSProps>(({
             if (!term || name.startsWith(term) || code.startsWith(term)) {
                 const key = `${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
                 if (!grouped.has(key)) grouped.set(key, { item: i, batches: [i] });
-                else grouped.get(key)!.batches.push(i);
+                else {
+                    const existing = grouped.get(key)!;
+                    existing.batches.push(i);
+                    existing.item = {
+                        ...existing.item,
+                        stock: existing.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0),
+                    };
+                }
             }
         });
 
@@ -525,6 +558,11 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
+        if (shouldPreventNegativeStock && Number(batch.stock || 0) <= 0) {
+            addNotification(`Insufficient stock for ${batch.name}. Available: ${Number(batch.stock || 0)}`, 'error');
+            return;
+        }
+
         let rateValue = batch.mrp;
         const globalDefaultRateTier = configurations?.displayOptions?.defaultRateTier || 'mrp';
         let rateTierToUse = selectedCustomer?.defaultRateTier !== 'none' ? selectedCustomer?.defaultRateTier : globalDefaultRateTier;
@@ -1119,9 +1157,23 @@ const POS = forwardRef<any, POSProps>(({
                                 />
                             </div>
                             {!isNonGst && <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="text-sm">+₹{(totals.tax || 0).toFixed(2)}</span></div>}
+                            <div className="flex justify-between text-purple-700 items-center">
+                                <span>Round Off</span>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    value={roundOff === 0 ? '' : roundOff}
+                                    onChange={e => {
+                                        setIsRoundOffManuallyEdited(true);
+                                        setRoundOff(parseFloat(e.target.value) || 0);
+                                    }}
+                                    className="w-20 text-right bg-white border border-gray-300 font-normal no-spinner outline-none px-1 py-0.5"
+                                    disabled={isReadOnly}
+                                />
+                            </div>
                             <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-2xl font-black text-primary">
-                                <span>TOTAL</span>
-                                <span>₹{((totals.roundedNet + (isNonGst ? 0 : totals.tax)) || 0).toFixed(2)}</span>
+                                <span>GRAND TOTAL</span>
+                                <span>₹{(grandTotal || 0).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
@@ -1310,7 +1362,9 @@ const POS = forwardRef<any, POSProps>(({
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">Description of Medicine</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200 w-32 text-center">Code</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">MFR / Brand</th>
-                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Strips Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Loose Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Total Stock</th>
                                                 <th className="p-1.5 px-3 text-right">MRP</th>
                                             </tr>
                                         </thead>
@@ -1318,6 +1372,10 @@ const POS = forwardRef<any, POSProps>(({
                                             {deduplicatedSearchInventory.map((res, sIdx) => {
                                                 const isSelected = sIdx === selectedSearchIndex;
                                                 const item = res.item;
+                                                const totalStock = res.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0);
+                                                const unitsPerPack = item.unitsPerPack || 1;
+                                                const stripsStock = Math.floor(totalStock / unitsPerPack);
+                                                const looseStock = totalStock % unitsPerPack;
                                                 return (
                                                     <tr
                                                         key={item.id}
@@ -1333,7 +1391,9 @@ const POS = forwardRef<any, POSProps>(({
                                                             {item.code}
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (item.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{item.stock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{stripsStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{looseStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{totalStock}</td>
                                                         <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>
                                                 );

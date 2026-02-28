@@ -148,7 +148,8 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
             <thead>
               <tr>
                 <th className="w-[5%]">#</th>
-                <th className="text-left w-[40%]">Item Description</th>
+                <th className="text-left w-[32%]">Item Description</th>
+                <th className="w-[8%]">Pack</th>
                 <th className="w-[12%]">Batch</th>
                 <th className="w-[8%]">Exp</th>
                 <th className="w-[8%]">Qty</th>
@@ -174,14 +175,14 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
               {/* Spacer rows to keep table size consistent */}
               {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                 <tr key={`empty-${i}`}>
-                  <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                  <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
                 </tr>
               ))}
             </tbody>
             {pageIdx === calculations.itemChunks.length - 1 && (
                 <tfoot>
                     <tr className="bg-gray-50">
-                        <td colSpan={4} className="text-right p-1 uppercase text-[7pt]">Page Total Items:</td>
+                        <td colSpan={5} className="text-right p-1 uppercase text-[7pt]">Page Total Items:</td>
                         <td className="text-center p-1">{chunk.reduce((sum, i) => sum + i.quantity, 0)}</td>
                         <td colSpan={2} className="text-right p-1 text-[9pt]">₹ {chunk.reduce((sum, i) => sum + (i.lineTotal || 0), 0).toFixed(2)}</td>
                     </tr>

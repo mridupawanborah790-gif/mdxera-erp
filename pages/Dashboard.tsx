@@ -2,7 +2,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import Card from '../components/Card';
 import type { InventoryItem, RegisteredPharmacy, Transaction, Purchase, Medicine, Customer, Distributor, AppConfigurations } from '../types';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Chatbot from '../components/Chatbot'; // Import Chatbot here
 import { MASTER_SHORTCUT_OPTIONS } from '../constants';
 
@@ -34,6 +33,8 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
 
 const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
     const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(-1);
+    const [expiryFilter, setExpiryFilter] = useState<'expired' | 'nearExpiry'>('expired');
+    const promoImageUrl = 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
 
     const isVisible = (fieldId: string) => configurations.modules?.dashboard?.fields?.[fieldId] === true;
 
@@ -98,14 +99,54 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
     const expiryAlerts = useMemo(() => {
         const threshold = configurations.displayOptions?.expiryThreshold || 90;
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const alertDate = new Date();
         alertDate.setDate(alertDate.getDate() + threshold);
         return inventory.filter(item => {
             if (!item.expiry) return false;
             const expDate = new Date(item.expiry);
-            return expDate <= alertDate;
+            if (Number.isNaN(expDate.getTime())) return false;
+            return expDate < todayStart || expDate <= alertDate;
         }).sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime());
     }, [inventory, configurations.displayOptions]);
+
+    const filteredExpiryAlerts = useMemo(() => {
+        const threshold = configurations.displayOptions?.expiryThreshold || 90;
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const alertDate = new Date(todayStart);
+        alertDate.setDate(alertDate.getDate() + threshold);
+
+        return expiryAlerts.filter(item => {
+            const expDate = new Date(item.expiry);
+            if (Number.isNaN(expDate.getTime())) return false;
+            if (expiryFilter === 'expired') {
+                return expDate < todayStart;
+            }
+            return expDate >= todayStart && expDate <= alertDate;
+        });
+    }, [expiryAlerts, expiryFilter, configurations.displayOptions]);
+
+    const tickerItems = useMemo(() => {
+        if (filteredExpiryAlerts.length === 0) return [];
+        return [...filteredExpiryAlerts, ...filteredExpiryAlerts];
+    }, [filteredExpiryAlerts]);
+
+    const tickerDuration = useMemo(() => {
+        const secondsPerItem = 10;
+        const minDuration = 55;
+        return Math.max(minDuration, filteredExpiryAlerts.length * secondsPerItem);
+    }, [filteredExpiryAlerts.length]);
+
+    const getAlertType = (expiry?: string) => {
+        const expDate = expiry ? new Date(expiry) : null;
+        if (!expDate || Number.isNaN(expDate.getTime())) return 'nearExpiry' as const;
+
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        return expDate < todayStart ? 'expired' as const : 'nearExpiry' as const;
+    };
 
     const cleanAppData = useMemo(() => ({
         inventory, transactions, purchases, distributors, customers, medicines,
@@ -143,7 +184,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
     return (
         <div className="relative min-h-full flex flex-col overflow-hidden bg-app-bg dark:bg-zinc-950">
-            <main className="p-6 space-y-6 view-enter flex-1 pb-16">
+            <main className="p-6 space-y-6 view-enter flex-1 pb-28">
                 
                 {/* Header Strip */}
                 <div className="flex justify-between items-center bg-primary text-white px-4 py-3 tally-shadow">
@@ -164,48 +205,38 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     {/* Left Panel: Main View Content */}
                     <div className="lg:col-span-8 space-y-6">
-                        {isVisible('chartCashFlow') && (
-                            <Card className="p-5 tally-border !rounded-none h-[300px]">
-                                <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4">Cash Flow Performance (7 Days)</h3>
-                                <div className="h-52 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={transactions.slice(0, 7).reverse().map(t => ({ date: (t.date || '').split('T')[0], amount: t.total }))}>
-                                            <CartesianGrid strokeDasharray="1 1" stroke="#ddd" vertical={false} />
-                                            <XAxis dataKey="date" hide />
-                                            <YAxis tick={{fontSize: 10, fontStyle: 'bold'}} />
-                                            <Tooltip contentStyle={{fontSize: '11px', borderRadius: '0px', border: '1px solid #004242'}} />
-                                            <Area type="step" dataKey="amount" stroke="#004242" fill="#00424220" strokeWidth={3} />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
+                        <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white">
+                            <img
+                                src={promoImageUrl}
+                                alt="Dashboard promotion"
+                                className="w-full h-44 md:h-52 lg:h-56 object-contain bg-white"
+                                loading="lazy"
+                            />
+                        </Card>
+
+                        {isVisible('recentVouchers') && (
+                            <Card className="p-0 tally-border !rounded-none overflow-hidden h-[340px] flex flex-col bg-white">
+                                <div className="bg-gray-100 p-3 border-b border-gray-300 font-bold text-[12px] uppercase tracking-wide flex justify-between items-center">
+                                    <span>Recent Vouchers</span>
+                                    <button onClick={onReload} disabled={isReloading} className={`p-1.5 rounded-full hover:bg-gray-200 transition-colors ${isReloading ? 'animate-spin opacity-50' : ''}`} title="Refresh Records">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-auto bg-white">
+                                    <table className="w-full text-[13px] border-collapse">
+                                        <tbody className="divide-y divide-gray-100">
+                                            {transactions.slice(0, 15).map(tx => (
+                                                <tr key={tx.id} className="hover:bg-accent transition-colors cursor-pointer group">
+                                                    <td className="p-3 font-bold font-mono text-primary group-hover:text-black">{tx.id}</td>
+                                                    <td className="p-3 truncate font-medium group-hover:text-black uppercase">{tx.customerName}</td>
+                                                    <td className="p-3 text-right font-black group-hover:text-black">₹{tx.total}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
                             </Card>
                         )}
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {isVisible('recentVouchers') && (
-                                <Card className="p-0 tally-border !rounded-none overflow-hidden h-[340px] flex flex-col">
-                                    <div className="bg-gray-100 p-3 border-b border-gray-300 font-bold text-[12px] uppercase tracking-wide flex justify-between items-center">
-                                        <span>Recent Vouchers</span>
-                                        <button onClick={onReload} disabled={isReloading} className={`p-1.5 rounded-full hover:bg-gray-200 transition-colors ${isReloading ? 'animate-spin opacity-50' : ''}`} title="Refresh Records">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                                        </button>
-                                    </div>
-                                    <div className="flex-1 overflow-auto bg-white">
-                                        <table className="w-full text-[13px] border-collapse">
-                                            <tbody className="divide-y divide-gray-100">
-                                                {transactions.slice(0, 15).map(tx => (
-                                                    <tr key={tx.id} className="hover:bg-accent transition-colors cursor-pointer group">
-                                                        <td className="p-3 font-bold font-mono text-primary group-hover:text-black">{tx.id}</td>
-                                                        <td className="p-3 truncate font-medium group-hover:text-black uppercase">{tx.customerName}</td>
-                                                        <td className="p-3 text-right font-black group-hover:text-black">₹{tx.total}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </Card>
-                            )}
-                        </div>
                     </div>
 
                     {/* Right Panel: Gateway Menu Style */}
@@ -258,26 +289,78 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                         </div>
                     </div>
                 </div>
+
             </main>
 
-            {/* Expiry Ticker */}
             {expiryAlerts.length > 0 && (
-                <div className="fixed bottom-8 left-64 right-10 bg-red-800 text-white h-10 flex items-center overflow-hidden z-30 tally-shadow border border-red-900">
-                    <div className="bg-black px-5 h-full flex items-center font-black text-[11px] uppercase tracking-tighter shrink-0 border-r border-red-900">
-                        ATTENTION REQUIRED: EXPIRY ALERTS
-                    </div>
-                    <div className="flex-1 h-full overflow-hidden whitespace-nowrap">
-                        <div className="animate-marquee h-full flex items-center">
-                            {[...expiryAlerts, ...expiryAlerts].map((item, idx) => (
-                                <div key={`${item.id}-${idx}`} className="flex items-center px-10 shrink-0 text-[13px] font-bold uppercase">
-                                    <span className="text-accent mr-3">•</span>
-                                    {item.name} (EXP: {item.expiry})
-                                </div>
-                            ))}
+                <div className="sticky bottom-0 z-20 border-t-2 border-emerald-700/70 bg-emerald-200/60 text-emerald-950 shadow-[0_-4px_16px_rgba(6,78,59,0.15)] backdrop-blur-sm">
+                    <div className="flex flex-col gap-3 px-3 py-2 md:flex-row md:items-center md:justify-between md:px-5">
+                        <div className="text-xs font-extrabold uppercase tracking-[0.12em]">
+                            ATTENTION REQUIRED: EXPIRY ALERTS
                         </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setExpiryFilter('expired')}
+                                className={`rounded px-3 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors ${expiryFilter === 'expired' ? 'bg-red-700 text-white shadow-sm' : 'bg-white/70 text-red-900 hover:bg-white'}`}
+                            >
+                                Expired
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setExpiryFilter('nearExpiry')}
+                                className={`rounded px-3 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors ${expiryFilter === 'nearExpiry' ? 'bg-yellow-400 text-yellow-950 shadow-sm' : 'bg-white/70 text-yellow-900 hover:bg-white'}`}
+                            >
+                                Near Expiry
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="overflow-hidden border-t border-emerald-700/30 bg-emerald-100/40 py-2">
+                        {filteredExpiryAlerts.length > 0 ? (
+                            <div
+                                className="expiry-ticker-track flex min-w-max items-center gap-3 px-4"
+                                style={{ animationDuration: `${tickerDuration}s` }}
+                            >
+                                {tickerItems.map((item, idx) => {
+                                    const isExpiredAlert = getAlertType(item.expiry) === 'expired';
+                                    return (
+                                        <div
+                                            key={`${item.id}-${idx}`}
+                                            className={`flex items-center gap-2 whitespace-nowrap rounded border px-3 py-1 text-xs md:text-sm ${isExpiredAlert ? 'border-red-500/60 bg-red-100/95 text-red-900' : 'border-yellow-500/70 bg-yellow-100/95 text-yellow-950'}`}
+                                        >
+                                            <span className="font-bold uppercase">{item.name}</span>
+                                            <span className="font-mono uppercase">{item.batch || 'NO-BATCH'}</span>
+                                            <span className="font-semibold">EXP: {item.expiry}</span>
+                                            <span className="font-black">STOCK {item.stock}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="px-4 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-900 md:text-sm">
+                                No materials found for selected filter.
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
+
+            <style>{`
+                .expiry-ticker-track {
+                    animation: expiryTickerMove 55s linear infinite;
+                    will-change: transform;
+                }
+
+                @keyframes expiryTickerMove {
+                    0% {
+                        transform: translateX(0);
+                    }
+                    100% {
+                        transform: translateX(-50%);
+                    }
+                }
+            `}</style>
 
             <Chatbot appData={cleanAppData} />
         </div>

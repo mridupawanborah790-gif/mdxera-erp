@@ -166,7 +166,8 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 <thead>
                     <tr className="border-b-2 border-black bg-gray-100">
                         <th className="p-1 border-r border-black w-[4%] text-center">Sr.</th>
-                        <th className="p-1 border-r border-black text-left w-[24%]">Product Description</th>
+                        <th className="p-1 border-r border-black text-left w-[20%]">Product Description</th>
+                        <th className="p-1 border-r border-black text-left w-[7%]">Pack</th>
                         <th className="p-1 border-r border-black text-left w-[7%]">HSN</th>
                         <th className="p-1 border-r border-black text-left w-[9%]">Batch</th>
                         <th className="p-1 border-r border-black text-center w-[7%]">Exp.</th>
@@ -201,6 +202,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     ))}
                     {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                         <tr key={`empty-${i}`} className="border-b border-gray-300 last:border-b-0 h-6">
+                            <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>

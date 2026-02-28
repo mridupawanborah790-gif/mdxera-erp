@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 // Fix: Added AppConfigurations to imports
 import type { DetailedBill, InventoryItem, Medicine, AppConfigurations } from '../types';
@@ -7,7 +7,6 @@ import MediOneTemplate from './invoice-templates/MediOneTemplate';
 import MargTemplate from './invoice-templates/MargTemplate';
 import GftTemplate from './invoice-templates/GftTemplate';
 import AbhigyanTemplate from './invoice-templates/AbhigyanTemplate';
-import DosageInstructions from './DosageInstructions';
 
 // Declare html2pdf for TypeScript since it's loaded via CDN
 declare const html2pdf: any;
@@ -20,39 +19,17 @@ interface PrintBillModalProps {
   medicines: Medicine[];
 }
 
-const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, medicines }) => {
+const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, medicines: _medicines }) => {
   const [template, setTemplate] = useState<'medi-1' | 'marg' | 'gft' | 'abhigyan'>('marg');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
   const [isSharing, setIsSharing] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
   
   // Define isLandscape from orientation
   const isLandscape = orientation === 'landscape';
     
-  // NEW: Automatically trigger print when modal opens
-  useEffect(() => {
-    if (isOpen && bill) {
-      const originalTitle = document.title;
-      const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
-      document.title = `Invoice_${bill.id}_${sanitizedCustomerName}`;
-
-      // A slight delay to ensure the DOM is fully rendered before printing
-      const printTimeout = setTimeout(() => {
-        window.print();
-        // Restore title after a safe delay
-        setTimeout(() => {
-          document.title = originalTitle;
-        }, 1000); 
-      }, 200); // Increased delay to 200ms for better rendering
-
-      return () => clearTimeout(printTimeout);
-    }
-  }, [isOpen, bill]);
-
-
   if (!isOpen || !bill) return null;
 
-  const handlePrint = () => {
+  const triggerBrowserPrint = () => {
     const originalTitle = document.title;
     const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
     document.title = `Invoice_${bill.id}_${sanitizedCustomerName}`;
@@ -68,43 +45,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     }, 100);
   };
 
-  const handleDownloadOnly = async () => {
-    if (typeof html2pdf === 'undefined') {
-        alert("PDF generation library is not loaded. Please use the 'Print / Save PDF' button to 'Save as PDF' via your browser.");
-        return;
-    }
-
-    setIsDownloading(true);
-    const element = document.getElementById('print-area');
-    
-    const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
-    const opt = {
-        margin: [2, 2, 2, 2], // T, L, B, R in mm
-        filename: `Invoice_${bill.id}_${sanitizedCustomerName}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { 
-            scale: 2.5, 
-            useCORS: true, 
-            logging: false,
-            letterRendering: true,
-            backgroundColor: '#ffffff'
-        },
-        jsPDF: { 
-            unit: 'mm', 
-            format: 'a5', 
-            orientation: orientation, 
-            compress: true 
-        }
-    };
-
-    try {
-        await html2pdf().set(opt).from(element).save();
-    } catch (e) {
-        console.error("Download error:", e);
-        alert("Direct PDF generation failed. Please use 'Print / Save PDF' button and select 'Save as PDF' instead.");
-    } finally {
-        setIsDownloading(false);
-    }
+  const handleDownloadOnly = () => {
+    triggerBrowserPrint();
   };
 
   const handleWhatsAppShare = async () => {
@@ -127,11 +69,11 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
     const element = document.getElementById('print-area');
     const opt = {
-        margin: [5, 5, 5, 5],
+        margin: 0,
         filename: `Invoice_${bill.id}.pdf`,
         image: { type: 'jpeg', quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a5', orientation: orientation }
+        jsPDF: { unit: 'mm', format: 'a5', orientation }
     };
 
     try {
@@ -214,16 +156,18 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           </button>
         </div>
 
-        <div className={`flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:overflow-visible print:bg-white`}>
-            <div id="print-area" className={`${isLandscape ? 'max-w-[210mm]' : 'max-w-[148mm]'} min-h-fit p-0 text-black bg-white shadow-lg print:shadow-none mx-auto`}>
+        <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
+            <div
+              id="print-area"
+              className={`${isLandscape ? 'w-[210mm] h-[148mm]' : 'w-[148mm] h-[210mm]'} p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0`}
+            >
                 {renderTemplate()}
-                <DosageInstructions items={bill.items} medicines={medicines} />
             </div>
         </div>
 
         <div className="flex justify-end items-center p-4 bg-gray-50 border-t no-print space-x-3 z-10 relative">
-            <button onClick={handleDownloadOnly} disabled={isDownloading} className="px-5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 flex items-center">
-                {isDownloading ? 'Generating...' : 'Save as PDF'}
+            <button onClick={handleDownloadOnly} className="px-5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 flex items-center">
+                Save as PDF
             </button>
             
             {(bill.customerPhone || bill.customerDetails?.phone) && (
@@ -235,7 +179,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             <button onClick={onClose} className="px-5 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900">
                 Close
             </button>
-            <button onClick={handlePrint} className="px-5 py-2 text-sm font-semibold text-white bg-primary rounded-lg shadow-sm hover:bg-primary-dark">
+            <button onClick={triggerBrowserPrint} className="px-5 py-2 text-sm font-semibold text-white bg-primary rounded-lg shadow-sm hover:bg-primary-dark">
                 Re-Print / Save PDF
             </button>
         </div>
@@ -244,45 +188,69 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
       <style>{`
         @media print {
           @page {
-            size: A5 ${orientation};
             margin: 0;
+            size: A5 ${orientation};
+          }
+
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
 
           body * {
-            visibility: hidden;
-          }
-
-          #print-bill-modal-container,
-          #print-bill-modal-container * {
-            visibility: visible;
+            visibility: hidden !important;
           }
 
           #print-bill-modal-container {
-            position: static !important;
-            inset: auto !important;
-            background: #fff !important;
-            display: block !important;
-            height: auto !important;
-            overflow: visible !important;
+            position: fixed !important;
+            inset: 0 !important;
+            display: flex !important;
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
+            background: white !important;
+            visibility: visible !important;
           }
 
           #print-bill-modal-container > div {
-            width: 100% !important;
-            max-width: 100% !important;
+            width: auto !important;
+            max-width: none !important;
             max-height: none !important;
-            overflow: visible !important;
+            height: auto !important;
+            overflow: hidden !important;
+            border-radius: 0 !important;
             box-shadow: none !important;
+            visibility: visible !important;
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
+          #print-area {
+            width: ${isLandscape ? '210mm' : '148mm'} !important;
+            height: ${isLandscape ? '148mm' : '210mm'} !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+            visibility: visible !important;
+            break-after: avoid-page !important;
+            break-before: avoid-page !important;
+            page-break-inside: avoid !important;
+          }
+
+          #print-area,
+          #print-area * {
+            visibility: visible !important;
           }
 
           #print-bill-modal-container .no-print {
             display: none !important;
           }
 
-          #print-area {
-            width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            box-shadow: none !important;
+          #print-bill-modal-container,
+          #print-bill-modal-container * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
         }
       `}</style>

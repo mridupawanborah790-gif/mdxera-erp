@@ -75,9 +75,12 @@ export interface OrganizationMember {
 }
 
 export interface InvoiceNumberConfig {
+    fy?: string;
     prefix: string;
     startingNumber: number;
+    endNumber?: number;
     paddingLength: number;
+    resetRule?: 'financial-year';
     useFiscalYear: boolean;
     currentNumber: number;
     internalCurrentNumber?: number;
@@ -729,6 +732,7 @@ export interface PhysicalInventoryCountItem {
     physicalCount: number;
     variance: number;
     cost: number;
+    unitsPerPack?: number;
 }
 
 export enum PhysicalInventoryStatus {

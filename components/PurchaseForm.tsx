@@ -11,7 +11,7 @@ import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchSupplierProductMaps, generateUUID, saveData } from '../services/storageService';
+import { fetchPendingMobileBills, fetchSupplierProductMaps, generateUUID, getLatestSyncMessage, getOrCreateMobileDeviceId, listenForSyncMessage, markMobileBillImported, reserveVoucherNumber, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
@@ -22,6 +22,7 @@ import { prepareCapturedImageForAiExtraction, prepareFilesForAiExtraction } from
 const UploadIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>;
 const CameraIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="4" /></svg>;
 const SmartphoneIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" ry="18" x2="12.01" y2="18" /></svg>;
+const LinkIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07L11.7 5.24" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.77-1.77" /></svg>;
 
 const Spinner = () => (
     <svg className="animate-spin h-4 w-4 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -32,6 +33,61 @@ const Spinner = () => (
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
+const EXPIRY_MM_YY_REGEX = /^(0[1-9]|1[0-2])\/\d{2}$/;
+const currencyFormatter = new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
+const formatCurrency = (value: number) => currencyFormatter.format(Number.isFinite(value) ? value : 0);
+
+const formatSignedCurrency = (value: number, sign: '+' | '-') => {
+    const normalizedValue = Math.abs(Number.isFinite(value) ? value : 0);
+    return `${sign}${formatCurrency(normalizedValue)}`;
+};
+
+const formatRoundOffCurrency = (value: number) => {
+    if (!Number.isFinite(value) || value === 0) return formatCurrency(0);
+    return `${value > 0 ? '+' : '-'}${formatCurrency(Math.abs(value))}`;
+};
+
+const formatExpiryToMMYY = (value?: string | null): string => {
+    if (!value || String(value).toUpperCase() === 'N/A') return '';
+    const clean = String(value).trim();
+    const slashMatch = clean.match(/^(\d{1,2})[/-](\d{2}|\d{4})$/);
+    if (slashMatch) {
+        const month = Number(slashMatch[1]);
+        if (month < 1 || month > 12) return '';
+        const yearPart = slashMatch[2].slice(-2);
+        return `${String(month).padStart(2, '0')}/${yearPart}`;
+    }
+
+    const dateLike = clean.split('T')[0].match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+    if (dateLike) {
+        const month = Number(dateLike[2]);
+        if (month < 1 || month > 12) return '';
+        return `${String(month).padStart(2, '0')}/${dateLike[1].slice(-2)}`;
+    }
+
+    return EXPIRY_MM_YY_REGEX.test(clean) ? clean : '';
+};
+
+const normalizeExpiryInput = (rawValue: string): string => {
+    const cleaned = rawValue.replace(/[^\d/]/g, '');
+    const digits = cleaned.replace(/\D/g, '').slice(0, 4);
+    if (digits.length <= 2) return digits;
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+};
+
+const normalizeSupplierKey = (value: string): string => (
+    (value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+);
 
 const createBlankItem = (): PurchaseItem => ({
     id: crypto.randomUUID(),
@@ -52,6 +108,53 @@ const createBlankItem = (): PurchaseItem => ({
     schemeDiscountAmount: 0,
     matchStatus: 'pending'
 });
+
+type MobileSyncStatus = 'pending' | 'syncing' | 'uploading' | 'synced' | 'imported' | 'failed';
+
+interface MobileSyncPage {
+    image: string;
+    mimeType: string;
+    pageNumber: number;
+    capturedAt?: string;
+}
+
+interface MobileSyncInvoicePayload {
+    type?: 'invoice-upload';
+    invoiceId?: string;
+    billId?: string;
+    pages?: MobileSyncPage[];
+    image?: string;
+    mimeType?: string;
+    metadata?: {
+        organizationId?: string;
+        userId?: string;
+        deviceId?: string;
+        sessionId?: string;
+    };
+}
+
+
+const MOBILE_SYNC_DEVICE_ID_KEY = 'mdxera_mobile_sync_device_id';
+
+const getOrCreateMobileSyncDeviceId = (): string => {
+    if (typeof window === 'undefined') return crypto.randomUUID();
+    const existing = window.localStorage.getItem(MOBILE_SYNC_DEVICE_ID_KEY);
+    if (existing && existing.trim().length > 0) return existing;
+    const next = crypto.randomUUID();
+    window.localStorage.setItem(MOBILE_SYNC_DEVICE_ID_KEY, next);
+    return next;
+};
+
+const getSyncStatusLabel = (status: MobileSyncStatus) => {
+    switch (status) {
+        case 'pending': return 'Pending';
+        case 'syncing': return 'Syncing…';
+        case 'uploading': return 'Uploading';
+        case 'synced': return 'Synced';
+        case 'imported': return 'Imported Successfully';
+        case 'failed': return 'Failed';
+    }
+};
 
 interface PurchaseFormProps {
     onAddPurchase: (purchase: any, supplierGst: string, nextCounter?: number) => Promise<void>;
@@ -130,6 +233,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [rateTierDraft, setRateTierDraft] = useState({ rateA: '', rateB: '', rateC: '' });
     const [rateTierHandledRows, setRateTierHandledRows] = useState<Set<string>>(new Set());
     const [selectedRateTierAction, setSelectedRateTierAction] = useState<'skip' | 'save'>('save');
+    const [mobileSyncStatus, setMobileSyncStatus] = useState<MobileSyncStatus>('pending');
+    const [mobileSyncError, setMobileSyncError] = useState<string | null>(null);
+    const [isMobileSyncing, setIsMobileSyncing] = useState(false);
+    const [mobileInvoiceId, setMobileInvoiceId] = useState<string | null>(null);
+    const [mobilePageCount, setMobilePageCount] = useState(0);
+    const [mobileSyncDeviceId] = useState<string>(() => getOrCreateMobileSyncDeviceId());
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
@@ -144,10 +253,25 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const skipRateButtonRef = useRef<HTMLButtonElement>(null);
     const saveRateButtonRef = useRef<HTMLButtonElement>(null);
 
+    const resetFormForNewEntry = useCallback(() => {
+        setSupplier('');
+        setSupplierGst('');
+        setInvoiceNumber('');
+        setDate(new Date().toISOString().split('T')[0]);
+        setItems([createBlankItem()]);
+        setRateTierHandledRows(new Set());
+        setSupplierNameError(null);
+        setInvoiceNumberError(null);
+    }, []);
+
     const currentsupplier = useMemo(() => {
-        const lowerSupplier = (Supplier || '').toLowerCase().trim();
-        if (!lowerSupplier) return null;
-        return suppliers.find(d => (d.name || '').toLowerCase().trim() === lowerSupplier);
+        const supplierKey = normalizeSupplierKey(Supplier);
+        if (!supplierKey) return null;
+
+        const exact = suppliers.find(d => normalizeSupplierKey(d.name || '') === supplierKey);
+        if (exact) return exact;
+
+        return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
     }, [suppliers, Supplier]);
 
     const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetsupplier: Supplier | null) => {
@@ -212,6 +336,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const mappedItems = pItems.map(item => ({
                 ...createBlankItem(),
                 ...item,
+                expiry: formatExpiryToMMYY(String(item.expiry || '')),
                 quantity: Number(item.quantity || 0),
                 purchasePrice: Number(item.purchasePrice || 0),
                 mrp: Number(item.mrp || 0),
@@ -227,22 +352,23 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setSupplier(draftSupplier || '');
             const matchedDist = suppliers.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
             const newItems = Array.isArray(draftItems) ? draftItems.map(item => ({
-                ...createBlankItem(), ...item, quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
+                ...createBlankItem(), ...item, expiry: formatExpiryToMMYY(String(item.expiry || '')), quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
             })) : [];
             const linked = attemptAutoLink(newItems as PurchaseItem[], matchedDist || null);
             setItems([...linked, createBlankItem()]);
             setRateTierHandledRows(new Set());
         } else {
-            setSupplier(''); setSupplierGst(''); setInvoiceNumber(''); setDate(new Date().toISOString().split('T')[0]); setItems([createBlankItem()]);
-            setRateTierHandledRows(new Set());
+            resetFormForNewEntry();
             // Focus Supplier name on new voucher
             setTimeout(() => supplierNameInputRef.current?.focus(), 200);
         }
-    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink]);
+    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink, resetFormForNewEntry]);
 
     const calculatedTotals = useMemo(() => {
+        const billDiscount = 0;
         let subtotal = 0;
         let totalGst = 0;
+        let grossAmount = 0;
         let totalItemDiscount = 0;
         let totalItemSchemeDiscount = 0;
 
@@ -251,11 +377,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const gross = (p.purchasePrice || 0) * (p.quantity || 0);
             const tradeDisc = gross * ((p.discountPercent || 0) / 100);
             const afterTrade = gross - tradeDisc;
-            const schemeDisc = (p.schemeDiscountAmount || 0);
+            const schemeDiscPercentAmount = afterTrade * ((p.schemeDiscountPercent || 0) / 100);
+            const schemeDisc = p.schemeDiscountAmount > 0 ? p.schemeDiscountAmount : schemeDiscPercentAmount;
             const taxable = afterTrade - schemeDisc;
             const gst = taxable * ((p.gstPercent || 0) / 100);
             const total = taxable + gst;
 
+            grossAmount += gross;
             subtotal += taxable;
             totalGst += gst;
             totalItemDiscount += tradeDisc;
@@ -272,32 +400,75 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             };
         });
 
+        const preRoundTotal = subtotal + totalGst - billDiscount;
+        const grandTotal = Math.round(preRoundTotal);
+        const roundOff = Number((grandTotal - preRoundTotal).toFixed(2));
+
         return {
             itemsWithCalculations,
+            grossAmount,
             subtotal,
             totalGst,
-            totalAmount: subtotal + totalGst,
+            billDiscount,
+            preRoundTotal,
+            roundOff,
+            grandTotal,
+            totalAmount: grandTotal,
             totalItemDiscount,
             totalItemSchemeDiscount
         };
     }, [items]);
 
+    const hasDuplicateSupplierInvoice = useCallback(() => {
+        const normalizedSupplier = Supplier.toLowerCase().trim();
+        const normalizedInvoice = invoiceNumber.toLowerCase().trim();
+        if (!normalizedSupplier || !normalizedInvoice) return false;
+
+        const currentFy = (purchaseToEdit as any)?.fy;
+
+        return purchases.some(p => {
+            if (purchaseToEdit?.id && p.id === purchaseToEdit.id) return false;
+            if ((p.organization_id || '').trim() !== (organizationId || '').trim()) return false;
+
+            const sameSupplier = (p.supplier || '').toLowerCase().trim() === normalizedSupplier;
+            const sameInvoice = (p.invoiceNumber || '').toLowerCase().trim() === normalizedInvoice;
+            if (!sameSupplier || !sameInvoice) return false;
+
+            const purchaseFy = (p as any).fy;
+            if (currentFy && purchaseFy) return purchaseFy === currentFy;
+            return true;
+        });
+    }, [Supplier, invoiceNumber, purchaseToEdit, purchases, organizationId]);
+
     const handleSubmit = async () => {
         if (isSubmitting) return;
         if (!Supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
         if (!invoiceNumber.trim()) { setInvoiceNumberError("Invoice number is required."); return; }
+        if (hasDuplicateSupplierInvoice()) {
+            const duplicateMessage = "Duplicate Supplier Invoice # already recorded. Please verify Purchase History.";
+            setInvoiceNumberError(duplicateMessage);
+            addNotification(duplicateMessage, "error");
+            return;
+        }
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
+
+        const invalidExpiryItem = activeItems.find(item => {
+            const expiryValue = (item.expiry || '').trim();
+            return expiryValue !== '' && !EXPIRY_MM_YY_REGEX.test(expiryValue);
+        });
+        if (invalidExpiryItem) {
+            addNotification(`Invalid expiry for ${invalidExpiryItem.name}. Use MM/YY format (e.g., 01/25).`, "error");
+            return;
+        }
 
         setIsSubmitting(true);
         try {
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;
-            let nextExternalNumber;
 
-            if (!purchaseToEdit) {
-                const { id: generatedSerialId, nextExternalNumber: nextNum } = generateNewInvoiceId(configurations.purchaseConfig, 'purchase-bill');
-                purchaseSerialId = generatedSerialId;
-                nextExternalNumber = nextNum;
+            if (!purchaseToEdit && currentUser) {
+                const reserved = await reserveVoucherNumber('purchase-entry', currentUser);
+                purchaseSerialId = reserved.documentNumber;
             }
 
             const payload = {
@@ -305,7 +476,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 supplier: Supplier,
                 invoiceNumber: invoiceNumber.trim(),
                 date,
-                items: calculatedTotals.itemsWithCalculations,
+                items: calculatedTotals.itemsWithCalculations.map(item => ({
+                    ...item,
+                    expiry: formatExpiryToMMYY(item.expiry)
+                })),
                 subtotal: calculatedTotals.subtotal,
                 totalGst: calculatedTotals.totalGst,
                 totalAmount: calculatedTotals.totalAmount,
@@ -313,20 +487,26 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 totalItemSchemeDiscount: calculatedTotals.totalItemSchemeDiscount,
                 status: 'completed' as const,
                 organization_id: organizationId,
-                roundOff: 0,
+                roundOff: calculatedTotals.roundOff,
                 schemeDiscount: 0
             };
 
             if (purchaseToEdit) {
                 await onUpdatePurchase({ ...purchaseToEdit, ...payload } as any, supplierGst);
             } else {
-                await onAddPurchase(payload, supplierGst, nextExternalNumber);
+                await onAddPurchase(payload, supplierGst);
             }
             onClearDraft(); if (onCancel) onCancel();
         } catch (e: any) {
             addNotification(`Error: ${parseNetworkAndApiError(e)}`, "error");
         } finally { setIsSubmitting(false); }
     };
+
+    const handleDiscard = useCallback(() => {
+        resetFormForNewEntry();
+        onClearDraft();
+        if (onCancel) onCancel();
+    }, [onCancel, onClearDraft, resetFormForNewEntry]);
 
     useImperativeHandle(ref, () => ({
         handleSubmit,
@@ -343,7 +523,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (!term || name.startsWith(term) || code.startsWith(term)) {
                 const key = `${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
                 if (!grouped.has(key)) grouped.set(key, { item: i, batches: [i] });
-                else grouped.get(key)!.batches.push(i);
+                else {
+                    const existing = grouped.get(key)!;
+                    existing.batches.push(i);
+                    existing.item = {
+                        ...existing.item,
+                        stock: existing.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0),
+                    };
+                }
             }
         });
 
@@ -445,7 +632,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             brand: batch.brand || '',
             category: batch.category || 'General',
             batch: batch.batch || 'NEW-BATCH',
-            expiry: batch.expiry ? String(batch.expiry) : 'N/A',
+            expiry: formatExpiryToMMYY(batch.expiry ? String(batch.expiry) : ''),
             quantity: 1,
             looseQuantity: 0,
             freeQuantity: 0,
@@ -502,6 +689,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const index = prev.findIndex(p => p.id === id); if (index === -1) return prev;
             let updatedItem = { ...prev[index], [field]: value };
             if (field === 'name') { updatedItem.matchStatus = 'pending'; updatedItem.inventoryItemId = undefined; }
+            if (field === 'expiry') { updatedItem.expiry = normalizeExpiryInput(String(value)); }
             if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
             const updated = prev.map(p => p.id === id ? updatedItem : p);
             if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
@@ -662,8 +850,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         try {
             const bill = await extractPurchaseDetailsFromBill(fileInputs, currentUser?.pharmacy_name || '');
             if (bill.error) {
-                addNotification(bill.error, 'error');
-                return;
+                throw new Error(String(bill.error));
             }
 
             if (bill.supplier) setSupplier(bill.supplier);
@@ -688,11 +875,149 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             addNotification("AI Extracted bill details successfully.", "success");
         } catch (err: any) {
-            addNotification(`AI Extraction failed: ${parseNetworkAndApiError(err)}`, "error");
+            const message = String(err?.message || err || parseNetworkAndApiError(err));
+            addNotification(`AI Extraction failed: ${message}`, "error");
+            throw new Error(message);
         } finally {
             setIsUploading(false);
         }
     }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, currentsupplier, date]);
+
+
+    const processMobileSyncPayload = useCallback(async (payload: MobileSyncInvoicePayload, options?: { skipSyncingStatus?: boolean }) => {
+        const pages = Array.isArray(payload.pages) && payload.pages.length > 0
+            ? payload.pages
+            : (payload.image ? [{ image: payload.image, mimeType: payload.mimeType || 'image/jpeg', pageNumber: 1 }] : []);
+
+        if (pages.length === 0) {
+            setMobileSyncStatus('failed');
+            setMobileSyncError('No bill pages found in mobile sync payload.');
+            addNotification('Mobile sync failed: no pages received.', 'error');
+            return;
+        }
+
+        const orderedPages = [...pages].sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0));
+        setMobilePageCount(orderedPages.length);
+        setMobileInvoiceId(payload.invoiceId || null);
+        setMobileSyncError(null);
+        if (!options?.skipSyncingStatus) setMobileSyncStatus('syncing');
+
+        try {
+            const fileInputs: FileInput[] = orderedPages.map((page, index) => ({
+                data: page.image,
+                mimeType: page.mimeType || 'image/jpeg',
+                name: `mobile-${payload.invoiceId || 'invoice'}-page-${(page.pageNumber || index + 1)}.jpg`
+            }));
+
+            await processAiExtraction(fileInputs);
+            setMobileSyncStatus('imported');
+            addNotification(`Imported ${orderedPages.length} mobile page(s) into draft purchase voucher.`, 'success');
+            setTimeout(() => {
+                if (currentsupplier) {
+                    setIsLinkModalOpen(true);
+                }
+            }, 0);
+        } catch (err: any) {
+            const message = String(err?.message || err || parseNetworkAndApiError(err));
+            setMobileSyncStatus('failed');
+            setMobileSyncError(message);
+            if (payload.billId) {
+                markMobileBillImported(payload.billId, 'failed', message).catch(() => undefined);
+            }
+            addNotification(`Mobile sync import failed: ${message}`, 'error');
+            throw new Error(message);
+        }
+    }, [addNotification, currentsupplier, processAiExtraction]);
+
+    useEffect(() => {
+        if (!mobileSyncSessionId) {
+            setMobileSyncStatus('pending');
+            setMobileSyncError(null);
+            setMobileInvoiceId(null);
+            setMobilePageCount(0);
+            return;
+        }
+
+        setMobileSyncStatus('pending');
+        setMobileSyncError(null);
+        const channel = listenForSyncMessage(mobileSyncSessionId, (payload: MobileSyncInvoicePayload) => {
+            setMobileSyncStatus('uploading');
+            setMobileSyncError(null);
+            setMobilePageCount(Array.isArray(payload.pages) ? payload.pages.length : (payload.image ? 1 : 0));
+            setMobileInvoiceId(payload.invoiceId || null);
+        });
+
+        return () => {
+            if (channel && typeof (channel as any).unsubscribe === 'function') {
+                (channel as any).unsubscribe();
+            }
+        };
+    }, [mobileSyncSessionId, processMobileSyncPayload]);
+
+    const handleSyncBill = useCallback(async () => {
+        if (!mobileSyncSessionId || !currentUser) {
+            setMobileSyncStatus('failed');
+            setMobileSyncError('Open Magic Mobile Link first to sync a bill.');
+            addNotification('Please open Magic Mobile Link before syncing bill.', 'warning');
+            return;
+        }
+
+        setIsMobileSyncing(true);
+        setMobileSyncStatus('syncing');
+        setMobileSyncError(null);
+
+        try {
+            const deviceId = getOrCreateMobileDeviceId();
+            const pendingServerBills = await fetchPendingMobileBills({
+                organizationId,
+                userId: currentUser.user_id || mobileSyncSessionId,
+                deviceId,
+                sessionId: mobileSyncSessionId,
+            });
+
+            let latestPayload = (pendingServerBills[0]?.payload || null) as MobileSyncInvoicePayload | null;
+            let latestBillId = pendingServerBills[0]?.id;
+
+            if (!latestPayload) {
+                latestPayload = getLatestSyncMessage(mobileSyncSessionId) as MobileSyncInvoicePayload | null;
+            }
+
+            if (!latestPayload) {
+                setMobileSyncStatus('failed');
+                const notFoundError = 'No mobile bill found yet. Upload bill pages from mobile and retry Sync Bill.';
+                setMobileSyncError(notFoundError);
+                addNotification(`Sync Bill failed: ${notFoundError}`, 'error');
+                return;
+            }
+
+            await processMobileSyncPayload({ ...latestPayload, billId: latestBillId }, { skipSyncingStatus: true });
+            if (latestBillId) {
+                await markMobileBillImported(latestBillId, 'imported');
+            }
+        } catch (err: any) {
+            const message = parseNetworkAndApiError(err);
+            setMobileSyncStatus('failed');
+            setMobileSyncError(message);
+            addNotification(`Sync Bill failed: ${message}`, 'error');
+        } finally {
+            setIsMobileSyncing(false);
+        }
+    }, [addNotification, currentUser, mobileSyncSessionId, organizationId, processMobileSyncPayload]);
+
+    const handleOpenVendorProductSync = useCallback(() => {
+        if (!Supplier.trim()) {
+            addNotification('Please select supplier before opening vendor product sync.', 'warning');
+            return;
+        }
+
+        if (!currentsupplier) {
+            addNotification('Supplier match not found. Select supplier from list (or press Enter) before opening vendor product sync.', 'warning');
+            return;
+        }
+
+        setSupplier(currentsupplier.name || Supplier);
+        setIsLinkModalOpen(true);
+    }, [Supplier, addNotification, currentsupplier]);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -760,7 +1085,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             type="text"
                             value={Supplier}
                             autoComplete="off"
-                            onChange={e => { setSupplier(e.target.value); setIsSupplierDropdownOpen(true); }}
+                            onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
                             className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                             placeholder="Press Enter to Select Supplier..."
@@ -787,9 +1112,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             ref={invoiceNumberInputRef}
                             type="text"
                             value={invoiceNumber}
-                            onChange={e => setInvoiceNumber(e.target.value)}
+                            onChange={e => { setInvoiceNumber(e.target.value); setInvoiceNumberError(null); }}
                             className={`w-full border p-2 text-sm font-bold outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                         />
+                        {invoiceNumberError && <p className="mt-1 text-[10px] font-bold text-red-600">{invoiceNumberError}</p>}
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase block mb-1">Date</label>
@@ -804,15 +1130,35 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
 
                 {!isEditing && !disableAIInput && !isManualEntry && (
+                    <>
                     <div className="flex space-x-2 flex-shrink-0 px-2">
                         <button onClick={() => setIsWebcamModalOpen(true)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><CameraIcon /> Webcam Scan</button>
-                        <button onClick={() => setMobileSyncSessionId(generateUUID())} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><SmartphoneIcon /> Mobile Sync</button>
+                        <button onClick={() => { setMobileSyncStatus('pending'); setMobileSyncError(null); setMobilePageCount(0); setMobileInvoiceId(null); setMobileSyncSessionId(generateUUID()); }} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><SmartphoneIcon /> Mobile Sync</button>
+                        <button onClick={handleSyncBill} disabled={!mobileSyncSessionId || isMobileSyncing} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{isMobileSyncing ? <Spinner /> : <SmartphoneIcon />} Sync Bill</button>
+                        <button
+                            onClick={handleOpenVendorProductSync}
+                            disabled={!Supplier.trim()}
+                            className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <LinkIcon /> Vendor Product Sync
+                        </button>
                         <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><UploadIcon /> {isUploading ? <Spinner /> : 'Import Document'}</button>
                         <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*,application/pdf" />
                     </div>
+
+                    {!!mobileSyncSessionId && (
+                        <div className="mx-2 mt-2 border border-primary/20 bg-primary/5 px-3 py-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase">
+                            <span className="text-gray-600">Mobile Sync Status:</span>
+                            <span className="px-2 py-0.5 border border-primary text-primary bg-white">{getSyncStatusLabel(mobileSyncStatus)}</span>
+                            {mobilePageCount > 0 && <span className="text-gray-500">Pages: {mobilePageCount}</span>}
+                            {mobileInvoiceId && <span className="text-gray-500">Invoice ID: {mobileInvoiceId}</span>}
+                            {mobileSyncError && <span className="text-red-600 normal-case">{mobileSyncError}</span>}
+                        </div>
+                    )}
+                    </>
                 )}
 
-                <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
+                <Card className="flex-1 min-h-[420px] md:min-h-[500px] flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
                     <div className="flex-1 overflow-auto">
                         <table className="min-w-full border-collapse text-sm">
                             <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400 z-10">
@@ -860,7 +1206,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         )}
                                         <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} placeholder="MM/YY" inputMode="numeric" maxLength={5} pattern="(0[1-9]|1[0-2])/[0-9]{2}" className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         {isFieldVisible('colFree') && (
@@ -877,16 +1223,24 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </Card>
 
-                <div className="flex justify-between items-stretch flex-shrink-0 gap-4 min-h-[140px]">
-                    <div className="w-80 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center">
-                        <div className="space-y-1.5 font-bold text-[11px] uppercase tracking-tight">
-                            <div className="flex justify-between text-gray-500"><span>Subtotal</span> <span className="text-sm font-mono">₹{calculatedTotals.subtotal.toFixed(2)}</span></div>
-                            <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="text-sm font-mono">+₹{calculatedTotals.totalGst.toFixed(2)}</span></div>
-                            <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-2xl font-black text-primary"><span>TOTAL</span><span className="font-mono">₹{calculatedTotals.totalAmount.toFixed(2)}</span></div>
+                <div className="sticky bottom-0 z-20 -mx-4 px-4 pb-1 pt-2 bg-app-bg/95 backdrop-blur supports-[backdrop-filter]:bg-app-bg/80">
+                <div className="flex flex-col xl:flex-row justify-between items-stretch flex-shrink-0 gap-4 min-h-[184px]">
+                    <div className="w-full xl:w-[390px] bg-[#e5f0f0] p-5 tally-border !rounded-none shadow-md flex flex-col justify-between gap-4">
+                        <div>
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
+                            <div className="space-y-2 text-[11px] font-bold uppercase tracking-tight">
+                                <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                                <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                                <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                                <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                                <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
+                                <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatRoundOffCurrency(calculatedTotals.roundOff)}</span></div>
+                                <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                         {activeIntelItem ? (
                             <div className="bg-slate-100 p-4 h-full tally-border !rounded-none shadow-md animate-in fade-in duration-200 flex flex-col">
                                 <div className="flex justify-between items-center border-b border-gray-300 pb-2 mb-3 flex-shrink-0">
@@ -940,14 +1294,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             </div>
                         )}
                     </div>
-                </div>
 
-                <div className="flex justify-end gap-3 pb-2">
-                    <button onClick={onCancel} className="px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
-                    <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
-                        {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Accept (Enter)')}
-                    </button>
+                    <div className="w-full xl:w-56 flex flex-col xl:items-end xl:justify-end gap-2 xl:self-stretch">
+                        <button onClick={handleDiscard} className="w-full px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
+                        <button onClick={handleSubmit} disabled={isSubmitting} className="w-full px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
+                            {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Save')}
+                        </button>
+                    </div>
                 </div>
+            </div>
+
             </div>
 
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleWebcamCapture} />}
@@ -960,7 +1316,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 />
             )}
             {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
-            <MobileSyncModal isOpen={!!mobileSyncSessionId} onClose={() => setMobileSyncSessionId(null)} sessionId={mobileSyncSessionId} orgId={organizationId} />
+            <MobileSyncModal isOpen={!!mobileSyncSessionId} onClose={() => setMobileSyncSessionId(null)} sessionId={mobileSyncSessionId} orgId={organizationId} userId={currentUser?.user_id || ''} deviceId={mobileSyncDeviceId} status={mobileSyncStatus} errorMessage={mobileSyncError} pageCount={mobilePageCount} invoiceId={mobileInvoiceId} />
 
             <Modal
                 isOpen={isSearchModalOpen}
@@ -997,7 +1353,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">Description of Medicine</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200 w-32 text-center">Code</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">MFR / Brand</th>
-                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Strips Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Loose Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Total Stock</th>
                                                 <th className="p-1.5 px-3 text-right">MRP</th>
                                             </tr>
                                         </thead>
@@ -1005,6 +1363,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             {deduplicatedSearchInventory.map((res, sIdx) => {
                                                 const isSelected = sIdx === selectedSearchIndex;
                                                 const item = res.item;
+                                                const totalStock = res.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0);
+                                                const unitsPerPack = item.unitsPerPack || 1;
+                                                const stripsStock = Math.floor(totalStock / unitsPerPack);
+                                                const looseStock = totalStock % unitsPerPack;
                                                 return (
                                                     <tr
                                                         key={item.id}
@@ -1020,7 +1382,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                             {item.code}
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (item.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{item.stock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{stripsStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{looseStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{totalStock}</td>
                                                         <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>
                                                 );

@@ -144,7 +144,8 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
           <thead>
               <tr>
                   <th className="w-[5%]">Sl.</th>
-                  <th className="w-[45%] text-left">Description of Goods</th>
+                  <th className="w-[36%] text-left">Description of Goods</th>
+                  <th className="w-[9%]">Pack</th>
                   <th className="w-[10%]">HSN/SAC</th>
                   <th className="w-[8%]">GST</th>
                   <th className="w-[8%]">Qty</th>

@@ -52,6 +52,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     const searchInputRef = useRef<HTMLInputElement>(null);
     const scannedListRef = useRef<HTMLDivElement>(null);
     const finalizeBtnRef = useRef<HTMLButtonElement>(null);
+    const autoResolvedRef = useRef(false);
 
     const isComplete = useMemo(() =>
         reconciledItems.length > 0 && reconciledItems.every(i => i.matchStatus === 'matched'),
@@ -60,9 +61,13 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     const suggestions = useMemo(() => {
         const map: Record<string, Medicine | null> = {};
         scannedItems.forEach(item => {
+            const normalizedItemName = item.name.toLowerCase().trim();
+            const itemBarcode = String((item as any).barcode || '').trim();
+            const itemCode = String((item as any).itemCode || (item as any).materialCode || '').trim().toLowerCase();
+
             const mapping = (mappings || []).find(m =>
                 m.supplier_id === supplier.id &&
-                m.supplier_product_name.toLowerCase().trim() === item.name.toLowerCase().trim()
+                m.supplier_product_name.toLowerCase().trim() === normalizedItemName
             );
 
             if (mapping) {
@@ -73,11 +78,22 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                 }
             }
 
-            const cleaned = cleanItemName(item.name);
-            const best = medicines.find(m =>
-                m.name.toLowerCase().trim() === cleaned.toLowerCase() ||
-                (cleaned.length > 3 && fuzzyMatch(m.name, cleaned))
-            );
+            let best = medicines.find(m => itemBarcode && (m.barcode || '').trim() === itemBarcode);
+            if (!best && itemCode) {
+                best = medicines.find(m => (m.materialCode || '').trim().toLowerCase() === itemCode);
+            }
+
+            if (!best) {
+                const cleaned = cleanItemName(item.name);
+                const normalizedCleaned = cleaned.toLowerCase().trim();
+                best = medicines.find(m => {
+                    const normalizedMedName = (m.name || '').toLowerCase().trim();
+                    const hsnMatch = !!item.hsnCode && !!m.hsnCode && item.hsnCode.trim() === m.hsnCode.trim();
+                    const nameMatch = normalizedMedName === normalizedCleaned || (cleaned.length > 3 && fuzzyMatch(m.name, cleaned));
+                    return (hsnMatch && nameMatch) || nameMatch;
+                });
+            }
+
             map[item.id] = best || null;
         });
         return map;
@@ -89,6 +105,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             const firstPending = scannedItems.findIndex(i => i.matchStatus === 'pending');
             const initialIdx = firstPending !== -1 ? firstPending : 0;
             setActiveScannedIndex(initialIdx);
+            autoResolvedRef.current = false;
             setSearchTerm('');
             setTimeout(() => scannedListRef.current?.focus(), 150);
         }
@@ -137,6 +154,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             return a.name.localeCompare(b.name);
         }).slice(0, 50);
     }, [searchTerm, medicines, activeScannedIndex, reconciledItems, suggestions]);
+
 
     const handleMapItem = async (masterMed: Medicine) => {
         const activeItem = reconciledItems[activeScannedIndex];
@@ -318,6 +336,12 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         }
     };
 
+    useEffect(() => {
+        if (!isOpen || autoResolvedRef.current) return;
+        autoResolvedRef.current = true;
+        handleSmartMatchAll().catch(() => undefined);
+    }, [isOpen]);
+
     const handleAddMedicineSuccess = async (newMedData: Omit<Medicine, 'id' | 'created_at' | 'updated_at'>) => {
         setIsAddMedicineSubModalOpen(false);
         try {
@@ -367,26 +391,26 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                     <div className="flex flex-1 overflow-hidden">
                         <div ref={scannedListRef} tabIndex={0} onKeyDown={handleLeftListKeyDown} className="w-[35%] border-r-4 border-primary/10 flex flex-col bg-white overflow-hidden shadow-2xl z-10 outline-none focus:ring-4 focus:ring-primary/20">
                             <div className="p-4 bg-gray-50 border-b border-app-border flex justify-between items-center">
-                                <h3 className="text-[11px] font-black uppercase text-primary tracking-widest">Invoice Extractions</h3>
+                                <h3 className="text-[11px] font-black uppercase text-primary tracking-widest">Unmatched / New Invoice Items</h3>
                                 {isComplete && <span className="text-[10px] font-black text-emerald-600 uppercase flex items-center gap-1"><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" /></svg> 100% RECONCILED</span>}
                             </div>
                             <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50">
                                 {reconciledItems.map((item, idx) => {
+                                    if (item.matchStatus === 'matched') return null;
                                     const isActive = idx === activeScannedIndex;
-                                    const isMapped = item.matchStatus === 'matched';
-                                    const hasAutoMatch = !isMapped && suggestions[item.id];
+                                    const hasAutoMatch = !!suggestions[item.id];
                                     return (
                                         <button
                                             key={item.id}
                                             data-scanned-idx={idx}
                                             onClick={() => { setActiveScannedIndex(idx); scannedListRef.current?.focus(); }}
-                                            className={`w-full py-2.5 px-4 border-b border-gray-200 text-left transition-all flex items-center gap-4 ${isActive ? 'bg-blue-600 text-white z-10 shadow-lg' : isMapped ? 'bg-emerald-600 text-white' : 'bg-white hover:bg-gray-50'}`}
+                                            className={`w-full py-2.5 px-4 border-b border-gray-200 text-left transition-all flex items-center gap-4 ${isActive ? 'bg-blue-600 text-white z-10 shadow-lg' : 'bg-white hover:bg-gray-50'}`}
                                         >
-                                            <div className={`w-8 h-8 rounded-none flex items-center justify-center font-black text-sm flex-shrink-0 ${isActive ? 'bg-white/20' : isMapped ? 'bg-white/20' : (hasAutoMatch ? 'bg-amber-100 text-amber-700 animate-pulse' : 'bg-red-50 text-red-600 border border-red-200')}`}>
-                                                {isMapped ? '✓' : (hasAutoMatch ? '✨' : '!')}
+                                            <div className={`w-8 h-8 rounded-none flex items-center justify-center font-black text-sm flex-shrink-0 ${isActive ? 'bg-white/20' : (hasAutoMatch ? 'bg-amber-100 text-amber-700 animate-pulse' : 'bg-red-50 text-red-600 border border-red-200')}`}>
+                                                {hasAutoMatch ? '✨' : '!'}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className={`truncate leading-none ${uniformTextStyle} ${isActive || isMapped ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
+                                                <p className={`truncate leading-none ${uniformTextStyle} ${isActive ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
                                             </div>
                                         </button>
                                     );
