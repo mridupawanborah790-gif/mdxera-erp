@@ -59,11 +59,12 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
         const billDiscount = bill.schemeDiscount || 0;
-    const baseTotal = subtotal + (isNonGst ? 0 : totalCgst + totalSgst) - billDiscount;
-    const roundOff = Number.isFinite(bill.roundOff) ? (bill.roundOff || 0) : (Math.round(baseTotal) - baseTotal);
-    const grandTotal = baseTotal + roundOff;
+    const roundOff = bill.roundOff || 0;
+    const subtotalFromBill = bill.subtotal || subtotal;
+    const totalTaxFromBill = isNonGst ? 0 : (bill.totalGst || (totalCgst + totalSgst));
+    const grandTotal = bill.total || (subtotalFromBill - billDiscount + totalTaxFromBill + roundOff);
 
-    return { items: itemsWithCalculations, itemChunks, subtotal, totalCgst, totalSgst, billDiscount, roundOff, grandTotal };
+    return { items: itemsWithCalculations, itemChunks, subtotal: subtotalFromBill, totalCgst, totalSgst, totalTaxFromBill, billDiscount, roundOff, grandTotal };
   }, [bill, isNonGst]);
 
   const termsList = bill.pharmacy.terms_and_conditions 
@@ -262,8 +263,8 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     <div className="flex justify-between text-green-700"><span>Less Bill Discount:</span> <span>{(billDetails.billDiscount).toFixed(2)}</span></div>
                     {!isNonGst && (
                         <>
-                            <div className="flex justify-between"><span>Add CGST:</span> <span>{(billDetails.totalCgst).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>Add SGST:</span> <span>{(billDetails.totalSgst).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Add CGST:</span> <span>{((billDetails.totalTaxFromBill || 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Add SGST:</span> <span>{((billDetails.totalTaxFromBill || 0) / 2).toFixed(2)}</span></div>
                         </>
                     )}
                     <div className="flex justify-between"><span>Round Off:</span> <span>{(billDetails.roundOff || 0).toFixed(2)}</span></div>

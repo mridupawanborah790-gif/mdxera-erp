@@ -54,11 +54,10 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
     const billDiscount = bill.schemeDiscount || 0;
-    const baseTotal = subtotalValue + (isNonGst ? 0 : totalGst) - billDiscount;
-    const roundOff = Number.isFinite(bill.roundOff) ? (bill.roundOff || 0) : (Math.round(baseTotal) - baseTotal);
-    const grandTotal = baseTotal + roundOff;
+    const roundOff = bill.roundOff || 0;
+    const grandTotal = bill.total || ((bill.subtotal || subtotalValue) - billDiscount + (isNonGst ? 0 : (bill.totalGst || totalGst)) + roundOff);
 
-    return { items, itemChunks, subtotalValue, totalGst, billDiscount, grandTotal };
+    return { items, itemChunks, subtotalValue: (bill.subtotal || subtotalValue), totalGst: (isNonGst ? 0 : (bill.totalGst || totalGst)), billDiscount, roundOff, grandTotal };
   }, [bill, isNonGst]);
 
   return (
