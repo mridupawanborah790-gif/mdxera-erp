@@ -51,7 +51,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
       return {
         ...item,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
-        packSize: item.packType || inventoryItem?.packType || (item.unitsPerPack ? String(item.unitsPerPack) : ''),
+        packSize: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : ''),
         batch: item.batch || inventoryItem?.batch || '',
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : ''),
         taxableVal,
@@ -187,8 +187,10 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                   <tr key={item.id} className="row-height border-b border-gray-100">
                     <td className="text-center font-black">{sn}</td>
                     <td className="text-center font-black">{item.quantity}+{item.freeQuantity || 0}</td>
-                    <td className="font-black uppercase truncate text-gray-900">{item.name}</td>
-                    <td className="text-center text-[7.5pt]">{item.packSize || '-'}</td>
+                    <td className="font-black uppercase text-gray-900 leading-tight">
+                      <p className="truncate">{item.name}</p>
+                      <p className="text-[7pt] normal-case text-gray-600">Pack Size: {item.packSize || '-'}</p>
+                    </td>
                     <td className="text-center font-mono-erp text-[7.5pt]">{item.batch}</td>
                     <td className="text-center text-[7pt]">{item.expiry}</td>
                     <td className="text-right">{(item.mrp || 0).toFixed(2)}</td>

@@ -38,7 +38,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
         ...item,
         sn: idx + 1,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
-        packSize: item.packType || inventoryItem?.packType || (item.unitsPerPack ? String(item.unitsPerPack) : ''),
+        packSize: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : ''),
         gstRate: item.gstPercent || 0,
         taxableVal,
         gstAmt,
@@ -158,8 +158,10 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
               {(chunk || []).map((item, index) => (
                   <tr key={item.id} className="row-min-h">
                       <td className="text-center">{(pageIdx * ITEMS_PER_PAGE) + index + 1}</td>
-                      <td className="font-bold truncate">{item.name}</td>
-                      <td className="text-center">{item.packSize || '-'}</td>
+                      <td className="font-bold leading-tight">
+                          <p className="truncate">{item.name}</p>
+                          <p className="text-[7pt] font-medium normal-case text-gray-600">Pack Size: {item.packSize || '-'}</p>
+                      </td>
                       <td className="text-center">{item.hsn}</td>
                       <td className="text-center">{item.gstRate}%</td>
                       <td className="text-center">{item.quantity.toFixed(2)} {item.unitLabel}</td>
