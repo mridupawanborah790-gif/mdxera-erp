@@ -7,7 +7,6 @@ import MediOneTemplate from './invoice-templates/MediOneTemplate';
 import MargTemplate from './invoice-templates/MargTemplate';
 import GftTemplate from './invoice-templates/GftTemplate';
 import AbhigyanTemplate from './invoice-templates/AbhigyanTemplate';
-import DosageInstructions from './DosageInstructions';
 
 // Declare html2pdf for TypeScript since it's loaded via CDN
 declare const html2pdf: any;
@@ -20,7 +19,7 @@ interface PrintBillModalProps {
   medicines: Medicine[];
 }
 
-const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, medicines }) => {
+const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, medicines: _medicines }) => {
   const [template, setTemplate] = useState<'medi-1' | 'marg' | 'gft' | 'abhigyan'>('marg');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
   const [isSharing, setIsSharing] = useState(false);
@@ -74,7 +73,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         filename: `Invoice_${bill.id}.pdf`,
         image: { type: 'jpeg', quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: orientation === 'landscape' ? 'a4' : 'a5', orientation: orientation }
+        jsPDF: { unit: 'mm', format: 'a5', orientation }
     };
 
     try {
@@ -157,10 +156,12 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           </button>
         </div>
 
-        <div className={`flex-1 overflow-y-auto bg-gray-100 p-4 print:overflow-visible`}>
-            <div id="print-area" className={`${isLandscape ? 'w-[210mm]' : 'w-[148mm]'} min-h-fit p-0 text-black bg-white shadow-lg mx-auto`}>
+        <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
+            <div
+              id="print-area"
+              className={`${isLandscape ? 'w-[210mm] h-[148mm]' : 'w-[148mm] h-[210mm]'} p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0`}
+            >
                 {renderTemplate()}
-                <DosageInstructions items={bill.items} medicines={medicines} />
             </div>
         </div>
 
@@ -186,32 +187,60 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
       <style>{`
         @media print {
-          @page { margin: 0; }
+          @page {
+            margin: 0;
+            size: A5 ${orientation};
+          }
 
           html, body {
+            margin: 0 !important;
+            padding: 0 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
 
+          body * {
+            visibility: hidden !important;
+          }
+
           #print-bill-modal-container {
-            position: static !important;
-            display: block !important;
+            position: fixed !important;
+            inset: 0 !important;
+            display: flex !important;
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
             background: white !important;
-            inset: auto !important;
+            visibility: visible !important;
           }
 
           #print-bill-modal-container > div {
-            width: 100% !important;
+            width: auto !important;
             max-width: none !important;
             max-height: none !important;
-            overflow: visible !important;
+            height: auto !important;
+            overflow: hidden !important;
             border-radius: 0 !important;
             box-shadow: none !important;
+            visibility: visible !important;
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
 
           #print-area {
-            width: auto !important;
+            width: ${isLandscape ? '210mm' : '148mm'} !important;
+            height: ${isLandscape ? '148mm' : '210mm'} !important;
             box-shadow: none !important;
+            margin: 0 !important;
+            visibility: visible !important;
+            break-after: avoid-page !important;
+            break-before: avoid-page !important;
+            page-break-inside: avoid !important;
+          }
+
+          #print-area,
+          #print-area * {
+            visibility: visible !important;
           }
 
           #print-bill-modal-container .no-print {
