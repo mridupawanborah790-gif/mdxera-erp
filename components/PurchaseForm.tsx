@@ -89,6 +89,14 @@ const normalizeSupplierKey = (value: string): string => (
         .trim()
 );
 
+const normalizeItemKey = (value?: string | null): string => (
+    String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+);
+
 const createBlankItem = (): PurchaseItem => ({
     id: crypto.randomUUID(),
     name: '',
@@ -274,47 +282,83 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
     }, [suppliers, Supplier]);
 
+    const findSupplierByName = useCallback((name?: string | null): Supplier | null => {
+        const supplierKey = normalizeSupplierKey(name || '');
+        if (!supplierKey) return null;
+
+        const exact = suppliers.find(d => normalizeSupplierKey(d.name || '') === supplierKey);
+        if (exact) return exact;
+
+        return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
+    }, [suppliers]);
+
     const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetsupplier: Supplier | null) => {
         if (!medicines.length) return itemList;
 
         return itemList.map(item => {
             if (item.inventoryItemId) return item;
 
+            const normalizedItemName = normalizeItemKey(item.name);
+            const itemBarcode = String((item as any).barcode || '').trim();
+            const itemCode = normalizeItemKey((item as any).itemCode || (item as any).materialCode || (item as any).code || '');
+            const itemHsn = String(item.hsnCode || '').trim().toLowerCase();
+
+            const applyMatch = (foundMed: Medicine): PurchaseItem => ({
+                ...item,
+                inventoryItemId: foundMed.id,
+                matchStatus: 'matched' as const,
+                hsnCode: foundMed.hsnCode || item.hsnCode,
+                gstPercent: foundMed.gstRate || item.gstPercent,
+                brand: foundMed.brand || item.brand,
+                mrp: Number(foundMed.mrp || item.mrp)
+            });
+
             if (targetsupplier) {
                 const mapping = mappings.find(m =>
                     m.supplier_id === targetsupplier.id &&
-                    m.supplier_product_name.toLowerCase().trim() === item.name.toLowerCase().trim()
+                    normalizeItemKey(m.supplier_product_name) === normalizedItemName
                 );
                 if (mapping) {
                     const foundMed = medicines.find(m => m.id === mapping.master_medicine_id);
                     if (foundMed) {
-                        return {
-                            ...item,
-                            inventoryItemId: foundMed.id,
-                            matchStatus: 'matched' as const,
-                            name: foundMed.name,
-                            hsnCode: foundMed.hsnCode || item.hsnCode,
-                            gstPercent: foundMed.gstRate || item.gstPercent,
-                            brand: foundMed.brand || item.brand,
-                            mrp: Number(foundMed.mrp || item.mrp)
-                        };
+                        return applyMatch(foundMed);
                     }
                 }
             }
 
-            const directMatch = medicines.find(m => m.name.toLowerCase().trim() === item.name.toLowerCase().trim());
+            const directMatch = medicines.find(m => normalizeItemKey(m.name) === normalizedItemName);
             if (directMatch) {
-                return {
-                    ...item,
-                    inventoryItemId: directMatch.id,
-                    matchStatus: 'matched' as const,
-                    hsnCode: directMatch.hsnCode || item.hsnCode,
-                    gstPercent: directMatch.gstRate || item.gstPercent,
-                    brand: directMatch.brand || item.brand,
-                    mrp: Number(directMatch.mrp || item.mrp)
-                };
+                return applyMatch(directMatch);
             }
-            return item;
+
+            const barcodeMatch = medicines.find(m => itemBarcode && String(m.barcode || '').trim() === itemBarcode);
+            if (barcodeMatch) {
+                return applyMatch(barcodeMatch);
+            }
+
+            const materialCodeMatch = medicines.find(m => itemCode && normalizeItemKey(m.materialCode) === itemCode);
+            if (materialCodeMatch) {
+                return applyMatch(materialCodeMatch);
+            }
+
+            const hsnAndNameMatch = medicines.find(m => {
+                const medHsn = String(m.hsnCode || '').trim().toLowerCase();
+                return itemHsn && medHsn === itemHsn && normalizeItemKey(m.name) === normalizedItemName;
+            });
+            if (hsnAndNameMatch) {
+                return applyMatch(hsnAndNameMatch);
+            }
+
+            const strongNameMatch = medicines.find(m => {
+                const medName = normalizeItemKey(m.name);
+                if (!normalizedItemName || !medName || normalizedItemName.length < 5) return false;
+                return fuzzyMatch(medName, normalizedItemName) || fuzzyMatch(normalizedItemName, medName);
+            });
+            if (strongNameMatch) {
+                return applyMatch(strongNameMatch);
+            }
+
+            return { ...item, matchStatus: 'pending' as const };
         });
     }, [medicines, mappings]);
 
@@ -857,6 +901,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (bill.invoiceNumber) setInvoiceNumber(bill.invoiceNumber);
             if (bill.date) setDate(normalizeImportDate(bill.date) || date);
 
+            let linkedItems: PurchaseItem[] = [];
+            let matchedSupplier = currentsupplier;
+
+            if (bill.supplier) {
+                matchedSupplier = findSupplierByName(bill.supplier) || matchedSupplier;
+            }
+
             if (bill.items && bill.items.length > 0) {
                 const newItems = bill.items.map(item => ({
                     ...createBlankItem(),
@@ -868,12 +919,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     discountPercent: parseNumber(item.discountPercent),
                     matchStatus: 'pending' as const
                 }));
-                const linked = attemptAutoLink(newItems as PurchaseItem[], currentsupplier || null);
-                setItems([...linked, createBlankItem()]);
+                linkedItems = attemptAutoLink(newItems as PurchaseItem[], matchedSupplier || null);
+                setItems([...linkedItems, createBlankItem()]);
                 setRateTierHandledRows(new Set());
             }
 
             addNotification("AI Extracted bill details successfully.", "success");
+            return {
+                linkedItems,
+                supplierForReconciliation: matchedSupplier,
+            };
         } catch (err: any) {
             const message = String(err?.message || err || parseNetworkAndApiError(err));
             addNotification(`AI Extraction failed: ${message}`, "error");
@@ -881,7 +936,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         } finally {
             setIsUploading(false);
         }
-    }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, currentsupplier, date]);
+    }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, currentsupplier, date, findSupplierByName]);
 
 
     const processMobileSyncPayload = useCallback(async (payload: MobileSyncInvoicePayload, options?: { skipSyncingStatus?: boolean }) => {
@@ -909,14 +964,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 name: `mobile-${payload.invoiceId || 'invoice'}-page-${(page.pageNumber || index + 1)}.jpg`
             }));
 
-            await processAiExtraction(fileInputs);
+            const extractionResult = await processAiExtraction(fileInputs);
             setMobileSyncStatus('imported');
             addNotification(`Imported ${orderedPages.length} mobile page(s) into draft purchase voucher.`, 'success');
-            setTimeout(() => {
-                if (currentsupplier) {
-                    setIsLinkModalOpen(true);
-                }
-            }, 0);
+
+            const unresolvedCount = (extractionResult?.linkedItems || []).filter(item => item.matchStatus !== 'matched').length;
+            if (unresolvedCount > 0 && extractionResult?.supplierForReconciliation) {
+                setTimeout(() => setIsLinkModalOpen(true), 0);
+            } else if (unresolvedCount === 0) {
+                addNotification('All imported items were auto-mapped. Opening draft purchase voucher directly.', 'success');
+            }
         } catch (err: any) {
             const message = String(err?.message || err || parseNetworkAndApiError(err));
             setMobileSyncStatus('failed');
@@ -927,7 +984,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             addNotification(`Mobile sync import failed: ${message}`, 'error');
             throw new Error(message);
         }
-    }, [addNotification, currentsupplier, processAiExtraction]);
+    }, [addNotification, processAiExtraction]);
 
     useEffect(() => {
         if (!mobileSyncSessionId) {
