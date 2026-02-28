@@ -237,9 +237,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, []);
 
     const currentsupplier = useMemo(() => {
-        const lowerSupplier = (Supplier || '').toLowerCase().trim();
-        if (!lowerSupplier) return null;
-        return suppliers.find(d => (d.name || '').toLowerCase().trim() === lowerSupplier);
+        const normalizedSupplier = (Supplier || '').toLowerCase().trim();
+        if (!normalizedSupplier) return null;
+
+        const exactMatch = suppliers.find(d => (d.name || '').toLowerCase().trim() === normalizedSupplier);
+        if (exactMatch) return exactMatch;
+
+        const fuzzyMatches = suppliers.filter(d => fuzzyMatch(d.name, Supplier));
+        if (fuzzyMatches.length === 1) return fuzzyMatches[0];
+
+        return null;
     }, [suppliers, Supplier]);
 
     const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetsupplier: Supplier | null) => {
@@ -947,7 +954,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
 
         if (!currentsupplier) {
-            addNotification('Selected supplier is not in master list. Pick a listed supplier to sync products.', 'warning');
+            addNotification('Supplier match not found. Select supplier from list (or press Enter) before opening vendor product sync.', 'warning');
             return;
         }
 
