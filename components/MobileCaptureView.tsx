@@ -26,6 +26,10 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
     const [error, setError] = useState<string | null>(null);
     const [invoiceId, setInvoiceId] = useState<string>(() => crypto.randomUUID());
 
+    const queryParams = new URLSearchParams(window.location.search);
+    const userId = queryParams.get('user_id') || '';
+    const deviceId = queryParams.get('device_id') || '';
+
     useEffect(() => {
         startCamera();
         return () => stopCamera();
@@ -120,7 +124,7 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
             });
             await broadcastSyncMessage(sessionId, syncPayload);
             setUploadState('synced');
-        } catch (err) {
+        } catch (err: any) {
             setUploadState('failed');
             setError(err instanceof Error ? err.message : 'Upload failed. Please check network and retry.');
         }

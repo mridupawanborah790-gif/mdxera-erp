@@ -1490,6 +1490,80 @@ export const broadcastSyncMessage = async (sessionId: string, data: any) => {
     });
 };
 
+export const saveMobileBillUpload = async ({
+    sessionId,
+    organizationId,
+    userId,
+    deviceId,
+    payload,
+}: SaveMobileBillUploadInput): Promise<MobileBillSyncRecord> => {
+    const recordPayload = {
+        session_id: sessionId,
+        organization_id: organizationId,
+        user_id: userId,
+        device_id: deviceId,
+        status: 'synced',
+        payload,
+        error_message: null,
+    };
+
+    const { data, error } = await supabase
+        .from(MOBILE_BILL_SYNC_TABLE)
+        .insert(recordPayload)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data as MobileBillSyncRecord;
+};
+
+export const fetchLatestPendingMobileBillUpload = async ({
+    organizationId,
+    userId,
+    deviceId,
+    sessionId,
+}: FetchMobileBillUploadInput): Promise<MobileBillSyncRecord | null> => {
+    let query = supabase
+        .from(MOBILE_BILL_SYNC_TABLE)
+        .select('*')
+        .eq('organization_id', organizationId)
+        .eq('user_id', userId)
+        .eq('device_id', deviceId)
+        .eq('status', 'synced')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+    if (sessionId) {
+        query = query.eq('session_id', sessionId);
+    }
+
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    return (data as MobileBillSyncRecord | null) ?? null;
+};
+
+export const markMobileBillUploadImported = async (id: string) => {
+    const { data, error } = await supabase
+        .from(MOBILE_BILL_SYNC_TABLE)
+        .update({ status: 'imported', imported_at: new Date().toISOString(), error_message: null })
+        .eq('id', id)
+        .eq('status', 'synced')
+        .select('id,status,imported_at')
+        .maybeSingle();
+
+    if (error) throw error;
+    return data;
+};
+
+export const markMobileBillUploadFailed = async (id: string, errorMessage: string) => {
+    const { error } = await supabase
+        .from(MOBILE_BILL_SYNC_TABLE)
+        .update({ status: 'failed', error_message: errorMessage })
+        .eq('id', id);
+
+    if (error) throw error;
+};
+
 export const listenForSyncMessage = (sessionId: string, callback: (data: any) => void) => {
     return supabase
         .channel(`sync:${sessionId}`)

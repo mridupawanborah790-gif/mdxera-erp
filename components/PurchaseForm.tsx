@@ -81,6 +81,14 @@ const normalizeExpiryInput = (rawValue: string): string => {
     return `${digits.slice(0, 2)}/${digits.slice(2)}`;
 };
 
+const normalizeSupplierKey = (value: string): string => (
+    (value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+);
+
 const createBlankItem = (): PurchaseItem => ({
     id: crypto.randomUUID(),
     name: '',
@@ -124,6 +132,18 @@ interface MobileSyncInvoicePayload {
         sessionId?: string;
     };
 }
+
+
+const MOBILE_SYNC_DEVICE_ID_KEY = 'mdxera_mobile_sync_device_id';
+
+const getOrCreateMobileSyncDeviceId = (): string => {
+    if (typeof window === 'undefined') return crypto.randomUUID();
+    const existing = window.localStorage.getItem(MOBILE_SYNC_DEVICE_ID_KEY);
+    if (existing && existing.trim().length > 0) return existing;
+    const next = crypto.randomUUID();
+    window.localStorage.setItem(MOBILE_SYNC_DEVICE_ID_KEY, next);
+    return next;
+};
 
 const getSyncStatusLabel = (status: MobileSyncStatus) => {
     switch (status) {
@@ -218,6 +238,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [isMobileSyncing, setIsMobileSyncing] = useState(false);
     const [mobileInvoiceId, setMobileInvoiceId] = useState<string | null>(null);
     const [mobilePageCount, setMobilePageCount] = useState(0);
+    const [mobileSyncDeviceId] = useState<string>(() => getOrCreateMobileSyncDeviceId());
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
@@ -244,16 +265,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, []);
 
     const currentsupplier = useMemo(() => {
-        const normalizedSupplier = (Supplier || '').toLowerCase().trim();
-        if (!normalizedSupplier) return null;
+        const supplierKey = normalizeSupplierKey(Supplier);
+        if (!supplierKey) return null;
 
-        const exactMatch = suppliers.find(d => (d.name || '').toLowerCase().trim() === normalizedSupplier);
-        if (exactMatch) return exactMatch;
+        const exact = suppliers.find(d => normalizeSupplierKey(d.name || '') === supplierKey);
+        if (exact) return exact;
 
-        const fuzzyMatches = suppliers.filter(d => fuzzyMatch(d.name, Supplier));
-        if (fuzzyMatches.length === 1) return fuzzyMatches[0];
-
-        return null;
+        return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
     }, [suppliers, Supplier]);
 
     const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetsupplier: Supplier | null) => {
@@ -832,8 +850,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         try {
             const bill = await extractPurchaseDetailsFromBill(fileInputs, currentUser?.pharmacy_name || '');
             if (bill.error) {
-                addNotification(bill.error, 'error');
-                return;
+                throw new Error(String(bill.error));
             }
 
             if (bill.supplier) setSupplier(bill.supplier);
@@ -858,7 +875,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             addNotification("AI Extracted bill details successfully.", "success");
         } catch (err: any) {
-            addNotification(`AI Extraction failed: ${parseNetworkAndApiError(err)}`, "error");
+            const message = String(err?.message || err || parseNetworkAndApiError(err));
+            addNotification(`AI Extraction failed: ${message}`, "error");
+            throw new Error(message);
         } finally {
             setIsUploading(false);
         }
@@ -899,13 +918,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 }
             }, 0);
         } catch (err: any) {
-            const message = parseNetworkAndApiError(err);
+            const message = String(err?.message || err || parseNetworkAndApiError(err));
             setMobileSyncStatus('failed');
             setMobileSyncError(message);
             if (payload.billId) {
                 markMobileBillImported(payload.billId, 'failed', message).catch(() => undefined);
             }
             addNotification(`Mobile sync import failed: ${message}`, 'error');
+            throw new Error(message);
         }
     }, [addNotification, currentsupplier, processAiExtraction]);
 
@@ -995,6 +1015,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             return;
         }
 
+        setSupplier(currentsupplier.name || Supplier);
         setIsLinkModalOpen(true);
     }, [Supplier, addNotification, currentsupplier]);
 
@@ -1295,7 +1316,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 />
             )}
             {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
-            <MobileSyncModal isOpen={!!mobileSyncSessionId} onClose={() => setMobileSyncSessionId(null)} sessionId={mobileSyncSessionId} orgId={organizationId} status={mobileSyncStatus} errorMessage={mobileSyncError} pageCount={mobilePageCount} invoiceId={mobileInvoiceId} />
+            <MobileSyncModal isOpen={!!mobileSyncSessionId} onClose={() => setMobileSyncSessionId(null)} sessionId={mobileSyncSessionId} orgId={organizationId} userId={currentUser?.user_id || ''} deviceId={mobileSyncDeviceId} status={mobileSyncStatus} errorMessage={mobileSyncError} pageCount={mobilePageCount} invoiceId={mobileInvoiceId} />
 
             <Modal
                 isOpen={isSearchModalOpen}
