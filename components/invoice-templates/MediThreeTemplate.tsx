@@ -11,6 +11,7 @@ interface TemplateProps {
 const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isLandscape = orientation === 'landscape';
+  const MAX_ITEMS_PER_PAGE = 16;
 
   const computedTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -66,6 +67,14 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
     grandTotal: bill.total || (computedTotals.baseTotal + (bill.roundOff || computedTotals.autoRoundOff || 0)),
   };
 
+  const paginatedItems = useMemo(() => {
+    const chunks: typeof calculations.items[] = [];
+    for (let index = 0; index < calculations.items.length; index += MAX_ITEMS_PER_PAGE) {
+      chunks.push(calculations.items.slice(index, index + MAX_ITEMS_PER_PAGE));
+    }
+    return chunks.length > 0 ? chunks : [[]];
+  }, [calculations.items]);
+
   const columnWidths = isLandscape
     ? {
         sn: '3%',
@@ -101,131 +110,161 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
       };
 
   return (
-    <div className={`medi-three-template text-black bg-white w-full font-sans text-[8px] leading-tight ${isLandscape ? 'medi-three-landscape' : 'medi-three-portrait'}`}>
+    <div className={`medi-three-template text-black bg-white w-full font-sans text-[7px] leading-tight ${isLandscape ? 'medi-three-landscape' : 'medi-three-portrait'}`}>
       <style>{`
         .medi-three-template {
-          padding: 4mm;
+          display: flex;
+          flex-direction: column;
+          gap: 2mm;
+          box-sizing: border-box;
+          width: ${isLandscape ? '210mm' : '148mm'};
+        }
+        .medi-three-page {
+          padding: 3mm;
           box-sizing: border-box;
           width: ${isLandscape ? '210mm' : '148mm'};
           min-height: ${isLandscape ? '148mm' : '210mm'};
+          max-height: ${isLandscape ? '148mm' : '210mm'};
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
         }
         .medi-three-box { border: 1px solid #111; }
         .medi-three-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .medi-three-grid th,
-        .medi-three-grid td { border: 1px solid #111; padding: 2px 3px; vertical-align: middle; }
-        .medi-three-grid thead th { font-size: 7px; text-transform: uppercase; background: #fff; }
-        .medi-three-grid tbody td { font-size: 7px; }
+        .medi-three-grid td { border: 1px solid #111; padding: 1px 2px; vertical-align: middle; }
+        .medi-three-grid thead th { font-size: 6.4px; text-transform: uppercase; background: #fff; white-space: nowrap; }
+        .medi-three-grid tbody td { font-size: 6.4px; }
         .medi-three-grid .right { text-align: right; }
         .medi-three-grid .center { text-align: center; }
         .medi-three-grid .left { text-align: left; }
         .medi-three-grid .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .medi-three-title { font-size: 15px; font-weight: 700; letter-spacing: 0.1em; text-align: center; }
+        .medi-three-title { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-align: center; }
         .medi-three-meta { display: grid; grid-template-columns: 1fr 1fr; }
-        .medi-three-meta > div { border-top: 1px solid #111; padding: 3px 5px; min-height: 34px; }
+        .medi-three-meta > div { border-top: 1px solid #111; padding: 2px 4px; min-height: 28px; }
         .medi-three-meta > div:first-child { border-right: 1px solid #111; }
         .medi-three-summary { border-top: 1px solid #111; display: grid; grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'}; }
-        .medi-three-summary-left { border-right: 1px solid #111; padding: 4px 5px; }
-        .medi-three-summary-right { padding: 4px 5px; }
-        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 2px; font-size: 8px; }
+        .medi-three-summary-left { border-right: 1px solid #111; padding: 3px 4px; }
+        .medi-three-summary-right { padding: 3px 4px; }
+        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 2px; font-size: 7px; }
         .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 3px; margin-top: 3px; font-size: 10px; font-weight: 700; }
         @media print {
-          @page { size: A5 ${orientation}; margin: 4mm; }
-          .medi-three-template { padding: 3mm; }
+          @page { size: A5 ${orientation}; margin: 0; }
+          .medi-three-template { gap: 0; }
+          .medi-three-page {
+            margin: 0;
+            break-after: page;
+            page-break-after: always;
+          }
+          .medi-three-page:last-child {
+            break-after: auto;
+            page-break-after: auto;
+          }
           .medi-three-grid thead { display: table-header-group; }
           .medi-three-grid tfoot { display: table-row-group; }
           .medi-three-row { break-inside: avoid; page-break-inside: avoid; }
           .medi-three-grid { width: 100%; }
           .medi-three-box {
-            break-inside: auto;
-            page-break-inside: auto;
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
         }
 
         @media screen {
-          .medi-three-template {
-            width: ${isLandscape ? '210mm' : '148mm'};
-            min-height: ${isLandscape ? '148mm' : '210mm'};
+          .medi-three-page {
+            box-shadow: 0 0 0 1px #d6d6d6;
           }
         }
       `}</style>
 
-      <div className="medi-three-box">
-        <div className="medi-three-title">GST INVOICE</div>
+      {paginatedItems.map((itemsOnPage, pageIndex) => {
+        const isLastPage = pageIndex === paginatedItems.length - 1;
 
-        <div className="medi-three-meta">
-          <div>
-            <div><strong>{bill.pharmacy.pharmacy_name}</strong></div>
-            <div>{bill.pharmacy.address}</div>
-            <div><strong>GSTIN:</strong> {bill.pharmacy.gstin || '-'}</div>
-          </div>
-          <div>
-            <div><strong>Invoice No:</strong> {bill.id}</div>
-            <div><strong>Invoice Date:</strong> {new Date(bill.date).toLocaleDateString('en-GB')}</div>
-            <div><strong>Terms:</strong> Cash</div>
-          </div>
-        </div>
+        return (
+          <div key={`page-${pageIndex + 1}`} className="medi-three-page">
+            <div className="medi-three-box">
+              <div className="medi-three-title">GST INVOICE</div>
 
-        <div className="medi-three-meta" style={{ gridTemplateColumns: '1fr' }}>
-          <div style={{ borderRight: 0 }}>
-            <div><strong>Customer:</strong> {bill.customerName || 'Walk-in Customer'}</div>
-            <div><strong>Address:</strong> {bill.customerDetails?.address || '-'}</div>
-            <div><strong>Phone:</strong> {bill.customerDetails?.phone || bill.customerPhone || '-'}</div>
-          </div>
-        </div>
+              <div className="medi-three-meta">
+                <div>
+                  <div><strong>{bill.pharmacy.pharmacy_name}</strong></div>
+                  <div>{bill.pharmacy.address}</div>
+                  <div><strong>GSTIN:</strong> {bill.pharmacy.gstin || '-'}</div>
+                </div>
+                <div>
+                  <div><strong>Invoice No:</strong> {bill.id}</div>
+                  <div><strong>Invoice Date:</strong> {new Date(bill.date).toLocaleDateString('en-GB')}</div>
+                  <div><strong>Terms:</strong> Cash</div>
+                  <div><strong>Page:</strong> {pageIndex + 1} / {paginatedItems.length}</div>
+                </div>
+              </div>
 
-        <table className="medi-three-grid">
-          <thead>
-            <tr>
-              <th style={{ width: '3%' }}>S.N</th>
-              <th style={{ width: columnWidths.description }}>Product Description</th>
-              <th style={{ width: columnWidths.manufacturer }}>Mfr.</th>
-              <th style={{ width: columnWidths.pack }}>Pack</th>
-              <th style={{ width: columnWidths.hsn }}>HSN</th>
-              <th style={{ width: columnWidths.batch }}>Batch</th>
-              <th style={{ width: columnWidths.qty }}>Qty + Free</th>
-              <th style={{ width: columnWidths.mrp }}>MRP</th>
-              <th style={{ width: columnWidths.rate }}>Rate</th>
-              <th style={{ width: columnWidths.expiry }}>Expiry</th>
-              <th style={{ width: columnWidths.discount }}>Disc%</th>
-              <th style={{ width: columnWidths.sgst }}>SGST</th>
-              <th style={{ width: columnWidths.cgst }}>CGST</th>
-              <th style={{ width: columnWidths.amount }}>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {calculations.items.map(item => (
-              <tr key={item.id} className="medi-three-row">
-                <td className="center">{item.sn}</td>
-                <td className="left desc">{item.name}</td>
-                <td className="left">{item.manufacturer}</td>
-                <td className="center">{item.pack}</td>
-                <td className="center">{item.hsn}</td>
-                <td className="center">{item.batch}</td>
-                <td className="center">{item.qtyText}</td>
-                <td className="right">{(item.mrp || 0).toFixed(2)}</td>
-                <td className="right">{(item.rate || item.mrp || 0).toFixed(2)}</td>
-                <td className="center">{item.expiry}</td>
-                <td className="center">{(item.discountPercent || 0).toFixed(2)}</td>
-                <td className="center">{item.sgstRate.toFixed(2)}%</td>
-                <td className="center">{item.cgstRate.toFixed(2)}%</td>
-                <td className="right">{item.lineAmount.toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              <div className="medi-three-meta" style={{ gridTemplateColumns: '1fr' }}>
+                <div style={{ borderRight: 0 }}>
+                  <div><strong>Customer:</strong> {bill.customerName || 'Walk-in Customer'}</div>
+                  <div><strong>Address:</strong> {bill.customerDetails?.address || '-'}</div>
+                  <div><strong>Phone:</strong> {bill.customerDetails?.phone || bill.customerPhone || '-'}</div>
+                </div>
+              </div>
 
-        <div className="medi-three-summary">
-          <div className="medi-three-summary-left">
-            <div><strong>Amount in words:</strong> {numberToWords(totals.grandTotal)}</div>
+              <table className="medi-three-grid">
+                <thead>
+                  <tr>
+                    <th style={{ width: '3%' }}>S.N</th>
+                    <th style={{ width: columnWidths.description }}>Product Description</th>
+                    <th style={{ width: columnWidths.manufacturer }}>Mfr.</th>
+                    <th style={{ width: columnWidths.pack }}>Pack</th>
+                    <th style={{ width: columnWidths.hsn }}>HSN</th>
+                    <th style={{ width: columnWidths.batch }}>Batch</th>
+                    <th style={{ width: columnWidths.qty }}>Qty + Free</th>
+                    <th style={{ width: columnWidths.mrp }}>MRP</th>
+                    <th style={{ width: columnWidths.rate }}>Rate</th>
+                    <th style={{ width: columnWidths.expiry }}>Expiry</th>
+                    <th style={{ width: columnWidths.discount }}>Disc%</th>
+                    <th style={{ width: columnWidths.sgst }}>SGST</th>
+                    <th style={{ width: columnWidths.cgst }}>CGST</th>
+                    <th style={{ width: columnWidths.amount }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemsOnPage.map(item => (
+                    <tr key={item.id} className="medi-three-row">
+                      <td className="center">{item.sn}</td>
+                      <td className="left desc">{item.name}</td>
+                      <td className="left">{item.manufacturer}</td>
+                      <td className="center">{item.pack}</td>
+                      <td className="center">{item.hsn}</td>
+                      <td className="center">{item.batch}</td>
+                      <td className="center">{item.qtyText}</td>
+                      <td className="right">{(item.mrp || 0).toFixed(2)}</td>
+                      <td className="right">{(item.rate || item.mrp || 0).toFixed(2)}</td>
+                      <td className="center">{item.expiry}</td>
+                      <td className="center">{(item.discountPercent || 0).toFixed(2)}</td>
+                      <td className="center">{item.sgstRate.toFixed(2)}%</td>
+                      <td className="center">{item.cgstRate.toFixed(2)}%</td>
+                      <td className="right">{item.lineAmount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {isLastPage && (
+                <div className="medi-three-summary">
+                  <div className="medi-three-summary-left">
+                    <div><strong>Amount in words:</strong> {numberToWords(totals.grandTotal)}</div>
+                  </div>
+                  <div className="medi-three-summary-right">
+                    <div className="row"><span>Sub Total</span><strong>{totals.subTotal.toFixed(2)}</strong></div>
+                    {totals.discount > 0 && <div className="row"><span>Discount</span><strong>-{totals.discount.toFixed(2)}</strong></div>}
+                    <div className="row"><span>Tax Total</span><strong>{totals.taxTotal.toFixed(2)}</strong></div>
+                    <div className="row grand"><span>Grand Total</span><span>{totals.grandTotal.toFixed(2)}</span></div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="medi-three-summary-right">
-            <div className="row"><span>Sub Total</span><strong>{totals.subTotal.toFixed(2)}</strong></div>
-            {totals.discount > 0 && <div className="row"><span>Discount</span><strong>-{totals.discount.toFixed(2)}</strong></div>}
-            <div className="row"><span>Tax Total</span><strong>{totals.taxTotal.toFixed(2)}</strong></div>
-            <div className="row grand"><span>Grand Total</span><span>{totals.grandTotal.toFixed(2)}</span></div>
-          </div>
-        </div>
-      </div>
+        );
+      })}
     </div>
   );
 };
