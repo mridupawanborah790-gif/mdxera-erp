@@ -110,7 +110,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
       };
 
   return (
-    <div className={`medi-three-template text-black bg-white w-full font-sans text-[7px] leading-tight ${isLandscape ? 'medi-three-landscape' : 'medi-three-portrait'}`}>
+    <div className={`medi-three-template text-black bg-white w-full font-sans text-[7.2px] leading-tight ${isLandscape ? 'medi-three-landscape' : 'medi-three-portrait'}`}>
       <style>{`
         .medi-three-template {
           display: flex;
@@ -140,27 +140,41 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         .medi-three-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .medi-three-grid th,
         .medi-three-grid td { border: 1px solid #111; padding: 1px 2px; vertical-align: middle; }
-        .medi-three-grid thead th { font-size: 6.4px; text-transform: uppercase; background: #fff; white-space: nowrap; }
-        .medi-three-grid tbody td { font-size: 6.4px; padding-top: 1.8px; padding-bottom: 1.8px; }
+        .medi-three-grid thead th {
+          font-size: 6.9px;
+          font-weight: 700;
+          text-transform: uppercase;
+          background: #fff;
+          white-space: nowrap;
+        }
+        .medi-three-grid tbody td {
+          font-size: 6.8px;
+          padding-top: 1.9px;
+          padding-bottom: 1.9px;
+          line-height: 1.15;
+        }
         .medi-three-grid .right { text-align: right; }
         .medi-three-grid .center { text-align: center; }
         .medi-three-grid .left { text-align: left; }
         .medi-three-grid .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .medi-three-title { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-align: center; padding: 3px 0 2px; }
+        .medi-three-title { font-size: 14px; font-weight: 800; letter-spacing: 0.1em; text-align: center; padding: 3px 0 2px; }
         .medi-three-meta { display: grid; grid-template-columns: 1fr 1fr; }
         .medi-three-meta > div { border-top: 1px solid #111; padding: 3px 4px; min-height: 28px; }
         .medi-three-meta > div:first-child { border-right: 1px solid #111; }
+        .medi-three-company { font-size: 7.5px; line-height: 1.2; }
+        .medi-three-company-name { font-size: 8.5px; font-weight: 800; }
+        .medi-three-customer { font-size: 7.2px; line-height: 1.2; }
         .medi-three-summary {
           border-top: 1px solid #111;
           display: grid;
           grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'};
           margin-top: auto;
-          min-height: ${isLandscape ? '24mm' : '32mm'};
+          min-height: ${isLandscape ? '24mm' : '31mm'};
         }
-        .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; }
+        .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; font-size: 7.2px; }
         .medi-three-summary-right { padding: 5px 4px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
-        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 7px; }
-        .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 10px; font-weight: 700; }
+        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 7.3px; }
+        .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 10.8px; font-weight: 800; }
         @media print {
           @page { size: A5 ${orientation}; margin: 0; }
           .medi-three-template { gap: 0; }
@@ -199,9 +213,9 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
               <div className="medi-three-header">
                 <div className="medi-three-title">GST INVOICE</div>
 
-                <div className="medi-three-meta">
+                <div className="medi-three-meta medi-three-company">
                   <div>
-                    <div><strong>{bill.pharmacy.pharmacy_name}</strong></div>
+                    <div className="medi-three-company-name">{bill.pharmacy.pharmacy_name}</div>
                     <div>{bill.pharmacy.address}</div>
                     <div><strong>GSTIN:</strong> {bill.pharmacy.gstin || '-'}</div>
                   </div>
@@ -213,7 +227,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                   </div>
                 </div>
 
-                <div className="medi-three-meta" style={{ gridTemplateColumns: '1fr' }}>
+                <div className="medi-three-meta medi-three-customer" style={{ gridTemplateColumns: '1fr' }}>
                   <div style={{ borderRight: 0 }}>
                     <div><strong>Customer:</strong> {bill.customerName || 'Walk-in Customer'}</div>
                     <div><strong>Address:</strong> {bill.customerDetails?.address || '-'}</div>
