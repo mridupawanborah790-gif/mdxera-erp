@@ -65,17 +65,27 @@ export function parseCsvLine(line: string): string[] {
 
 interface CsvHeaderMap { [key: string]: number; }
 
+const normalizeHeader = (header: string) => header.toLowerCase().replace(/[^a-z0-9]/g, '');
+
 const getHeaderMap = (headers: string[], expectedHeaders: string[]): CsvHeaderMap => {
     const map: CsvHeaderMap = {};
-    headers.forEach((h, i) => {
-        const cleanedH = h.toLowerCase().replace(/[^a-z0-9]/g, '');
-        expectedHeaders.forEach(eh => {
-            const cleanedEh = eh.toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (cleanedH === cleanedEh || cleanedH.includes(cleanedEh) || cleanedEh.includes(cleanedH)) {
-                map[eh] = i;
-            }
-        });
+
+    const normalizedHeaderIndex = new Map<string, number>();
+    headers.forEach((header, index) => {
+        const normalized = normalizeHeader(header);
+        if (!normalizedHeaderIndex.has(normalized)) {
+            normalizedHeaderIndex.set(normalized, index);
+        }
     });
+
+    expectedHeaders.forEach((expectedHeader) => {
+        const normalizedExpectedHeader = normalizeHeader(expectedHeader);
+        const matchedIndex = normalizedHeaderIndex.get(normalizedExpectedHeader);
+        if (matchedIndex !== undefined) {
+            map[expectedHeader] = matchedIndex;
+        }
+    });
+
     return map;
 };
 
