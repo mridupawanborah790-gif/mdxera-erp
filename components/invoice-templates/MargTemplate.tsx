@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
+import { calculateBillingTotals } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -19,6 +20,13 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const isMode8 = displayOptions.calculationMode === '8';
   const showItemWiseDisc = displayOptions.showItemWiseDiscountOnPrint !== false;
   const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
+
+  const computedBillTotals = useMemo(() => calculateBillingTotals({
+    items: bill.items || [],
+    billDiscount: bill.schemeDiscount || 0,
+    isNonGst,
+    configurations: bill.configurations,
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst]);
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -75,16 +83,15 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    const tradeDiscount = bill.totalItemDiscount || 0;
-    const schemeDiscount = bill.schemeDiscount || 0;
-    const billDiscount = showBillDiscount ? schemeDiscount : 0;
-    const taxableValue = Math.max(0, (bill.subtotal || 0) - schemeDiscount);
-    const totalGst = isNonGst ? 0 : (bill.totalGst || 0);
-    const roundOff = bill.roundOff || 0;
+    const tradeDiscount = computedBillTotals.tradeDiscount || bill.totalItemDiscount || 0;
+    const billDiscount = showBillDiscount ? (computedBillTotals.billDiscount || 0) : 0;
+    const taxableValue = computedBillTotals.taxableValue;
+    const totalGst = isNonGst ? 0 : computedBillTotals.tax;
+    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
     const grandTotal = bill.total || (taxableValue + totalGst + roundOff);
 
     return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, billDiscount, taxableValue, totalGst, roundOff, grandTotal };
-  }, [bill, isNonGst]);
+  }, [bill, isNonGst, computedBillTotals, showBillDiscount]);
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased" style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}>

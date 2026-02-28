@@ -14,6 +14,7 @@ import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber } from '../utils/helpers';
+import { calculateBillingTotals, calculateLineNetAmount, resolveBillingSettings } from '../utils/billing';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -132,61 +133,14 @@ const POS = forwardRef<any, POSProps>(({
         return /^\d{0,6}(\.\d{0,2})?$/.test(value);
     }, []);
 
-    const totals = useMemo(() => {
-        let gross = 0;
-        let tradeDiscount = 0;
-        let tax = 0;
-        let schemeTotal = 0;
-        let subtotal = 0;
-        const taxableLines: { taxable: number; gstPercent: number }[] = [];
+    const billingSettings = useMemo(() => resolveBillingSettings(configurations), [configurations]);
 
-        cartItems.forEach(item => {
-            const unitsPerPack = item.unitsPerPack || 1;
-            const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-            const rate = item.rate || item.mrp || 0;
-            const itemGross = billedQty * rate;
-            const itemTradeDisc = itemGross * ((item.discountPercent || 0) / 100);
-            const itemFlatDisc = item.itemFlatDiscount || 0;
-            const lineSubtotal = itemGross - itemTradeDisc - itemFlatDisc;
-            const schemeDiscount = item.schemeDiscountAmount || 0;
-            const lineTaxable = Math.max(0, lineSubtotal - schemeDiscount);
-
-            gross += itemGross;
-            tradeDiscount += itemTradeDisc;
-            subtotal += lineSubtotal;
-            schemeTotal += schemeDiscount;
-
-            if (!isNonGst && lineTaxable > 0) {
-                taxableLines.push({ taxable: lineTaxable, gstPercent: item.gstPercent || 0 });
-            }
-        });
-
-        const billDiscount = Math.max(0, lumpsumDiscount);
-        const taxableBeforeBillDiscount = Math.max(0, subtotal - schemeTotal);
-        const taxableAfterBillDiscount = Math.max(0, taxableBeforeBillDiscount - billDiscount);
-
-        if (!isNonGst && taxableBeforeBillDiscount > 0) {
-            const taxableScale = taxableAfterBillDiscount / taxableBeforeBillDiscount;
-            tax = taxableLines.reduce((sum, line) => {
-                const discountedTaxable = line.taxable * taxableScale;
-                return sum + (discountedTaxable * (line.gstPercent / 100));
-            }, 0);
-        }
-
-        const baseTotal = taxableAfterBillDiscount + tax;
-        const autoRoundOff = Math.round(baseTotal) - baseTotal;
-        return {
-            gross,
-            subtotal,
-            tradeDiscount,
-            schemeTotal,
-            billDiscount,
-            taxableValue: taxableAfterBillDiscount,
-            tax,
-            baseTotal,
-            autoRoundOff,
-        };
-    }, [cartItems, lumpsumDiscount, isNonGst]);
+    const totals = useMemo(() => calculateBillingTotals({
+        items: cartItems,
+        billDiscount: lumpsumDiscount,
+        isNonGst,
+        configurations,
+    }), [cartItems, lumpsumDiscount, isNonGst, configurations]);
 
     useEffect(() => {
         if (!isRoundOffManuallyEdited) {
@@ -947,12 +901,7 @@ const POS = forwardRef<any, POSProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
-                                    const unitsPerPack = item.unitsPerPack || 1;
-                                    const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-                                    const rate = item.rate || item.mrp || 0;
-                                    const lineGross = billedQty * rate;
-                                    const tradeDiscAmt = lineGross * ((item.discountPercent || 0) / 100);
-                                    const lineAmount = lineGross - tradeDiscAmt - (item.schemeDiscountAmount || 0);
+                                    const lineAmount = calculateLineNetAmount(item, configurations);
 
                                     return (
                                         <tr key={item.id} className="hover:bg-gray-50 group h-10">
@@ -1121,7 +1070,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         className={`px-2 py-0.5 text-[10px] font-normal uppercase rounded border border-dashed transition-all ${item.schemeMode ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-gray-50 text-gray-400 border-gray-300 hover:text-primary hover:border-primary'}`}
                                                         disabled={isReadOnly}
                                                     >
-                                                        {item.schemeDiscountPercent ? `${item.schemeDiscountPercent.toFixed(1)}%` : 'Apply'}
+                                                        {(item.schemeDiscountPercent || item.schemeDiscountAmount) ? `${(item.schemeDiscountPercent || 0).toFixed(1)}%` : 'Apply'}
                                                     </button>
                                                 </td>
                                             )}
@@ -1173,7 +1122,7 @@ const POS = forwardRef<any, POSProps>(({
                         <div className="space-y-1.5 font-bold text-[11px] uppercase tracking-tight">
                             <div className="flex justify-between text-gray-500"><span>Gross</span> <span className="text-sm">₹{(totals.gross || 0).toFixed(2)}</span></div>
                             <div className="flex justify-between text-red-600"><span>Trade Discount</span> <span className="text-sm">-₹{(totals.tradeDiscount || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between text-emerald-600"><span>Scheme Benefit</span> <span className="text-sm">-₹{(totals.schemeTotal || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between text-emerald-600"><span>Scheme Benefit ({billingSettings.schemeBase === 'subtotal' ? 'on Subtotal' : 'after Trade Discount'})</span> <span className="text-sm">-₹{(totals.schemeTotal || 0).toFixed(2)}</span></div>
                             <div className="flex justify-between text-indigo-700 items-center">
                                 <span>Bill Discount</span>
                                 <input
@@ -1184,7 +1133,7 @@ const POS = forwardRef<any, POSProps>(({
                                     disabled={isReadOnly}
                                 />
                             </div>
-                            {!isNonGst && <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="text-sm">+₹{(totals.tax || 0).toFixed(2)}</span></div>}
+                            {!isNonGst && <div className="flex justify-between text-blue-700"><span>Tax (GST · {billingSettings.taxBase === 'subtotal' ? 'Subtotal' : billingSettings.taxBase === 'after_trade_discount' ? 'After Trade Discount' : 'After All Discounts'})</span> <span className="text-sm">+₹{(totals.tax || 0).toFixed(2)}</span></div>}
                             <div className="flex justify-between text-purple-700 items-center">
                                 <span>Round Off</span>
                                 <input

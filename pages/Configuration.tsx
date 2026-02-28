@@ -329,6 +329,31 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                             setEnabled={(v) => handleConfigChange('displayOptions', 'askCalculationOnBilling', v)}
                                             description="Prompt for tax calculation basis (Inc/Excl) during Sale entry."
                                         />
+
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Scheme Discount Calculation Base</label>
+                                            <select 
+                                                value={localConfigs.displayOptions?.schemeDiscountCalculationBase || 'after_trade_discount'}
+                                                onChange={e => handleConfigChange('displayOptions', 'schemeDiscountCalculationBase', e.target.value)}
+                                                className="w-full tally-input !text-sm"
+                                            >
+                                                <option value="subtotal">Subtotal (Scheme Discount calculated on Subtotal)</option>
+                                                <option value="after_trade_discount">After Trade Discount (Scheme Discount on Subtotal − Trade Discount)</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tax Calculation Base</label>
+                                            <select 
+                                                value={localConfigs.displayOptions?.taxCalculationBase || 'after_all_discounts'}
+                                                onChange={e => handleConfigChange('displayOptions', 'taxCalculationBase', e.target.value)}
+                                                className="w-full tally-input !text-sm"
+                                            >
+                                                <option value="subtotal">Subtotal</option>
+                                                <option value="after_trade_discount">After Trade Discount</option>
+                                                <option value="after_all_discounts">After All Discounts (Recommended Default)</option>
+                                            </select>
+                                        </div>
                                         
                                         <div className="py-4 border-b border-gray-100 flex items-center justify-between">
                                             <div>
