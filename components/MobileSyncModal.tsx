@@ -8,6 +8,8 @@ interface MobileSyncModalProps {
     onClose: () => void;
     sessionId: string | null;
     orgId: string;
+    userId?: string;
+    deviceId?: string;
     status?: MobileSyncStatus;
     errorMessage?: string | null;
     pageCount?: number;
@@ -30,6 +32,8 @@ const MobileSyncModal: React.FC<MobileSyncModalProps> = ({
     onClose,
     sessionId,
     orgId,
+    userId = '',
+    deviceId = '',
     status = 'pending',
     errorMessage = null,
     pageCount = 0,
@@ -40,7 +44,7 @@ const MobileSyncModal: React.FC<MobileSyncModalProps> = ({
     if (!isOpen || !sessionId) return null;
 
     const baseUrl = window.location.origin + window.location.pathname;
-    const syncUrl = `${baseUrl}?sync_session=${sessionId}&org_id=${orgId}`;
+    const syncUrl = `${baseUrl}?sync_session=${sessionId}&org_id=${orgId}&user_id=${encodeURIComponent(userId)}&device_id=${encodeURIComponent(deviceId)}`;
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(syncUrl)}`;
 
     const handleCopyLink = () => {
