@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 // Fix: Added AppConfigurations to imports
 import type { DetailedBill, InventoryItem, Medicine, AppConfigurations } from '../types';
@@ -25,7 +25,13 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
   const [isSharing, setIsSharing] = useState(false);
 
-  const effectiveOrientation: 'portrait' | 'landscape' = template === 'medi-3' ? 'portrait' : orientation;
+  useEffect(() => {
+    if (template === 'medi-3') {
+      setOrientation('portrait');
+    }
+  }, [template]);
+
+  const effectiveOrientation: 'portrait' | 'landscape' = orientation;
   const isLandscape = effectiveOrientation === 'landscape';
     
   if (!isOpen || !bill) return null;
@@ -114,7 +120,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         case 'marg': return <MargTemplate bill={bill} orientation={effectiveOrientation} />;
         case 'gft': return <GftTemplate bill={bill} />;
         case 'abhigyan': return <AbhigyanTemplate bill={bill} />;
-        case 'medi-3': return <MediThreeTemplate bill={bill} />;
+        case 'medi-3': return <MediThreeTemplate bill={bill} orientation={effectiveOrientation} />;
         default: return <MargTemplate bill={bill} orientation={effectiveOrientation} />;
     }
   };
@@ -129,15 +135,13 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
                 <span className="text-[10px] font-bold text-gray-400 uppercase">Orientation:</span>
                 <button 
                   onClick={() => setOrientation('portrait')}
-                  disabled={template === 'medi-3'}
-                  className={`px-2 py-0.5 text-xs rounded border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${effectiveOrientation === 'portrait' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
+                  className={`px-2 py-0.5 text-xs rounded border transition-all ${effectiveOrientation === 'portrait' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
                 >
                   Portrait
                 </button>
                 <button 
                   onClick={() => setOrientation('landscape')}
-                  disabled={template === 'medi-3'}
-                  className={`px-2 py-0.5 text-xs rounded border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${effectiveOrientation === 'landscape' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
+                  className={`px-2 py-0.5 text-xs rounded border transition-all ${effectiveOrientation === 'landscape' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
                 >
                   Landscape
                 </button>
@@ -164,7 +168,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
             <div
               id="print-area"
-              className={`${isLandscape ? 'w-[210mm] h-[148mm]' : 'w-[148mm] min-h-[210mm]'} p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0 ${template === 'medi-3' ? 'h-auto overflow-visible' : ''}`}
+              className={`${isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]'} p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0 ${template === 'medi-3' ? 'h-auto overflow-visible' : ''}`}
             >
                 {renderTemplate()}
             </div>
@@ -241,7 +245,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
           #print-area {
             width: ${isLandscape ? '210mm' : '148mm'} !important;
-            min-height: ${isLandscape ? '148mm' : '210mm'} !important;
+            min-height: ${template === 'medi-3' ? 'auto' : (isLandscape ? '148mm' : '210mm')} !important;
             height: auto !important;
             box-shadow: none !important;
             margin: 0 !important;
