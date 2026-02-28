@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { broadcastSyncMessage } from '../services/storageService';
+import { broadcastSyncMessage, saveMobileBillUpload } from '../services/storageService';
 
 interface MobileCaptureViewProps {
     sessionId: string;
@@ -16,7 +16,7 @@ interface CapturedPage {
     capturedAt: string;
 }
 
-const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId }) => {
+const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isStreaming, setIsStreaming] = useState(false);
@@ -25,6 +25,10 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId }) => {
     const [uploadState, setUploadState] = useState<UploadState>('pending');
     const [error, setError] = useState<string | null>(null);
     const [invoiceId, setInvoiceId] = useState<string>(() => crypto.randomUUID());
+
+    const queryParams = new URLSearchParams(window.location.search);
+    const userId = queryParams.get('user_id') || '';
+    const deviceId = queryParams.get('device_id') || '';
 
     useEffect(() => {
         startCamera();
@@ -91,8 +95,12 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId }) => {
         setError(null);
 
         try {
-            await broadcastSyncMessage(sessionId, {
-                type: 'invoice-upload',
+            if (!orgId || !userId || !deviceId) {
+                throw new Error('Missing mobile sync identity. Please reopen Magic Mobile Link from ERP and try again.');
+            }
+
+            const payload = {
+                type: 'invoice-upload' as const,
                 invoiceId,
                 pages: capturedPages.map((page, index) => ({
                     image: page.image,
@@ -100,11 +108,21 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId }) => {
                     pageNumber: index + 1,
                     capturedAt: page.capturedAt,
                 })),
+            };
+
+            await saveMobileBillUpload({
+                sessionId,
+                organizationId: orgId,
+                userId,
+                deviceId,
+                payload,
             });
+
+            await broadcastSyncMessage(sessionId, payload);
             setUploadState('synced');
-        } catch (err) {
+        } catch (err: any) {
             setUploadState('failed');
-            setError('Upload failed. Please check network and retry.');
+            setError(err?.message || 'Upload failed. Please check network and retry.');
         }
     };
 
