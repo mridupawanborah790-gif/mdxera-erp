@@ -5,10 +5,12 @@ import { calculateBillingTotals } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations };
+  orientation?: 'portrait' | 'landscape';
 }
 
-const MediThreeTemplate: React.FC<TemplateProps> = ({ bill }) => {
+const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
+  const isLandscape = orientation === 'landscape';
 
   const computedTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -64,10 +66,49 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill }) => {
     grandTotal: bill.total || (computedTotals.baseTotal + (bill.roundOff || computedTotals.autoRoundOff || 0)),
   };
 
+  const columnWidths = isLandscape
+    ? {
+        sn: '3%',
+        description: '24%',
+        manufacturer: '10%',
+        pack: '6%',
+        hsn: '7%',
+        batch: '7%',
+        qty: '7%',
+        mrp: '6%',
+        rate: '6%',
+        expiry: '6%',
+        discount: '5%',
+        sgst: '4%',
+        cgst: '4%',
+        amount: '5%',
+      }
+    : {
+        sn: '3%',
+        description: '18%',
+        manufacturer: '8%',
+        pack: '5%',
+        hsn: '8%',
+        batch: '8%',
+        qty: '7%',
+        mrp: '6%',
+        rate: '6%',
+        expiry: '6%',
+        discount: '5%',
+        sgst: '5%',
+        cgst: '5%',
+        amount: '10%',
+      };
+
   return (
-    <div className="medi-three-template text-black bg-white w-full font-sans text-[8px] leading-tight">
+    <div className={`medi-three-template text-black bg-white w-full font-sans text-[8px] leading-tight ${isLandscape ? 'medi-three-landscape' : 'medi-three-portrait'}`}>
       <style>{`
-        .medi-three-template { padding: 4mm; }
+        .medi-three-template {
+          padding: 4mm;
+          box-sizing: border-box;
+          width: ${isLandscape ? '210mm' : '148mm'};
+          min-height: ${isLandscape ? '148mm' : '210mm'};
+        }
         .medi-three-box { border: 1px solid #111; }
         .medi-three-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .medi-three-grid th,
@@ -82,18 +123,29 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill }) => {
         .medi-three-meta { display: grid; grid-template-columns: 1fr 1fr; }
         .medi-three-meta > div { border-top: 1px solid #111; padding: 3px 5px; min-height: 34px; }
         .medi-three-meta > div:first-child { border-right: 1px solid #111; }
-        .medi-three-summary { border-top: 1px solid #111; display: grid; grid-template-columns: 1fr 190px; }
+        .medi-three-summary { border-top: 1px solid #111; display: grid; grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'}; }
         .medi-three-summary-left { border-right: 1px solid #111; padding: 4px 5px; }
         .medi-three-summary-right { padding: 4px 5px; }
         .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 2px; font-size: 8px; }
         .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 3px; margin-top: 3px; font-size: 10px; font-weight: 700; }
-
         @media print {
-          @page { size: A5 portrait; margin: 0; }
+          @page { size: A5 ${orientation}; margin: 4mm; }
           .medi-three-template { padding: 3mm; }
           .medi-three-grid thead { display: table-header-group; }
           .medi-three-grid tfoot { display: table-row-group; }
           .medi-three-row { break-inside: avoid; page-break-inside: avoid; }
+          .medi-three-grid { width: 100%; }
+          .medi-three-box {
+            break-inside: auto;
+            page-break-inside: auto;
+          }
+        }
+
+        @media screen {
+          .medi-three-template {
+            width: ${isLandscape ? '210mm' : '148mm'};
+            min-height: ${isLandscape ? '148mm' : '210mm'};
+          }
         }
       `}</style>
 
@@ -125,19 +177,19 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill }) => {
           <thead>
             <tr>
               <th style={{ width: '3%' }}>S.N</th>
-              <th style={{ width: '18%' }}>Product Description</th>
-              <th style={{ width: '8%' }}>Mfr.</th>
-              <th style={{ width: '5%' }}>Pack</th>
-              <th style={{ width: '8%' }}>HSN</th>
-              <th style={{ width: '8%' }}>Batch</th>
-              <th style={{ width: '7%' }}>Qty + Free</th>
-              <th style={{ width: '6%' }}>MRP</th>
-              <th style={{ width: '6%' }}>Rate</th>
-              <th style={{ width: '6%' }}>Expiry</th>
-              <th style={{ width: '5%' }}>Disc%</th>
-              <th style={{ width: '5%' }}>SGST</th>
-              <th style={{ width: '5%' }}>CGST</th>
-              <th style={{ width: '10%' }}>Amount</th>
+              <th style={{ width: columnWidths.description }}>Product Description</th>
+              <th style={{ width: columnWidths.manufacturer }}>Mfr.</th>
+              <th style={{ width: columnWidths.pack }}>Pack</th>
+              <th style={{ width: columnWidths.hsn }}>HSN</th>
+              <th style={{ width: columnWidths.batch }}>Batch</th>
+              <th style={{ width: columnWidths.qty }}>Qty + Free</th>
+              <th style={{ width: columnWidths.mrp }}>MRP</th>
+              <th style={{ width: columnWidths.rate }}>Rate</th>
+              <th style={{ width: columnWidths.expiry }}>Expiry</th>
+              <th style={{ width: columnWidths.discount }}>Disc%</th>
+              <th style={{ width: columnWidths.sgst }}>SGST</th>
+              <th style={{ width: columnWidths.cgst }}>CGST</th>
+              <th style={{ width: columnWidths.amount }}>Amount</th>
             </tr>
           </thead>
           <tbody>
