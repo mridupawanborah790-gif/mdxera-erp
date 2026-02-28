@@ -135,13 +135,10 @@ const POS = forwardRef<any, POSProps>(({
     const totals = useMemo(() => {
         let gross = 0, tradeDiscount = 0, tax = 0, schemeTotal = 0;
         cartItems.forEach(item => {
-            // Formula: Amount = (P.Qty / L.Qty) × Rate
-            // P.Qty = item.quantity (pack quantity)
-            // L.Qty = item.looseQuantity (loose quantity)
-            const packQty = item.quantity || 0;
-            const looseQty = item.looseQuantity || 1; // Use 1 as fallback to avoid division by zero
+            const unitsPerPack = item.unitsPerPack || 1;
+            const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
             const rate = item.rate || item.mrp || 0;
-            const itemGross = (packQty / looseQty) * rate;
+            const itemGross = billedQty * rate;
             const itemTradeDisc = itemGross * ((item.discountPercent || 0) / 100);
             const itemNet = itemGross - itemTradeDisc - (item.schemeDiscountAmount || 0);
             const taxableValue = itemNet / (1 + ((isNonGst ? 0 : item.gstPercent) / 100));
@@ -916,13 +913,10 @@ const POS = forwardRef<any, POSProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
-                                    // Formula: Amount = (P.Qty / L.Qty) × Rate
-                                    // P.Qty = item.quantity (pack quantity)
-                                    // L.Qty = item.looseQuantity (loose quantity)
-                                    const packQty = item.quantity || 0;
-                                    const looseQty = item.looseQuantity || 1; // Use 1 as fallback to avoid division by zero
+                                    const unitsPerPack = item.unitsPerPack || 1;
+                                    const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
                                     const rate = item.rate || item.mrp || 0;
-                                    const lineGross = (packQty / looseQty) * rate;
+                                    const lineGross = billedQty * rate;
                                     const tradeDiscAmt = lineGross * ((item.discountPercent || 0) / 100);
                                     const lineAmount = lineGross - tradeDiscAmt - (item.schemeDiscountAmount || 0);
 
