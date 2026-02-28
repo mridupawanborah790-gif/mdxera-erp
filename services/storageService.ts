@@ -1391,7 +1391,99 @@ export const pushPartnerOrder = async (senderOrgId: string, senderName: string, 
 
 const latestSyncPayloadBySession = new Map<string, any>();
 
+const MOBILE_SYNC_TABLE = 'mobile_purchase_sync';
+
+export interface MobileSyncServerBill {
+    id: string;
+    session_id: string;
+    organization_id: string;
+    user_id: string;
+    device_id: string;
+    invoice_id: string;
+    payload: any;
+    status: 'synced' | 'imported' | 'failed';
+    imported_at?: string | null;
+    import_error?: string | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export const getOrCreateMobileDeviceId = (): string => {
+    const key = 'mdxera.mobile.device_id';
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const next = crypto.randomUUID();
+    localStorage.setItem(key, next);
+    return next;
+};
+
+const toMobileSyncBill = (row: any): MobileSyncServerBill => ({
+    id: String(row.id),
+    session_id: String(row.session_id),
+    organization_id: String(row.organization_id),
+    user_id: String(row.user_id),
+    device_id: String(row.device_id),
+    invoice_id: String(row.invoice_id),
+    payload: row.payload,
+    status: row.status,
+    imported_at: row.imported_at ?? null,
+    import_error: row.import_error ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+});
+
+export const createMobileSyncedBill = async (payload: Omit<MobileSyncServerBill, 'id' | 'status' | 'imported_at' | 'import_error' | 'created_at' | 'updated_at'>): Promise<MobileSyncServerBill> => {
+    const row = {
+        session_id: payload.session_id,
+        organization_id: payload.organization_id,
+        user_id: payload.user_id,
+        device_id: payload.device_id,
+        invoice_id: payload.invoice_id,
+        payload: payload.payload,
+        status: 'synced',
+    };
+
+    const { data, error } = await supabase.from(MOBILE_SYNC_TABLE).insert(row).select('*').single();
+    if (error) throw error;
+    return toMobileSyncBill(data);
+};
+
+export const fetchPendingMobileBills = async (filters: { organizationId: string; userId: string; deviceId: string; sessionId?: string | null; }): Promise<MobileSyncServerBill[]> => {
+    let query = supabase
+        .from(MOBILE_SYNC_TABLE)
+        .select('*')
+        .eq('organization_id', filters.organizationId)
+        .eq('user_id', filters.userId)
+        .eq('device_id', filters.deviceId)
+        .eq('status', 'synced')
+        .order('created_at', { ascending: false });
+
+    if (filters.sessionId) {
+        query = query.eq('session_id', filters.sessionId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data || []).map(toMobileSyncBill);
+};
+
+export const markMobileBillImported = async (id: string, status: 'imported' | 'failed', importError?: string | null): Promise<void> => {
+    const patch: Record<string, any> = {
+        status,
+        import_error: importError || null,
+        updated_at: new Date().toISOString(),
+    };
+    if (status === 'imported') {
+        patch.imported_at = new Date().toISOString();
+        patch.import_error = null;
+    }
+
+    const { error } = await supabase.from(MOBILE_SYNC_TABLE).update(patch).eq('id', id).neq('status', 'imported');
+    if (error) throw error;
+};
+
 export const broadcastSyncMessage = async (sessionId: string, data: any) => {
+    latestSyncPayloadBySession.set(sessionId, data);
     const channel = supabase.channel(`sync:${sessionId}`);
     await channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') await channel.send({ type: 'broadcast', event: 'capture', payload: data });

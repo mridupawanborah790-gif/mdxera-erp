@@ -11,7 +11,7 @@ import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchSupplierProductMaps, generateUUID, getLatestSyncMessage, listenForSyncMessage, reserveVoucherNumber, saveData } from '../services/storageService';
+import { fetchPendingMobileBills, fetchSupplierProductMaps, generateUUID, getLatestSyncMessage, getOrCreateMobileDeviceId, listenForSyncMessage, markMobileBillImported, reserveVoucherNumber, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
@@ -113,9 +113,16 @@ interface MobileSyncPage {
 interface MobileSyncInvoicePayload {
     type?: 'invoice-upload';
     invoiceId?: string;
+    billId?: string;
     pages?: MobileSyncPage[];
     image?: string;
     mimeType?: string;
+    metadata?: {
+        organizationId?: string;
+        userId?: string;
+        deviceId?: string;
+        sessionId?: string;
+    };
 }
 
 const getSyncStatusLabel = (status: MobileSyncStatus) => {
@@ -886,13 +893,21 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             await processAiExtraction(fileInputs);
             setMobileSyncStatus('imported');
             addNotification(`Imported ${orderedPages.length} mobile page(s) into draft purchase voucher.`, 'success');
+            setTimeout(() => {
+                if (currentsupplier) {
+                    setIsLinkModalOpen(true);
+                }
+            }, 0);
         } catch (err: any) {
             const message = parseNetworkAndApiError(err);
             setMobileSyncStatus('failed');
             setMobileSyncError(message);
+            if (payload.billId) {
+                markMobileBillImported(payload.billId, 'failed', message).catch(() => undefined);
+            }
             addNotification(`Mobile sync import failed: ${message}`, 'error');
         }
-    }, [addNotification, processAiExtraction]);
+    }, [addNotification, currentsupplier, processAiExtraction]);
 
     useEffect(() => {
         if (!mobileSyncSessionId) {
@@ -920,7 +935,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [mobileSyncSessionId, processMobileSyncPayload]);
 
     const handleSyncBill = useCallback(async () => {
-        if (!mobileSyncSessionId) {
+        if (!mobileSyncSessionId || !currentUser) {
             setMobileSyncStatus('failed');
             setMobileSyncError('Open Magic Mobile Link first to sync a bill.');
             addNotification('Please open Magic Mobile Link before syncing bill.', 'warning');
@@ -931,21 +946,43 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setMobileSyncStatus('syncing');
         setMobileSyncError(null);
 
-        const latestPayload = getLatestSyncMessage(mobileSyncSessionId) as MobileSyncInvoicePayload | null;
-        if (!latestPayload) {
-            setIsMobileSyncing(false);
-            setMobileSyncStatus('failed');
-            setMobileSyncError('No mobile bill found yet. Upload bill pages from mobile and retry Sync Bill.');
-            addNotification('Sync Bill failed: no mobile upload found for this session.', 'error');
-            return;
-        }
-
         try {
-            await processMobileSyncPayload(latestPayload, { skipSyncingStatus: true });
+            const deviceId = getOrCreateMobileDeviceId();
+            const pendingServerBills = await fetchPendingMobileBills({
+                organizationId,
+                userId: currentUser.user_id || mobileSyncSessionId,
+                deviceId,
+                sessionId: mobileSyncSessionId,
+            });
+
+            let latestPayload = (pendingServerBills[0]?.payload || null) as MobileSyncInvoicePayload | null;
+            let latestBillId = pendingServerBills[0]?.id;
+
+            if (!latestPayload) {
+                latestPayload = getLatestSyncMessage(mobileSyncSessionId) as MobileSyncInvoicePayload | null;
+            }
+
+            if (!latestPayload) {
+                setMobileSyncStatus('failed');
+                const notFoundError = 'No mobile bill found yet. Upload bill pages from mobile and retry Sync Bill.';
+                setMobileSyncError(notFoundError);
+                addNotification(`Sync Bill failed: ${notFoundError}`, 'error');
+                return;
+            }
+
+            await processMobileSyncPayload({ ...latestPayload, billId: latestBillId }, { skipSyncingStatus: true });
+            if (latestBillId) {
+                await markMobileBillImported(latestBillId, 'imported');
+            }
+        } catch (err: any) {
+            const message = parseNetworkAndApiError(err);
+            setMobileSyncStatus('failed');
+            setMobileSyncError(message);
+            addNotification(`Sync Bill failed: ${message}`, 'error');
         } finally {
             setIsMobileSyncing(false);
         }
-    }, [addNotification, mobileSyncSessionId, processMobileSyncPayload]);
+    }, [addNotification, currentUser, mobileSyncSessionId, organizationId, processMobileSyncPayload]);
 
     const handleOpenVendorProductSync = useCallback(() => {
         if (!Supplier.trim()) {

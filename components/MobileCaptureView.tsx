@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { broadcastSyncMessage } from '../services/storageService';
+import { broadcastSyncMessage, createMobileSyncedBill, getOrCreateMobileDeviceId } from '../services/storageService';
 
 interface MobileCaptureViewProps {
     sessionId: string;
@@ -16,7 +16,7 @@ interface CapturedPage {
     capturedAt: string;
 }
 
-const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId }) => {
+const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isStreaming, setIsStreaming] = useState(false);
@@ -91,7 +91,9 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId }) => {
         setError(null);
 
         try {
-            await broadcastSyncMessage(sessionId, {
+            const deviceId = getOrCreateMobileDeviceId();
+            const userId = sessionId;
+            const syncPayload = {
                 type: 'invoice-upload',
                 invoiceId,
                 pages: capturedPages.map((page, index) => ({
@@ -100,11 +102,27 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId }) => {
                     pageNumber: index + 1,
                     capturedAt: page.capturedAt,
                 })),
+                metadata: {
+                    organizationId: orgId,
+                    userId,
+                    deviceId,
+                    sessionId,
+                },
+            };
+
+            await createMobileSyncedBill({
+                session_id: sessionId,
+                organization_id: orgId,
+                user_id: userId,
+                device_id: deviceId,
+                invoice_id: invoiceId,
+                payload: syncPayload,
             });
+            await broadcastSyncMessage(sessionId, syncPayload);
             setUploadState('synced');
         } catch (err) {
             setUploadState('failed');
-            setError('Upload failed. Please check network and retry.');
+            setError(err instanceof Error ? err.message : 'Upload failed. Please check network and retry.');
         }
     };
 
