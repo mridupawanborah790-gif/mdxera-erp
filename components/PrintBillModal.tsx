@@ -7,6 +7,7 @@ import MediOneTemplate from './invoice-templates/MediOneTemplate';
 import MargTemplate from './invoice-templates/MargTemplate';
 import GftTemplate from './invoice-templates/GftTemplate';
 import AbhigyanTemplate from './invoice-templates/AbhigyanTemplate';
+import MediThreeTemplate from './invoice-templates/MediThreeTemplate';
 
 // Declare html2pdf for TypeScript since it's loaded via CDN
 declare const html2pdf: any;
@@ -20,12 +21,12 @@ interface PrintBillModalProps {
 }
 
 const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, medicines: _medicines }) => {
-  const [template, setTemplate] = useState<'medi-1' | 'marg' | 'gft' | 'abhigyan'>('marg');
+  const [template, setTemplate] = useState<'medi-1' | 'marg' | 'gft' | 'abhigyan' | 'medi-3'>('marg');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
   const [isSharing, setIsSharing] = useState(false);
-  
-  // Define isLandscape from orientation
-  const isLandscape = orientation === 'landscape';
+
+  const effectiveOrientation: 'portrait' | 'landscape' = template === 'medi-3' ? 'portrait' : orientation;
+  const isLandscape = effectiveOrientation === 'landscape';
     
   if (!isOpen || !bill) return null;
 
@@ -73,7 +74,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         filename: `Invoice_${bill.id}.pdf`,
         image: { type: 'jpeg', quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a5', orientation }
+        jsPDF: { unit: 'mm', format: 'a5', orientation: effectiveOrientation }
     };
 
     try {
@@ -104,15 +105,17 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     { id: 'medi-1', name: 'MEDI-1 (A5)' },
     { id: 'gft', name: 'GFT Pharma' },
     { id: 'abhigyan', name: 'Classic GST' },
+    { id: 'medi-3', name: 'MEDI-3' },
   ];
 
   const renderTemplate = () => {
     switch (template) {
-        case 'medi-1': return <MediOneTemplate bill={bill} orientation={orientation} />;
-        case 'marg': return <MargTemplate bill={bill} orientation={orientation} />;
+        case 'medi-1': return <MediOneTemplate bill={bill} orientation={effectiveOrientation} />;
+        case 'marg': return <MargTemplate bill={bill} orientation={effectiveOrientation} />;
         case 'gft': return <GftTemplate bill={bill} />;
         case 'abhigyan': return <AbhigyanTemplate bill={bill} />;
-        default: return <MargTemplate bill={bill} orientation={orientation} />;
+        case 'medi-3': return <MediThreeTemplate bill={bill} />;
+        default: return <MargTemplate bill={bill} orientation={effectiveOrientation} />;
     }
   };
 
@@ -126,13 +129,15 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
                 <span className="text-[10px] font-bold text-gray-400 uppercase">Orientation:</span>
                 <button 
                   onClick={() => setOrientation('portrait')}
-                  className={`px-2 py-0.5 text-xs rounded border transition-all ${orientation === 'portrait' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
+                  disabled={template === 'medi-3'}
+                  className={`px-2 py-0.5 text-xs rounded border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${effectiveOrientation === 'portrait' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
                 >
                   Portrait
                 </button>
                 <button 
                   onClick={() => setOrientation('landscape')}
-                  className={`px-2 py-0.5 text-xs rounded border transition-all ${orientation === 'landscape' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
+                  disabled={template === 'medi-3'}
+                  className={`px-2 py-0.5 text-xs rounded border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${effectiveOrientation === 'landscape' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
                 >
                   Landscape
                 </button>
@@ -159,7 +164,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
             <div
               id="print-area"
-              className={`${isLandscape ? 'w-[210mm] h-[148mm]' : 'w-[148mm] h-[210mm]'} p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0`}
+              className={`${isLandscape ? 'w-[210mm] h-[148mm]' : 'w-[148mm] min-h-[210mm]'} p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0 ${template === 'medi-3' ? 'h-auto overflow-visible' : ''}`}
             >
                 {renderTemplate()}
             </div>
@@ -189,7 +194,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         @media print {
           @page {
             margin: 0;
-            size: A5 ${orientation};
+            size: A5 ${effectiveOrientation};
           }
 
           html, body {
