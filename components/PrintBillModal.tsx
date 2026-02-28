@@ -195,21 +195,27 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           html, body {
             margin: 0 !important;
             padding: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
 
-          body * {
-            visibility: hidden !important;
+          #root,
+          #chatbot-container,
+          .notification-container {
+            display: none !important;
           }
 
           #print-bill-modal-container {
-            position: fixed !important;
-            inset: 0 !important;
-            display: flex !important;
-            align-items: flex-start !important;
-            justify-content: flex-start !important;
+            position: static !important;
+            inset: auto !important;
+            display: block !important;
             background: white !important;
+            width: auto !important;
+            height: auto !important;
+            overflow: visible !important;
             visibility: visible !important;
           }
 
@@ -225,17 +231,22 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             background: white !important;
             margin: 0 !important;
             padding: 0 !important;
+            display: block !important;
           }
 
           #print-area {
             width: ${isLandscape ? '210mm' : '148mm'} !important;
-            height: ${isLandscape ? '148mm' : '210mm'} !important;
+            min-height: ${isLandscape ? '148mm' : '210mm'} !important;
+            height: auto !important;
             box-shadow: none !important;
             margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
             visibility: visible !important;
-            break-after: avoid-page !important;
-            break-before: avoid-page !important;
-            page-break-inside: avoid !important;
+            page-break-before: auto !important;
+            page-break-after: auto !important;
+            break-before: auto !important;
+            break-after: auto !important;
           }
 
           #print-area,
