@@ -24,14 +24,13 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   const [template, setTemplate] = useState<'medi-1' | 'marg' | 'gft' | 'abhigyan'>('marg');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
   const [isSharing, setIsSharing] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
   
   // Define isLandscape from orientation
   const isLandscape = orientation === 'landscape';
     
   if (!isOpen || !bill) return null;
 
-  const handlePrint = () => {
+  const triggerBrowserPrint = () => {
     const originalTitle = document.title;
     const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
     document.title = `Invoice_${bill.id}_${sanitizedCustomerName}`;
@@ -47,43 +46,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     }, 100);
   };
 
-  const handleDownloadOnly = async () => {
-    if (typeof html2pdf === 'undefined') {
-        alert("PDF generation library is not loaded. Please use the 'Print / Save PDF' button to 'Save as PDF' via your browser.");
-        return;
-    }
-
-    setIsDownloading(true);
-    const element = document.getElementById('print-area');
-    
-    const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
-    const opt = {
-        margin: 0,
-        filename: `Invoice_${bill.id}_${sanitizedCustomerName}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { 
-            scale: 2.5, 
-            useCORS: true, 
-            logging: false,
-            letterRendering: true,
-            backgroundColor: '#ffffff'
-        },
-        jsPDF: { 
-            unit: 'mm', 
-            format: orientation === 'landscape' ? 'a4' : 'a5', 
-            orientation: orientation, 
-            compress: true 
-        }
-    };
-
-    try {
-        await html2pdf().set(opt).from(element).save();
-    } catch (e) {
-        console.error("Download error:", e);
-        alert("Direct PDF generation failed. Please use 'Print / Save PDF' button and select 'Save as PDF' instead.");
-    } finally {
-        setIsDownloading(false);
-    }
+  const handleDownloadOnly = () => {
+    triggerBrowserPrint();
   };
 
   const handleWhatsAppShare = async () => {
@@ -201,8 +165,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         </div>
 
         <div className="flex justify-end items-center p-4 bg-gray-50 border-t no-print space-x-3 z-10 relative">
-            <button onClick={handleDownloadOnly} disabled={isDownloading} className="px-5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 flex items-center">
-                {isDownloading ? 'Generating...' : 'Save as PDF'}
+            <button onClick={handleDownloadOnly} className="px-5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 flex items-center">
+                Save as PDF
             </button>
             
             {(bill.customerPhone || bill.customerDetails?.phone) && (
@@ -214,7 +178,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             <button onClick={onClose} className="px-5 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900">
                 Close
             </button>
-            <button onClick={handlePrint} className="px-5 py-2 text-sm font-semibold text-white bg-primary rounded-lg shadow-sm hover:bg-primary-dark">
+            <button onClick={triggerBrowserPrint} className="px-5 py-2 text-sm font-semibold text-white bg-primary rounded-lg shadow-sm hover:bg-primary-dark">
                 Re-Print / Save PDF
             </button>
         </div>
@@ -231,7 +195,23 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
           #print-bill-modal-container {
             position: static !important;
+            display: block !important;
             background: white !important;
+            inset: auto !important;
+          }
+
+          #print-bill-modal-container > div {
+            width: 100% !important;
+            max-width: none !important;
+            max-height: none !important;
+            overflow: visible !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+          }
+
+          #print-area {
+            width: auto !important;
+            box-shadow: none !important;
           }
 
           #print-bill-modal-container .no-print {
