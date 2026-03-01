@@ -5,6 +5,7 @@ import { renderBarcode, generateRandomBarcode } from '../utils/barcode';
 import { handleEnterToNextField } from '../utils/navigation';
 import { normalizeImportDate, formatExpiryToMMYY } from '../utils/helpers';
 import { buildTotalStockFromBreakup, getStockBreakup } from '../utils/stock';
+import { isStripBasedPack } from '../utils/pack';
 
 interface EditProductModalProps {
     isOpen: boolean;
@@ -114,14 +115,19 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
 
 
     const unitsPerPack = Math.max(1, Number(product.unitsPerPack || 1));
-    const allowLooseStock = unitsPerPack > 1;
+    const isStripPack = isStripBasedPack(product.packType);
+    const allowLooseStock = isStripPack && unitsPerPack > 1;
     const stockBreakup = getStockBreakup(product.stock, unitsPerPack);
 
     const handleStockBreakupChange = (field: 'pack' | 'loose', value: string) => {
         const numericValue = Math.max(0, Math.floor(Number(value || 0)));
+        if (!allowLooseStock) {
+            setProduct(prev => prev ? ({ ...prev, stock: numericValue }) : null);
+            return;
+        }
         const nextPack = field === 'pack' ? numericValue : stockBreakup.pack;
         const nextLoose = field === 'loose' ? numericValue : stockBreakup.loose;
-        const totalUnits = buildTotalStockFromBreakup(nextPack, nextLoose, unitsPerPack, allowLooseStock);
+        const totalUnits = buildTotalStockFromBreakup(nextPack, nextLoose, unitsPerPack, true);
         setProduct(prev => prev ? ({ ...prev, stock: totalUnits }) : null);
     };
 
@@ -200,11 +206,11 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                             <label className="block text-[10px] font-black uppercase text-emerald-700 tracking-widest mb-2">Current Stock Breakup</label>
                             <div className={`grid gap-4 ${allowLooseStock ? 'grid-cols-2' : 'grid-cols-1'}`}>
                                 <div>
-                                    <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">Current Stock (Pack)</label>
+                                    <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">{allowLooseStock ? 'Current Stock (Strip)' : 'Current Stock (Pack/Unit)'}</label>
                                     <input
                                         type="number"
                                         min={0}
-                                        value={stockBreakup.pack}
+                                        value={allowLooseStock ? stockBreakup.pack : stockBreakup.totalUnits}
                                         onChange={(e) => handleStockBreakupChange('pack', e.target.value)}
                                         className="w-full tally-input !text-lg !text-emerald-800"
                                     />
@@ -223,9 +229,15 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                                     </div>
                                 )}
                             </div>
-                            <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">
-                                Total Stock (Units): {stockBreakup.totalUnits} = ({stockBreakup.pack} × {unitsPerPack}) + {allowLooseStock ? stockBreakup.loose : 0}
-                            </p>
+                            {allowLooseStock ? (
+                                <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                                    Total Units: {stockBreakup.totalUnits} = ({stockBreakup.pack} × {unitsPerPack}) + {stockBreakup.loose}
+                                </p>
+                            ) : (
+                                <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                                    Total Units: {stockBreakup.totalUnits}
+                                </p>
+                            )}
                         </div>
                         <div className="bg-gray-100 p-4 border border-gray-200">
                             <label className="block text-[10px] font-black uppercase text-gray-500 tracking-widest mb-2">Min. Limit</label>
