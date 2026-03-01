@@ -6,6 +6,7 @@ import BarcodeScannerModal from '../components/BarcodeScannerModal';
 import type { InventoryItem, Medicine, PhysicalInventorySession, PhysicalInventoryCountItem } from '../types';
 import { PhysicalInventoryStatus } from '../types';
 import { fuzzyMatch } from '../utils/search';
+import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
@@ -228,6 +229,8 @@ const CountingView: React.FC<{
         const grouped = new Map<string, InventoryItem>();
 
         inventory.forEach(i => {
+            const invPolicy = getInventoryPolicy(i, medicines);
+            if (!invPolicy.inventorised) return;
             if (
                 !term ||
                 fuzzyMatch(i.name, term) ||
@@ -239,6 +242,8 @@ const CountingView: React.FC<{
         });
 
         medicines.forEach(m => {
+            const medPolicy = getResolvedMedicinePolicy(m);
+            if (!medPolicy.inventorised) return;
             if (
                 !term ||
                 fuzzyMatch(m.name, term) ||
@@ -258,8 +263,8 @@ const CountingView: React.FC<{
                         stock: 0,
                         unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '1', 10),
                         minStockLimit: 0,
-                        batch: 'UNTRACKED',
-                        expiry: 'N/A',
+                        batch: medPolicy.inventorised ? 'UNTRACKED' : '',
+                        expiry: medPolicy.inventorised ? 'N/A' : '',
                         purchasePrice: 0,
                         mrp: parseFloat(m.mrp || '0'),
                         gstPercent: m.gstRate || 0,

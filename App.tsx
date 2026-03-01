@@ -49,7 +49,6 @@
 // } from './types';
 // import { navigation } from './constants';
 // import { generateNewInvoiceId } from './utils/invoice';
-
 // const App: React.FC = () => {
 //     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
 //     const [currentPage, setCurrentPage] = useState('dashboard');
@@ -996,6 +995,7 @@ import {
 } from './types';
 import { navigation } from './constants';
 import { generateNewInvoiceId } from './utils/invoice';
+import { getInventoryPolicy } from './utils/materialType';
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
@@ -1369,6 +1369,8 @@ const App: React.FC = () => {
             for (const [inventoryItemId, requiredUnits] of requiredUnitsByInventoryId.entries()) {
                 const invItem = inventory.find(i => i.id === inventoryItemId);
                 if (!invItem) continue;
+                const policy = getInventoryPolicy(invItem, medicines);
+                if (!policy.inventorised) continue;
                 if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
                     throw new Error(`Insufficient stock for ${invItem.name}. Available: ${Number(invItem.stock || 0)}`);
                 }
@@ -1583,6 +1585,8 @@ const App: React.FC = () => {
             for (const item of tx.items) {
                 const inv = inventory.find(i => i.id === item.inventoryItemId);
                 if (inv) {
+                    const policy = getInventoryPolicy(inv, medicines);
+                    if (!policy.inventorised) continue;
                     await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * (inv.unitsPerPack || 1) + (item.looseQuantity || 0)) }, currentUser);
                 }
             }

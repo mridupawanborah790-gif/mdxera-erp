@@ -8,6 +8,7 @@ import type { InventoryItem, RegisteredPharmacy, ModuleConfig, AppConfigurations
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY } from '../utils/helpers';
 import { configurableModules } from '../constants';
+import { getInventoryPolicy } from '../utils/materialType';
 
 // Standardized typography matching POS screen "Product Selection Matrix"
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
@@ -67,6 +68,7 @@ const Inventory: React.FC<InventoryProps> = ({
 
     const filteredItems = useMemo(() => {
         let items = Array.isArray(inventory) ? [...inventory] : [];
+        items = items.filter(i => getInventoryPolicy(i, medicines).inventorised);
         
         if (lowStockFilter) {
             items = items.filter(i => i.stock <= i.minStockLimit);
@@ -88,7 +90,7 @@ const Inventory: React.FC<InventoryProps> = ({
             const nameB = (b.name || '').toLowerCase();
             return nameA.localeCompare(nameB);
         });
-    }, [inventory, searchTerm, lowStockFilter]);
+    }, [inventory, searchTerm, lowStockFilter, medicines]);
 
     const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
     
