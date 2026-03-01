@@ -150,6 +150,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           min-height: 0;
           overflow: hidden;
           display: flex;
+          align-items: stretch;
         }
         .medi-three-grid {
           width: 100%;
@@ -157,6 +158,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           table-layout: fixed;
           height: 100%;
           align-self: stretch;
+          border-bottom: 1px solid #111;
         }
         .medi-three-grid th,
         .medi-three-grid td { border: 1px solid #111; padding: 1px 2px; vertical-align: middle; }
@@ -172,6 +174,13 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           padding-top: 2.85px;
           padding-bottom: 2.85px;
           line-height: 1.15;
+        }
+        .medi-three-grid tbody {
+          border-bottom: 1px solid #111;
+        }
+        .medi-three-grid tbody tr:last-child td,
+        .medi-three-grid tbody tr:last-child th {
+          border-bottom: 1px solid #111;
         }
         .medi-three-row,
         .medi-three-row-empty { height: var(--row-height); }
@@ -197,15 +206,33 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           display: grid;
           grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'};
           height: 100%;
+          width: 100%;
           box-sizing: border-box;
+          background: #fff;
         }
-        .medi-three-footer { min-height: 0; }
+        .medi-three-footer {
+          min-height: 0;
+          display: flex;
+          overflow: hidden;
+          align-items: stretch;
+        }
+        .medi-three-footer > * {
+          width: 100%;
+        }
         .medi-three-summary-placeholder {
           border: 0;
           height: 100%;
         }
-        .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; font-size: 10.8px; }
-        .medi-three-summary-right { padding: 5px 4px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+        .medi-three-summary-left { padding: 5px 4px; font-size: 10.8px; }
+        .medi-three-summary-right {
+          padding: 5px 4px;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 3px;
+          border-left: 1px solid #111;
+          background: #fff;
+        }
         .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 10.95px; }
         .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 17px; font-weight: 800; }
         @media print {
@@ -225,6 +252,15 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           .medi-three-row { break-inside: avoid; page-break-inside: avoid; }
           .medi-three-grid { width: 100%; }
           .medi-three-box {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .medi-three-items,
+          .medi-three-grid,
+          .medi-three-grid tbody,
+          .medi-three-grid tbody tr:last-child td,
+          .medi-three-footer,
+          .medi-three-summary {
             break-inside: avoid;
             page-break-inside: avoid;
           }
