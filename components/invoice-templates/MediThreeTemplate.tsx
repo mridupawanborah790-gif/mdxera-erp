@@ -130,18 +130,33 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         }
         .medi-three-box {
           border: 1px solid #111;
-          display: flex;
-          flex-direction: column;
+          --section-gap: 1.5mm;
+          --header-height: ${isLandscape ? '38mm' : '62mm'};
+          --items-height: ${isLandscape ? '75mm' : '106mm'};
+          --footer-height: ${isLandscape ? '28mm' : '35mm'};
+          --row-height: ${isLandscape ? '4mm' : '5.85mm'};
+          display: grid;
+          grid-template-rows: var(--header-height) var(--items-height) var(--footer-height);
+          row-gap: var(--section-gap);
           flex: 1;
           min-height: 0;
+          box-sizing: border-box;
         }
-        .medi-three-header { flex: 0 0 auto; }
-        .medi-three-items { flex: 1; display: flex; min-height: 0; }
+        .medi-three-header {
+          min-height: 0;
+          overflow: hidden;
+        }
+        .medi-three-items {
+          min-height: 0;
+          overflow: hidden;
+          display: flex;
+        }
         .medi-three-grid {
           width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          align-self: flex-start;
+          height: 100%;
+          align-self: stretch;
         }
         .medi-three-grid th,
         .medi-three-grid td { border: 1px solid #111; padding: 1px 2px; vertical-align: middle; }
@@ -159,7 +174,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           line-height: 1.15;
         }
         .medi-three-row,
-        .medi-three-row-empty { height: ${isLandscape ? '5.4mm' : '5.85mm'}; }
+        .medi-three-row-empty { height: var(--row-height); }
         .medi-three-row-empty td {
           color: transparent;
         }
@@ -178,11 +193,16 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         .medi-three-company .invoice-meta { font-size: 11.25px; }
         .medi-three-customer { font-size: 10.8px; line-height: 1.25; }
         .medi-three-summary {
-          border-top: 1px solid #111;
+          border: 1px solid #111;
           display: grid;
           grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'};
-          min-height: ${isLandscape ? '28mm' : '35mm'};
-          margin-top: auto;
+          height: 100%;
+          box-sizing: border-box;
+        }
+        .medi-three-footer { min-height: 0; }
+        .medi-three-summary-placeholder {
+          border: 0;
+          height: 100%;
         }
         .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; font-size: 10.8px; }
         .medi-three-summary-right { padding: 5px 4px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
@@ -311,19 +331,23 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                 </table>
               </div>
 
-              {isLastPage && (
-                <div className="medi-three-summary">
-                  <div className="medi-three-summary-left">
-                    <div><strong>Amount in words:</strong> {numberToWords(totals.grandTotal)}</div>
+              <div className="medi-three-footer">
+                {isLastPage ? (
+                  <div className="medi-three-summary">
+                    <div className="medi-three-summary-left">
+                      <div><strong>Amount in words:</strong> {numberToWords(totals.grandTotal)}</div>
+                    </div>
+                    <div className="medi-three-summary-right">
+                      <div className="row"><span>Sub Total</span><strong>{totals.subTotal.toFixed(2)}</strong></div>
+                      {totals.discount > 0 && <div className="row"><span>Discount</span><strong>-{totals.discount.toFixed(2)}</strong></div>}
+                      <div className="row"><span>Tax Total</span><strong>{totals.taxTotal.toFixed(2)}</strong></div>
+                      <div className="row grand"><span>Grand Total</span><span>{totals.grandTotal.toFixed(2)}</span></div>
+                    </div>
                   </div>
-                  <div className="medi-three-summary-right">
-                    <div className="row"><span>Sub Total</span><strong>{totals.subTotal.toFixed(2)}</strong></div>
-                    {totals.discount > 0 && <div className="row"><span>Discount</span><strong>-{totals.discount.toFixed(2)}</strong></div>}
-                    <div className="row"><span>Tax Total</span><strong>{totals.taxTotal.toFixed(2)}</strong></div>
-                    <div className="row grand"><span>Grand Total</span><span>{totals.grandTotal.toFixed(2)}</span></div>
-                  </div>
-                </div>
-              )}
+                ) : (
+                  <div className="medi-three-summary-placeholder" aria-hidden="true" />
+                )}
+              </div>
             </div>
           </div>
         );
