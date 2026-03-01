@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { InventoryItem, BillItem, Customer, AppConfigurations } from '../types';
+import { isStripBasedPack } from '../utils/pack';
 
 interface SalesLineModalProps {
     isOpen: boolean;
@@ -81,6 +82,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     }, [batches, cartUnitsByBatchId, initialItem]);
 
     const activeBatch = sortedBatches[selectedBatchIndex];
+    const allowLooseForBatch = isStripBasedPack(activeBatch?.packType) && (activeBatch?.unitsPerPack || 1) > 1;
 
     const currentAvailableStock = useMemo(() => {
         if (!activeBatch) return 0;
@@ -121,6 +123,13 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
         }
     }, [isOpen, initialItem, sortedBatches, customer]);
 
+
+    useEffect(() => {
+        if (!allowLooseForBatch && loose !== 0) {
+            setLoose(0);
+        }
+    }, [allowLooseForBatch, loose]);
+
     // Auto-scroll active batch into view
     useEffect(() => {
         if (activeBatchRef.current) {
@@ -132,7 +141,8 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
         if (!activeBatch) return { gross: 0, afterTrade: 0, schemeDiscount: 0, net: 0, units: 0 };
         
         const unitsPerPack = activeBatch.unitsPerPack || 1;
-        const totalUnits = (packs * unitsPerPack) + loose;
+        const normalizedLoose = allowLooseForBatch ? loose : 0;
+        const totalUnits = (packs * unitsPerPack) + normalizedLoose;
         const baseRate = activeBatch.mrp; 
         
         let rateValue = baseRate;
@@ -165,7 +175,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
         const net = afterTrade - schemeDiscountAmt - itemFlatDiscount;
 
         return { gross, afterTrade, schemeDiscount: schemeDiscountAmt, net, units: totalUnits };
-    }, [activeBatch, packs, loose, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, customer, globalDefaultRateTier]);
+    }, [activeBatch, packs, loose, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, customer, globalDefaultRateTier, allowLooseForBatch]);
 
     const handleConfirm = useCallback(() => {
         if (!activeBatch || isReadOnly) return;
@@ -196,7 +206,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             brand: activeBatch.brand,
             mrp: activeBatch.mrp,
             quantity: packs,
-            looseQuantity: loose,
+            looseQuantity: allowLooseForBatch ? loose : 0,
             freeQuantity: freePacks,
             unit: 'pack',
             gstPercent: activeBatch.gstPercent,
@@ -216,7 +226,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
 
         onConfirm(item);
         onClose();
-    }, [activeBatch, packs, loose, freePacks, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, initialItem, onConfirm, onClose, isReadOnly, shouldPreventNegativeStock, currentAvailableStock, customer, globalDefaultRateTier, lineTotals]);
+    }, [activeBatch, packs, loose, freePacks, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, initialItem, onConfirm, onClose, isReadOnly, shouldPreventNegativeStock, currentAvailableStock, customer, globalDefaultRateTier, lineTotals, allowLooseForBatch]);
 
     const handleGlobalKeyDown = (e: React.KeyboardEvent) => {
         // Only trigger batch cycling if we are not in a select dropdown
@@ -314,22 +324,24 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
                                                 type="number" 
                                                 value={packs === 0 ? '' : packs} 
                                                 onChange={e => setPacks(parseInt(e.target.value) || 0)}
-                                                onKeyDown={e => handleInputKeyDown(e, looseInputRef)}
+                                                onKeyDown={e => handleInputKeyDown(e, allowLooseForBatch ? looseInputRef : discInputRef)}
                                                 className="w-full p-4 text-4xl font-black border-2 border-app-border rounded-none bg-white focus:border-primary focus:ring-8 focus:ring-primary/5 outline-none transition-all no-spinner shadow-sm"
                                             />
                                         </div>
-                                        <span className="text-4xl font-black text-gray-200 mb-5">:</span>
-                                        <div className="flex-1">
-                                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">Loose</label>
-                                            <input 
-                                                ref={looseInputRef}
-                                                type="number" 
-                                                value={loose === 0 ? '' : loose} 
-                                                onChange={e => setLoose(parseInt(e.target.value) || 0)}
-                                                onKeyDown={e => handleInputKeyDown(e, discInputRef)}
-                                                className="w-full p-4 text-4xl font-black border-2 border-app-border rounded-none bg-white focus:border-primary focus:ring-8 focus:ring-primary/5 outline-none transition-all no-spinner shadow-sm"
-                                            />
-                                        </div>
+                                        {allowLooseForBatch && <span className="text-4xl font-black text-gray-200 mb-5">:</span>}
+                                        {allowLooseForBatch && (
+                                            <div className="flex-1">
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">Loose</label>
+                                                <input 
+                                                    ref={looseInputRef}
+                                                    type="number" 
+                                                    value={loose === 0 ? '' : loose} 
+                                                    onChange={e => setLoose(parseInt(e.target.value) || 0)}
+                                                    onKeyDown={e => handleInputKeyDown(e, discInputRef)}
+                                                    className="w-full p-4 text-4xl font-black border-2 border-app-border rounded-none bg-white focus:border-primary focus:ring-8 focus:ring-primary/5 outline-none transition-all no-spinner shadow-sm"
+                                                />
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="space-y-4">

@@ -15,6 +15,7 @@ import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber } from '../utils/helpers';
 import { calculateBillingTotals, calculateLineNetAmount, resolveBillingSettings } from '../utils/billing';
+import { isStripBasedPack } from '../utils/pack';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -620,6 +621,10 @@ const POS = forwardRef<any, POSProps>(({
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
                     (updated as any)[field] = value === '' ? 0 : (parseFloat(value) || 0);
                 }
+                const allowLooseForItem = isStripBasedPack(updated.packType) && (updated.unitsPerPack || 1) > 1;
+                if (!allowLooseForItem) {
+                    updated.looseQuantity = 0;
+                }
                 return updated;
             }
             return item;
@@ -967,19 +972,23 @@ const POS = forwardRef<any, POSProps>(({
                                             )}
                                             {isFieldVisible('colLQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
-                                                    <input
-                                                        id={`qty-l-${item.id}`}
-                                                        type="number"
-                                                        value={item.looseQuantity === 0 ? '' : item.looseQuantity}
-                                                        onChange={e => handleUpdateCartItem(item.id, 'looseQuantity', e.target.value)}
-                                                        onKeyDown={e => {
-                                                            handleItemKeyDown(e, item.id, idx);
-                                                            handleRowKeyNavigation(e, item.id);
-                                                        }}
-                                                        className="w-full text-center bg-transparent font-normal no-spinner outline-none text-gray-500"
-                                                        placeholder="0"
-                                                        disabled={isReadOnly}
-                                                    />
+                                                    {isStripBasedPack(item.packType) && (item.unitsPerPack || 1) > 1 ? (
+                                                        <input
+                                                            id={`qty-l-${item.id}`}
+                                                            type="number"
+                                                            value={item.looseQuantity === 0 ? '' : item.looseQuantity}
+                                                            onChange={e => handleUpdateCartItem(item.id, 'looseQuantity', e.target.value)}
+                                                            onKeyDown={e => {
+                                                                handleItemKeyDown(e, item.id, idx);
+                                                                handleRowKeyNavigation(e, item.id);
+                                                            }}
+                                                            className="w-full text-center bg-transparent font-normal no-spinner outline-none text-gray-500"
+                                                            placeholder="0"
+                                                            disabled={isReadOnly}
+                                                        />
+                                                    ) : (
+                                                        <span className="text-gray-400">—</span>
+                                                    )}
                                                 </td>
                                             )}
                                             {isFieldVisible('colFree') && (
@@ -1339,9 +1348,9 @@ const POS = forwardRef<any, POSProps>(({
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">Description of Medicine</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200 w-32 text-center">Code</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">MFR / Brand</th>
-                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Strips Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Strip/Pack Stock</th>
                                                 <th className="p-1.5 px-3 text-center border-r border-gray-200">Loose Stock</th>
-                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Total Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Total Units</th>
                                                 <th className="p-1.5 px-3 text-right">MRP</th>
                                             </tr>
                                         </thead>
@@ -1351,8 +1360,9 @@ const POS = forwardRef<any, POSProps>(({
                                                 const item = res.item;
                                                 const totalStock = res.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0);
                                                 const unitsPerPack = item.unitsPerPack || 1;
-                                                const stripsStock = Math.floor(totalStock / unitsPerPack);
-                                                const looseStock = totalStock % unitsPerPack;
+                                                const allowStripLoose = isStripBasedPack(item.packType) && unitsPerPack > 1;
+                                                const stripsStock = allowStripLoose ? Math.floor(totalStock / unitsPerPack) : totalStock;
+                                                const looseStock = allowStripLoose ? (totalStock % unitsPerPack) : 0;
                                                 return (
                                                     <tr
                                                         key={item.id}
@@ -1369,7 +1379,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{stripsStock}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{looseStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{allowStripLoose ? looseStock : '—'}</td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{totalStock}</td>
                                                         <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>
