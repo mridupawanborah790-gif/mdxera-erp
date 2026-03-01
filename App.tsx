@@ -1788,7 +1788,7 @@ const App: React.FC = () => {
             case 'businessRoles':
                 return <BusinessRoles currentUser={currentUser!} addNotification={addNotification} />;
             case 'companyConfiguration':
-                return <CompanyConfiguration />;
+                return <CompanyConfiguration currentUser={currentUser} />;
             case 'configuration':
                 return <Configuration
                     configurations={configurations}
