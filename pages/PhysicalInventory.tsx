@@ -513,7 +513,7 @@ const CountingView: React.FC<{
                                                 <p className="font-bold text-gray-900 uppercase">{item.name}</p>
                                                 <p className="text-[9px] text-gray-400 font-bold uppercase">Batch: {item.batch}</p>
                                             </td>
-                                            <td className="p-2 border-r border-gray-200 text-center font-bold text-gray-500">{item.systemStock}</td>
+                                            <td className="p-2 border-r border-gray-200 text-center font-bold text-gray-500">{formatStockDisplay(item.systemStock, uPP)}</td>
                                             <td className="p-2 border-r border-gray-200 text-center">
                                                 <div className="flex items-center justify-center gap-2">
                                                     <input 
@@ -637,7 +637,7 @@ const CountingView: React.FC<{
                                                     {item.code || '--'}
                                                 </td>
                                                 <td className={`p-1.5 px-3 border-r border-gray-200 ${uniformTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
-                                                <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${uniformTextStyle} ${isSelected ? 'text-white' : (item.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{item.stock}</td>
+                                                <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${uniformTextStyle} ${isSelected ? 'text-white' : (item.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{formatStockDisplay(item.stock, item.unitsPerPack || 1)}</td>
                                                 <td className={`p-1.5 px-3 text-right ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                             </tr>
                                         );
@@ -712,7 +712,7 @@ const PhysicalInventoryDetailModal: React.FC<{ isOpen: boolean; onClose: () => v
                     {session.items.map(item => (
                         <tr key={item.inventoryItemId} className="border-b border-gray-100">
                             <td className="p-2 font-bold uppercase">{item.name} <span className="block text-[9px] text-gray-400">Batch: {item.batch}</span></td>
-                            <td className="p-2 text-center font-bold text-gray-500">{item.systemStock}</td>
+                            <td className="p-2 text-center font-bold text-gray-500">{formatStockDisplay(item.systemStock, item.unitsPerPack || 1)}</td>
                             <td className="p-2 text-center font-black text-primary">{item.physicalCount}</td>
                             <td className={`p-2 text-right font-black ${item.variance > 0 ? 'text-green-700' : item.variance < 0 ? 'text-red-700' : ''}`}>{item.variance > 0 ? '+' : ''}{item.variance}</td>
                         </tr>

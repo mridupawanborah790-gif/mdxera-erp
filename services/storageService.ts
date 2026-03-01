@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { parseNetworkAndApiError } from '../utils/error';
 import { normalizeImportDate } from '../utils/helpers';
+import { deductStockLooseFirst } from '../utils/stock';
 
 export const generateUUID = () => crypto.randomUUID();
 
@@ -321,7 +322,7 @@ export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) 
                 const unitsToDeduct = unitsToDeductByInventoryId.get(inv.id) || 0;
                 return {
                     ...inv,
-                    stock: Number(inv.stock || 0) - unitsToDeduct,
+                    stock: deductStockLooseFirst(Number(inv.stock || 0), unitsToDeduct, inv.unitsPerPack),
                 };
             });
 

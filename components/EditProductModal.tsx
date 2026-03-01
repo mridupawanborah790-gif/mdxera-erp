@@ -4,6 +4,7 @@ import type { InventoryItem } from '../types';
 import { renderBarcode, generateRandomBarcode } from '../utils/barcode';
 import { handleEnterToNextField } from '../utils/navigation';
 import { normalizeImportDate, formatExpiryToMMYY } from '../utils/helpers';
+import { buildTotalStockFromBreakup, getStockBreakup } from '../utils/stock';
 
 interface EditProductModalProps {
     isOpen: boolean;
@@ -111,6 +112,19 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
         }
     };
 
+
+    const unitsPerPack = Math.max(1, Number(product.unitsPerPack || 1));
+    const allowLooseStock = unitsPerPack > 1;
+    const stockBreakup = getStockBreakup(product.stock, unitsPerPack);
+
+    const handleStockBreakupChange = (field: 'pack' | 'loose', value: string) => {
+        const numericValue = Math.max(0, Math.floor(Number(value || 0)));
+        const nextPack = field === 'pack' ? numericValue : stockBreakup.pack;
+        const nextLoose = field === 'loose' ? numericValue : stockBreakup.loose;
+        const totalUnits = buildTotalStockFromBreakup(nextPack, nextLoose, unitsPerPack, allowLooseStock);
+        setProduct(prev => prev ? ({ ...prev, stock: totalUnits }) : null);
+    };
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Alter Inventory: ${product.name}`} widthClass="max-w-5xl">
             <div className="flex flex-col h-full bg-white dark:bg-zinc-950 overflow-hidden" onKeyDown={handleKeyDown}>
@@ -182,9 +196,36 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                             <label className="block text-[10px] font-black uppercase text-red-600 tracking-widest mb-2">Expiry (MM/YY)</label>
                             <input name="expiry" value={expiryDisplay} onChange={handleChange} maxLength={5} placeholder="MM/YY" className="w-full tally-input !text-lg !text-red-700" />
                         </div>
-                        <div className="bg-emerald-50 p-4 border border-emerald-100">
-                            <label className="block text-[10px] font-black uppercase text-emerald-700 tracking-widest mb-2">Current Stock</label>
-                            <input type="number" name="stock" value={product.stock} onChange={handleChange} className="w-full tally-input !text-lg !text-emerald-800" />
+                        <div className="bg-emerald-50 p-4 border border-emerald-100 md:col-span-2">
+                            <label className="block text-[10px] font-black uppercase text-emerald-700 tracking-widest mb-2">Current Stock Breakup</label>
+                            <div className={`grid gap-4 ${allowLooseStock ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                <div>
+                                    <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">Current Stock (Pack)</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        value={stockBreakup.pack}
+                                        onChange={(e) => handleStockBreakupChange('pack', e.target.value)}
+                                        className="w-full tally-input !text-lg !text-emerald-800"
+                                    />
+                                </div>
+                                {allowLooseStock && (
+                                    <div>
+                                        <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">Current Stock (Loose)</label>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            max={Math.max(0, unitsPerPack - 1)}
+                                            value={stockBreakup.loose}
+                                            onChange={(e) => handleStockBreakupChange('loose', e.target.value)}
+                                            className="w-full tally-input !text-lg !text-emerald-800"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                            <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                                Total Stock (Units): {stockBreakup.totalUnits} = ({stockBreakup.pack} × {unitsPerPack}) + {allowLooseStock ? stockBreakup.loose : 0}
+                            </p>
                         </div>
                         <div className="bg-gray-100 p-4 border border-gray-200">
                             <label className="block text-[10px] font-black uppercase text-gray-500 tracking-widest mb-2">Min. Limit</label>
