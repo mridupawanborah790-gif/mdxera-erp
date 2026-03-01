@@ -148,7 +148,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         }
         .medi-three-items {
           min-height: 0;
-          overflow: hidden;
+          overflow: visible;
           display: flex;
           align-items: stretch;
         }
