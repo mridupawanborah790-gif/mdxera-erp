@@ -9,6 +9,7 @@ import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY } from '../utils/helpers';
 import { configurableModules } from '../constants';
 import { getInventoryPolicy } from '../utils/materialType';
+import { resolveUnitsPerStrip } from '../utils/pack';
 
 // Standardized typography matching POS screen "Product Selection Matrix"
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
@@ -316,7 +317,7 @@ const Inventory: React.FC<InventoryProps> = ({
                             </thead>
                             <tbody className="divide-y divide-gray-200" ref={tableBodyRef}>
                                 {paginatedItems.map((item, idx) => {
-                                    const uPP = item.unitsPerPack || 1;
+                                    const uPP = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
                                     const strips = Math.floor(item.stock / uPP);
                                     const loose = item.stock % uPP;
                                     const isLow = item.stock <= item.minStockLimit;

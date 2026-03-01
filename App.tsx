@@ -469,7 +469,7 @@
 //                 );
 
 //                 if (inventoryMatch) {
-//                     const uPP = inventoryMatch.unitsPerPack || 1;
+//                     const uPP = resolveUnitsPerStrip(inventoryMatch.unitsPerPack, inventoryMatch.packType);
 //                     const unitsToRemove = (item.quantity * uPP) + (item.looseQuantity || 0) + (item.freeQuantity || 0);
 
 //                     const updatedInv = {
@@ -506,7 +506,7 @@
 
 //         const normalize = (value?: string) => (value || '').trim().toLowerCase();
 //         const updatedPack = (updatedMedicine.pack || '').trim();
-//         const inferredUnitsPerPack = Math.max(1, parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10));
+//         const inferredUnitsPerPack = resolveUnitsPerStrip(parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10), updatedPack);
 
 //         const isLinkedInventoryItem = (item: InventoryItem) => {
 //             const itemCode = normalize(item.code);
@@ -610,7 +610,7 @@
 //             for (const item of tx.items) {
 //                 const inv = inventory.find(i => i.id === item.inventoryItemId);
 //                 if (inv) {
-//                     await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * (inv.unitsPerPack || 1) + (item.looseQuantity || 0)) }, currentUser);
+//                     await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0)) }, currentUser);
 //                 }
 //             }
 //             loadData(currentUser, 'background');
@@ -997,6 +997,7 @@ import {
 import { navigation } from './constants';
 import { generateNewInvoiceId } from './utils/invoice';
 import { getInventoryPolicy } from './utils/materialType';
+import { resolveUnitsPerStrip } from './utils/pack';
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
@@ -1445,7 +1446,7 @@ const App: React.FC = () => {
                 );
 
                 if (inventoryMatch) {
-                    const uPP = inventoryMatch.unitsPerPack || 1;
+                    const uPP = resolveUnitsPerStrip(inventoryMatch.unitsPerPack, inventoryMatch.packType);
                     const unitsToRemove = (item.quantity * uPP) + (item.looseQuantity || 0) + (item.freeQuantity || 0);
 
                     const updatedInv = {
@@ -1482,7 +1483,7 @@ const App: React.FC = () => {
 
         const normalize = (value?: string) => (value || '').trim().toLowerCase();
         const updatedPack = (updatedMedicine.pack || '').trim();
-        const inferredUnitsPerPack = Math.max(1, parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10));
+        const inferredUnitsPerPack = resolveUnitsPerStrip(parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10), updatedPack);
 
         const isLinkedInventoryItem = (item: InventoryItem) => {
             const itemCode = normalize(item.code);
@@ -1588,7 +1589,7 @@ const App: React.FC = () => {
                 if (inv) {
                     const policy = getInventoryPolicy(inv, medicines);
                     if (!policy.inventorised) continue;
-                    await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * (inv.unitsPerPack || 1) + (item.looseQuantity || 0)) }, currentUser);
+                    await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0)) }, currentUser);
                 }
             }
             loadData(currentUser, 'background');

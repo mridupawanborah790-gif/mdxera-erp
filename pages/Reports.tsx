@@ -79,7 +79,7 @@ const Reports: React.FC<ReportsProps> = ({
                 break;
             case 'inventoryReport':
                 title = 'Inventory Stock Report';
-                headers = ['Product Name', 'Brand', 'Batch', 'Expiry', 'Current Stock (Pack)', 'Current Stock (Loose)', 'Total Stock (Units)', 'Units Per Pack', 'MRP', 'Purchase Price', 'GST%', 'HSN Code'];
+                headers = ['Product Name', 'Brand', 'Batch', 'Expiry', 'Current Stock (Strip)', 'Current Stock (Loose)', 'Total Stock (Units)', 'Units Per Pack', 'MRP', 'Purchase Price', 'GST%', 'HSN Code'];
                 filteredData = inventory.map((item: InventoryItem) => {
                     const breakup = getStockBreakup(item.stock, item.unitsPerPack, item.packType);
                     return {
@@ -87,7 +87,7 @@ const Reports: React.FC<ReportsProps> = ({
                         'Brand': item.brand,
                         'Batch': item.batch,
                         'Expiry': item.expiry ? new Date(item.expiry).toLocaleDateString('en-GB') : 'N/A',
-                        'Current Stock (Pack)': breakup.pack,
+                        'Current Stock (Strip)': breakup.pack,
                         'Current Stock (Loose)': breakup.loose,
                         'Total Stock (Units)': breakup.totalUnits,
                         'Units Per Pack': breakup.unitsPerPack,
@@ -138,7 +138,7 @@ const Reports: React.FC<ReportsProps> = ({
                 break;
             case 'stockSalesAnalysis':
                 title = 'Stock & Sales Analysis';
-                headers = ['Product Name', 'Current Stock (Pack)', 'Current Stock (Loose)', 'Total Stock (Units)', 'Total Sold (Period)', 'Stock Turnover'];
+                headers = ['Product Name', 'Current Stock (Strip)', 'Current Stock (Loose)', 'Total Stock (Units)', 'Total Sold (Period)', 'Stock Turnover'];
                 const salesByProduct = new Map<string, number>();
                 applyDateFilter(transactions).forEach(tx => {
                     (tx.items || []).forEach((item: any) => {
@@ -151,7 +151,7 @@ const Reports: React.FC<ReportsProps> = ({
                     const stockTurnover = breakup.totalUnits > 0 ? (Number(soldQty) / breakup.totalUnits) : 0;
                     return {
                         'Product Name': item.name,
-                        'Current Stock (Pack)': breakup.pack,
+                        'Current Stock (Strip)': breakup.pack,
                         'Current Stock (Loose)': breakup.loose,
                         'Total Stock (Units)': breakup.totalUnits,
                         'Total Sold (Period)': soldQty,

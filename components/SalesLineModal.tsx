@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { InventoryItem, BillItem, Customer, AppConfigurations } from '../types';
-import { resolveUnitsPerStrip } from '../utils/pack';
+import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 
 interface SalesLineModalProps {
     isOpen: boolean;
@@ -82,7 +82,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     }, [batches, cartUnitsByBatchId, initialItem]);
 
     const activeBatch = sortedBatches[selectedBatchIndex];
-    const allowLooseForBatch = true;
+    const allowLooseForBatch = activeBatch ? !isLiquidOrWeightPack(activeBatch.packType) : true;
 
     const currentAvailableStock = useMemo(() => {
         if (!activeBatch) return 0;
@@ -99,7 +99,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
                 const bIdx = sortedBatches.findIndex(b => b.id === initialItem.inventoryItemId);
                 setSelectedBatchIndex(bIdx !== -1 ? bIdx : 0);
                 setPacks(initialItem.quantity || 0);
-                setLoose(initialItem.looseQuantity || 0);
+                setLoose((allowLooseForBatch ? initialItem.looseQuantity : 0) || 0);
                 setFreePacks(initialItem.freeQuantity || 0);
                 setDiscount(initialItem.discountPercent || 0);
                 setItemFlatDiscount(initialItem.itemFlatDiscount || 0);
@@ -121,7 +121,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             }
             setTimeout(() => packsInputRef.current?.focus(), 150);
         }
-    }, [isOpen, initialItem, sortedBatches, customer]);
+    }, [isOpen, initialItem, sortedBatches, customer, allowLooseForBatch]);
 
 
 
@@ -136,7 +136,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
         if (!activeBatch) return { gross: 0, afterTrade: 0, schemeDiscount: 0, net: 0, units: 0 };
         
         const unitsPerPack = resolveUnitsPerStrip(activeBatch.unitsPerPack, activeBatch.packType);
-        const normalizedLoose = loose;
+        const normalizedLoose = allowLooseForBatch ? loose : 0;
         const totalUnits = (packs * unitsPerPack) + normalizedLoose;
         const baseRate = activeBatch.mrp; 
         
@@ -201,7 +201,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             brand: activeBatch.brand,
             mrp: activeBatch.mrp,
             quantity: packs,
-            looseQuantity: loose,
+            looseQuantity: allowLooseForBatch ? loose : 0,
             freeQuantity: freePacks,
             unit: 'pack',
             gstPercent: activeBatch.gstPercent,
