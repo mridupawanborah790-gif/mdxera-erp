@@ -5,7 +5,7 @@ import { renderBarcode, generateRandomBarcode } from '../utils/barcode';
 import { handleEnterToNextField } from '../utils/navigation';
 import { normalizeImportDate, formatExpiryToMMYY } from '../utils/helpers';
 import { buildTotalStockFromBreakup, getStockBreakup } from '../utils/stock';
-import { resolveUnitsPerStrip } from '../utils/pack';
+import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 
 interface EditProductModalProps {
     isOpen: boolean;
@@ -115,13 +115,14 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
 
 
     const unitsPerPack = resolveUnitsPerStrip(product.unitsPerPack, product.packType);
+    const isLiquidOrWeight = isLiquidOrWeightPack(product.packType);
     const stockBreakup = getStockBreakup(product.stock, unitsPerPack, product.packType);
 
     const handleStockBreakupChange = (field: 'pack' | 'loose', value: string) => {
         const numericValue = Math.max(0, Math.floor(Number(value || 0)));
         const nextPack = field === 'pack' ? numericValue : stockBreakup.pack;
         const nextLoose = field === 'loose' ? numericValue : stockBreakup.loose;
-        const totalUnits = buildTotalStockFromBreakup(nextPack, nextLoose, unitsPerPack, true, product.packType);
+        const totalUnits = buildTotalStockFromBreakup(nextPack, nextLoose, unitsPerPack, !isLiquidOrWeight, product.packType);
         setProduct(prev => prev ? ({ ...prev, stock: totalUnits }) : null);
     };
 
@@ -216,12 +217,18 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                                             min={0}
                                             value={stockBreakup.loose}
                                             onChange={(e) => handleStockBreakupChange('loose', e.target.value)}
-                                            className="w-full tally-input !text-lg !text-emerald-800"
+                                            disabled={isLiquidOrWeight}
+                                            className="w-full tally-input !text-lg !text-emerald-800 disabled:opacity-60 disabled:cursor-not-allowed"
                                         />
                                     </div>
                             </div>
+                            {isLiquidOrWeight && (
+                                <p className="mt-2 text-[9px] font-black uppercase tracking-wider text-emerald-700">
+                                    Liquid/Weight pack detected: loose is always 0 and units per strip is fixed to 1.
+                                </p>
+                            )}
                             <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">
-                                Total Units: {stockBreakup.totalUnits} = ({stockBreakup.pack} × {unitsPerPack}) + {stockBreakup.loose}
+                                Total Stock (Units): {stockBreakup.totalUnits} = ({stockBreakup.pack} × {unitsPerPack}) + {stockBreakup.loose}
                             </p>
                         </div>
                         <div className="bg-gray-100 p-4 border border-gray-200">

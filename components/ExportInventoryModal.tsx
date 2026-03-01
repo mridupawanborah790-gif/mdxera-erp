@@ -4,6 +4,7 @@ import Modal from './Modal';
 import { arrayToCsvRow, downloadCsv } from '../utils/csv';
 import type { InventoryItem } from '../types';
 import { formatExpiryToMMYY } from '../utils/helpers';
+import { resolveUnitsPerStrip } from '../utils/pack';
 
 // Accessing global XLSX and html2pdf from index.html
 declare const XLSX: any;
@@ -21,7 +22,7 @@ const ExportInventoryModal: React.FC<ExportInventoryModalProps> = ({ isOpen, onC
 
     const getExportData = () => {
         return data.map((item, idx) => {
-            const uPP = item.unitsPerPack || 1;
+            const uPP = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
             const strips = Math.floor(item.stock / uPP);
             const loose = item.stock % uPP;
             const stockDisplay = `${strips}:${String(loose).padStart(2, '0')} (${item.stock})`;
