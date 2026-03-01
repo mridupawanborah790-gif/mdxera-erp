@@ -430,6 +430,12 @@ const CompanyConfiguration: React.FC = () => {
 
   const activeRule = requiredFieldRules[assignmentForm.materialMasterType];
 
+  const onSaveConfiguration = () => {
+    setError('');
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    setSuccess('Company Configuration saved successfully.');
+  };
+
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
       <Card>
@@ -444,9 +450,10 @@ const CompanyConfiguration: React.FC = () => {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <input className="tally-input" placeholder="Search / filter" value={search} onChange={e => setSearch(e.target.value)} />
           <div className="text-[11px] text-gray-500 font-bold uppercase p-2 border border-gray-200 bg-gray-50">Flow: Company Code → Set of Books → GL Master → GL Assignment</div>
+          <button className="bg-primary text-white text-xs font-black uppercase px-3 py-2" onClick={onSaveConfiguration}>Save Configuration</button>
         </div>
 
         {error && <div className="mb-3 text-xs font-black text-red-700 bg-red-50 border border-red-200 p-2">{error}</div>}
