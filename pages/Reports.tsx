@@ -81,7 +81,7 @@ const Reports: React.FC<ReportsProps> = ({
                 title = 'Inventory Stock Report';
                 headers = ['Product Name', 'Brand', 'Batch', 'Expiry', 'Current Stock (Pack)', 'Current Stock (Loose)', 'Total Stock (Units)', 'Units Per Pack', 'MRP', 'Purchase Price', 'GST%', 'HSN Code'];
                 filteredData = inventory.map((item: InventoryItem) => {
-                    const breakup = getStockBreakup(item.stock, item.unitsPerPack);
+                    const breakup = getStockBreakup(item.stock, item.unitsPerPack, item.packType);
                     return {
                         'Product Name': item.name,
                         'Brand': item.brand,
@@ -147,7 +147,7 @@ const Reports: React.FC<ReportsProps> = ({
                 });
                 filteredData = inventory.map((item: InventoryItem) => {
                     const soldQty = salesByProduct.get(item.name) || 0;
-                    const breakup = getStockBreakup(item.stock, item.unitsPerPack);
+                    const breakup = getStockBreakup(item.stock, item.unitsPerPack, item.packType);
                     const stockTurnover = breakup.totalUnits > 0 ? (Number(soldQty) / breakup.totalUnits) : 0;
                     return {
                         'Product Name': item.name,

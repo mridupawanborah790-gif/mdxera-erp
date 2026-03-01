@@ -5,7 +5,7 @@ import { renderBarcode, generateRandomBarcode } from '../utils/barcode';
 import { handleEnterToNextField } from '../utils/navigation';
 import { normalizeImportDate, formatExpiryToMMYY } from '../utils/helpers';
 import { buildTotalStockFromBreakup, getStockBreakup } from '../utils/stock';
-import { isStripBasedPack } from '../utils/pack';
+import { resolveUnitsPerStrip } from '../utils/pack';
 
 interface EditProductModalProps {
     isOpen: boolean;
@@ -83,7 +83,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
             setProduct(prev => prev ? ({
                 ...prev,
                 packType: value,
-                unitsPerPack: Number.isFinite(inferredUnitsPerPack) && inferredUnitsPerPack > 0 ? inferredUnitsPerPack : 1,
+                unitsPerPack: resolveUnitsPerStrip(inferredUnitsPerPack, value),
             }) : null);
             return;
         }
@@ -114,20 +114,14 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
     };
 
 
-    const unitsPerPack = Math.max(1, Number(product.unitsPerPack || 1));
-    const isStripPack = isStripBasedPack(product.packType);
-    const allowLooseStock = isStripPack && unitsPerPack > 1;
-    const stockBreakup = getStockBreakup(product.stock, unitsPerPack);
+    const unitsPerPack = resolveUnitsPerStrip(product.unitsPerPack, product.packType);
+    const stockBreakup = getStockBreakup(product.stock, unitsPerPack, product.packType);
 
     const handleStockBreakupChange = (field: 'pack' | 'loose', value: string) => {
         const numericValue = Math.max(0, Math.floor(Number(value || 0)));
-        if (!allowLooseStock) {
-            setProduct(prev => prev ? ({ ...prev, stock: numericValue }) : null);
-            return;
-        }
         const nextPack = field === 'pack' ? numericValue : stockBreakup.pack;
         const nextLoose = field === 'loose' ? numericValue : stockBreakup.loose;
-        const totalUnits = buildTotalStockFromBreakup(nextPack, nextLoose, unitsPerPack, true);
+        const totalUnits = buildTotalStockFromBreakup(nextPack, nextLoose, unitsPerPack, true, product.packType);
         setProduct(prev => prev ? ({ ...prev, stock: totalUnits }) : null);
     };
 
@@ -204,40 +198,31 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                         </div>
                         <div className="bg-emerald-50 p-4 border border-emerald-100 md:col-span-2">
                             <label className="block text-[10px] font-black uppercase text-emerald-700 tracking-widest mb-2">Current Stock Breakup</label>
-                            <div className={`grid gap-4 ${allowLooseStock ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                            <div className="grid gap-4 grid-cols-2">
                                 <div>
-                                    <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">{allowLooseStock ? 'Current Stock (Strip)' : 'Current Stock (Pack/Unit)'}</label>
+                                    <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">Current Stock (Strip)</label>
                                     <input
                                         type="number"
                                         min={0}
-                                        value={allowLooseStock ? stockBreakup.pack : stockBreakup.totalUnits}
+                                        value={stockBreakup.pack}
                                         onChange={(e) => handleStockBreakupChange('pack', e.target.value)}
                                         className="w-full tally-input !text-lg !text-emerald-800"
                                     />
                                 </div>
-                                {allowLooseStock && (
-                                    <div>
+                                <div>
                                         <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">Current Stock (Loose)</label>
                                         <input
                                             type="number"
                                             min={0}
-                                            max={Math.max(0, unitsPerPack - 1)}
                                             value={stockBreakup.loose}
                                             onChange={(e) => handleStockBreakupChange('loose', e.target.value)}
                                             className="w-full tally-input !text-lg !text-emerald-800"
                                         />
                                     </div>
-                                )}
                             </div>
-                            {allowLooseStock ? (
-                                <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">
-                                    Total Units: {stockBreakup.totalUnits} = ({stockBreakup.pack} × {unitsPerPack}) + {stockBreakup.loose}
-                                </p>
-                            ) : (
-                                <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">
-                                    Total Units: {stockBreakup.totalUnits}
-                                </p>
-                            )}
+                            <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                                Total Units: {stockBreakup.totalUnits} = ({stockBreakup.pack} × {unitsPerPack}) + {stockBreakup.loose}
+                            </p>
                         </div>
                         <div className="bg-gray-100 p-4 border border-gray-200">
                             <label className="block text-[10px] font-black uppercase text-gray-500 tracking-widest mb-2">Min. Limit</label>

@@ -322,7 +322,7 @@ export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) 
                 const unitsToDeduct = unitsToDeductByInventoryId.get(inv.id) || 0;
                 return {
                     ...inv,
-                    stock: deductStockLooseFirst(Number(inv.stock || 0), unitsToDeduct, inv.unitsPerPack),
+                    stock: deductStockLooseFirst(Number(inv.stock || 0), unitsToDeduct, inv.unitsPerPack, inv.packType),
                 };
             });
 

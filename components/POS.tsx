@@ -15,7 +15,7 @@ import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber } from '../utils/helpers';
 import { calculateBillingTotals, calculateLineNetAmount, resolveBillingSettings } from '../utils/billing';
-import { isStripBasedPack } from '../utils/pack';
+import { resolveUnitsPerStrip } from '../utils/pack';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -191,7 +191,7 @@ const POS = forwardRef<any, POSProps>(({
             for (const item of cartItems) {
                 const invItem = inventory.find(i => i.id === item.inventoryItemId);
                 if (invItem) {
-                    const unitsPerPack = invItem.unitsPerPack || 1;
+                    const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
                     const requiredUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
                     if (invItem.stock <= 0 || invItem.stock < requiredUnits) {
                         addNotification(`Insufficient stock for ${item.name}. Available: ${invItem.stock}`, "error");
@@ -575,7 +575,7 @@ const POS = forwardRef<any, POSProps>(({
             batch: ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (batch.batch || ''),
             expiry: formatExpiryForInput(batch.expiry ? String(batch.expiry) : ''),
             rate: rateValue,
-            unitsPerPack: batch.unitsPerPack || 1,
+            unitsPerPack: resolveUnitsPerStrip(batch.unitsPerPack, batch.packType),
             packType: batch.packType
         };
 
@@ -620,10 +620,6 @@ const POS = forwardRef<any, POSProps>(({
                 }
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
                     (updated as any)[field] = value === '' ? 0 : (parseFloat(value) || 0);
-                }
-                const allowLooseForItem = isStripBasedPack(updated.packType) && (updated.unitsPerPack || 1) > 1;
-                if (!allowLooseForItem) {
-                    updated.looseQuantity = 0;
                 }
                 return updated;
             }
@@ -972,23 +968,19 @@ const POS = forwardRef<any, POSProps>(({
                                             )}
                                             {isFieldVisible('colLQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
-                                                    {isStripBasedPack(item.packType) && (item.unitsPerPack || 1) > 1 ? (
-                                                        <input
-                                                            id={`qty-l-${item.id}`}
-                                                            type="number"
-                                                            value={item.looseQuantity === 0 ? '' : item.looseQuantity}
-                                                            onChange={e => handleUpdateCartItem(item.id, 'looseQuantity', e.target.value)}
-                                                            onKeyDown={e => {
-                                                                handleItemKeyDown(e, item.id, idx);
-                                                                handleRowKeyNavigation(e, item.id);
-                                                            }}
-                                                            className="w-full text-center bg-transparent font-normal no-spinner outline-none text-gray-500"
-                                                            placeholder="0"
-                                                            disabled={isReadOnly}
-                                                        />
-                                                    ) : (
-                                                        <span className="text-gray-400">—</span>
-                                                    )}
+<input
+                                                        id={`qty-l-${item.id}`}
+                                                        type="number"
+                                                        value={item.looseQuantity === 0 ? '' : item.looseQuantity}
+                                                        onChange={e => handleUpdateCartItem(item.id, 'looseQuantity', e.target.value)}
+                                                        onKeyDown={e => {
+                                                            handleItemKeyDown(e, item.id, idx);
+                                                            handleRowKeyNavigation(e, item.id);
+                                                        }}
+                                                        className="w-full text-center bg-transparent font-normal no-spinner outline-none text-gray-500"
+                                                        placeholder="0"
+                                                        disabled={isReadOnly}
+                                                    />
                                                 </td>
                                             )}
                                             {isFieldVisible('colFree') && (
@@ -1359,10 +1351,9 @@ const POS = forwardRef<any, POSProps>(({
                                                 const isSelected = sIdx === selectedSearchIndex;
                                                 const item = res.item;
                                                 const totalStock = res.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0);
-                                                const unitsPerPack = item.unitsPerPack || 1;
-                                                const allowStripLoose = isStripBasedPack(item.packType) && unitsPerPack > 1;
-                                                const stripsStock = allowStripLoose ? Math.floor(totalStock / unitsPerPack) : totalStock;
-                                                const looseStock = allowStripLoose ? (totalStock % unitsPerPack) : 0;
+                                                const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
+                                                const stripsStock = Math.floor(totalStock / unitsPerPack);
+                                                const looseStock = totalStock % unitsPerPack;
                                                 return (
                                                     <tr
                                                         key={item.id}
@@ -1379,7 +1370,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{stripsStock}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{allowStripLoose ? looseStock : '—'}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{looseStock}</td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{totalStock}</td>
                                                         <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>

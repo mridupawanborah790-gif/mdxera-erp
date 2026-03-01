@@ -1,3 +1,5 @@
+import { resolveUnitsPerStrip } from './pack';
+
 export interface StockBreakup {
   pack: number;
   loose: number;
@@ -5,13 +7,10 @@ export interface StockBreakup {
   unitsPerPack: number;
 }
 
-export const normalizeUnitsPerPack = (unitsPerPack?: number) => {
-  const parsed = Number(unitsPerPack || 1);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1;
-};
+export const normalizeUnitsPerPack = (unitsPerPack?: number, packType?: string | null) => resolveUnitsPerStrip(unitsPerPack, packType);
 
-export const getStockBreakup = (totalUnits: number, unitsPerPack?: number): StockBreakup => {
-  const upp = normalizeUnitsPerPack(unitsPerPack);
+export const getStockBreakup = (totalUnits: number, unitsPerPack?: number, packType?: string | null): StockBreakup => {
+  const upp = normalizeUnitsPerPack(unitsPerPack, packType);
   const safeTotal = Math.max(0, Math.floor(Number(totalUnits || 0)));
   return {
     pack: Math.floor(safeTotal / upp),
@@ -26,8 +25,9 @@ export const buildTotalStockFromBreakup = (
   looseUnits: number,
   unitsPerPack?: number,
   allowLoose = true,
+  packType?: string | null,
 ): number => {
-  const upp = normalizeUnitsPerPack(unitsPerPack);
+  const upp = normalizeUnitsPerPack(unitsPerPack, packType);
   const safePacks = Math.max(0, Math.floor(Number(packUnits || 0)));
   const requestedLoose = allowLoose ? Math.max(0, Math.floor(Number(looseUnits || 0))) : 0;
   const safeLoose = allowLoose ? Math.min(requestedLoose, upp - 1) : 0;
@@ -38,8 +38,9 @@ export const deductStockLooseFirst = (
   totalUnits: number,
   unitsToDeduct: number,
   unitsPerPack?: number,
+  packType?: string | null,
 ): number => {
-  const upp = normalizeUnitsPerPack(unitsPerPack);
+  const upp = normalizeUnitsPerPack(unitsPerPack, packType);
   const currentTotal = Math.max(0, Math.floor(Number(totalUnits || 0)));
   const neededUnits = Math.max(0, Math.floor(Number(unitsToDeduct || 0)));
 
