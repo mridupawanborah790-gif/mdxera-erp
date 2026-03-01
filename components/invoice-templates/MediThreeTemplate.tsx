@@ -110,7 +110,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
       };
 
   return (
-    <div className={`medi-three-template text-black bg-white w-full font-sans text-[7.2px] leading-tight ${isLandscape ? 'medi-three-landscape' : 'medi-three-portrait'}`}>
+    <div className={`medi-three-template text-black bg-white w-full font-sans text-[10.8px] leading-tight ${isLandscape ? 'medi-three-landscape' : 'medi-three-portrait'}`}>
       <style>{`
         .medi-three-template {
           display: flex;
@@ -141,43 +141,43 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         .medi-three-grid th,
         .medi-three-grid td { border: 1px solid #111; padding: 1px 2px; vertical-align: middle; }
         .medi-three-grid thead th {
-          font-size: 7.5px;
+          font-size: 10.35px;
           font-weight: 700;
           text-transform: uppercase;
           background: #fff;
-          white-space: nowrap;
+          white-space: normal;
         }
         .medi-three-grid tbody td {
-          font-size: 7.2px;
-          padding-top: 2.1px;
-          padding-bottom: 2.1px;
+          font-size: 10.2px;
+          padding-top: 2.85px;
+          padding-bottom: 2.85px;
           line-height: 1.15;
         }
         .medi-three-grid .right { text-align: right; }
         .medi-three-grid .center { text-align: center; }
         .medi-three-grid .left { text-align: left; }
-        .medi-three-grid .num { font-size: 7.25px; }
-        .medi-three-grid .desc { font-size: 7.45px; }
+        .medi-three-grid .num { font-size: 10.2px; }
+        .medi-three-grid .desc { font-size: 10.2px; }
         .medi-three-grid .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .medi-three-title { font-size: 15.5px; font-weight: 800; letter-spacing: 0.1em; text-align: center; padding: 3px 0 2px; }
+        .medi-three-title { font-size: 21px; font-weight: 800; letter-spacing: 0.1em; text-align: center; padding: 3px 0 2px; }
         .medi-three-meta { display: grid; grid-template-columns: 1fr 1fr; }
-        .medi-three-meta > div { border-top: 1px solid #111; padding: 3px 4px; min-height: 29px; }
+        .medi-three-meta > div { border-top: 1px solid #111; padding: 3px 4px; min-height: 35px; }
         .medi-three-meta > div:first-child { border-right: 1px solid #111; }
-        .medi-three-company { font-size: 8px; line-height: 1.25; }
-        .medi-three-company-name { font-size: 9.5px; font-weight: 800; }
-        .medi-three-company .invoice-meta { font-size: 8.2px; }
-        .medi-three-customer { font-size: 7.8px; line-height: 1.25; }
+        .medi-three-company { font-size: 11.25px; line-height: 1.25; }
+        .medi-three-company-name { font-size: 12.75px; font-weight: 800; }
+        .medi-three-company .invoice-meta { font-size: 11.25px; }
+        .medi-three-customer { font-size: 10.8px; line-height: 1.25; }
         .medi-three-summary {
           border-top: 1px solid #111;
           display: grid;
           grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'};
           margin-top: auto;
-          min-height: ${isLandscape ? '24mm' : '31mm'};
+          min-height: ${isLandscape ? '28mm' : '35mm'};
         }
-        .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; font-size: 7.8px; }
+        .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; font-size: 10.8px; }
         .medi-three-summary-right { padding: 5px 4px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
-        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 8px; }
-        .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 12px; font-weight: 800; }
+        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 10.95px; }
+        .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 17px; font-weight: 800; }
         @media print {
           @page { size: A5 ${orientation}; margin: 0; }
           .medi-three-template { gap: 0; }
