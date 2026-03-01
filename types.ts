@@ -573,6 +573,12 @@ export interface Medicine {
     is_active: boolean;
     countryOfOrigin?: string;
     directions?: string;
+    materialMasterType?: 'trading_goods' | 'finished_goods' | 'consumables' | 'service_material' | 'packaging';
+    isInventorised?: boolean;
+    isSalesEnabled?: boolean;
+    isPurchaseEnabled?: boolean;
+    isProductionEnabled?: boolean;
+    isInternalIssueEnabled?: boolean;
     created_at?: string;
     updated_at?: string;
 }

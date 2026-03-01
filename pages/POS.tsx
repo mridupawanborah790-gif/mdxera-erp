@@ -13,6 +13,7 @@ import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { getOutstandingBalance, parseNumber } from '../utils/helpers';
+import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -108,6 +109,7 @@ const POS = forwardRef<any, POSProps>(({
     const strictStock = configurations.displayOptions?.strictStock ?? false;
     const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
+    const inventoryWithPolicy = useMemo(() => inventory.map(item => ({ item, policy: getInventoryPolicy(item, medicines) })), [inventory, medicines]);
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
 
@@ -168,6 +170,8 @@ const POS = forwardRef<any, POSProps>(({
             for (const item of cartItems) {
                 const invItem = inventory.find(i => i.id === item.inventoryItemId);
                 if (invItem) {
+                    const policy = getInventoryPolicy(invItem, medicines);
+                    if (!policy.inventorised) continue;
                     const unitsPerPack = invItem.unitsPerPack || 1;
                     const requiredUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
                     if (invItem.stock <= 0 || invItem.stock < requiredUnits) {
@@ -224,7 +228,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -334,7 +338,8 @@ const POS = forwardRef<any, POSProps>(({
         const grouped = new Map<string, { item: InventoryItem; batches: InventoryItem[] }>();
         const term = modalSearchTerm.toLowerCase().trim();
 
-        inventory.forEach(i => {
+        inventoryWithPolicy.forEach(({ item: i, policy }) => {
+            if (!policy.salesEnabled) return;
             const name = i.name.toLowerCase();
             const code = (i.code || '').toLowerCase();
             if (!term || name.startsWith(term) || code.startsWith(term)) {
@@ -352,6 +357,8 @@ const POS = forwardRef<any, POSProps>(({
         });
 
         medicines.forEach(m => {
+            const medPolicy = getResolvedMedicinePolicy(m);
+            if (!medPolicy.salesEnabled) return;
             const name = m.name.toLowerCase();
             const materialCode = (m.materialCode || '').toLowerCase();
             if (!term || name.startsWith(term) || materialCode.startsWith(term)) {
@@ -369,8 +376,8 @@ const POS = forwardRef<any, POSProps>(({
                         unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '10', 10),
                         packType: m.pack || '',
                         minStockLimit: 0,
-                        batch: 'NEW-STOCK',
-                        expiry: 'N/A',
+                        batch: medPolicy.inventorised ? 'NEW-STOCK' : '',
+                        expiry: medPolicy.inventorised ? 'N/A' : '',
                         purchasePrice: 0,
                         mrp: parseFloat(m.mrp || '0'),
                         gstPercent: m.gstRate || 0,
@@ -387,7 +394,7 @@ const POS = forwardRef<any, POSProps>(({
         return Array.from(grouped.values())
             .sort((a, b) => a.item.name.localeCompare(b.item.name))
             .slice(0, 30);
-    }, [modalSearchTerm, inventory, medicines]);
+    }, [modalSearchTerm, inventoryWithPolicy, medicines]);
 
     const activeIntelItem = useMemo(() => {
         if (isSearchModalOpen && deduplicatedSearchInventory.length > 0) {
@@ -509,7 +516,8 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
-        if (shouldPreventNegativeStock && Number(batch.stock || 0) <= 0) {
+        const policy = getInventoryPolicy(batch, medicines);
+        if (shouldPreventNegativeStock && policy.inventorised && Number(batch.stock || 0) <= 0) {
             addNotification(`Insufficient stock for ${batch.name}. Available: ${Number(batch.stock || 0)}`, 'error');
             return;
         }
@@ -537,8 +545,8 @@ const POS = forwardRef<any, POSProps>(({
             gstPercent: batch.gstPercent,
             discountPercent: selectedCustomer?.defaultDiscount || 0,
             itemFlatDiscount: 0,
-            batch: ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (batch.batch || ''),
-            expiry: batch.expiry ? String(batch.expiry) : 'N/A',
+            batch: policy.inventorised && ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (policy.inventorised ? (batch.batch || '') : ''),
+            expiry: policy.inventorised ? (batch.expiry ? String(batch.expiry) : 'N/A') : '',
             rate: rateValue,
             unitsPerPack: batch.unitsPerPack || 1,
             packType: batch.packType
