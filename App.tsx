@@ -963,6 +963,7 @@ import MaterialMaster from './components/MaterialMaster';
 import SubstituteFinder from './pages/SubstituteFinder';
 import Promotions from './pages/Promotions';
 import Reports from './pages/Reports';
+import BalanceCarryforward from './pages/BalanceCarryforward';
 import GstCenter from './pages/GstCenter';
 import BusinessUserAssignment from './pages/BusinessUserAssignment';
 import BusinessRoles from './pages/BusinessRoles';
@@ -1768,6 +1769,8 @@ const App: React.FC = () => {
                     distributors={suppliers} customers={customers} salesReturns={salesReturns}
                     purchaseReturns={purchaseReturns} onPrintReport={setViewReport} config={config}
                 />;
+            case 'balanceCarryforward':
+                return <BalanceCarryforward />;
             case 'gst':
                 return <GstCenter
                     transactions={transactions} purchases={purchases} customers={customers}
