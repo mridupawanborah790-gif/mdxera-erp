@@ -279,6 +279,7 @@ export const navigation: NavItem[] = [
         ]
       },
       { id: 'configuration', name: 'Configuration', href: '#', icon: ConfigIcon, roles: ['owner', 'admin'] },
+      { id: 'companyConfiguration', name: 'Company Configuration', href: '#', icon: ConfigIcon, roles: ['owner', 'admin', 'manager'] },
       { id: 'classification', name: 'Classification', href: '#', icon: CategoryIcon, roles: ['owner', 'admin', 'manager'] }, 
       { id: 'settings', name: 'Settings', href: '#', icon: SettingsIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
     ]

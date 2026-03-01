@@ -21,6 +21,7 @@
 // import BusinessUserAssignment from './pages/BusinessUserAssignment';
 // import BusinessRoles from './pages/BusinessRoles';
 // import Configuration from './pages/Configuration';
+// import CompanyConfiguration from './pages/CompanyConfiguration';
 // import Settings from './pages/Settings';
 // import Auth from './pages/Auth';
 // import AccountReceivable from './pages/AccountReceivable';
@@ -968,6 +969,7 @@ import GstCenter from './pages/GstCenter';
 import BusinessUserAssignment from './pages/BusinessUserAssignment';
 import BusinessRoles from './pages/BusinessRoles';
 import Configuration from './pages/Configuration';
+import CompanyConfiguration from './pages/CompanyConfiguration';
 import Settings from './pages/Settings';
 import Auth from './pages/Auth';
 import AccountReceivable from './pages/AccountReceivable';
@@ -1785,6 +1787,8 @@ const App: React.FC = () => {
                 />;
             case 'businessRoles':
                 return <BusinessRoles currentUser={currentUser!} addNotification={addNotification} />;
+            case 'companyConfiguration':
+                return <CompanyConfiguration />;
             case 'configuration':
                 return <Configuration
                     configurations={configurations}
