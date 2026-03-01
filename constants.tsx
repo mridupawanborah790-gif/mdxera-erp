@@ -248,7 +248,17 @@ export const navigation: NavItem[] = [
   },
   { id: 'substituteFinder', name: 'Substitute Finder', href: '#', icon: SubstituteIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk', 'viewer'] },
   { id: 'promotions', name: 'Promotions', href: '#', icon: PromotionIcon, roles: ['owner', 'admin', 'manager'] },
-  { id: 'reports', name: 'Reports', href: '#', icon: ReportsIcon, roles: ['owner', 'admin', 'manager'] },
+  {
+    id: 'financialStatement',
+    name: 'Financial Statement',
+    href: '#',
+    icon: ReportsIcon,
+    roles: ['owner', 'admin', 'manager'],
+    children: [
+      { id: 'reports', name: 'Report', href: '#', icon: ReportsIcon, roles: ['owner', 'admin', 'manager'] },
+      { id: 'balanceCarryforward', name: 'Balance Carryforward', href: '#', icon: ReportsIcon, roles: ['owner', 'admin', 'manager'] },
+    ],
+  },
   { id: 'gst', name: 'GST Center', href: '#', icon: GstIcon, roles: ['owner', 'admin', 'manager'] },
   {
     id: 'utilitiesSetupMaster',
