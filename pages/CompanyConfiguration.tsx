@@ -204,30 +204,36 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         const hasSchemaError = [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes].some(r => r.error);
         if (hasSchemaError) return;
 
+        const normalizedCompanies: CompanyCode[] = (companiesRes.data || []).map((c: any) => ({
+          id: c.id,
+          code: c.code,
+          description: c.description || '',
+          status: c.status || 'Active',
+          created_by: c.created_by || SYSTEM_USER,
+          created_at: c.created_at || now(),
+          updated_by: c.updated_by || SYSTEM_USER,
+          updated_at: c.updated_at || now(),
+        }));
+
         const nextStore: Store = {
-          companies: (companiesRes.data || []).map((c: any) => ({
-            id: c.id,
-            code: c.code,
-            description: c.description || '',
-            status: c.status || 'Active',
-            created_by: c.created_by || SYSTEM_USER,
-            created_at: c.created_at || now(),
-            updated_by: c.updated_by || SYSTEM_USER,
-            updated_at: c.updated_at || now(),
-          })),
-          setOfBooks: (booksRes.data || []).map((b: any) => ({
-            id: b.id,
-            companyCodeId: b.company_code_id,
-            setOfBooksId: b.set_of_books_id,
-            description: b.description || '',
-            defaultCurrency: b.default_currency || 'INR',
-            activeStatus: b.active_status || 'Active',
-            postingCount: b.posting_count || 0,
-            created_by: b.created_by || SYSTEM_USER,
-            created_at: b.created_at || now(),
-            updated_by: b.updated_by || SYSTEM_USER,
-            updated_at: b.updated_at || now(),
-          })),
+          companies: normalizedCompanies,
+          setOfBooks: (booksRes.data || []).map((b: any) => {
+            const matchingCompanyById = normalizedCompanies.find(c => c.id === b.company_code_id);
+            const matchingCompanyByCode = normalizedCompanies.find(c => c.code === b.company_code_id);
+            return {
+              id: b.id,
+              companyCodeId: matchingCompanyById?.id || matchingCompanyByCode?.id || b.company_code_id,
+              setOfBooksId: b.set_of_books_id,
+              description: b.description || '',
+              defaultCurrency: b.default_currency || 'INR',
+              activeStatus: b.active_status || 'Active',
+              postingCount: b.posting_count || 0,
+              created_by: b.created_by || SYSTEM_USER,
+              created_at: b.created_at || now(),
+              updated_by: b.updated_by || SYSTEM_USER,
+              updated_at: b.updated_at || now(),
+            };
+          }),
           glMasters: (glRes.data || []).map((g: any) => ({
             id: g.id,
             setOfBooksId: g.set_of_books_id,
@@ -581,7 +587,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       }
 
       if (store.setOfBooks.length > 0) {
-        const { error: booksErr } = await supabase.from('set_of_books').insert(store.setOfBooks.map(b => ({
+        const booksPayloadByCompanyId = store.setOfBooks.map(b => ({
           id: b.id,
           organization_id: organizationId,
           company_code_id: b.companyCodeId,
@@ -594,7 +600,22 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           created_at: b.created_at,
           updated_by: userName,
           updated_at: now(),
-        })));
+        }));
+
+        let booksErr: any = null;
+        const byIdResult = await supabase.from('set_of_books').insert(booksPayloadByCompanyId);
+        booksErr = byIdResult.error;
+
+        if (booksErr && String(booksErr.message || '').toLowerCase().includes('fk_set_of_books_company')) {
+          const companyCodeLookup = new Map(store.companies.map(c => [c.id, c.code]));
+          const booksPayloadByCompanyCode = booksPayloadByCompanyId.map(b => ({
+            ...b,
+            company_code_id: companyCodeLookup.get(b.company_code_id) || b.company_code_id,
+          }));
+          const byCodeResult = await supabase.from('set_of_books').insert(booksPayloadByCompanyCode);
+          booksErr = byCodeResult.error;
+        }
+
         if (booksErr) throw booksErr;
       }
 
