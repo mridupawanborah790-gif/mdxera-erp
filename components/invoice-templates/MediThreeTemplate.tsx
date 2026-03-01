@@ -141,29 +141,32 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         .medi-three-grid th,
         .medi-three-grid td { border: 1px solid #111; padding: 1px 2px; vertical-align: middle; }
         .medi-three-grid thead th {
-          font-size: 6.9px;
+          font-size: 7.5px;
           font-weight: 700;
           text-transform: uppercase;
           background: #fff;
           white-space: nowrap;
         }
         .medi-three-grid tbody td {
-          font-size: 6.8px;
-          padding-top: 1.9px;
-          padding-bottom: 1.9px;
+          font-size: 7.2px;
+          padding-top: 2.1px;
+          padding-bottom: 2.1px;
           line-height: 1.15;
         }
         .medi-three-grid .right { text-align: right; }
         .medi-three-grid .center { text-align: center; }
         .medi-three-grid .left { text-align: left; }
+        .medi-three-grid .num { font-size: 7.25px; }
+        .medi-three-grid .desc { font-size: 7.45px; }
         .medi-three-grid .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .medi-three-title { font-size: 14px; font-weight: 800; letter-spacing: 0.1em; text-align: center; padding: 3px 0 2px; }
+        .medi-three-title { font-size: 15.5px; font-weight: 800; letter-spacing: 0.1em; text-align: center; padding: 3px 0 2px; }
         .medi-three-meta { display: grid; grid-template-columns: 1fr 1fr; }
-        .medi-three-meta > div { border-top: 1px solid #111; padding: 3px 4px; min-height: 28px; }
+        .medi-three-meta > div { border-top: 1px solid #111; padding: 3px 4px; min-height: 29px; }
         .medi-three-meta > div:first-child { border-right: 1px solid #111; }
-        .medi-three-company { font-size: 7.5px; line-height: 1.2; }
-        .medi-three-company-name { font-size: 8.5px; font-weight: 800; }
-        .medi-three-customer { font-size: 7.2px; line-height: 1.2; }
+        .medi-three-company { font-size: 8px; line-height: 1.25; }
+        .medi-three-company-name { font-size: 9.5px; font-weight: 800; }
+        .medi-three-company .invoice-meta { font-size: 8.2px; }
+        .medi-three-customer { font-size: 7.8px; line-height: 1.25; }
         .medi-three-summary {
           border-top: 1px solid #111;
           display: grid;
@@ -171,10 +174,10 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           margin-top: auto;
           min-height: ${isLandscape ? '24mm' : '31mm'};
         }
-        .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; font-size: 7.2px; }
+        .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; font-size: 7.8px; }
         .medi-three-summary-right { padding: 5px 4px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
-        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 7.3px; }
-        .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 10.8px; font-weight: 800; }
+        .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 8px; }
+        .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 12px; font-weight: 800; }
         @media print {
           @page { size: A5 ${orientation}; margin: 0; }
           .medi-three-template { gap: 0; }
@@ -219,7 +222,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                     <div>{bill.pharmacy.address}</div>
                     <div><strong>GSTIN:</strong> {bill.pharmacy.gstin || '-'}</div>
                   </div>
-                  <div>
+                  <div className="invoice-meta">
                     <div><strong>Invoice No:</strong> {bill.id}</div>
                     <div><strong>Invoice Date:</strong> {new Date(bill.date).toLocaleDateString('en-GB')}</div>
                     <div><strong>Terms:</strong> Cash</div>
@@ -266,13 +269,13 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                       <td className="center">{item.hsn}</td>
                       <td className="center">{item.batch}</td>
                       <td className="center">{item.qtyText}</td>
-                      <td className="right">{(item.mrp || 0).toFixed(2)}</td>
-                      <td className="right">{(item.rate || item.mrp || 0).toFixed(2)}</td>
+                      <td className="right num">{(item.mrp || 0).toFixed(2)}</td>
+                      <td className="right num">{(item.rate || item.mrp || 0).toFixed(2)}</td>
                       <td className="center">{item.expiry}</td>
                       <td className="center">{(item.discountPercent || 0).toFixed(2)}</td>
-                      <td className="center">{item.sgstRate.toFixed(2)}%</td>
-                      <td className="center">{item.cgstRate.toFixed(2)}%</td>
-                      <td className="right">{item.lineAmount.toFixed(2)}</td>
+                      <td className="center num">{item.sgstRate.toFixed(2)}%</td>
+                      <td className="center num">{item.cgstRate.toFixed(2)}%</td>
+                      <td className="right num">{item.lineAmount.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
