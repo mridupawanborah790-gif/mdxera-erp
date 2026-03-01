@@ -137,7 +137,12 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         }
         .medi-three-header { flex: 0 0 auto; }
         .medi-three-items { flex: 1; display: flex; min-height: 0; }
-        .medi-three-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .medi-three-grid {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+          align-self: flex-start;
+        }
         .medi-three-grid th,
         .medi-three-grid td { border: 1px solid #111; padding: 1px 2px; vertical-align: middle; }
         .medi-three-grid thead th {
@@ -152,6 +157,11 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           padding-top: 2.85px;
           padding-bottom: 2.85px;
           line-height: 1.15;
+        }
+        .medi-three-row,
+        .medi-three-row-empty { height: ${isLandscape ? '5.4mm' : '5.85mm'}; }
+        .medi-three-row-empty td {
+          color: transparent;
         }
         .medi-three-grid .right { text-align: right; }
         .medi-three-grid .center { text-align: center; }
@@ -171,8 +181,8 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           border-top: 1px solid #111;
           display: grid;
           grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'};
-          margin-top: auto;
           min-height: ${isLandscape ? '28mm' : '35mm'};
+          margin-top: auto;
         }
         .medi-three-summary-left { border-right: 1px solid #111; padding: 5px 4px; font-size: 10.8px; }
         .medi-three-summary-right { padding: 5px 4px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
@@ -209,6 +219,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
 
       {paginatedItems.map((itemsOnPage, pageIndex) => {
         const isLastPage = pageIndex === paginatedItems.length - 1;
+        const blankRows = Math.max(0, MAX_ITEMS_PER_PAGE - itemsOnPage.length);
 
         return (
           <div key={`page-${pageIndex + 1}`} className="medi-three-page">
@@ -276,6 +287,24 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                       <td className="center num">{item.sgstRate.toFixed(2)}%</td>
                       <td className="center num">{item.cgstRate.toFixed(2)}%</td>
                       <td className="right num">{item.lineAmount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {Array.from({ length: blankRows }, (_, index) => (
+                    <tr key={`blank-${pageIndex + 1}-${index + 1}`} className="medi-three-row-empty" aria-hidden="true">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
                     </tr>
                   ))}
                 </tbody>
