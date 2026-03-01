@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { InventoryItem, BillItem, Customer, AppConfigurations } from '../types';
-import { isStripBasedPack } from '../utils/pack';
+import { resolveUnitsPerStrip } from '../utils/pack';
 
 interface SalesLineModalProps {
     isOpen: boolean;
@@ -82,7 +82,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     }, [batches, cartUnitsByBatchId, initialItem]);
 
     const activeBatch = sortedBatches[selectedBatchIndex];
-    const allowLooseForBatch = isStripBasedPack(activeBatch?.packType) && (activeBatch?.unitsPerPack || 1) > 1;
+    const allowLooseForBatch = true;
 
     const currentAvailableStock = useMemo(() => {
         if (!activeBatch) return 0;
@@ -124,11 +124,6 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     }, [isOpen, initialItem, sortedBatches, customer]);
 
 
-    useEffect(() => {
-        if (!allowLooseForBatch && loose !== 0) {
-            setLoose(0);
-        }
-    }, [allowLooseForBatch, loose]);
 
     // Auto-scroll active batch into view
     useEffect(() => {
@@ -140,8 +135,8 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     const lineTotals = useMemo(() => {
         if (!activeBatch) return { gross: 0, afterTrade: 0, schemeDiscount: 0, net: 0, units: 0 };
         
-        const unitsPerPack = activeBatch.unitsPerPack || 1;
-        const normalizedLoose = allowLooseForBatch ? loose : 0;
+        const unitsPerPack = resolveUnitsPerStrip(activeBatch.unitsPerPack, activeBatch.packType);
+        const normalizedLoose = loose;
         const totalUnits = (packs * unitsPerPack) + normalizedLoose;
         const baseRate = activeBatch.mrp; 
         
@@ -206,7 +201,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             brand: activeBatch.brand,
             mrp: activeBatch.mrp,
             quantity: packs,
-            looseQuantity: allowLooseForBatch ? loose : 0,
+            looseQuantity: loose,
             freeQuantity: freePacks,
             unit: 'pack',
             gstPercent: activeBatch.gstPercent,
@@ -215,7 +210,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             batch: activeBatch.batch,
             expiry: activeBatch.expiry,
             rate: rateValue,
-            unitsPerPack: activeBatch.unitsPerPack || 1,
+            unitsPerPack: resolveUnitsPerStrip(activeBatch.unitsPerPack, activeBatch.packType),
             schemeMode: schemeMode === 'No Scheme' ? undefined : schemeMode,
             schemeValue,
             schemeQty,
@@ -324,7 +319,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
                                                 type="number" 
                                                 value={packs === 0 ? '' : packs} 
                                                 onChange={e => setPacks(parseInt(e.target.value) || 0)}
-                                                onKeyDown={e => handleInputKeyDown(e, allowLooseForBatch ? looseInputRef : discInputRef)}
+                                                onKeyDown={e => handleInputKeyDown(e, looseInputRef)}
                                                 className="w-full p-4 text-4xl font-black border-2 border-app-border rounded-none bg-white focus:border-primary focus:ring-8 focus:ring-primary/5 outline-none transition-all no-spinner shadow-sm"
                                             />
                                         </div>
