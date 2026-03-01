@@ -154,16 +154,6 @@ const requiredFieldRules: Record<MaterialType, { inventoryRequired: boolean; sal
   Packaging: { inventoryRequired: true, salesRequired: false },
 };
 
-const loadStore = (): Store => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultStore;
-    return { ...defaultStore, ...JSON.parse(raw) };
-  } catch {
-    return defaultStore;
-  }
-};
-
 const exportCsv = (filename: string, headers: string[], rows: Array<Array<string | number | boolean | undefined>>) => {
   const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -175,10 +165,15 @@ const exportCsv = (filename: string, headers: string[], rows: Array<Array<string
 
 const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState<TabId>('company');
-  const [store, setStore] = useState<Store>(loadStore);
+  const [store, setStore] = useState<Store>(defaultStore);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
+
+  // Scoped storage key based on organization to prevent data leakage
+  const orgScopedKey = useMemo(() => {
+    return currentUser?.organization_id ? `${STORAGE_KEY}_${currentUser.organization_id}` : STORAGE_KEY;
+  }, [currentUser?.organization_id]);
 
   const [companyForm, setCompanyForm] = useState({ code: '', description: '', status: 'Active' as Status });
   const [booksForm, setBooksForm] = useState({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', activeStatus: 'Active' as Status, postingCount: 0 });
@@ -192,13 +187,20 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
   const persist = (next: Store) => {
     setStore(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(orgScopedKey, JSON.stringify(next));
   };
 
 
   useEffect(() => {
-    const loadFromDatabase = async () => {
+    const initializeStore = async () => {
+      setStore(defaultStore);
+
+      const raw = localStorage.getItem(orgScopedKey);
+      let initialStore = raw ? { ...defaultStore, ...JSON.parse(raw) } : defaultStore;
+      setStore(initialStore);
+
       if (!currentUser?.organization_id) return;
+      
       try {
         const organizationId = currentUser.organization_id;
         const [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes] = await Promise.all([
@@ -224,7 +226,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           updated_at: c.updated_at || now(),
         }));
 
-        const nextStore: Store = {
+        const dbStore: Store = {
           companies: normalizedCompanies,
           setOfBooks: (booksRes.data || []).map((b: any) => {
             const matchingCompanyById = normalizedCompanies.find(c => c.id === b.company_code_id);
@@ -287,7 +289,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           assignmentHistory: (historyRes.data || []).map((h: any) => ({
             id: h.id,
             assignmentId: h.assignment_id,
-            setOfBooksId: h.set_of_books_id,
+            setOfBooksId: h.setOfBooksId,
             materialMasterType: h.material_master_type,
             changed_at: h.changed_at || now(),
             changed_by: h.changed_by || SYSTEM_USER,
@@ -297,16 +299,16 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           })),
         };
 
-        if (nextStore.companies.length || nextStore.setOfBooks.length || nextStore.glMasters.length || nextStore.glAssignments.length) {
-          persist(nextStore);
+        if (dbStore.companies.length || dbStore.setOfBooks.length || dbStore.glMasters.length || dbStore.glAssignments.length) {
+          persist(dbStore);
         }
-      } catch {
-        // Local mode fallback remains available via localStorage.
+      } catch (err) {
+        console.error('Failed to load configuration from database:', err);
       }
     };
 
-    loadFromDatabase();
-  }, [currentUser?.organization_id]);
+    initializeStore();
+  }, [currentUser?.organization_id, orgScopedKey]);
 
   const booksById = useMemo(() => new Map(store.setOfBooks.map(s => [s.id, s])), [store.setOfBooks]);
   const glById = useMemo(() => new Map(store.glMasters.map(g => [g.id, g])), [store.glMasters]);
@@ -452,7 +454,6 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       
       const seed = window.confirm('Create Default GL & Assignments?');
       if (seed) {
-        // Pass the updated store directly to avoid stale state issues
         setTimeout(() => {
           seedDefaultsForBooks(newBooksId, 'create', nextStore);
         }, 10);
@@ -560,7 +561,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const onSaveConfiguration = async () => {
     setError('');
     setSuccess('');
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    localStorage.setItem(orgScopedKey, JSON.stringify(store));
 
     if (!currentUser?.organization_id) {
       setSuccess('Configuration saved locally. Login with organization access to sync database tables.');
@@ -571,15 +572,9 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     const userName = currentUser.full_name || SYSTEM_USER;
 
     try {
-      await supabase.from('gl_assignment_history').delete().eq('organization_id', organizationId);
-      await supabase.from('setup_wizard_defaults_log').delete().eq('organization_id', organizationId);
-      await supabase.from('gl_assignments').delete().eq('organization_id', organizationId);
-      await supabase.from('gl_master').delete().eq('organization_id', organizationId);
-      await supabase.from('set_of_books').delete().eq('organization_id', organizationId);
-      await supabase.from('company_codes').delete().eq('organization_id', organizationId);
-
+      // Step 1: Upsert Company Codes
       if (store.companies.length > 0) {
-        const { error: companyErr } = await supabase.from('company_codes').insert(store.companies.map(c => ({
+        const { error: companyErr } = await supabase.from('company_codes').upsert(store.companies.map(c => ({
           id: c.id,
           organization_id: organizationId,
           code: c.code,
@@ -589,12 +584,13 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           created_at: c.created_at,
           updated_by: userName,
           updated_at: now(),
-        })));
+        })), { onConflict: 'id' });
         if (companyErr) throw companyErr;
       }
 
+      // Step 2: Upsert Set of Books
       if (store.setOfBooks.length > 0) {
-        const booksPayloadByCompanyId = store.setOfBooks.map(b => ({
+        const { error: booksErr } = await supabase.from('set_of_books').upsert(store.setOfBooks.map(b => ({
           id: b.id,
           organization_id: organizationId,
           company_code_id: b.companyCodeId,
@@ -607,27 +603,13 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           created_at: b.created_at,
           updated_by: userName,
           updated_at: now(),
-        }));
-
-        let booksErr: any = null;
-        const byIdResult = await supabase.from('set_of_books').insert(booksPayloadByCompanyId);
-        booksErr = byIdResult.error;
-
-        if (booksErr && String(booksErr.message || '').toLowerCase().includes('fk_set_of_books_company')) {
-          const companyCodeLookup = new Map(store.companies.map(c => [c.id, c.code]));
-          const booksPayloadByCompanyCode = booksPayloadByCompanyId.map(b => ({
-            ...b,
-            company_code_id: companyCodeLookup.get(b.company_code_id) || b.company_code_id,
-          }));
-          const byCodeResult = await supabase.from('set_of_books').insert(booksPayloadByCompanyCode);
-          booksErr = byCodeResult.error;
-        }
-
+        })), { onConflict: 'id' });
         if (booksErr) throw booksErr;
       }
 
+      // Step 3: Upsert GL Masters
       if (store.glMasters.length > 0) {
-        const { error: glErr } = await supabase.from('gl_master').insert(store.glMasters.map(g => ({
+        const { error: glErr } = await supabase.from('gl_master').upsert(store.glMasters.map(g => ({
           id: g.id,
           organization_id: organizationId,
           set_of_books_id: g.setOfBooksId,
@@ -643,12 +625,12 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           created_at: g.created_at,
           updated_by: userName,
           updated_at: now(),
-        })));
+        })), { onConflict: 'id' });
         if (glErr) throw glErr;
       }
 
       if (store.glAssignments.length > 0) {
-        const { error: assignmentErr } = await supabase.from('gl_assignments').insert(store.glAssignments.map(a => ({
+        const { error: assignmentErr } = await supabase.from('gl_assignments').upsert(store.glAssignments.map(a => ({
           id: a.id,
           organization_id: organizationId,
           set_of_books_id: a.setOfBooksId,
@@ -665,12 +647,12 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           created_at: a.created_at,
           updated_by: userName,
           updated_at: now(),
-        })));
+        })), { onConflict: 'id' });
         if (assignmentErr) throw assignmentErr;
       }
 
       if (store.setupLogs.length > 0) {
-        const { error: logsErr } = await supabase.from('setup_wizard_defaults_log').insert(store.setupLogs.map(l => ({
+        await supabase.from('setup_wizard_defaults_log').upsert(store.setupLogs.map(l => ({
           id: l.id,
           organization_id: organizationId,
           set_of_books_id: l.setOfBooksId,
@@ -678,12 +660,11 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           message: l.message,
           created_by: l.created_by || userName,
           created_at: l.created_at,
-        })));
-        if (logsErr) throw logsErr;
+        })), { onConflict: 'id' });
       }
 
       if (store.assignmentHistory.length > 0) {
-        const { error: historyErr } = await supabase.from('gl_assignment_history').insert(store.assignmentHistory.map(h => ({
+        await supabase.from('gl_assignment_history').upsert(store.assignmentHistory.map(h => ({
           id: h.id,
           organization_id: organizationId,
           assignment_id: h.assignmentId,
@@ -694,13 +675,12 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           effective_from: h.effective_from,
           previous_payload: h.previous || {},
           next_payload: h.next || {},
-        })));
-        if (historyErr) throw historyErr;
+        })), { onConflict: 'id' });
       }
 
-      setSuccess('Company Configuration saved locally and synced to database tables (Company Code, Set of Books, GL Master, GL Assignment, Setup Wizard/Defaults Log).');
+      setSuccess('Company Configuration saved locally and synced to database tables.');
     } catch (e: any) {
-      setError(`Saved locally but database sync failed. ${e?.message || 'Please run the SQL setup and retry.'}`);
+      setError(`Saved locally but database sync failed. ${e?.message || 'Please check your connection and retry.'}`);
     }
   };
 
