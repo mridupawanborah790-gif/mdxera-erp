@@ -20,9 +20,16 @@ interface JournalEntry {
   date: string;
   reference: string;
   narration: string;
+  postingGroup: string;
   totalDebit: number;
   totalCredit: number;
   lines: AccountPosting[];
+}
+
+interface RunJournalMap {
+  runId: string;
+  journalEntryId: string;
+  reversalJournalEntryId?: string;
 }
 
 interface BcfRunLog {
@@ -45,8 +52,12 @@ interface BcfRunLog {
   openingBsAccounts: AccountPosting[];
   profitLossAccounts: AccountPosting[];
   journals: JournalEntry[];
+  journalMappings: RunJournalMap[];
   messages: string[];
   reversedFromRunId?: string;
+  reversedBy?: string;
+  reversedAt?: string;
+  reverseReason?: string;
 }
 
 const STORAGE_KEY = 'mdxera.bcf.run.log.v1';
@@ -73,6 +84,7 @@ const toTimestamp = () => new Date().toISOString();
 const makeRunId = () => `BCF-${Date.now()}`;
 
 const makeJournalId = (index: number) => `JE-BCF-${String(index + 1).padStart(3, '0')}-${Date.now().toString().slice(-5)}`;
+const makeReversalJournalId = (runIdValue: string, index: number) => `REV-${runIdValue}-${String(index + 1).padStart(3, '0')}`;
 
 const loadRunLog = (): BcfRunLog[] => {
   try {
@@ -123,6 +135,8 @@ const BalanceCarryforward: React.FC = () => {
   const [journals, setJournals] = useState<JournalEntry[]>([]);
   const [runLog, setRunLog] = useState<BcfRunLog[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<AccountPosting | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedJournal, setSelectedJournal] = useState<JournalEntry | null>(null);
 
   useEffect(() => {
     setRunLog(loadRunLog());
@@ -184,6 +198,7 @@ const BalanceCarryforward: React.FC = () => {
           date: fyTo,
           reference: runId,
           narration: `BCF BS carryforward for ${row.accountName}`,
+          postingGroup: `Ledger Group ${index + 1}`,
           totalDebit: round2(closingLine.debit + openingLine.debit),
           totalCredit: round2(closingLine.credit + openingLine.credit),
           lines: [closingLine, openingLine]
@@ -227,6 +242,7 @@ const BalanceCarryforward: React.FC = () => {
         date: fyTo,
         reference: runId,
         narration: `BCF P&L closure (${periodYear})`,
+        postingGroup: 'P&L Settlement',
         totalDebit: round2(nextPl.reduce((sum, row) => sum + row.debit, 0)),
         totalCredit: round2(nextPl.reduce((sum, row) => sum + row.credit, 0)),
         lines: [...nextPl]
@@ -262,6 +278,8 @@ const BalanceCarryforward: React.FC = () => {
     setProfitLossAccounts([]);
     setJournals([]);
     setSelectedAccount(null);
+    setSelectedJournal(null);
+    setSelectedRunId(null);
   };
 
   const executeTest = () => {
@@ -303,6 +321,7 @@ const BalanceCarryforward: React.FC = () => {
     }
 
     const executedAt = toTimestamp();
+    const mappings = postJournals.map((journalEntryId) => ({ runId, journalEntryId }));
     const entry: BcfRunLog = {
       runId,
       orgId,
@@ -323,6 +342,7 @@ const BalanceCarryforward: React.FC = () => {
       openingBsAccounts: result.nextOpeningBs,
       profitLossAccounts: result.nextPl,
       journals: result.nextJournals,
+      journalMappings: mappings,
       messages: [...messages, 'Actual Run executed and locked. Audit log updated.']
     };
 
@@ -333,27 +353,74 @@ const BalanceCarryforward: React.FC = () => {
     setMessages((prev) => [...prev, 'Actual Run executed and locked. System-generated journal entries posted.']);
   };
 
-  const reverseRun = () => {
-    const latestActual = runLog.find((item) => item.runId === runId && item.mode === 'Actual' && item.status === 'Executed');
-    if (!latestActual) {
+  const reverseRun = (targetRunId?: string) => {
+    const runIdToReverse = targetRunId || selectedRunId || runId;
+    const latestActual = runLog.find((item) => item.runId === runIdToReverse && item.mode === 'Actual');
+    if (!latestActual || latestActual.status !== 'Executed') {
       setMessages((prev) => [...prev, 'Reverse not allowed: select/open an Executed Actual run from BCF Run Log first.']);
       return;
     }
 
-    const reversalJournalIds = latestActual.journalEntryIds.map((id, index) => `${id}-REV-${index + 1}`);
-    const reversedRun: BcfRunLog = {
+
+    const reason = window.prompt(`Enter reversal reason for run ${latestActual.runId}`, 'Business correction') || '';
+    if (!reason.trim()) {
+      setMessages((prev) => [...prev, `Reversal cancelled for ${latestActual.runId}: reason is mandatory.`]);
+      return;
+    }
+
+    const reversedAt = toTimestamp();
+    const reversedBy = executedBy;
+
+    const reversalJournals = latestActual.journals.map((journal, index) => {
+      const reversalId = makeReversalJournalId(latestActual.runId, index);
+      const reversedLines = journal.lines.map((line) => ({
+        ...line,
+        debit: line.credit,
+        credit: line.debit,
+        journalEntryId: reversalId,
+        lineMemo: `Reversal for ${line.journalEntryId}`
+      }));
+
+      return {
+        ...journal,
+        id: reversalId,
+        reference: latestActual.runId,
+        narration: `Reversal of ${journal.id}`,
+        postingGroup: `Reversal - ${journal.postingGroup}`,
+        totalDebit: journal.totalCredit,
+        totalCredit: journal.totalDebit,
+        lines: reversedLines,
+        date: reversedAt.slice(0, 10)
+      };
+    });
+
+    const existingMappings = latestActual.journalMappings?.length
+      ? latestActual.journalMappings
+      : latestActual.journalEntryIds.map((journalEntryId) => ({ runId: latestActual.runId, journalEntryId }));
+
+    const reversalMappings = existingMappings.map((map, index) => ({
+      ...map,
+      reversalJournalEntryId: reversalJournals[index]?.id
+    }));
+
+    const updatedRun: BcfRunLog = {
       ...latestActual,
       status: 'Reversed',
-      executedAt: toTimestamp(),
-      journalEntryIds: [...latestActual.journalEntryIds, ...reversalJournalIds],
-      messages: [...latestActual.messages, `Reversal posted for run ${latestActual.runId}.`],
-      reversedFromRunId: latestActual.runId
+      reversedFromRunId: latestActual.runId,
+      reversedBy,
+      reversedAt,
+      reverseReason: reason.trim(),
+      journalEntryIds: [...latestActual.journalEntryIds, ...reversalJournals.map((journal) => journal.id)],
+      journals: [...latestActual.journals, ...reversalJournals],
+      journalMappings: reversalMappings,
+      messages: [...latestActual.messages, `Reversal posted for run ${latestActual.runId}. Reason: ${reason.trim()}`]
     };
 
-    const nextRunLog = runLog.map((item) => (item.runId === latestActual.runId ? reversedRun : item));
+    const nextRunLog = runLog.map((item) => (item.runId === latestActual.runId ? updatedRun : item));
     setRunLog(nextRunLog);
     persistRunLog(nextRunLog);
     setStatus('Reversed');
+    setJournals(updatedRun.journals);
     setMessages((prev) => [...prev, `Run ${latestActual.runId} reversed successfully. Controlled re-run is now allowed.`]);
   };
 
@@ -363,6 +430,7 @@ const BalanceCarryforward: React.FC = () => {
   };
 
   const openRun = (entry: BcfRunLog) => {
+    setSelectedRunId(entry.runId);
     setRunId(entry.runId);
     setOrgId(entry.orgId);
     setSetOfBooksId(entry.setOfBooksId);
@@ -379,7 +447,10 @@ const BalanceCarryforward: React.FC = () => {
     setProfitLossAccounts(entry.profitLossAccounts || []);
     setJournals(entry.journals || []);
     setMessages(entry.messages || []);
+    setSelectedJournal(null);
   };
+
+  const selectedRun = useMemo(() => runLog.find((entry) => entry.runId === selectedRunId) || null, [runLog, selectedRunId]);
 
   const currentGrid = activePostingTab === 'closingBs'
     ? closingBsAccounts
@@ -401,7 +472,13 @@ const BalanceCarryforward: React.FC = () => {
             <button onClick={createNewRun} className="px-3 py-2 text-xs font-bold border rounded-md bg-white hover:bg-slate-100">New</button>
             <button onClick={executeTest} className="px-3 py-2 text-xs font-bold border rounded-md bg-blue-600 text-white hover:bg-blue-700">Execute Test</button>
             <button onClick={executeActual} className="px-3 py-2 text-xs font-bold border rounded-md bg-emerald-600 text-white hover:bg-emerald-700">Execute Actual</button>
-            <button onClick={reverseRun} className="px-3 py-2 text-xs font-bold border rounded-md bg-amber-500 text-white hover:bg-amber-600">Reverse</button>
+            <button
+              onClick={() => reverseRun()}
+              disabled={!selectedRun || selectedRun.status !== 'Executed'}
+              className="px-3 py-2 text-xs font-bold border rounded-md bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Reverse
+            </button>
             <button onClick={closeRun} className="px-3 py-2 text-xs font-bold border rounded-md bg-slate-800 text-white hover:bg-slate-900">Close</button>
           </div>
         </div>
@@ -444,6 +521,12 @@ const BalanceCarryforward: React.FC = () => {
       </section>
 
       <section className="bg-white border border-slate-200 rounded-xl shadow-sm">
+        {selectedRun && (
+          <div className="px-4 pt-4 pb-0 text-xs font-semibold text-slate-600">
+            Run Details: <span className="font-mono">{selectedRun.runId}</span>
+            {selectedRun.reversedAt ? ` • Reversed by ${selectedRun.reversedBy} on ${new Date(selectedRun.reversedAt).toLocaleString('en-IN')}` : ''}
+          </div>
+        )}
         <div className="border-b px-4 pt-3">
           <div className="flex gap-2 flex-wrap">
             {[
@@ -554,6 +637,8 @@ const BalanceCarryforward: React.FC = () => {
                   <thead className="bg-slate-100 text-slate-700">
                     <tr>
                       <th className="p-2 text-left">Journal Entry ID</th>
+                      <th className="p-2 text-left">Posting Date</th>
+                      <th className="p-2 text-left">Posting Group</th>
                       <th className="p-2 text-left">Narration</th>
                       <th className="p-2 text-right">Debit</th>
                       <th className="p-2 text-right">Credit</th>
@@ -561,15 +646,17 @@ const BalanceCarryforward: React.FC = () => {
                   </thead>
                   <tbody>
                     {journals.map((j) => (
-                      <tr key={j.id} className="border-t">
-                        <td className="p-2 font-mono text-xs">{j.id}</td>
+                      <tr key={j.id} className="border-t hover:bg-blue-50 cursor-pointer" onClick={() => setSelectedJournal(j)}>
+                        <td className="p-2 font-mono text-xs text-blue-700 underline">{j.id}</td>
+                        <td className="p-2">{j.date}</td>
+                        <td className="p-2">{j.postingGroup}</td>
                         <td className="p-2">{j.narration}</td>
                         <td className="p-2 text-right">{formatAmount(j.totalDebit)}</td>
                         <td className="p-2 text-right">{formatAmount(j.totalCredit)}</td>
                       </tr>
                     ))}
                     {journals.length === 0 && (
-                      <tr><td className="p-4 text-center text-slate-500" colSpan={4}>No journal entries generated yet.</td></tr>
+                      <tr><td className="p-4 text-center text-slate-500" colSpan={6}>No journal entries generated yet.</td></tr>
                     )}
                   </tbody>
                   <tfoot className="bg-slate-50 font-black">
@@ -580,6 +667,36 @@ const BalanceCarryforward: React.FC = () => {
                     </tr>
                   </tfoot>
                 </table>
+              </div>
+            )}
+
+            {selectedJournal && (
+              <div className="border rounded p-3 bg-indigo-50">
+                <p className="text-xs font-bold text-slate-500">Voucher View (Journal Drill-down)</p>
+                <p className="font-black text-sm mt-1">{selectedJournal.id} • {selectedJournal.narration}</p>
+                <p className="text-sm mt-1">Reference Run: <span className="font-mono">{selectedJournal.reference}</span></p>
+                <div className="mt-2 overflow-x-auto border rounded bg-white">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-slate-100">
+                      <tr>
+                        <th className="p-2 text-left">Account</th>
+                        <th className="p-2 text-right">Debit</th>
+                        <th className="p-2 text-right">Credit</th>
+                        <th className="p-2 text-left">Memo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedJournal.lines.map((line, index) => (
+                        <tr key={`${selectedJournal.id}-${line.accountCode}-${index}`} className="border-t">
+                          <td className="p-2">{line.accountCode} - {line.accountName}</td>
+                          <td className="p-2 text-right">{formatAmount(line.debit)}</td>
+                          <td className="p-2 text-right">{formatAmount(line.credit)}</td>
+                          <td className="p-2">{line.lineMemo}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
@@ -616,12 +733,13 @@ const BalanceCarryforward: React.FC = () => {
                 <th className="p-2 text-right">Dr</th>
                 <th className="p-2 text-right">Cr</th>
                 <th className="p-2 text-left">Journal IDs</th>
+                <th className="p-2 text-left">Actions</th>
               </tr>
             </thead>
             <tbody>
               {runLog.map((item) => (
                 <tr key={item.runId} onClick={() => openRun(item)} className="border-t cursor-pointer hover:bg-blue-50">
-                  <td className="p-2 font-mono">{item.runId}</td>
+                  <td className="p-2 font-mono text-blue-700 underline">{item.runId}</td>
                   <td className="p-2">{item.orgId}</td>
                   <td className="p-2">{item.setOfBooksId}</td>
                   <td className="p-2">{item.fyFrom} → {item.fyTo}</td>
@@ -631,11 +749,20 @@ const BalanceCarryforward: React.FC = () => {
                   <td className="p-2">{item.executedBy}<br />{item.executedAt ? new Date(item.executedAt).toLocaleString('en-IN') : '-'}</td>
                   <td className="p-2 text-right">{formatAmount(item.totalDebit)}</td>
                   <td className="p-2 text-right">{formatAmount(item.totalCredit)}</td>
-                  <td className="p-2 font-mono text-[10px]">{item.journalEntryIds.join(', ')}</td>
+                  <td className="p-2 font-mono text-[10px]">JEs: {item.journals.length} • {item.journalEntryIds.join(', ')}</td>
+                  <td className="p-2" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => reverseRun(item.runId)}
+                      disabled={item.status !== 'Executed'}
+                      className="px-2 py-1 text-[10px] font-bold border rounded bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Reverse
+                    </button>
+                  </td>
                 </tr>
               ))}
               {runLog.length === 0 && (
-                <tr><td className="p-4 text-center text-slate-500" colSpan={11}>No runs in log yet. Execute an Actual run to create audit history.</td></tr>
+                <tr><td className="p-4 text-center text-slate-500" colSpan={12}>No runs in log yet. Execute an Actual run to create audit history.</td></tr>
               )}
             </tbody>
           </table>
