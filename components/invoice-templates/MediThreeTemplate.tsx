@@ -148,8 +148,10 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         }
         .medi-three-items {
           min-height: 0;
-          overflow: hidden;
+          overflow: visible;
           display: flex;
+          position: relative;
+          z-index: 2;
         }
         .medi-three-grid {
           width: 100%;
@@ -157,6 +159,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           table-layout: fixed;
           height: 100%;
           align-self: stretch;
+          border-bottom: 1px solid #111;
         }
         .medi-three-grid th,
         .medi-three-grid td { border: 1px solid #111; padding: 1px 2px; vertical-align: middle; }
@@ -172,6 +175,13 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           padding-top: 2.85px;
           padding-bottom: 2.85px;
           line-height: 1.15;
+        }
+        .medi-three-grid tbody {
+          border-bottom: 1px solid #111;
+        }
+        .medi-three-grid tbody tr:last-child td,
+        .medi-three-grid tbody tr:last-child th {
+          border-bottom: 1px solid #111;
         }
         .medi-three-row,
         .medi-three-row-empty { height: var(--row-height); }
@@ -199,7 +209,11 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           height: 100%;
           box-sizing: border-box;
         }
-        .medi-three-footer { min-height: 0; }
+        .medi-three-footer {
+          min-height: 0;
+          position: relative;
+          z-index: 1;
+        }
         .medi-three-summary-placeholder {
           border: 0;
           height: 100%;
@@ -225,6 +239,13 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           .medi-three-row { break-inside: avoid; page-break-inside: avoid; }
           .medi-three-grid { width: 100%; }
           .medi-three-box {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .medi-three-items,
+          .medi-three-grid,
+          .medi-three-grid tbody,
+          .medi-three-grid tbody tr:last-child td {
             break-inside: avoid;
             page-break-inside: avoid;
           }
