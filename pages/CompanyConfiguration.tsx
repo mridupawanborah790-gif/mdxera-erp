@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Card from '../components/Card';
+import { supabase } from '../services/supabaseClient';
+import { RegisteredPharmacy } from '../types';
 
 const STORAGE_KEY = 'mdxera_company_configuration_v2';
 
@@ -90,6 +92,11 @@ type Store = {
 
 type TabId = 'company' | 'books' | 'gl' | 'assignment' | 'wizard';
 
+
+type CompanyConfigurationProps = {
+  currentUser: RegisteredPharmacy | null;
+};
+
 const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'company', label: 'Company Code' },
   { id: 'books', label: 'Set of Books' },
@@ -157,7 +164,7 @@ const exportCsv = (filename: string, headers: string[], rows: Array<Array<string
   link.click();
 };
 
-const CompanyConfiguration: React.FC = () => {
+const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState<TabId>('company');
   const [store, setStore] = useState<Store>(loadStore);
   const [error, setError] = useState('');
@@ -178,6 +185,113 @@ const CompanyConfiguration: React.FC = () => {
     setStore(next);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   };
+
+
+  useEffect(() => {
+    const loadFromDatabase = async () => {
+      if (!currentUser?.organization_id) return;
+      try {
+        const organizationId = currentUser.organization_id;
+        const [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes] = await Promise.all([
+          supabase.from('company_codes').select('*').eq('organization_id', organizationId).order('created_at', { ascending: true }),
+          supabase.from('set_of_books').select('*').eq('organization_id', organizationId).order('created_at', { ascending: true }),
+          supabase.from('gl_master').select('*').eq('organization_id', organizationId).order('created_at', { ascending: true }),
+          supabase.from('gl_assignments').select('*').eq('organization_id', organizationId).order('created_at', { ascending: true }),
+          supabase.from('setup_wizard_defaults_log').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+          supabase.from('gl_assignment_history').select('*').eq('organization_id', organizationId).order('changed_at', { ascending: false }),
+        ]);
+
+        const hasSchemaError = [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes].some(r => r.error);
+        if (hasSchemaError) return;
+
+        const nextStore: Store = {
+          companies: (companiesRes.data || []).map((c: any) => ({
+            id: c.id,
+            code: c.code,
+            description: c.description || '',
+            status: c.status || 'Active',
+            created_by: c.created_by || SYSTEM_USER,
+            created_at: c.created_at || now(),
+            updated_by: c.updated_by || SYSTEM_USER,
+            updated_at: c.updated_at || now(),
+          })),
+          setOfBooks: (booksRes.data || []).map((b: any) => ({
+            id: b.id,
+            companyCodeId: b.company_code_id,
+            setOfBooksId: b.set_of_books_id,
+            description: b.description || '',
+            defaultCurrency: b.default_currency || 'INR',
+            activeStatus: b.active_status || 'Active',
+            postingCount: b.posting_count || 0,
+            created_by: b.created_by || SYSTEM_USER,
+            created_at: b.created_at || now(),
+            updated_by: b.updated_by || SYSTEM_USER,
+            updated_at: b.updated_at || now(),
+          })),
+          glMasters: (glRes.data || []).map((g: any) => ({
+            id: g.id,
+            setOfBooksId: g.set_of_books_id,
+            glCode: g.gl_code,
+            glName: g.gl_name,
+            glType: g.gl_type,
+            postingAllowed: !!g.posting_allowed,
+            activeStatus: g.active_status || 'Active',
+            seeded_by_system: !!g.seeded_by_system,
+            template_version: g.template_version || DEFAULT_TEMPLATE_VERSION,
+            postingCount: g.posting_count || 0,
+            created_by: g.created_by || SYSTEM_USER,
+            created_at: g.created_at || now(),
+            updated_by: g.updated_by || SYSTEM_USER,
+            updated_at: g.updated_at || now(),
+          })),
+          glAssignments: (assignmentRes.data || []).map((a: any) => ({
+            id: a.id,
+            setOfBooksId: a.set_of_books_id,
+            materialMasterType: a.material_master_type,
+            inventoryGL: a.inventory_gl || '',
+            purchaseGL: a.purchase_gl,
+            cogsGL: a.cogs_gl,
+            salesGL: a.sales_gl || '',
+            discountGL: a.discount_gl,
+            taxGL: a.tax_gl,
+            seeded_by_system: !!a.seeded_by_system,
+            template_version: a.template_version || DEFAULT_TEMPLATE_VERSION,
+            created_by: a.created_by || SYSTEM_USER,
+            created_at: a.created_at || now(),
+            updated_by: a.updated_by || SYSTEM_USER,
+            updated_at: a.updated_at || now(),
+          })),
+          setupLogs: (logsRes.data || []).map((l: any) => ({
+            id: l.id,
+            setOfBooksId: l.set_of_books_id,
+            action: l.action,
+            message: l.message,
+            created_at: l.created_at || now(),
+            created_by: l.created_by || SYSTEM_USER,
+          })),
+          assignmentHistory: (historyRes.data || []).map((h: any) => ({
+            id: h.id,
+            assignmentId: h.assignment_id,
+            setOfBooksId: h.set_of_books_id,
+            materialMasterType: h.material_master_type,
+            changed_at: h.changed_at || now(),
+            changed_by: h.changed_by || SYSTEM_USER,
+            effective_from: h.effective_from || now(),
+            previous: h.previous_payload || {},
+            next: h.next_payload || {},
+          })),
+        };
+
+        if (nextStore.companies.length || nextStore.setOfBooks.length || nextStore.glMasters.length || nextStore.glAssignments.length) {
+          persist(nextStore);
+        }
+      } catch {
+        // Local mode fallback remains available via localStorage.
+      }
+    };
+
+    loadFromDatabase();
+  }, [currentUser?.organization_id]);
 
   const booksById = useMemo(() => new Map(store.setOfBooks.map(s => [s.id, s])), [store.setOfBooks]);
   const glById = useMemo(() => new Map(store.glMasters.map(g => [g.id, g])), [store.glMasters]);
@@ -430,10 +544,136 @@ const CompanyConfiguration: React.FC = () => {
 
   const activeRule = requiredFieldRules[assignmentForm.materialMasterType];
 
-  const onSaveConfiguration = () => {
+  const onSaveConfiguration = async () => {
     setError('');
+    setSuccess('');
     localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-    setSuccess('Company Configuration saved successfully.');
+
+    if (!currentUser?.organization_id) {
+      setSuccess('Configuration saved locally. Login with organization access to sync database tables.');
+      return;
+    }
+
+    const organizationId = currentUser.organization_id;
+    const userName = currentUser.full_name || SYSTEM_USER;
+
+    try {
+      await supabase.from('gl_assignment_history').delete().eq('organization_id', organizationId);
+      await supabase.from('setup_wizard_defaults_log').delete().eq('organization_id', organizationId);
+      await supabase.from('gl_assignments').delete().eq('organization_id', organizationId);
+      await supabase.from('gl_master').delete().eq('organization_id', organizationId);
+      await supabase.from('set_of_books').delete().eq('organization_id', organizationId);
+      await supabase.from('company_codes').delete().eq('organization_id', organizationId);
+
+      if (store.companies.length > 0) {
+        const { error: companyErr } = await supabase.from('company_codes').insert(store.companies.map(c => ({
+          id: c.id,
+          organization_id: organizationId,
+          code: c.code,
+          description: c.description,
+          status: c.status,
+          created_by: c.created_by || userName,
+          created_at: c.created_at,
+          updated_by: userName,
+          updated_at: now(),
+        })));
+        if (companyErr) throw companyErr;
+      }
+
+      if (store.setOfBooks.length > 0) {
+        const { error: booksErr } = await supabase.from('set_of_books').insert(store.setOfBooks.map(b => ({
+          id: b.id,
+          organization_id: organizationId,
+          company_code_id: b.companyCodeId,
+          set_of_books_id: b.setOfBooksId,
+          description: b.description,
+          default_currency: b.defaultCurrency,
+          active_status: b.activeStatus,
+          posting_count: b.postingCount || 0,
+          created_by: b.created_by || userName,
+          created_at: b.created_at,
+          updated_by: userName,
+          updated_at: now(),
+        })));
+        if (booksErr) throw booksErr;
+      }
+
+      if (store.glMasters.length > 0) {
+        const { error: glErr } = await supabase.from('gl_master').insert(store.glMasters.map(g => ({
+          id: g.id,
+          organization_id: organizationId,
+          set_of_books_id: g.setOfBooksId,
+          gl_code: g.glCode,
+          gl_name: g.glName,
+          gl_type: g.glType,
+          posting_allowed: g.postingAllowed,
+          active_status: g.activeStatus,
+          seeded_by_system: !!g.seeded_by_system,
+          template_version: g.template_version || DEFAULT_TEMPLATE_VERSION,
+          posting_count: g.postingCount || 0,
+          created_by: g.created_by || userName,
+          created_at: g.created_at,
+          updated_by: userName,
+          updated_at: now(),
+        })));
+        if (glErr) throw glErr;
+      }
+
+      if (store.glAssignments.length > 0) {
+        const { error: assignmentErr } = await supabase.from('gl_assignments').insert(store.glAssignments.map(a => ({
+          id: a.id,
+          organization_id: organizationId,
+          set_of_books_id: a.setOfBooksId,
+          material_master_type: a.materialMasterType,
+          inventory_gl: a.inventoryGL || null,
+          purchase_gl: a.purchaseGL,
+          cogs_gl: a.cogsGL,
+          sales_gl: a.salesGL || null,
+          discount_gl: a.discountGL,
+          tax_gl: a.taxGL,
+          seeded_by_system: !!a.seeded_by_system,
+          template_version: a.template_version || DEFAULT_TEMPLATE_VERSION,
+          created_by: a.created_by || userName,
+          created_at: a.created_at,
+          updated_by: userName,
+          updated_at: now(),
+        })));
+        if (assignmentErr) throw assignmentErr;
+      }
+
+      if (store.setupLogs.length > 0) {
+        const { error: logsErr } = await supabase.from('setup_wizard_defaults_log').insert(store.setupLogs.map(l => ({
+          id: l.id,
+          organization_id: organizationId,
+          set_of_books_id: l.setOfBooksId,
+          action: l.action,
+          message: l.message,
+          created_by: l.created_by || userName,
+          created_at: l.created_at,
+        })));
+        if (logsErr) throw logsErr;
+      }
+
+      if (store.assignmentHistory.length > 0) {
+        const { error: historyErr } = await supabase.from('gl_assignment_history').insert(store.assignmentHistory.map(h => ({
+          id: h.id,
+          organization_id: organizationId,
+          assignment_id: h.assignmentId,
+          set_of_books_id: h.setOfBooksId,
+          material_master_type: h.materialMasterType,
+          changed_at: h.changed_at,
+          changed_by: h.changed_by || userName,
+          effective_from: h.effective_from,
+          previous_payload: h.previous || {},
+          next_payload: h.next || {},
+        })));
+        if (historyErr) throw historyErr;
+      }
+
+      setSuccess('Company Configuration saved locally and synced to database tables (Company Code, Set of Books, GL Master, GL Assignment, Setup Wizard/Defaults Log).');
+    } catch (e: any) {
+      setError(`Saved locally but database sync failed. ${e?.message || 'Please run the SQL setup and retry.'}`);
+    }
   };
 
   return (
