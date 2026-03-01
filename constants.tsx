@@ -403,8 +403,10 @@ export const configurableModules = [
   },
   {
     id: 'reports',
-    name: 'MIS Reports',
+    name: 'Financial Statement',
     fields: [
+        { id: 'report', name: 'Report' },
+        { id: 'balanceCarryforward', name: 'Balance Carryforward' },
         { id: 'salesRegister', name: 'Sales Register' },
         { id: 'salesSummary', name: 'Sales Summary' },
         { id: 'billWiseSales', name: 'Bill-wise Sales' },
