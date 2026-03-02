@@ -5,6 +5,7 @@ import type { Transaction, RegisteredPharmacy, InventoryItem } from '../types';
 import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import ConfirmModal from '../components/ConfirmModal';
 import ExportSalesModal from '../components/ExportSalesModal';
+import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 
 type SortableKeys = 'date' | 'total' | 'createdAt' | 'profit';
 
@@ -40,6 +41,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [transactionToCancel, setTransactionToCancel] = useState<string | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [journalTransaction, setJournalTransaction] = useState<Transaction | null>(null);
 
     const filteredAndSortedTransactions = useMemo(() => {
         let filtered = (transactions || []).filter(Boolean);
@@ -197,6 +199,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                                         <td className="p-2 text-right">
                                             <div className="flex justify-end gap-2">
                                                 <button onClick={() => onViewSale(tx)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
+                                                <button onClick={() => setJournalTransaction(tx)} className="text-indigo-700 font-black uppercase text-[10px] hover:underline">View Journal Entry</button>
                                                 <button onClick={() => onPrintBill(tx)} className="text-blue-700 font-black uppercase text-[10px] hover:underline">Print</button>
                                                 {tx.status !== 'cancelled' && <button onClick={() => handleCancelClick(tx.id)} className="text-red-600 font-black uppercase text-[10px] hover:underline">Cancel</button>}
                                             </div>
@@ -218,6 +221,16 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                     pharmacyName={currentUser?.pharmacy_name || 'MDXERA ERP'}
                 />
             )}
+
+            <JournalEntryViewerModal
+                isOpen={!!journalTransaction}
+                onClose={() => setJournalTransaction(null)}
+                invoiceId={journalTransaction?.id}
+                invoiceNumber={journalTransaction?.id}
+                documentType="SALES"
+                currentUser={currentUser}
+                isPosted={(journalTransaction?.status || '') === 'completed'}
+            />
         </main>
     );
 };

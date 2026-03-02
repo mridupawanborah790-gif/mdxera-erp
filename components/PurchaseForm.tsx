@@ -15,6 +15,7 @@ import { fetchPendingMobileBills, fetchSupplierProductMaps, generateUUID, getLat
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
+import JournalEntryViewerModal from './JournalEntryViewerModal';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { parseNetworkAndApiError } from '../utils/error';
 import { prepareCapturedImageForAiExtraction, prepareFilesForAiExtraction } from '../utils/aiImagePrep';
@@ -247,6 +248,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [mobilePageCount, setMobilePageCount] = useState(0);
     const [mobileSyncDeviceId] = useState<string>(() => getOrCreateMobileSyncDeviceId());
     const [supplierQuickCreatePrefill, setSupplierQuickCreatePrefill] = useState<Partial<Supplier> | undefined>(undefined);
+    const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
@@ -281,6 +283,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
         return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
     }, [suppliers, Supplier]);
+
+    const canOpenJournalEntry = Boolean(purchaseToEdit?.id);
+    const isPostedVoucher = (purchaseToEdit?.status || '') === 'completed';
 
 
     const reconciliationSupplier = useMemo<Supplier | null>(() => {
@@ -1215,6 +1220,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
                 <div className="flex items-center gap-3">
                     <span className="text-[10px] font-black uppercase tracking-widest">{isChallan ? 'Delivery Challan Entry' : 'Purchase Voucher Creation'}</span>
+                    <button
+                        type="button"
+                        onClick={() => setIsJournalModalOpen(true)}
+                        disabled={!canOpenJournalEntry || !isPostedVoucher}
+                        title={isPostedVoucher ? 'View journal entry' : 'Journal not generated yet.'}
+                        className="px-2 py-0.5 border border-white/60 text-white text-[9px] font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        View Journal Entry
+                    </button>
                 </div>
                 <span className="text-[10px] font-black uppercase text-accent">No. {isEditing ? purchaseToEdit?.purchaseSerialId : 'New'}</span>
             </div>
@@ -1690,6 +1704,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 suppliers={suppliers}
                 onSelect={handleSupplierSelect}
                 initialSearch={Supplier}
+            />
+
+            <JournalEntryViewerModal
+                isOpen={isJournalModalOpen}
+                onClose={() => setIsJournalModalOpen(false)}
+                invoiceId={purchaseToEdit?.id}
+                invoiceNumber={purchaseToEdit?.invoiceNumber || invoiceNumber}
+                documentType="PURCHASE"
+                currentUser={currentUser}
+                isPosted={isPostedVoucher}
             />
         </div>
     );
