@@ -38,6 +38,8 @@ create table if not exists public.set_of_books (
   set_of_books_id text not null,
   description text,
   default_currency text not null default 'INR',
+  default_customer_gl_id uuid,
+  default_supplier_gl_id uuid,
   active_status text not null default 'Active' check (active_status in ('Active', 'Inactive')),
   posting_count integer not null default 0,
   created_by text not null default 'system',
@@ -55,6 +57,7 @@ create table if not exists public.gl_master (
   gl_name text not null,
   gl_type text not null check (gl_type in ('Asset', 'Expense', 'Income', 'Liability', 'Equity')),
   posting_allowed boolean not null default true,
+  control_account boolean not null default false,
   active_status text not null default 'Active' check (active_status in ('Active', 'Inactive')),
   seeded_by_system boolean not null default false,
   template_version text not null default 'v1.0',
@@ -112,6 +115,8 @@ create table if not exists public.gl_assignment_history (
 create index if not exists idx_company_codes_org on public.company_codes(organization_id);
 create index if not exists idx_set_of_books_org on public.set_of_books(organization_id);
 create index if not exists idx_gl_master_org_sob on public.gl_master(organization_id, set_of_books_id);
+create index if not exists idx_set_of_books_default_customer_gl on public.set_of_books(default_customer_gl_id);
+create index if not exists idx_set_of_books_default_supplier_gl on public.set_of_books(default_supplier_gl_id);
 create index if not exists idx_gl_assignments_org_sob on public.gl_assignments(organization_id, set_of_books_id);
 create index if not exists idx_setup_logs_org on public.setup_wizard_defaults_log(organization_id);
 create index if not exists idx_gl_assignment_history_org on public.gl_assignment_history(organization_id);
@@ -172,6 +177,71 @@ create trigger trg_validate_gl_assignment_types
 before insert or update on public.gl_assignments
 for each row
 execute function public.validate_gl_assignment_types();
+
+create or replace function public.validate_set_of_books_default_controls()
+returns trigger
+language plpgsql
+as $$
+declare
+  customer_type text;
+  supplier_type text;
+begin
+  if new.default_customer_gl_id is not null then
+    select gl_type into customer_type from public.gl_master where id = new.default_customer_gl_id;
+    if customer_type is distinct from 'Asset' then
+      raise exception 'Customer Control GL must be Asset';
+    end if;
+  end if;
+
+  if new.default_supplier_gl_id is not null then
+    select gl_type into supplier_type from public.gl_master where id = new.default_supplier_gl_id;
+    if supplier_type is distinct from 'Liability' then
+      raise exception 'Supplier Control GL must be Liability';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_validate_set_of_books_default_controls on public.set_of_books;
+create trigger trg_validate_set_of_books_default_controls
+before insert or update on public.set_of_books
+for each row
+execute function public.validate_set_of_books_default_controls();
+
+create or replace function public.restrict_control_gl_edits()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.control_account and old.posting_count > 0 then
+    if new.gl_code is distinct from old.gl_code
+      or new.gl_type is distinct from old.gl_type
+      or new.posting_allowed is distinct from old.posting_allowed
+      or new.active_status is distinct from old.active_status
+      or new.control_account is distinct from old.control_account then
+      raise exception 'Control GL with postings can only update gl_name';
+    end if;
+  end if;
+
+  if old.gl_code = '120000' and new.gl_type is distinct from 'Asset' then
+    raise exception 'Customer Control GL must remain Asset';
+  end if;
+
+  if old.gl_code = '210000' and new.gl_type is distinct from 'Liability' then
+    raise exception 'Supplier Control GL must remain Liability';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_restrict_control_gl_edits on public.gl_master;
+create trigger trg_restrict_control_gl_edits
+before update on public.gl_master
+for each row
+execute function public.restrict_control_gl_edits();
 
 -- updated_at trigger
 
