@@ -519,6 +519,8 @@ export interface Supplier {
     is_active: boolean;
     is_blocked?: boolean;
     remarks?: string;
+    supplier_group?: string;
+    control_gl_id?: string;
     created_at?: string;
     updated_at?: string;
 }
@@ -548,6 +550,8 @@ export interface Customer {
     assignedStaffId?: string;
     assignedStaffName?: string;
     opening_balance?: number;
+    customerGroup?: string;
+    controlGlId?: string;
 }
 
 export interface Medicine {

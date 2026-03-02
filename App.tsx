@@ -87,6 +87,8 @@
 //     const [teamMembers, setTeamMembers] = useState<OrganizationMember[]>([]);
 
 //     const [configurations, setConfigurations] = useState<AppConfigurations>({ organization_id: '' });
+    const [defaultCustomerControlGlId, setDefaultCustomerControlGlId] = useState<string>('');
+    const [defaultSupplierControlGlId, setDefaultSupplierControlGlId] = useState<string>('');
 
 //     const [sourceChallansForPurchase, setSourceChallansForPurchase] = useState<{ items: PurchaseItem[], supplier: string, ids: string[] } | null>(null);
 //     const [mobileSyncSessionId, setMobileSyncSessionId] = useState<string | null>(null);
@@ -547,9 +549,57 @@
 //         await loadData(currentUser, 'background');
 //     }, [currentUser, inventory, loadData]);
 
+//     const resolveControlGlByCode = useCallback(async (organizationId: string, glCode: string): Promise<string | undefined> => {
+//         const { data: bookRows, error: bookErr } = await supabase
+//             .from('set_of_books')
+//             .select('id')
+//             .eq('organization_id', organizationId)
+//             .eq('active_status', 'Active')
+//             .order('created_at', { ascending: true })
+//             .limit(1);
+// 
+//         if (bookErr) throw bookErr;
+//         const activeBookId = bookRows?.[0]?.id;
+//         if (!activeBookId) return undefined;
+// 
+//         const { data: glRows, error: glErr } = await supabase
+//             .from('gl_master')
+//             .select('id')
+//             .eq('organization_id', organizationId)
+//             .eq('set_of_books_id', activeBookId)
+//             .eq('gl_code', glCode)
+//             .eq('active_status', 'Active')
+//             .limit(1);
+// 
+//         if (glErr) throw glErr;
+//         return glRows?.[0]?.id;
+//     }, []);
+// 
+//     const refreshDefaultControlGls = useCallback(async () => {
+//         if (!currentUser) return;
+//         try {
+//             const [customerGl, supplierGl] = await Promise.all([
+//                 resolveControlGlByCode(currentUser.organization_id, '120000'),
+//                 resolveControlGlByCode(currentUser.organization_id, '210000'),
+//             ]);
+//             setDefaultCustomerControlGlId(customerGl || '');
+//             setDefaultSupplierControlGlId(supplierGl || '');
+//         } catch {
+//             setDefaultCustomerControlGlId('');
+//             setDefaultSupplierControlGlId('');
+//         }
+//     }, [currentUser, resolveControlGlByCode]);
+// 
+//     useEffect(() => {
+//         refreshDefaultControlGls();
+//     }, [refreshDefaultControlGls]);
+// 
 //     const handleAddDistributor = async (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
 //         if (!currentUser) throw new Error("Unauthorized");
-//         const newDist = await storage.saveData('suppliers', data, currentUser);
+//         const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '210000');
+//         if (!mappedControlGlId) throw new Error('Supplier Control GL (210000) not found in active Set of Books.');
+//         const supplierPayload = { ...data, supplier_group: data.supplier_group || 'Sundry Creditors', control_gl_id: mappedControlGlId };
+//         const newDist = await storage.saveData('suppliers', supplierPayload, currentUser);
 //         if (balance !== 0) {
 //             await storage.addLedgerEntry({
 //                 id: storage.generateUUID(),
@@ -568,7 +618,10 @@
 //     const handleAddCustomer = async (data: Omit<Customer, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
 //         if (!currentUser) return;
 //         try {
-//             const newCust = await storage.saveData('customers', { ...data, opening_balance: balance }, currentUser);
+//             const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '120000');
+//             if (!mappedControlGlId) throw new Error('Customer Control GL (120000) not found in active Set of Books.');
+//             const customerPayload = { ...data, customerGroup: data.customerGroup || 'Sundry Debtors', controlGlId: mappedControlGlId, opening_balance: balance };
+//             const newCust = await storage.saveData('customers', customerPayload, currentUser);
 //             if (balance !== 0) {
 //                 await storage.addLedgerEntry({
 //                     id: storage.generateUUID(),
@@ -719,7 +772,7 @@
 //                     onBulkAddSuppliers={(list) => storage.saveBulkData('suppliers', list, currentUser)}
 //                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'supplier')}
 //                     onUpdateSupplier={(d) => storage.saveData('suppliers', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-//                     config={config} currentUser={currentUser}
+//                     config={config} currentUser={currentUser} defaultSupplierControlGlId={defaultSupplierControlGlId}
 //                 />;
 //             case 'customers':
 //                 return <Customers
@@ -727,7 +780,7 @@
 //                     onBulkAddCustomers={(list) => storage.saveBulkData('customers', list, currentUser)}
 //                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'customer')}
 //                     onUpdateCustomer={(c) => storage.saveData('customers', c, currentUser).then(() => loadData(currentUser!, 'background'))}
-//                     currentUser={currentUser} config={config} inventory={inventory}
+//                     currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
 //                 />;
 //             case 'medicineMasterList':
 //             case 'vendorNomenclature':
@@ -1038,6 +1091,8 @@ const App: React.FC = () => {
     const [teamMembers, setTeamMembers] = useState<OrganizationMember[]>([]);
 
     const [configurations, setConfigurations] = useState<AppConfigurations>({ organization_id: '' });
+    const [defaultCustomerControlGlId, setDefaultCustomerControlGlId] = useState<string>('');
+    const [defaultSupplierControlGlId, setDefaultSupplierControlGlId] = useState<string>('');
 
     const [sourceChallansForPurchase, setSourceChallansForPurchase] = useState<{ items: PurchaseItem[], supplier: string, ids: string[] } | null>(null);
     const [mobileSyncSessionId, setMobileSyncSessionId] = useState<string | null>(null);
@@ -1525,9 +1580,57 @@ const App: React.FC = () => {
         await loadData(currentUser, 'background');
     }, [currentUser, inventory, loadData]);
 
+    const resolveControlGlByCode = useCallback(async (organizationId: string, glCode: string): Promise<string | undefined> => {
+        const { data: bookRows, error: bookErr } = await supabase
+            .from('set_of_books')
+            .select('id')
+            .eq('organization_id', organizationId)
+            .eq('active_status', 'Active')
+            .order('created_at', { ascending: true })
+            .limit(1);
+
+        if (bookErr) throw bookErr;
+        const activeBookId = bookRows?.[0]?.id;
+        if (!activeBookId) return undefined;
+
+        const { data: glRows, error: glErr } = await supabase
+            .from('gl_master')
+            .select('id')
+            .eq('organization_id', organizationId)
+            .eq('set_of_books_id', activeBookId)
+            .eq('gl_code', glCode)
+            .eq('active_status', 'Active')
+            .limit(1);
+
+        if (glErr) throw glErr;
+        return glRows?.[0]?.id;
+    }, []);
+
+    const refreshDefaultControlGls = useCallback(async () => {
+        if (!currentUser) return;
+        try {
+            const [customerGl, supplierGl] = await Promise.all([
+                resolveControlGlByCode(currentUser.organization_id, '120000'),
+                resolveControlGlByCode(currentUser.organization_id, '210000'),
+            ]);
+            setDefaultCustomerControlGlId(customerGl || '');
+            setDefaultSupplierControlGlId(supplierGl || '');
+        } catch {
+            setDefaultCustomerControlGlId('');
+            setDefaultSupplierControlGlId('');
+        }
+    }, [currentUser, resolveControlGlByCode]);
+
+    useEffect(() => {
+        refreshDefaultControlGls();
+    }, [refreshDefaultControlGls]);
+
     const handleAddDistributor = async (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
         if (!currentUser) throw new Error("Unauthorized");
-        const newDist = await storage.saveData('suppliers', data, currentUser);
+        const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '210000');
+        if (!mappedControlGlId) throw new Error('Supplier Control GL (210000) not found in active Set of Books.');
+        const supplierPayload = { ...data, supplier_group: data.supplier_group || 'Sundry Creditors', control_gl_id: mappedControlGlId };
+        const newDist = await storage.saveData('suppliers', supplierPayload, currentUser);
         if (balance !== 0) {
             await storage.addLedgerEntry({
                 id: storage.generateUUID(),
@@ -1546,7 +1649,10 @@ const App: React.FC = () => {
     const handleAddCustomer = async (data: Omit<Customer, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
         if (!currentUser) return;
         try {
-            const newCust = await storage.saveData('customers', { ...data, opening_balance: balance }, currentUser);
+            const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '120000');
+            if (!mappedControlGlId) throw new Error('Customer Control GL (120000) not found in active Set of Books.');
+            const customerPayload = { ...data, customerGroup: data.customerGroup || 'Sundry Debtors', controlGlId: mappedControlGlId, opening_balance: balance };
+            const newCust = await storage.saveData('customers', customerPayload, currentUser);
             if (balance !== 0) {
                 await storage.addLedgerEntry({
                     id: storage.generateUUID(),
@@ -1739,7 +1845,7 @@ const App: React.FC = () => {
                     onBulkAddSuppliers={(list) => storage.saveBulkData('suppliers', list, currentUser)}
                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'supplier')}
                     onUpdateSupplier={(d) => storage.saveData('suppliers', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    config={config} currentUser={currentUser}
+                    config={config} currentUser={currentUser} defaultSupplierControlGlId={defaultSupplierControlGlId}
                 />;
             case 'customers':
                 return <Customers
@@ -1747,7 +1853,7 @@ const App: React.FC = () => {
                     onBulkAddCustomers={(list) => storage.saveBulkData('customers', list, currentUser)}
                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'customer')}
                     onUpdateCustomer={(c) => storage.saveData('customers', c, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    currentUser={currentUser} config={config} inventory={inventory}
+                    currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
                 />;
             case 'medicineMasterList':
             case 'vendorNomenclature':

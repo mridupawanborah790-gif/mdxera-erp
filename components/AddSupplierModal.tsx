@@ -9,6 +9,7 @@ import { generateUUID } from '../services/storageService';
 
 const states = Object.keys(STATE_DISTRICT_MAP).sort();
 const supplierCategories = ["Wholesaler", "Manufacturer", "C&F", "Local Vendor", "Distributor", "Agency"];
+const supplierGroupOptions = ["Sundry Creditors", "Import Vendors", "Service Vendors", "Local Vendors"];
 
 const createInitialState = (): Omit<Supplier, 'ledger' | 'organization_id'> => ({
     id: generateUUID(),
@@ -41,7 +42,9 @@ const createInitialState = (): Omit<Supplier, 'ledger' | 'organization_id'> => (
     },
     is_active: true,
     is_blocked: false,
-    remarks: ''
+    remarks: '',
+    supplier_group: 'Sundry Creditors',
+    control_gl_id: ''
 });
 
 export const AddSupplierModal: React.FC<{
@@ -50,7 +53,8 @@ export const AddSupplierModal: React.FC<{
     onAdd: (data: Omit<Supplier, 'ledger' | 'organization_id'>, balance: number, date: string) => void;
     organizationId: string;
     prefillData?: Partial<Supplier>;
-}> = ({ isOpen, onClose, onAdd, organizationId, prefillData }) => {
+    defaultControlGlId?: string;
+}> = ({ isOpen, onClose, onAdd, organizationId, prefillData, defaultControlGlId }) => {
     const [form, setForm] = useState(createInitialState());
     const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -58,11 +62,12 @@ export const AddSupplierModal: React.FC<{
         if (isOpen) {
             setForm({
                 ...createInitialState(),
+                control_gl_id: defaultControlGlId || '',
                 ...prefillData,
             });
             setAsOfDate(new Date().toISOString().split('T')[0]);
         }
-    }, [isOpen, prefillData]);
+    }, [isOpen, prefillData, defaultControlGlId]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value, type } = e.target;
@@ -88,6 +93,10 @@ export const AddSupplierModal: React.FC<{
             alert('Supplier Name is required.');
             return;
         }
+        if (!(form.supplier_group || '').trim()) {
+            alert('Supplier Group is required.');
+            return;
+        }
         onAdd(form, form.opening_balance || 0, asOfDate);
         onClose();
     };
@@ -111,6 +120,16 @@ export const AddSupplierModal: React.FC<{
                             <select name="category" value={form.category} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
                                 {supplierCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                             </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Group *</label>
+                            <select name="supplier_group" value={form.supplier_group || 'Sundry Creditors'} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
+                                {supplierGroupOptions.map(group => <option key={group} value={group}>{group}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Control GL</label>
+                            <input type="text" readOnly value={form.control_gl_id ? `Mapped (${form.control_gl_id})` : 'Auto-map from Set of Books'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
                         </div>
                     </div>
                 </section>

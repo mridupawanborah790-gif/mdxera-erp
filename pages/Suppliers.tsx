@@ -18,9 +18,10 @@ interface SuppliersProps {
     onUpdateSupplier: (supplier: Supplier) => void;
     config: any;
     currentUser: RegisteredPharmacy | null;
+    defaultSupplierControlGlId?: string;
 }
 
-const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkAddSuppliers, onRecordPayment, onUpdateSupplier, config, currentUser }) => {
+const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkAddSuppliers, onRecordPayment, onUpdateSupplier, config, currentUser, defaultSupplierControlGlId }) => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -164,6 +165,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                     isOpen={isAddModalOpen} 
                     onClose={() => setIsAddModalOpen(false)} 
                     onAdd={onAddSupplier} 
+                    defaultControlGlId={defaultSupplierControlGlId}
                     organizationId={currentUser?.organization_id || ''} 
                 />
             )}

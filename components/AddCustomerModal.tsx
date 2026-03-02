@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Modal from './Modal';
 import type { Customer, OrganizationMember } from '../types';
 import { handleEnterToNextField } from '../utils/navigation'; 
@@ -20,9 +20,18 @@ interface AddCustomerModalProps {
     onAdd: (customer: Omit<Customer, 'id' | 'ledger'>, openingBalance: number, asOfDate: string) => void;
     teamMembers?: OrganizationMember[]; 
     organizationId: string;
+    defaultControlGlId?: string;
 }
 
-const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, onAdd, teamMembers = [], organizationId }) => {
+const CUSTOMER_GROUP_OPTIONS = [
+    'Sundry Debtors',
+    'Cash Customers',
+    'Corporate Customers',
+    'Retail Customers',
+    'Government Customers',
+] as const;
+
+const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, onAdd, teamMembers = [], organizationId, defaultControlGlId }) => {
     const initialState = {
         name: '',
         phone: '',
@@ -32,6 +41,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
         district: '',
         state: '',
         customerType: 'regular' as 'regular' | 'retail',
+        customerGroup: 'Sundry Debtors',
         gstNumber: '',
         drugLicense: '',
         panNumber: '',
@@ -44,13 +54,16 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
         assignedStaffId: '', 
         assignedStaffName: '',
         organization_id: '',
+        controlGlId: '',
     };
     const [formData, setFormData] = useState(initialState);
     const [isPincodeLoading, setIsPincodeLoading] = useState(false);
 
+    const effectiveControlGlId = useMemo(() => defaultControlGlId || '', [defaultControlGlId]);
+
     useEffect(() => {
-        if (isOpen) setFormData({ ...initialState, organization_id: organizationId });
-    }, [isOpen, organizationId]);
+        if (isOpen) setFormData({ ...initialState, organization_id: organizationId, controlGlId: effectiveControlGlId });
+    }, [isOpen, organizationId, effectiveControlGlId]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
@@ -83,6 +96,10 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
         }
         if (!organizationId) {
             alert("Error: Missing organization context. Please refresh.");
+            return;
+        }
+        if (!formData.customerGroup.trim()) {
+            alert("Customer Group is required");
             return;
         }
         const { openingBalance, asOfDate, ...customerData } = formData;
@@ -125,6 +142,32 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
                             <option value="regular">General</option>
                             <option value="retail">Retailer</option>
                         </select>
+                     </div>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div>
+                        <label className="block text-sm font-medium text-app-text-secondary">Customer Group <span className="text-red-500">*</span></label>
+                        <select
+                            name="customerGroup"
+                            value={formData.customerGroup}
+                            onChange={handleChange}
+                            required
+                            className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]"
+                        >
+                            {CUSTOMER_GROUP_OPTIONS.map(group => (
+                                <option key={group} value={group}>{group}</option>
+                            ))}
+                        </select>
+                     </div>
+                     <div>
+                        <label className="block text-sm font-medium text-app-text-secondary">Customer Control GL</label>
+                        <input
+                            type="text"
+                            value={effectiveControlGlId ? `Mapped (${effectiveControlGlId})` : 'Auto-map from Set of Books'}
+                            readOnly
+                            className="mt-1 block w-full p-2 border border-app-border rounded-md bg-gray-100 dark:bg-gray-800"
+                        />
                      </div>
                  </div>
 
