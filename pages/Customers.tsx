@@ -29,9 +29,10 @@ interface CustomersProps {
     currentUser: RegisteredPharmacy | null;
     config: ModuleConfig;
     inventory: InventoryItem[];
+    defaultCustomerControlGlId?: string;
 }
 
-const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], onAddCustomer, onBulkAddCustomers, onRecordPayment, onUpdateCustomer, currentUser, config, inventory }) => {
+const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], onAddCustomer, onBulkAddCustomers, onRecordPayment, onUpdateCustomer, currentUser, config, inventory, defaultCustomerControlGlId }) => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -168,6 +169,7 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                     isOpen={isAddModalOpen} 
                     onClose={() => setIsAddModalOpen(false)} 
                     onAdd={onAddCustomer} 
+                    defaultControlGlId={defaultCustomerControlGlId}
                     teamMembers={teamMembers}
                     organizationId={currentUser?.organization_id || ''} 
                 />

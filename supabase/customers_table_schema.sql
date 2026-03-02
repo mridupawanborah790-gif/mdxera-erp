@@ -61,6 +61,8 @@ CREATE TABLE public.customers (
     
     -- Financial Tracking
     opening_balance numeric DEFAULT 0, -- Initial debit balance brought forward
+    customer_group text DEFAULT 'Sundry Debtors',
+    control_gl_id uuid references public.gl_master(id) on delete restrict,
     current_balance numeric DEFAULT 0, -- Dynamic summary of ledger (Receivable)
     ledger jsonb DEFAULT '[]'::jsonb, -- Historical transaction log (Bills/Receipts)
     

@@ -66,6 +66,8 @@ CREATE TABLE public.suppliers (
     
     -- Financial Tracking
     opening_balance numeric DEFAULT 0, -- Initial balance brought forward
+    supplier_group text DEFAULT 'Sundry Creditors',
+    control_gl_id uuid references public.gl_master(id) on delete restrict,
     current_balance numeric DEFAULT 0, -- Dynamic summary of ledger
     ledger jsonb DEFAULT '[]'::jsonb, -- Historical transaction log (Bills/Payments)
     
