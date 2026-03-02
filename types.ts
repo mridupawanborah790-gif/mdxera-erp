@@ -708,6 +708,9 @@ export interface ExtractedPurchaseBill {
     invoiceNumber?: string;
     date?: string;
     supplierGstNumber?: string;
+    supplierPanNumber?: string;
+    supplierPhone?: string;
+    supplierAddress?: string;
     schemeDiscount?: number;
     items: Partial<PurchaseItem>[];
     error?: string;
