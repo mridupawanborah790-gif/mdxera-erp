@@ -21,19 +21,17 @@ interface JournalLine {
     credit: number;
 }
 
+interface JournalHeader {
+    id: string;
+    entryNumber: string;
+    postingDate: string;
+    status: string;
+    company: string;
+    setOfBooks: string;
+    documentReference: string;
+}
+
 const normalizeNumber = (value: any): number => Number(value || 0);
-
-const hasAccountingAccess = (user: RegisteredPharmacy | null): boolean => {
-    if (!user) return false;
-    const role = String(user.role || '').toLowerCase();
-    if (['owner', 'admin', 'manager'].includes(role)) return true;
-
-    const maybeAssignedRoles = ((user as any).assignedRoles || (user as any).assigned_roles || []) as string[];
-    return maybeAssignedRoles.some((entry) => {
-        const v = String(entry || '').toLowerCase();
-        return v.includes('account') || v.includes('finance');
-    });
-};
 
 const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
     isOpen,
@@ -47,29 +45,33 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [emptyMessage, setEmptyMessage] = useState<string | null>(null);
-    const [header, setHeader] = useState<any | null>(null);
+    const [entries, setEntries] = useState<JournalHeader[]>([]);
+    const [selectedEntryId, setSelectedEntryId] = useState<string>('');
     const [lines, setLines] = useState<JournalLine[]>([]);
 
-    const canView = useMemo(() => hasAccountingAccess(currentUser), [currentUser]);
+    const canView = useMemo(() => Boolean(currentUser), [currentUser]);
+    const selectedHeader = useMemo(() => entries.find((entry) => entry.id === selectedEntryId) || null, [entries, selectedEntryId]);
+
+    const referenceType = documentType === 'SALES' ? 'SALES_BILL' : 'PURCHASE_BILL';
 
     useEffect(() => {
         if (!isOpen) return;
         if (!canView) {
             setError('You do not have permission to view journal entries.');
             setLines([]);
-            setHeader(null);
+            setEntries([]);
             return;
         }
         if (!invoiceId) {
-            setEmptyMessage('Accounting entry not generated yet.');
+            setEmptyMessage('Journal not generated yet.');
             setLines([]);
-            setHeader(null);
+            setEntries([]);
             return;
         }
         if (!isPosted) {
-            setEmptyMessage('Accounting entry not generated yet.');
+            setEmptyMessage('Journal not generated yet.');
             setLines([]);
-            setHeader(null);
+            setEntries([]);
             return;
         }
 
@@ -81,30 +83,67 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
                 const { data: headerRows, error: headerError } = await supabase
                     .from('journal_entry_header')
                     .select('*')
-                    .eq('reference_document_id', invoiceId)
-                    .eq('document_type', documentType)
+                    .eq('reference_type', referenceType)
+                    .eq('reference_id', invoiceId)
                     .order('posting_date', { ascending: false })
-                    .limit(1);
+                    .order('created_at', { ascending: false });
+
+                let fallbackRows: any[] = headerRows || [];
+                if (!headerError && !fallbackRows.length) {
+                    const fallbackResponse = await supabase
+                        .from('journal_entry_header')
+                        .select('*')
+                        .eq('reference_document_id', invoiceId)
+                        .eq('document_type', documentType)
+                        .order('posting_date', { ascending: false })
+                        .order('created_at', { ascending: false });
+                    fallbackRows = fallbackResponse.data || [];
+                }
 
                 if (headerError) throw headerError;
 
-                const headerRow = headerRows?.[0];
-                if (!headerRow) {
-                    setHeader(null);
+                const normalizedHeaders = (fallbackRows || []).map((row: any) => ({
+                    id: String(row.id),
+                    entryNumber: String(row.journal_entry_number || row.entry_number || row.id || '—'),
+                    postingDate: String(row.posting_date || ''),
+                    status: String(row.status || 'Posted'),
+                    company: String(row.company || row.company_name || '—'),
+                    setOfBooks: String(row.set_of_books || row.set_of_books_id || '—'),
+                    documentReference: String(row.document_reference || invoiceNumber || '—')
+                })) as JournalHeader[];
+
+                if (!normalizedHeaders.length) {
+                    setEntries([]);
                     setLines([]);
-                    setEmptyMessage('Accounting entry not generated yet.');
+                    setEmptyMessage('Journal entry not found for this document. Please check posting status or re-post.');
                     return;
                 }
 
-                setHeader(headerRow);
+                setEntries(normalizedHeaders);
+                const firstEntry = normalizedHeaders[0];
+                setSelectedEntryId((prev) => prev || firstEntry.id);
+            } catch (e: any) {
+                setError(e?.message || 'Unable to fetch journal entry.');
+                setLines([]);
+            } finally {
+                setIsLoading(false);
+            }
+        };
 
-                const headerId = headerRow.id;
+        load();
+    }, [isOpen, invoiceId, documentType, canView, isPosted, referenceType, invoiceNumber]);
+
+    useEffect(() => {
+        if (!isOpen || !selectedEntryId || !invoiceId || !isPosted) return;
+        const loadLines = async () => {
+            setIsLoading(true);
+            try {
                 let lineRows: any[] = [];
 
                 const byHeaderId = await supabase
                     .from('journal_entry_lines')
                     .select('*')
-                    .eq('journal_entry_id', headerId)
+                    .eq('journal_entry_id', selectedEntryId)
                     .order('id', { ascending: true });
 
                 if (!byHeaderId.error && byHeaderId.data?.length) {
@@ -117,7 +156,7 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
                         .eq('document_type', documentType)
                         .order('id', { ascending: true });
                     if (byReference.error) throw byReference.error;
-                    lineRows = byReference.data || [];
+                    lineRows = (byReference.data || []).filter((row: any) => String(row.journal_entry_id || '') === selectedEntryId || !row.journal_entry_id);
                 }
 
                 const mapped: JournalLine[] = (lineRows || []).map((row: any, idx: number) => ({
@@ -137,8 +176,8 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
             }
         };
 
-        load();
-    }, [isOpen, invoiceId, documentType, canView, isPosted]);
+        loadLines();
+    }, [isOpen, selectedEntryId, invoiceId, documentType, isPosted]);
 
     const totals = useMemo(() => {
         const totalDebit = lines.reduce((sum, row) => sum + row.debit, 0);
@@ -154,13 +193,30 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
         <Modal isOpen={isOpen} onClose={onClose} title="View Journal Entry" widthClass="max-w-5xl">
             <div className="p-4 space-y-4 overflow-auto text-xs">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Journal Entry Number</p><p className="font-bold">{header?.journal_entry_number || header?.entry_number || '—'}</p></div>
-                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Posting Date</p><p className="font-bold">{header?.posting_date ? new Date(header.posting_date).toLocaleDateString() : '—'}</p></div>
-                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Company</p><p className="font-bold">{header?.company || header?.company_name || '—'}</p></div>
-                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Set of Books</p><p className="font-bold">{header?.set_of_books || header?.set_of_books_id || '—'}</p></div>
-                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Document Reference</p><p className="font-bold">{header?.document_reference || invoiceNumber || '—'}</p></div>
-                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Status</p><p className="font-bold">{header?.status || (isPosted ? 'Posted' : 'Draft')}</p></div>
+                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Company</p><p className="font-bold">{selectedHeader?.company || '—'}</p></div>
+                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Set of Books</p><p className="font-bold">{selectedHeader?.setOfBooks || '—'}</p></div>
+                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Document Type</p><p className="font-bold">{documentType === 'SALES' ? 'Sales' : 'Purchase'}</p></div>
+                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Document / Voucher No</p><p className="font-bold">{invoiceNumber || '—'}</p></div>
+                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Posting Date</p><p className="font-bold">{selectedHeader?.postingDate ? new Date(selectedHeader.postingDate).toLocaleDateString() : '—'}</p></div>
+                    <div className="border border-gray-200 p-2"><p className="text-gray-500 uppercase">Status</p><p className="font-bold">{selectedHeader?.status || (isPosted ? 'Posted' : 'Draft')}</p></div>
                 </div>
+
+                {!!entries.length && (
+                    <div className="border border-gray-200 bg-gray-50 p-2 flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-bold uppercase text-gray-600">Journal Entry No(s)</span>
+                        {entries.map((entry) => (
+                            <button
+                                key={entry.id}
+                                type="button"
+                                onClick={() => setSelectedEntryId(entry.id)}
+                                className={`px-2 py-1 border text-[11px] font-bold ${selectedEntryId === entry.id ? 'bg-primary text-white border-primary' : 'bg-white border-gray-300 text-gray-700'}`}
+                                title={entry.status.toLowerCase().includes('revers') ? 'Reversal Entry' : 'Journal Entry'}
+                            >
+                                {entry.entryNumber} ({entry.status})
+                            </button>
+                        ))}
+                    </div>
+                )}
 
                 {isLoading && <div className="p-4 border border-blue-200 bg-blue-50 text-blue-700">Loading accounting entry...</div>}
                 {!isLoading && error && <div className="p-4 border border-red-200 bg-red-50 text-red-700">{error}</div>}

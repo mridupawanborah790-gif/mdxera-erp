@@ -7,6 +7,7 @@ import AddMedicineModal from '../components/AddMedicineModal';
 import BatchSelectionModal from './BatchSelectionModal';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import CustomerSearchModal from './CustomerSearchModal';
+import JournalEntryViewerModal from './JournalEntryViewerModal';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
@@ -106,10 +107,13 @@ const POS = forwardRef<any, POSProps>(({
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
     const [roundOff, setRoundOff] = useState(0);
     const [isRoundOffManuallyEdited, setIsRoundOffManuallyEdited] = useState(false);
+    const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
 
     const activeRowIdRef = useRef<string | null>(null);
 
     const isNonGst = billMode === 'EST';
+    const canOpenJournalEntry = Boolean(transactionToEdit?.id);
+    const isPostedVoucher = (transactionToEdit?.status || '') === 'completed';
     const strictStock = configurations.displayOptions?.strictStock ?? false;
     const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
@@ -808,9 +812,20 @@ const POS = forwardRef<any, POSProps>(({
     return (
         <div className="flex flex-col h-full bg-app-bg overflow-hidden" onKeyDown={handleEnterToNextField}>
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
-                <span className="text-[10px] font-black uppercase tracking-widest">
-                    {isNonGst ? 'Estimate Billing (Non-GST)' : 'Accounting Voucher Creation (Sales)'}
-                </span>
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                        {isNonGst ? 'Estimate Billing (Non-GST)' : 'Accounting Voucher Creation (Sales)'}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => setIsJournalModalOpen(true)}
+                        disabled={!canOpenJournalEntry || !isPostedVoucher}
+                        title={isPostedVoucher ? 'View journal entry' : 'Journal not generated yet.'}
+                        className="px-2 py-0.5 border border-white/60 text-white text-[9px] font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        View Journal Entry
+                    </button>
+                </div>
                 <span className="text-[10px] font-black uppercase text-accent">No. {currentInvoiceNo}</span>
             </div>
 
@@ -1472,6 +1487,16 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </div>
             </Modal>
+
+            <JournalEntryViewerModal
+                isOpen={isJournalModalOpen}
+                onClose={() => setIsJournalModalOpen(false)}
+                invoiceId={transactionToEdit?.id}
+                invoiceNumber={transactionToEdit?.id || currentInvoiceNo}
+                documentType="SALES"
+                currentUser={currentUser}
+                isPosted={isPostedVoucher}
+            />
 
             <CustomerSearchModal
                 isOpen={isCustomerSearchModalOpen}
