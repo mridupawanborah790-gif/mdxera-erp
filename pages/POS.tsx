@@ -6,6 +6,7 @@ import AddMedicineModal from '../components/AddMedicineModal';
 import BatchSelectionModal from '../components/BatchSelectionModal';
 import WebcamCaptureModal from '../components/WebcamCaptureModal';
 import CustomerSearchModal from '../components/CustomerSearchModal';
+import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
@@ -102,10 +103,13 @@ const POS = forwardRef<any, POSProps>(({
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
+    const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
 
     const activeRowIdRef = useRef<string | null>(null);
 
     const isNonGst = billMode === 'EST';
+    const canOpenJournalEntry = Boolean(transactionToEdit?.id);
+    const isPostedVoucher = (transactionToEdit?.status || '') === 'completed';
     const strictStock = configurations.displayOptions?.strictStock ?? false;
     const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
@@ -1212,9 +1216,26 @@ const POS = forwardRef<any, POSProps>(({
                             ) : null}
                             {isSaving ? 'Saving' : 'Accept (Ent)'}
                         </button>
+                        <button
+                            onClick={() => setIsJournalModalOpen(true)}
+                            disabled={!canOpenJournalEntry}
+                            className="w-full py-2 border border-primary text-primary bg-white hover:bg-primary/5 disabled:opacity-50 disabled:cursor-not-allowed font-black text-[10px] uppercase tracking-widest"
+                        >
+                            View Journal Entry
+                        </button>
                     </div>
                 </div>
             </div>
+
+            <JournalEntryViewerModal
+                isOpen={isJournalModalOpen}
+                onClose={() => setIsJournalModalOpen(false)}
+                invoiceId={transactionToEdit?.id}
+                invoiceNumber={transactionToEdit?.id || currentInvoiceNo}
+                documentType="SALES"
+                currentUser={currentUser}
+                isPosted={isPostedVoucher}
+            />
 
             <Modal
                 isOpen={isSearchModalOpen}
