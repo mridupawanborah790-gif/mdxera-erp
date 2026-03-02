@@ -29,6 +29,8 @@ type SetOfBooks = AuditFields & {
   setOfBooksId: string;
   description: string;
   defaultCurrency: string;
+  defaultCustomerGLId?: string;
+  defaultSupplierGLId?: string;
   activeStatus: Status;
   postingCount: number;
 };
@@ -40,6 +42,7 @@ type GLMaster = AuditFields & {
   glName: string;
   glType: GLType;
   postingAllowed: boolean;
+  controlAccount: boolean;
   activeStatus: Status;
   seeded_by_system: boolean;
   template_version: string;
@@ -132,6 +135,7 @@ const getId = () => {
 };
 
 const defaultGlTemplate: Array<{ key: string; glName: string; glType: GLType; code: number }> = [
+  { key: 'customerControl', glName: 'Accounts Receivable (Trade Debtors)', glType: 'Asset', code: 120000 },
   { key: 'invTrading', glName: 'Inventory - Trading Goods', glType: 'Asset', code: 140000 },
   { key: 'invFinished', glName: 'Inventory - Finished Goods', glType: 'Asset', code: 140100 },
   { key: 'invConsumable', glName: 'Inventory - Consumables', glType: 'Asset', code: 140200 },
@@ -143,8 +147,14 @@ const defaultGlTemplate: Array<{ key: string; glName: string; glType: GLType; co
   { key: 'sales', glName: 'Sales Account', glType: 'Income', code: 400100 },
   { key: 'gstOutput', glName: 'GST Output', glType: 'Liability', code: 210100 },
   { key: 'gstInput', glName: 'GST Input', glType: 'Liability', code: 210200 },
+  { key: 'supplierControl', glName: 'Accounts Payable (Trade Creditors)', glType: 'Liability', code: 210000 },
   { key: 'payables', glName: 'Trade Payables', glType: 'Liability', code: 220000 },
 ];
+
+const CONTROL_GL_CODES = {
+  customer: '120000',
+  supplier: '210000',
+} as const;
 
 const requiredFieldRules: Record<MaterialType, { inventoryRequired: boolean; salesRequired: boolean }> = {
   'Trading Goods': { inventoryRequired: true, salesRequired: true },
@@ -177,7 +187,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
   const [companyForm, setCompanyForm] = useState({ code: '', description: '', status: 'Active' as Status });
   const [booksForm, setBooksForm] = useState({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', activeStatus: 'Active' as Status, postingCount: 0 });
-  const [glForm, setGlForm] = useState({ setOfBooksId: '', glCode: '', glName: '', glType: 'Asset' as GLType, postingAllowed: true, activeStatus: 'Active' as Status, postingCount: 0 });
+  const [glForm, setGlForm] = useState({ setOfBooksId: '', glCode: '', glName: '', glType: 'Asset' as GLType, postingAllowed: true, controlAccount: false, activeStatus: 'Active' as Status, postingCount: 0 });
   const [assignmentForm, setAssignmentForm] = useState({ setOfBooksId: '', materialMasterType: 'Trading Goods' as MaterialType, inventoryGL: '', purchaseGL: '', cogsGL: '', salesGL: '', discountGL: '', taxGL: '' });
 
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
@@ -237,6 +247,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               setOfBooksId: b.set_of_books_id,
               description: b.description || '',
               defaultCurrency: b.default_currency || 'INR',
+              defaultCustomerGLId: b.default_customer_gl_id || undefined,
+              defaultSupplierGLId: b.default_supplier_gl_id || undefined,
               activeStatus: b.active_status || 'Active',
               postingCount: b.posting_count || 0,
               created_by: b.created_by || SYSTEM_USER,
@@ -252,6 +264,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
             glName: g.gl_name,
             glType: g.gl_type,
             postingAllowed: !!g.posting_allowed,
+            controlAccount: !!g.control_account,
             activeStatus: g.active_status || 'Active',
             seeded_by_system: !!g.seeded_by_system,
             template_version: g.template_version || DEFAULT_TEMPLATE_VERSION,
@@ -322,8 +335,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     const keyToGlId = new Map<string, string>();
     const createdGL: GLMaster[] = [];
 
-    defaultGlTemplate.forEach((tpl, idx) => {
-      const baseCode = String(tpl.code + idx);
+    defaultGlTemplate.forEach((tpl) => {
+      const baseCode = String(tpl.code);
       const generatedCode = codeExists.has(baseCode) ? `${baseCode}-${Date.now().toString().slice(-4)}` : baseCode;
       const found = glExisting.find(g => g.glName.toLowerCase() === tpl.glName.toLowerCase() && g.glType === tpl.glType);
       if (found) {
@@ -331,6 +344,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         return;
       }
       const glId = getId();
+      const isControl = tpl.key === 'customerControl' || tpl.key === 'supplierControl';
       createdGL.push({
         id: glId,
         setOfBooksId,
@@ -338,6 +352,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         glName: tpl.glName,
         glType: tpl.glType,
         postingAllowed: true,
+        controlAccount: isControl,
         activeStatus: 'Active',
         seeded_by_system: true,
         template_version: DEFAULT_TEMPLATE_VERSION,
@@ -365,13 +380,25 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
     const next: Store = {
       ...activeStore,
+      setOfBooks: activeStore.setOfBooks.map((book) => {
+        if (book.id !== setOfBooksId) return book;
+        return {
+          ...book,
+          defaultCustomerGLId: keyToGlId.get('customerControl') || book.defaultCustomerGLId,
+          defaultSupplierGLId: keyToGlId.get('supplierControl') || book.defaultSupplierGLId,
+          updated_at: stamp,
+          updated_by: SYSTEM_USER,
+        };
+      }),
       glMasters: [...activeStore.glMasters, ...createdGL],
       glAssignments: [...activeStore.glAssignments, ...createdAssignments],
       setupLogs: [...activeStore.setupLogs, {
         id: getId(),
         setOfBooksId,
         action: mode === 'create' ? 'DEFAULT_CREATED' : 'RESET_DEFAULT',
-        message: mode === 'create' ? 'Default GL and assignments seeded.' : 'Reset to default (append mode).',
+        message: mode === 'create'
+          ? 'Default GL, customer/supplier control GLs, and assignments seeded.'
+          : 'Reset to default (append mode) with customer/supplier control GL assignment.',
         created_at: stamp,
         created_by: SYSTEM_USER,
       }],
@@ -481,6 +508,25 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       if (current && current.postingCount > 0 && current.glCode !== glForm.glCode.trim()) {
         return setError('GL Code cannot be changed because postings already exist.');
       }
+      if (current?.controlAccount && current.postingCount > 0) {
+        const onlyNameChanged =
+          current.glName !== glForm.glName.trim()
+          && current.glCode === glForm.glCode.trim()
+          && current.glType === glForm.glType
+          && current.postingAllowed === glForm.postingAllowed
+          && current.activeStatus === glForm.activeStatus;
+        if (!onlyNameChanged) {
+          return setError('For control GLs with postings, only GL Name can be edited.');
+        }
+      }
+      if (current?.controlAccount) {
+        if (current.glCode === CONTROL_GL_CODES.customer && glForm.glType !== 'Asset') {
+          return setError('Customer Control GL must remain Asset type.');
+        }
+        if (current.glCode === CONTROL_GL_CODES.supplier && glForm.glType !== 'Liability') {
+          return setError('Supplier Control GL must remain Liability type.');
+        }
+      }
     }
 
     const stamp = now();
@@ -493,6 +539,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         ...glForm,
         glCode: glForm.glCode.trim(),
         glName: glForm.glName.trim(),
+        controlAccount: false,
         seeded_by_system: false,
         template_version: DEFAULT_TEMPLATE_VERSION,
         created_at: stamp,
@@ -503,7 +550,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       setSuccess('GL Master created.');
     }
 
-    setGlForm({ setOfBooksId: '', glCode: '', glName: '', glType: 'Asset', postingAllowed: true, activeStatus: 'Active', postingCount: 0 });
+    setGlForm({ setOfBooksId: '', glCode: '', glName: '', glType: 'Asset', postingAllowed: true, controlAccount: false, activeStatus: 'Active', postingCount: 0 });
     setEditingGlId(null);
   };
 
@@ -597,6 +644,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           set_of_books_id: b.setOfBooksId,
           description: b.description,
           default_currency: b.defaultCurrency,
+          default_customer_gl_id: b.defaultCustomerGLId || null,
+          default_supplier_gl_id: b.defaultSupplierGLId || null,
           active_status: b.activeStatus,
           posting_count: b.postingCount || 0,
           created_by: b.created_by || userName,
@@ -617,6 +666,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           gl_name: g.glName,
           gl_type: g.glType,
           posting_allowed: g.postingAllowed,
+          control_account: !!g.controlAccount,
           active_status: g.activeStatus,
           seeded_by_system: !!g.seeded_by_system,
           template_version: g.template_version || DEFAULT_TEMPLATE_VERSION,
@@ -754,7 +804,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               <button className="bg-primary text-white text-xs font-black uppercase px-3" onClick={onSaveGL}>{editingGlId ? 'Update' : 'Add'}</button>
             </div>
             <button className="text-xs font-bold text-primary" onClick={() => exportCsv('gl-master.csv', ['Books', 'GL Code', 'GL Name', 'Type', 'Seeded'], filteredGL.map(g => [booksById.get(g.setOfBooksId)?.setOfBooksId || '', g.glCode, g.glName, g.glType, g.seeded_by_system]))}>Export CSV</button>
-            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Books</th><th className="p-2 text-left">GL</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Flags</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredGL.map(g => <tr key={g.id} className="border-t"><td className="p-2">{booksById.get(g.setOfBooksId)?.setOfBooksId}</td><td className="p-2">{g.glCode} - {g.glName}</td><td className="p-2">{g.glType}</td><td className="p-2">Posting:{g.postingAllowed ? 'Yes' : 'No'}<br />Seeded:{g.seeded_by_system ? 'Yes' : 'No'}<br />Template:{g.template_version}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setGlForm({ setOfBooksId: g.setOfBooksId, glCode: g.glCode, glName: g.glName, glType: g.glType, postingAllowed: g.postingAllowed, activeStatus: g.activeStatus, postingCount: g.postingCount }); setEditingGlId(g.id); }}>Edit</button></td></tr>)}</tbody></table></div>
+            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Books</th><th className="p-2 text-left">GL</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Flags</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredGL.map(g => <tr key={g.id} className="border-t"><td className="p-2">{booksById.get(g.setOfBooksId)?.setOfBooksId}</td><td className="p-2">{g.glCode} - {g.glName}</td><td className="p-2">{g.glType}</td><td className="p-2">Posting:{g.postingAllowed ? 'Yes' : 'No'}<br />Control:{g.controlAccount ? 'Yes' : 'No'}<br />Seeded:{g.seeded_by_system ? 'Yes' : 'No'}<br />Template:{g.template_version}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setGlForm({ setOfBooksId: g.setOfBooksId, glCode: g.glCode, glName: g.glName, glType: g.glType, postingAllowed: g.postingAllowed, controlAccount: g.controlAccount, activeStatus: g.activeStatus, postingCount: g.postingCount }); setEditingGlId(g.id); }}>Edit</button></td></tr>)}</tbody></table></div>
           </div>
         )}
 
