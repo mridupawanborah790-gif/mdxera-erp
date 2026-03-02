@@ -101,7 +101,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
 
     useEffect(() => {
         if (isOpen) {
-            setReconciledItems([...scannedItems]);
+            setReconciledItems(scannedItems.filter(i => (i.name || "").trim()).map(i => ({ ...i, extractedName: (i as any).extractedName || i.name } as any)));
             const firstPending = scannedItems.findIndex(i => i.matchStatus === 'pending');
             const initialIdx = firstPending !== -1 ? firstPending : 0;
             setActiveScannedIndex(initialIdx);
@@ -222,7 +222,13 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         if (e) { e.preventDefault(); e.stopPropagation(); }
         if (!isComplete) {
             const pendingCount = reconciledItems.filter(i => i.matchStatus === 'pending').length;
-            alert(`Mapping Restricted: You must link all ${pendingCount} extracted items before data can be transferred to the Purchase Form.`);
+            alert(`Confirm Import blocked: ${pendingCount} extracted item(s) require action (Map/Create).`);
+            return;
+        }
+        const extractedTotal = scannedItems.filter(i => (i.name || '').trim()).reduce((sum, i) => sum + ((i.quantity || 0) * (i.purchasePrice || 0)), 0);
+        const reconciledTotal = reconciledItems.reduce((sum, i) => sum + ((i.quantity || 0) * (i.purchasePrice || 0)), 0);
+        if (Math.abs(extractedTotal - reconciledTotal) > 1) {
+            alert(`Confirm Import blocked: extracted total ₹${extractedTotal.toFixed(2)} must match reconciled total ₹${reconciledTotal.toFixed(2)} (±₹1 allowed).`);
             return;
         }
         onFinalize(reconciledItems);
@@ -369,6 +375,30 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                                 </span>
                             )}
                         </div>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 p-3 bg-white border-b border-app-border">
+                        <div className="border border-emerald-200">
+                            <div className="px-2 py-1 bg-emerald-50 text-[10px] font-black uppercase">A) Matched Items</div>
+                            <div className="max-h-40 overflow-auto">
+                                <table className="min-w-full text-[10px]"><thead><tr className="bg-emerald-100"><th className="p-1 text-left">Extracted</th><th className="p-1 text-center">Qty</th><th className="p-1 text-right">Rate</th><th className="p-1 text-left">Matched Product</th><th className="p-1 text-center">Confidence</th></tr></thead><tbody>
+                                {reconciledItems.filter(i => i.matchStatus === 'matched').map((item) => {
+                                    const med = medicines.find(m => m.id === item.inventoryItemId);
+                                    return <tr key={`m-${item.id}`} className="border-t"><td className="p-1">{((item as any).extractedName || item.name)}</td><td className="p-1 text-center">{item.quantity || 0}</td><td className="p-1 text-right">{(item.purchasePrice || 0).toFixed(2)}</td><td className="p-1">{med?.name || item.name}</td><td className="p-1 text-center">High</td></tr>;
+                                })}
+                                </tbody></table>
+                            </div>
+                        </div>
+                        <div className="border border-amber-200">
+                            <div className="px-2 py-1 bg-amber-50 text-[10px] font-black uppercase">B) Unmatched / New Invoice Items</div>
+                            <div className="max-h-40 overflow-auto">
+                                <table className="min-w-full text-[10px]"><thead><tr className="bg-amber-100"><th className="p-1 text-left">Extracted</th><th className="p-1 text-center">Qty</th><th className="p-1 text-right">Rate</th><th className="p-1 text-left">Suggested Matches</th><th className="p-1 text-left">Action</th></tr></thead><tbody>
+                                {reconciledItems.filter(i => i.matchStatus !== 'matched').map((item) => {
+                                    const top3 = medicines.filter(m => fuzzyMatch(m.name || '', ((item as any).extractedName || item.name) || '')).slice(0, 3).map(m => m.name).join(', ');
+                                    return <tr key={`u-${item.id}`} className="border-t"><td className="p-1">{((item as any).extractedName || item.name)}</td><td className="p-1 text-center">{item.quantity || 0}</td><td className="p-1 text-right">{(item.purchasePrice || 0).toFixed(2)}</td><td className="p-1">{top3 || '—'}</td><td className="p-1">Map to existing / Create new</td></tr>;
+                                })}
+                                </tbody></table>
+                            </div>
+                        </div>
+                    </div>
                         <div className="flex items-center gap-3">
                             {autoMatchCount > 0 && unmappedCount > 0 && (
                                 <button onClick={handleSmartMatchAll} className="bg-white text-primary px-4 py-1.5 text-[10px] font-black uppercase rounded-none border-2 border-white hover:bg-accent hover:text-black transition-all shadow-lg animate-bounce">

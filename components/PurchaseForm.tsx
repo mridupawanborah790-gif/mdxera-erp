@@ -22,7 +22,6 @@ import { prepareCapturedImageForAiExtraction, prepareFilesForAiExtraction } from
 const UploadIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>;
 const CameraIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="4" /></svg>;
 const SmartphoneIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" ry="18" x2="12.01" y2="18" /></svg>;
-const LinkIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07L11.7 5.24" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.77-1.77" /></svg>;
 
 const Spinner = () => (
     <svg className="animate-spin h-4 w-4 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -247,6 +246,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [mobileInvoiceId, setMobileInvoiceId] = useState<string | null>(null);
     const [mobilePageCount, setMobilePageCount] = useState(0);
     const [mobileSyncDeviceId] = useState<string>(() => getOrCreateMobileSyncDeviceId());
+    const [supplierQuickCreatePrefill, setSupplierQuickCreatePrefill] = useState<Partial<Supplier> | undefined>(undefined);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
@@ -282,6 +282,22 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
     }, [suppliers, Supplier]);
 
+
+    const reconciliationSupplier = useMemo<Supplier | null>(() => {
+        if (currentsupplier) return currentsupplier;
+        if (!Supplier.trim()) return null;
+        return {
+            id: 'temp',
+            organization_id: organizationId,
+            name: Supplier.trim(),
+            gst_number: supplierGst,
+            pan_number: '',
+            ledger: [],
+            payment_details: {},
+            is_active: true,
+        } as Supplier;
+    }, [currentsupplier, Supplier, organizationId, supplierGst]);
+
     const findSupplierByName = useCallback((name?: string | null): Supplier | null => {
         const supplierKey = normalizeSupplierKey(name || '');
         if (!supplierKey) return null;
@@ -291,6 +307,73 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
         return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
     }, [suppliers]);
+
+
+    const normalizeAlphaNum = useCallback((value?: string | null): string => (
+        String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+    ), []);
+
+    const scoreSupplierAuxMatch = useCallback((candidate: Supplier, phone?: string, address?: string): number => {
+        let score = 0;
+        const normalizedPhone = String(phone || '').replace(/\D/g, '');
+        const candidatePhones = [candidate.mobile, candidate.phone].map(v => String(v || '').replace(/\D/g, ''));
+        if (normalizedPhone && candidatePhones.some(cp => cp && (cp.endsWith(normalizedPhone.slice(-10)) || normalizedPhone.endsWith(cp.slice(-10))))) {
+            score += 2;
+        }
+
+        const normalizedAddress = normalizeSupplierKey(address || '');
+        const candidateAddress = normalizeSupplierKey([candidate.address, candidate.address_line2, candidate.area].filter(Boolean).join(' '));
+        if (normalizedAddress && candidateAddress && (candidateAddress.includes(normalizedAddress) || normalizedAddress.includes(candidateAddress) || fuzzyMatch(candidateAddress, normalizedAddress))) {
+            score += 1;
+        }
+
+        return score;
+    }, []);
+
+    const matchSupplierFromExtractedData = useCallback((bill: {
+        supplier?: string;
+        supplierGstNumber?: string;
+        supplierPanNumber?: string;
+        supplierPhone?: string;
+        supplierAddress?: string;
+    }): { supplier: Supplier | null; reason: 'gst' | 'pan' | 'name' | 'none' } => {
+        const gst = normalizeAlphaNum(bill.supplierGstNumber);
+        if (gst) {
+            const gstMatch = suppliers.find(s => normalizeAlphaNum(s.gst_number) === gst);
+            if (gstMatch) return { supplier: gstMatch, reason: 'gst' };
+        }
+
+        const pan = normalizeAlphaNum(bill.supplierPanNumber || (gst.length >= 12 ? gst.slice(2, 12) : ''));
+        if (pan) {
+            const panMatch = suppliers.find(s => normalizeAlphaNum(s.pan_number) === pan);
+            if (panMatch) return { supplier: panMatch, reason: 'pan' };
+        }
+
+        const supplierName = normalizeSupplierKey(bill.supplier || '');
+        if (!supplierName) return { supplier: null, reason: 'none' };
+
+        const ranked = suppliers
+            .map(candidate => {
+                const candidateName = normalizeSupplierKey(candidate.name || '');
+                const nameMatched = candidateName === supplierName || fuzzyMatch(candidateName, supplierName) || fuzzyMatch(supplierName, candidateName);
+                if (!nameMatched) return null;
+                return {
+                    candidate,
+                    score: scoreSupplierAuxMatch(candidate, bill.supplierPhone, bill.supplierAddress),
+                    exactName: candidateName === supplierName,
+                };
+            })
+            .filter(Boolean) as { candidate: Supplier; score: number; exactName: boolean }[];
+
+        if (ranked.length === 0) return { supplier: null, reason: 'none' };
+
+        ranked.sort((a, b) => {
+            if (a.exactName !== b.exactName) return a.exactName ? -1 : 1;
+            return b.score - a.score;
+        });
+
+        return { supplier: ranked[0].candidate, reason: 'name' };
+    }, [normalizeAlphaNum, suppliers, scoreSupplierAuxMatch]);
 
     const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetsupplier: Supplier | null) => {
         if (!medicines.length) return itemList;
@@ -897,15 +980,33 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 throw new Error(String(bill.error));
             }
 
-            if (bill.supplier) setSupplier(bill.supplier);
             if (bill.invoiceNumber) setInvoiceNumber(bill.invoiceNumber);
             if (bill.date) setDate(normalizeImportDate(bill.date) || date);
 
             let linkedItems: PurchaseItem[] = [];
-            let matchedSupplier = currentsupplier;
+            const supplierMatch = matchSupplierFromExtractedData(bill);
+            const matchedSupplier = supplierMatch.supplier;
 
-            if (bill.supplier) {
-                matchedSupplier = findSupplierByName(bill.supplier) || matchedSupplier;
+            if (matchedSupplier) {
+                setSupplier(matchedSupplier.name || '');
+                setSupplierGst(matchedSupplier.gst_number || bill.supplierGstNumber || '');
+                setSupplierNameError(null);
+                addNotification(`Supplier auto-matched by ${supplierMatch.reason.toUpperCase()}: ${matchedSupplier.name}`, 'success');
+            } else {
+                setSupplier(bill.supplier || '');
+                setSupplierGst(bill.supplierGstNumber || '');
+                setSupplierNameError('Supplier Not Found');
+                setSupplierQuickCreatePrefill({
+                    name: bill.supplier || '',
+                    gst_number: bill.supplierGstNumber || '',
+                    pan_number: bill.supplierPanNumber || '',
+                    phone: bill.supplierPhone || '',
+                    mobile: bill.supplierPhone || '',
+                    address: bill.supplierAddress || '',
+                });
+                addNotification('Supplier Not Found. Please select existing supplier or quick create before confirming import.', 'warning');
+                setIsSupplierSearchModalOpen(true);
+                setIsAddSupplierModalOpen(true);
             }
 
             if (bill.items && bill.items.length > 0) {
@@ -922,21 +1023,22 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 linkedItems = attemptAutoLink(newItems as PurchaseItem[], matchedSupplier || null);
                 setItems([...linkedItems, createBlankItem()]);
                 setRateTierHandledRows(new Set());
+                setTimeout(() => setIsLinkModalOpen(true), 0);
             }
 
-            addNotification("AI Extracted bill details successfully.", "success");
+            addNotification('AI Extracted bill details successfully.', 'success');
             return {
                 linkedItems,
                 supplierForReconciliation: matchedSupplier,
             };
         } catch (err: any) {
             const message = String(err?.message || err || parseNetworkAndApiError(err));
-            addNotification(`AI Extraction failed: ${message}`, "error");
+            addNotification(`AI Extraction failed: ${message}`, 'error');
             throw new Error(message);
         } finally {
             setIsUploading(false);
         }
-    }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, currentsupplier, date, findSupplierByName]);
+    }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, date, matchSupplierFromExtractedData]);
 
 
     const processMobileSyncPayload = useCallback(async (payload: MobileSyncInvoicePayload, options?: { skipSyncingStatus?: boolean }) => {
@@ -969,9 +1071,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             addNotification(`Imported ${orderedPages.length} mobile page(s) into draft purchase voucher.`, 'success');
 
             const unresolvedCount = (extractionResult?.linkedItems || []).filter(item => item.matchStatus !== 'matched').length;
-            if (unresolvedCount > 0 && extractionResult?.supplierForReconciliation) {
-                setTimeout(() => setIsLinkModalOpen(true), 0);
-            } else if (unresolvedCount === 0) {
+            if (unresolvedCount === 0) {
                 addNotification('All imported items were auto-mapped. Opening draft purchase voucher directly.', 'success');
             }
         } catch (err: any) {
@@ -1060,21 +1160,6 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setIsMobileSyncing(false);
         }
     }, [addNotification, currentUser, mobileSyncSessionId, organizationId, processMobileSyncPayload]);
-
-    const handleOpenVendorProductSync = useCallback(() => {
-        if (!Supplier.trim()) {
-            addNotification('Please select supplier before opening vendor product sync.', 'warning');
-            return;
-        }
-
-        if (!currentsupplier) {
-            addNotification('Supplier match not found. Select supplier from list (or press Enter) before opening vendor product sync.', 'warning');
-            return;
-        }
-
-        setSupplier(currentsupplier.name || Supplier);
-        setIsLinkModalOpen(true);
-    }, [Supplier, addNotification, currentsupplier]);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -1192,13 +1277,6 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         <button onClick={() => setIsWebcamModalOpen(true)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><CameraIcon /> Webcam Scan</button>
                         <button onClick={() => { setMobileSyncStatus('pending'); setMobileSyncError(null); setMobilePageCount(0); setMobileInvoiceId(null); setMobileSyncSessionId(generateUUID()); }} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><SmartphoneIcon /> Mobile Sync</button>
                         <button onClick={handleSyncBill} disabled={!mobileSyncSessionId || isMobileSyncing} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{isMobileSyncing ? <Spinner /> : <SmartphoneIcon />} Sync Bill</button>
-                        <button
-                            onClick={handleOpenVendorProductSync}
-                            disabled={!Supplier.trim()}
-                            className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <LinkIcon /> Vendor Product Sync
-                        </button>
                         <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><UploadIcon /> {isUploading ? <Spinner /> : 'Import Document'}</button>
                         <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*,application/pdf" />
                     </div>
@@ -1364,12 +1442,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             </div>
 
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleWebcamCapture} />}
-            {isAddSupplierModalOpen && <AddSupplierModal isOpen={isAddSupplierModalOpen} onClose={() => setIsAddSupplierModalOpen(false)} onAdd={onAddsupplier} organizationId={organizationId} />}
+            {isAddSupplierModalOpen && <AddSupplierModal isOpen={isAddSupplierModalOpen} onClose={() => { setIsAddSupplierModalOpen(false); setSupplierQuickCreatePrefill(undefined); }} onAdd={onAddsupplier} organizationId={organizationId} prefillData={supplierQuickCreatePrefill} />}
             {isAddMedicineMasterModalOpen && <AddMedicineModal isOpen={isAddMedicineMasterModalOpen} onClose={() => setIsAddMedicineMasterModalOpen(false)} onAddMedicine={onAddMedicineMaster} organizationId={organizationId} />}
-            {isLinkModalOpen && currentsupplier && (
+            {isLinkModalOpen && reconciliationSupplier && (
                 <LinkToMasterModal
-                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={currentsupplier as any} medicines={medicines} mappings={mappings}
-                    onLink={onSaveMapping} scannedItems={items} onFinalize={(reconciled) => setItems(reconciled)} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
+                    isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={reconciliationSupplier as any} medicines={medicines} mappings={mappings}
+                    onLink={onSaveMapping} scannedItems={items.filter(i => (i.name || "").trim())} onFinalize={(reconciled) => setItems([...reconciled, createBlankItem()])} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
                 />
             )}
             {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
