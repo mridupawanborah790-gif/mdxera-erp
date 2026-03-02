@@ -1104,13 +1104,28 @@ const App: React.FC = () => {
     const [printPO, setPrintPO] = useState<PurchaseOrder | null>(null);
     const [viewReport, setViewReport] = useState<any>(null);
 
-    const [authView, setAuthView] = useState<'auth' | 'forgot' | 'reset'>('auth');
+    const resolveAuthViewFromLocation = (): 'auth' | 'forgot' | 'reset' => {
+        const path = window.location.pathname.toLowerCase();
+        if (path === '/reset-password') return 'reset';
+        if (path === '/forgot-password') return 'forgot';
+        return 'auth';
+    };
+
+    const [authView, setAuthView] = useState<'auth' | 'forgot' | 'reset'>(resolveAuthViewFromLocation);
 
     // Robust recovery detection on initial load
     useEffect(() => {
         if (window.location.hash.includes('type=recovery') || window.location.href.includes('recovery')) {
             setAuthView('reset');
         }
+    }, []);
+
+    useEffect(() => {
+        const onPopState = () => {
+            setAuthView(resolveAuthViewFromLocation());
+        };
+        window.addEventListener('popstate', onPopState);
+        return () => window.removeEventListener('popstate', onPopState);
     }, []);
 
     const addNotification = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
@@ -1995,6 +2010,24 @@ const App: React.FC = () => {
     if (mobileSyncSession && mobileSyncOrgId) {
         return <MobileCaptureView sessionId={mobileSyncSession} orgId={mobileSyncOrgId} />;
     }
+
+    // Keep URL aligned with auth/app state for direct links like /login.
+    useEffect(() => {
+        if (isAppLoading) return;
+
+        const currentPath = window.location.pathname;
+        if (!currentUser || authView === 'reset') {
+            const target = authView === 'forgot' ? '/forgot-password' : authView === 'reset' ? '/reset-password' : '/login';
+            if (currentPath !== target) {
+                window.history.replaceState({}, '', target);
+            }
+            return;
+        }
+
+        if (currentPath !== '/') {
+            window.history.replaceState({}, '', '/');
+        }
+    }, [authView, currentUser, isAppLoading]);
 
     // Show Auth page if no user is logged in OR if we are in the middle of a password reset
     if ((!currentUser || authView === 'reset') && !isAppLoading) {
