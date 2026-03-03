@@ -18,6 +18,7 @@ type AuditFields = {
 
 type CompanyCode = AuditFields & {
   id: string;
+  organizationId?: string;
   code: string;
   description: string;
   status: Status;
@@ -231,7 +232,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
         const booksForOrg: SetOfBooks[] = (booksRes.data || []).map((b: any) => ({
           id: b.id,
-          companyCodeId: b.companyCodeId,
+          companyCodeId: b.company_code_id,
           setOfBooksId: b.set_of_books_id,
           description: b.description || '',
           defaultCurrency: b.default_currency || 'INR',
@@ -252,6 +253,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
           return {
             id: c.id,
+            organizationId: c.organization_id,
             code: c.code,
             description: c.description || '',
             status: c.status || 'Active',
@@ -497,6 +499,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     nextCompanies.push({
       ...(baseCompany || { created_at: stamp, created_by: SYSTEM_USER }),
       id: targetId,
+      organizationId: currentUser?.organization_id,
       code: companyForm.code.trim(),
       description: companyForm.description,
       status: companyForm.status,
@@ -516,7 +519,9 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const onSaveBooks = () => {
     setError('');
     setSuccess('');
-    if (!booksForm.companyCodeId) return setError('Company Code is required.');
+    if (!booksForm.companyCodeId || !isUuid(booksForm.companyCodeId)) return setError('Company Code must be selected before assigning Set of Books.');
+    const selectedCompany = store.companies.find(c => c.id === booksForm.companyCodeId);
+    if (!selectedCompany) return setError('Company Code must be selected before assigning Set of Books.');
     if (!booksForm.setOfBooksId.trim()) return setError('Set of Books ID is required.');
 
     const duplicate = store.setOfBooks.some(b => b.companyCodeId === booksForm.companyCodeId && b.setOfBooksId.toLowerCase() === booksForm.setOfBooksId.trim().toLowerCase() && b.id !== editingBooksId);
@@ -674,6 +679,16 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
     const organizationId = currentUser.organization_id;
     const userName = currentUser.full_name || SYSTEM_USER;
+    const companyById = new Map(store.companies.map(c => [c.id, c]));
+
+    const missingCompanyCode = store.setOfBooks.some((book) => {
+      if (!book.companyCodeId || !isUuid(book.companyCodeId)) return true;
+      return !companyById.has(book.companyCodeId);
+    });
+    if (missingCompanyCode) {
+      setError('Company Code must be selected before assigning Set of Books.');
+      return;
+    }
 
     const defaultCompanies = store.companies.filter(c => c.isDefault);
     if (defaultCompanies.length > 1) {
@@ -722,22 +737,25 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
       // Step 2: Upsert Set of Books
       if (store.setOfBooks.length > 0) {
-        const { error: booksErr } = await supabase.from('set_of_books').upsert(store.setOfBooks.map(b => ({
-          id: b.id,
-          organization_id: organizationId,
-          company_code_id: b.companyCodeId,
-          set_of_books_id: b.setOfBooksId,
-          description: b.description,
-          default_currency: b.defaultCurrency,
-          default_customer_gl_id: b.defaultCustomerGLId || null,
-          default_supplier_gl_id: b.defaultSupplierGLId || null,
-          active_status: b.activeStatus,
-          posting_count: b.postingCount || 0,
-          created_by: b.created_by || userName,
-          created_at: b.created_at,
-          updated_by: userName,
-          updated_at: now(),
-        })), { onConflict: 'id' });
+        const { error: booksErr } = await supabase.from('set_of_books').upsert(store.setOfBooks.map(b => {
+          const selectedCompany = companyById.get(b.companyCodeId);
+          return {
+            id: b.id,
+            organization_id: selectedCompany?.organizationId || organizationId,
+            company_code_id: selectedCompany?.id || b.companyCodeId,
+            set_of_books_id: b.setOfBooksId,
+            description: b.description,
+            default_currency: b.defaultCurrency,
+            default_customer_gl_id: b.defaultCustomerGLId || null,
+            default_supplier_gl_id: b.defaultSupplierGLId || null,
+            active_status: b.activeStatus,
+            posting_count: b.postingCount || 0,
+            created_by: b.created_by || userName,
+            created_at: b.created_at,
+            updated_by: userName,
+            updated_at: now(),
+          };
+        }), { onConflict: 'id' });
         if (booksErr) throw booksErr;
       }
 
@@ -907,7 +925,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               <input className="tally-input" placeholder="Currency" value={booksForm.defaultCurrency} onChange={e => setBooksForm({ ...booksForm, defaultCurrency: e.target.value })} />
               <input className="tally-input" type="number" placeholder="Posting Count" value={booksForm.postingCount} onChange={e => setBooksForm({ ...booksForm, postingCount: Number(e.target.value) || 0 })} />
               <select className="tally-input" value={booksForm.activeStatus} onChange={e => setBooksForm({ ...booksForm, activeStatus: e.target.value as Status })}><option>Active</option><option>Inactive</option></select>
-              <button className="bg-primary text-white text-xs font-black uppercase px-3" onClick={onSaveBooks}>{editingBooksId ? 'Update' : 'Add'}</button>
+              <button className="bg-primary text-white text-xs font-black uppercase px-3 disabled:opacity-50 disabled:cursor-not-allowed" onClick={onSaveBooks} disabled={!booksForm.companyCodeId || !isUuid(booksForm.companyCodeId) || !store.companies.some(c => c.id === booksForm.companyCodeId)}>{editingBooksId ? 'Update' : 'Add'}</button>
             </div>
             <div className="text-[11px] text-gray-500 font-bold uppercase p-2 border border-blue-200 bg-blue-50">On create, system asks: “Create Default GL & Assignments” (Yes/No).</div>
             <button className="text-xs font-bold text-primary" onClick={() => exportCsv('set-of-books.csv', ['Company', 'Books ID', 'Description', 'Posting Count'], filteredBooks.map(b => [store.companies.find(c => c.id === b.companyCodeId)?.code || '', b.setOfBooksId, b.description, b.postingCount]))}>Export CSV</button>
