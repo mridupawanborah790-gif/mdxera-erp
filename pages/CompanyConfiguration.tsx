@@ -334,6 +334,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     if (!editingCompanyId) return [];
     return store.setOfBooks.filter(b => b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
   }, [store.setOfBooks, editingCompanyId]);
+  const activeCompanies = useMemo(() => store.companies.filter(c => c.status === 'Active'), [store.companies]);
 
 
   const seedDefaultsForBooks = (setOfBooksId: string, mode: 'create' | 'append', currentStore?: Store) => {
@@ -451,11 +452,12 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     if (!companyForm.code.trim()) return setError('Company Code is mandatory before Set of Books setup.');
     const duplicate = store.companies.some(c => c.code.toLowerCase() === companyForm.code.trim().toLowerCase() && c.id !== editingCompanyId);
     if (duplicate) return setError('Company Code must be unique.');
+    if (companyForm.isDefault && companyForm.status !== 'Active') return setError('Inactive company cannot be selected as default company.');
     if (companyForm.isDefault && !companyForm.defaultSetOfBooksId) return setError('Default Company must always have a Default Set of Books assigned.');
 
     if (companyForm.isDefault && editingCompanyId) {
-      const mappedBooks = store.setOfBooks.find(b => b.id === companyForm.defaultSetOfBooksId && b.companyCodeId === editingCompanyId);
-      if (!mappedBooks) return setError('Default Set of Books must belong to the selected Company Code.');
+      const mappedBooks = store.setOfBooks.find(b => b.id === companyForm.defaultSetOfBooksId && b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
+      if (!mappedBooks) return setError('Default Set of Books must belong to the selected Company Code and must be Active.');
     }
 
     const stamp = now();
@@ -660,9 +662,13 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         setError('Default Company must always have a Default Set of Books assigned.');
         return;
       }
-      const mappedBooks = store.setOfBooks.find(b => b.id === defaultCompany.defaultSetOfBooksId && b.companyCodeId === defaultCompany.id);
+      if (defaultCompany.status !== 'Active') {
+        setError('Inactive company cannot be selected as default company.');
+        return;
+      }
+      const mappedBooks = store.setOfBooks.find(b => b.id === defaultCompany.defaultSetOfBooksId && b.companyCodeId === defaultCompany.id && b.activeStatus === 'Active');
       if (!mappedBooks) {
-        setError('Default Set of Books must belong to the selected Default Company.');
+        setError('Default Set of Books must belong to the selected Default Company and must be Active.');
         return;
       }
     }
@@ -850,10 +856,16 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               className="tally-input"
               value={companyForm.defaultSetOfBooksId}
               onChange={e => setCompanyForm({ ...companyForm, defaultSetOfBooksId: e.target.value })}
-              disabled={!companyForm.isDefault || !editingCompanyId}
+              disabled={!companyForm.isDefault || !companyForm.code.trim()}
             >
               <option value="">Default Set of Books*</option>
-              {booksForCompanyForm.map(b => <option key={b.id} value={b.id}>{b.setOfBooksId} - {b.description || 'NA'}</option>)}
+              {(editingCompanyId
+                ? booksForCompanyForm
+                : store.setOfBooks.filter((b) => {
+                    const match = store.companies.find((c) => c.id === b.companyCodeId);
+                    return b.activeStatus === 'Active' && !!match && match.code.toLowerCase() === companyForm.code.trim().toLowerCase();
+                  })
+              ).map(b => <option key={b.id} value={b.id}>{b.setOfBooksId} - {b.description || 'NA'}</option>)}
             </select>
             <button className="text-xs font-bold text-primary" onClick={() => exportCsv('company-codes.csv', ['Code', 'Description', 'Status', 'Created By', 'Created At'], filteredCompanies.map(c => [c.code, c.description, c.status, c.created_by, c.created_at]))}>Export CSV</button>
             <div className="overflow-auto border border-gray-200">
@@ -867,7 +879,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         {activeTab === 'books' && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <select className="tally-input" value={booksForm.companyCodeId} onChange={e => setBooksForm({ ...booksForm, companyCodeId: e.target.value })}><option value="">Company Code*</option>{store.companies.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}</select>
+              <select className="tally-input" value={booksForm.companyCodeId} onChange={e => setBooksForm({ ...booksForm, companyCodeId: e.target.value })}><option value="">Company Code*</option>{activeCompanies.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}</select>
               <input className="tally-input" placeholder="Set of Books ID*" value={booksForm.setOfBooksId} onChange={e => setBooksForm({ ...booksForm, setOfBooksId: e.target.value })} />
               <input className="tally-input" placeholder="Description" value={booksForm.description} onChange={e => setBooksForm({ ...booksForm, description: e.target.value })} />
               <input className="tally-input" placeholder="Currency" value={booksForm.defaultCurrency} onChange={e => setBooksForm({ ...booksForm, defaultCurrency: e.target.value })} />
