@@ -248,7 +248,17 @@ export const navigation: NavItem[] = [
   },
   { id: 'substituteFinder', name: 'Substitute Finder', href: '#', icon: SubstituteIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk', 'viewer'] },
   { id: 'promotions', name: 'Promotions', href: '#', icon: PromotionIcon, roles: ['owner', 'admin', 'manager'] },
-  { id: 'reports', name: 'Reports', href: '#', icon: ReportsIcon, roles: ['owner', 'admin', 'manager'] },
+  {
+    id: 'financialStatement',
+    name: 'Financial Statement',
+    href: '#',
+    icon: ReportsIcon,
+    roles: ['owner', 'admin', 'manager'],
+    children: [
+      { id: 'reports', name: 'Report', href: '#', icon: ReportsIcon, roles: ['owner', 'admin', 'manager'] },
+      { id: 'balanceCarryforward', name: 'Balance Carryforward', href: '#', icon: ReportsIcon, roles: ['owner', 'admin', 'manager'] },
+    ],
+  },
   { id: 'gst', name: 'GST Center', href: '#', icon: GstIcon, roles: ['owner', 'admin', 'manager'] },
   {
     id: 'utilitiesSetupMaster',
@@ -269,6 +279,7 @@ export const navigation: NavItem[] = [
         ]
       },
       { id: 'configuration', name: 'Configuration', href: '#', icon: ConfigIcon, roles: ['owner', 'admin'] },
+      { id: 'companyConfiguration', name: 'Company Configuration', href: '#', icon: ConfigIcon, roles: ['owner', 'admin', 'manager'] },
       { id: 'classification', name: 'Classification', href: '#', icon: CategoryIcon, roles: ['owner', 'admin', 'manager'] }, 
       { id: 'settings', name: 'Settings', href: '#', icon: SettingsIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
     ]
@@ -305,7 +316,6 @@ export const configurableModules = [
     id: 'dashboard',
     name: 'Dashboard',
     fields: [
-      { id: 'chartCashFlow', name: 'Cash Flow Performance (7 Days)' },
       { id: 'statSales', name: 'Today’s Sales' },
       { id: 'statProfit', name: 'Today’s Profit' },
       { id: 'statStockValue', name: 'Stock Value' },
@@ -404,8 +414,10 @@ export const configurableModules = [
   },
   {
     id: 'reports',
-    name: 'MIS Reports',
+    name: 'Financial Statement',
     fields: [
+        { id: 'report', name: 'Report' },
+        { id: 'balanceCarryforward', name: 'Balance Carryforward' },
         { id: 'salesRegister', name: 'Sales Register' },
         { id: 'salesSummary', name: 'Sales Summary' },
         { id: 'billWiseSales', name: 'Bill-wise Sales' },

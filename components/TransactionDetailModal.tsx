@@ -1,7 +1,8 @@
 
 import React from 'react';
 import Modal from './Modal';
-import type { Transaction, BillItem, Customer } from '../types';
+import JournalEntryViewerModal from './JournalEntryViewerModal';
+import type { Transaction, BillItem, Customer, RegisteredPharmacy } from '../types';
 
 interface TransactionDetailModalProps {
     isOpen: boolean;
@@ -11,9 +12,11 @@ interface TransactionDetailModalProps {
     onPrintBill: (transaction: Transaction) => void;
     onProcessReturn: (invoiceId: string) => void;
     pharmacyName?: string;
+    currentUser?: RegisteredPharmacy | null;
 }
 
-const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen, onClose, transaction, customer, onPrintBill, onProcessReturn, pharmacyName }) => {
+const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen, onClose, transaction, customer, onPrintBill, onProcessReturn, pharmacyName, currentUser }) => {
+    const [isJournalOpen, setIsJournalOpen] = React.useState(false);
     if (!isOpen || !transaction) return null;
 
     const getItemDisplayName = (item: BillItem) => {
@@ -242,9 +245,20 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen,
                             <button onClick={handleWhatsAppShare} className="flex-1 md:flex-none px-6 py-4 text-xs font-normal uppercase tracking-[0.2em] text-green-700 bg-green-50 border-2 border-green-200 rounded-2xl shadow-sm hover:bg-green-100 flex items-center justify-center transition-all active:scale-95"><svg viewBox="0 0 24 24" width="18" height="18" className="mr-3 fill-current"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.592 2.654-.696c1.001.572 1.973.911 3.03.911h.001c3.187 0 5.767-2.586 5.768-5.766.001-3.187-2.575-5.77-5.993-5.794zm-5.444 7.371l-.148-.235c-.715-1.132-.952-2.09-.952-3.233 0-4.914 6.353-7.796 9.641-4.509 1.637 1.636 2.538 3.813 2.537 6.129 0 4.771-5.83 7.208-9.049 4.316l-.23-.207-2.008.526.746-2.608zm10.296 2.367c-.289-.145-1.711-.845-1.975-.941-.266-.097-.459-.145-.651.145-.193.29-.748.941-.917 1.135-.169.193-.337.217-.626.072-1.427-.714-2.365-1.554-3.322-3.205-.121-.208-.013-.319.13-.464.13-.132.289-.338.434-.507.145-.169.193-.29.289-.483.096-.193.048-.362-.024-.507-.072-.145-.651-1.569-.892-2.15-.233-.563-.473-.486-.651-.496-.168-.009-.361-.009-.554-.009-.193 0-.506.072-.771.362-.265.29-1.011.99-1.011 2.415 0 1.425 1.036 2.799 1.181 3.016.145.217 2.016 3.106 4.931 4.329 1.976.83 2.76.897 3.73.837.781-.048 1.711-.7 1.952-1.375.241-.676.241-1.255.169-1.375-.072-.121-.265-.193-.554-.338z"/></svg>WhatsApp</button>
                         )}
                         <button onClick={() => onProcessReturn(transaction.id)} disabled={transaction.status === 'cancelled'} className="flex-1 md:flex-none px-8 py-4 text-xs font-normal uppercase tracking-[0.2em] text-gray-700 bg-white border-2 border-gray-200 rounded-2xl shadow-sm hover:bg-gray-50 disabled:opacity-50 transition-all active:scale-95">Initiate Return</button>
+                        <button onClick={() => setIsJournalOpen(true)} className="flex-1 md:flex-none px-8 py-4 text-xs font-normal uppercase tracking-[0.2em] text-indigo-700 bg-indigo-50 border-2 border-indigo-200 rounded-2xl shadow-sm hover:bg-indigo-100 transition-all active:scale-95">View Journal Entry</button>
                         <button onClick={() => onPrintBill(transaction)} disabled={transaction.status === 'cancelled'} className="flex-1 md:flex-none px-12 py-4 text-sm font-normal uppercase tracking-[0.2em] text-white bg-[var(--modal-header-bg-light)] dark:bg-[var(--modal-header-bg-dark)] rounded-2xl shadow-xl shadow-primary/30 hover:bg-primary-dark transition-all transform active:scale-95">Print Bill</button>
                     </div>
                 </div>
+
+                <JournalEntryViewerModal
+                    isOpen={isJournalOpen}
+                    onClose={() => setIsJournalOpen(false)}
+                    invoiceId={transaction.id}
+                    invoiceNumber={transaction.id}
+                    documentType="SALES"
+                    currentUser={currentUser || null}
+                    isPosted={transaction.status === 'completed'}
+                />
             </div>
         </Modal>
     );

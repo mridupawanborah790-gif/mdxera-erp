@@ -17,34 +17,28 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
-    let totalDiscount = 0;
-    let totalGst = 0;
+        let totalGst = 0;
 
     const items = (bill.items || []).map((item, idx) => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
       
       const rate = item.rate ?? item.mrp ?? 0;
       const unitsPerPack = item.unitsPerPack || 1;
-      const totalUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-      const unitRate = rate / unitsPerPack;
-      
-      const lineGross = unitRate * totalUnits;
-      const tradeDiscAmt = lineGross * ((item.discountPercent || 0) / 100);
-      const schDiscAmt = item.schemeDiscountAmount || 0;
-      const lineNet = lineGross - tradeDiscAmt - schDiscAmt;
+      const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
+      const lineAmount = billedQty * rate;
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
-      const taxableVal = lineNet / (1 + (effectiveGst / 100));
-      const gstAmt = lineNet - taxableVal;
+      const taxableVal = lineAmount / (1 + (effectiveGst / 100));
+      const gstAmt = lineAmount - taxableVal;
       
       subtotalValue += taxableVal;
-      totalDiscount += tradeDiscAmt + schDiscAmt;
       totalGst += gstAmt;
 
       return {
         ...item,
         sn: idx + 1,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
+        packSize: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : ''),
         batch: item.batch || inventoryItem?.batch || '',
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : ''),
         taxableVal,
@@ -63,7 +57,11 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    return { items, itemChunks, subtotalValue, totalDiscount, totalGst };
+    const billDiscount = bill.schemeDiscount || 0;
+    const roundOff = bill.roundOff || 0;
+    const grandTotal = bill.total || ((bill.subtotal || subtotalValue) - billDiscount + (isNonGst ? 0 : (bill.totalGst || totalGst)) + roundOff);
+
+    return { items, itemChunks, subtotalValue: (bill.subtotal || subtotalValue), totalGst: (isNonGst ? 0 : (bill.totalGst || totalGst)), billDiscount, roundOff, grandTotal };
   }, [bill, isNonGst]);
 
   return (
@@ -151,7 +149,8 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
             <thead>
               <tr>
                 <th className="w-[5%]">#</th>
-                <th className="text-left w-[40%]">Item Description</th>
+                <th className="text-left w-[32%]">Item Description</th>
+                <th className="w-[8%]">Pack</th>
                 <th className="w-[12%]">Batch</th>
                 <th className="w-[8%]">Exp</th>
                 <th className="w-[8%]">Qty</th>
@@ -174,14 +173,14 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
               {/* Spacer rows to keep table size consistent */}
               {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                 <tr key={`empty-${i}`}>
-                  <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                  <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
                 </tr>
               ))}
             </tbody>
             {pageIdx === calculations.itemChunks.length - 1 && (
                 <tfoot>
                     <tr className="bg-gray-50">
-                        <td colSpan={4} className="text-right p-1 uppercase text-[7pt]">Page Total Items:</td>
+                        <td colSpan={5} className="text-right p-1 uppercase text-[7pt]">Page Total Items:</td>
                         <td className="text-center p-1">{chunk.reduce((sum, i) => sum + i.quantity, 0)}</td>
                         <td colSpan={2} className="text-right p-1 text-[9pt]">₹ {chunk.reduce((sum, i) => sum + (i.lineTotal || 0), 0).toFixed(2)}</td>
                     </tr>
@@ -194,7 +193,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
               <div className="flex justify-between items-start border border-black p-2 bg-gray-50">
                   <div className="flex-1">
                       <p className="text-[7.5pt] font-semibold uppercase italic leading-tight">
-                        {numberToWords(bill.total)}
+                        {numberToWords(calculations.grandTotal)}
                       </p>
                       <div className="mt-4 text-[7pt] text-gray-500 italic">
                         <p>Subject to local jurisdiction. E.&O.E.</p>
@@ -213,11 +212,11 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
                       )}
                       <div className="flex justify-between font-bold text-emerald-700">
                           <span>Savings:</span>
-                          <span>-{(calculations.totalDiscount + (bill.schemeDiscount || 0)).toFixed(2)}</span>
+                          <span>-{(calculations.billDiscount || 0).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between font-semibold text-blue-900 border-t border-black pt-1 text-[11pt]">
                           <span>NET AMT:</span>
-                          <span>₹ {Math.round(bill.total).toFixed(2)}</span>
+                          <span>₹ {calculations.grandTotal.toFixed(2)}</span>
                       </div>
                   </div>
               </div>

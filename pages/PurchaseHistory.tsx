@@ -8,6 +8,7 @@ import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import ConfirmModal from '../components/ConfirmModal';
 import InfoTooltip from '../components/InfoTooltip';
 import ExportPurchasesModal from '../components/ExportPurchasesModal';
+import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 
 type SortableKeys = 'purchaseSerialId' | 'date' | 'totalAmount';
 
@@ -39,6 +40,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [purchaseToCancel, setPurchaseToCancel] = useState<string | null>(null);
+    const [journalPurchase, setJournalPurchase] = useState<Purchase | null>(null);
     
     const filteredAndSortedPurchases = useMemo(() => {
         let filtered = (purchases || []).filter(Boolean);
@@ -155,6 +157,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                                         <td className="p-2 text-right">
                                             <div className="flex justify-end gap-2">
                                                 <button onClick={() => onViewDetails(p)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
+                                                <button onClick={() => setJournalPurchase(p)} className="text-indigo-700 font-black uppercase text-[10px] hover:underline">View Journal Entry</button>
                                                 {p.status !== 'cancelled' && onEditPurchase && (
                                                     <button onClick={() => onEditPurchase(p)} className="text-blue-700 font-black uppercase text-[10px] hover:underline">Edit</button>
                                                 )}
@@ -178,6 +181,16 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                     pharmacyName={currentUser?.pharmacy_name || 'MDXERA ERP'}
                 />
             )}
+
+            <JournalEntryViewerModal
+                isOpen={!!journalPurchase}
+                onClose={() => setJournalPurchase(null)}
+                invoiceId={journalPurchase?.id}
+                invoiceNumber={journalPurchase?.invoiceNumber || journalPurchase?.purchaseSerialId}
+                documentType="PURCHASE"
+                currentUser={currentUser}
+                isPosted={(journalPurchase?.status || '') === 'completed'}
+            />
         </main>
     );
 };

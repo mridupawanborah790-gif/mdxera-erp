@@ -19,26 +19,18 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     let subtotal = 0;
     let totalCgst = 0;
     let totalSgst = 0;
-    let totalDiscount = 0;
-    let totalTradeDiscount = 0;
-    let totalItemSchemeDiscount = 0;
-
     const itemsWithCalculations = bill.items.map(item => {
-        const totalMrp = (item.mrp || 0) * (item.quantity || 0);
-        const tradeDiscountAmount = totalMrp * ((item.discountPercent || 0) / 100);
-        const schemeDiscountAmount = item.schemeDiscountAmount || 0;
-        
-        const finalAmount = totalMrp - tradeDiscountAmount - schemeDiscountAmount;
-        
-        totalTradeDiscount += tradeDiscountAmount;
-        totalItemSchemeDiscount += schemeDiscountAmount;
+        const rate = item.rate ?? item.mrp ?? 0;
+        const unitsPerPack = item.unitsPerPack || 1;
+        const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
+        const finalAmount = billedQty * rate;
 
         const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
 
         const taxableValue = finalAmount / (1 + (effectiveGst / 100));
         const gstAmount = finalAmount - taxableValue;
 
-        subtotal += taxableValue;
+        subtotal += finalAmount;
         totalCgst += gstAmount / 2;
         totalSgst += gstAmount / 2;
 
@@ -47,6 +39,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
         const batch = item.batch || inventoryItem?.batch || '';
         const expiry = item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : '');
         const hsn = item.hsnCode || inventoryItem?.hsnCode || '';
+        const packSize = item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : '');
 
         return {
             ...item,
@@ -68,7 +61,13 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    return { items: itemsWithCalculations, itemChunks, subtotal, totalCgst, totalSgst, totalDiscount, totalTradeDiscount, totalItemSchemeDiscount };
+        const billDiscount = bill.schemeDiscount || 0;
+    const roundOff = bill.roundOff || 0;
+    const subtotalFromBill = bill.subtotal || subtotal;
+    const totalTaxFromBill = isNonGst ? 0 : (bill.totalGst || (totalCgst + totalSgst));
+    const grandTotal = bill.total || (subtotalFromBill - billDiscount + totalTaxFromBill + roundOff);
+
+    return { items: itemsWithCalculations, itemChunks, subtotal: subtotalFromBill, totalCgst, totalSgst, totalTaxFromBill, billDiscount, roundOff, grandTotal };
   }, [bill, isNonGst]);
 
   const termsList = bill.pharmacy.terms_and_conditions 
@@ -168,7 +167,8 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 <thead>
                     <tr className="border-b-2 border-black bg-gray-100">
                         <th className="p-1 border-r border-black w-[4%] text-center">Sr.</th>
-                        <th className="p-1 border-r border-black text-left w-[24%]">Product Description</th>
+                        <th className="p-1 border-r border-black text-left w-[20%]">Product Description</th>
+                        <th className="p-1 border-r border-black text-left w-[7%]">Pack</th>
                         <th className="p-1 border-r border-black text-left w-[7%]">HSN</th>
                         <th className="p-1 border-r border-black text-left w-[9%]">Batch</th>
                         <th className="p-1 border-r border-black text-center w-[7%]">Exp.</th>
@@ -208,6 +208,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
+                            <td className="border-r border-black"></td>
                             {showSchemeColumn && <td className="border-r border-black"></td>}
                             {!isNonGst && <td className="border-r border-black"></td>}
                             <td></td>
@@ -221,7 +222,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
             <div className="w-2/3 flex flex-col border-r-2 border-black">
                 <div className="p-2 border-b border-black flex-1">
                     <p className="font-bold underline mb-1 text-xs">Amount In Words:</p>
-                    <p className="capitalize italic font-medium">{numberToWords(bill.total || 0)}</p>
+                    <p className="capitalize italic font-medium">{numberToWords(billDetails.grandTotal || 0)}</p>
                 </div>
                 
                 <div className="p-2 flex-1 flex justify-between items-start">
@@ -237,7 +238,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     {bill.pharmacy.bank_upi_id && !isNonGst && (
                         <div className="text-center ml-2">
                              <img
-                                src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=${bill.pharmacy.bank_upi_id}&pn=${encodeURIComponent(bill.pharmacy.pharmacy_name)}&am=${(bill.total || 0).toFixed(2)}&cu=INR`)}`}
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=${bill.pharmacy.bank_upi_id}&pn=${encodeURIComponent(bill.pharmacy.pharmacy_name)}&am=${(billDetails.grandTotal || 0).toFixed(2)}&cu=INR`)}`}
                                 alt="UPI QR"
                                 className="w-20 h-20 border border-black p-0.5 rendering-pixelated"
                             />
@@ -258,22 +259,21 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
             
             <div className="w-1/3 flex flex-col">
                 <div className="p-2 space-y-1 text-xs">
-                    <div className="flex justify-between"><span>Total Amount (MRP):</span> <span className="font-bold">{(billDetails.items.reduce((s, i) => s + (i.mrp * i.quantity), 0)).toFixed(2)}</span></div>
-                    <div className="flex justify-between text-gray-600"><span>Less Trade Discount:</span> <span>{billDetails.totalTradeDiscount.toFixed(2)}</span></div>
-                    <div className="flex justify-between text-green-700"><span>Less Scheme Discount:</span> <span>{((billDetails.totalItemSchemeDiscount) + (bill.schemeDiscount || 0)).toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>Total Amount (MRP):</span> <span className="font-bold">{(billDetails.subtotal || 0).toFixed(2)}</span></div>
+                    <div className="flex justify-between text-green-700"><span>Less Bill Discount:</span> <span>{(billDetails.billDiscount).toFixed(2)}</span></div>
                     {!isNonGst && (
                         <>
-                            <div className="flex justify-between"><span>Add CGST:</span> <span>{(billDetails.totalCgst).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>Add SGST:</span> <span>{(billDetails.totalSgst).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Add CGST:</span> <span>{((billDetails.totalTaxFromBill || 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Add SGST:</span> <span>{((billDetails.totalTaxFromBill || 0) / 2).toFixed(2)}</span></div>
                         </>
                     )}
-                    <div className="flex justify-between"><span>Round Off:</span> <span>{(bill.roundOff || 0).toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>Round Off:</span> <span>{(billDetails.roundOff || 0).toFixed(2)}</span></div>
                 </div>
                 
                 <div className="border-t-2 border-black p-2 bg-gray-100">
                     <div className="flex justify-between text-lg font-extrabold text-[#2e3b84]">
                         <span>Grand Total:</span>
-                        <span>₹ {(bill.total || 0).toFixed(2)}</span>
+                        <span>₹ {(billDetails.grandTotal || 0).toFixed(2)}</span>
                     </div>
                 </div>
 

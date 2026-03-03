@@ -6,6 +6,7 @@ import AddMedicineModal from '../components/AddMedicineModal';
 import BatchSelectionModal from '../components/BatchSelectionModal';
 import WebcamCaptureModal from '../components/WebcamCaptureModal';
 import CustomerSearchModal from '../components/CustomerSearchModal';
+import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
@@ -13,6 +14,7 @@ import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { getOutstandingBalance, parseNumber } from '../utils/helpers';
+import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -101,11 +103,17 @@ const POS = forwardRef<any, POSProps>(({
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
+    const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
 
     const activeRowIdRef = useRef<string | null>(null);
 
     const isNonGst = billMode === 'EST';
+    const canOpenJournalEntry = Boolean(transactionToEdit?.id);
+    const isPostedVoucher = (transactionToEdit?.status || '') === 'completed';
     const strictStock = configurations.displayOptions?.strictStock ?? false;
+    const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
+    const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
+    const inventoryWithPolicy = useMemo(() => inventory.map(item => ({ item, policy: getInventoryPolicy(item, medicines) })), [inventory, medicines]);
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
 
@@ -162,13 +170,15 @@ const POS = forwardRef<any, POSProps>(({
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
 
-        if (strictStock) {
+        if (shouldPreventNegativeStock) {
             for (const item of cartItems) {
                 const invItem = inventory.find(i => i.id === item.inventoryItemId);
                 if (invItem) {
+                    const policy = getInventoryPolicy(invItem, medicines);
+                    if (!policy.inventorised) continue;
                     const unitsPerPack = invItem.unitsPerPack || 1;
                     const requiredUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-                    if (invItem.stock < requiredUnits) {
+                    if (invItem.stock <= 0 || invItem.stock < requiredUnits) {
                         addNotification(`Insufficient stock for ${item.name}. Available: ${invItem.stock}`, "error");
                         return;
                     }
@@ -178,11 +188,9 @@ const POS = forwardRef<any, POSProps>(({
 
         setIsSaving(true);
 
-        const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-        const { id: templateId, nextExternalNumber } = generateNewInvoiceId(configurations[configKey], isNonGst ? 'non-gst' : 'regular');
         const generatedId = transactionToEdit
             ? transactionToEdit.id
-            : await storage.generateNextSalesBillId(templateId, currentUser!);
+            : (await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!)).documentNumber;
 
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
 
@@ -209,7 +217,7 @@ const POS = forwardRef<any, POSProps>(({
         };
 
         try {
-            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, transactionToEdit ? undefined : nextExternalNumber);
+            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit);
             if (onPrintBill) onPrintBill(transaction);
             setCartItems([]);
             setPrescriptions([]);
@@ -217,13 +225,14 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch('');
             setLumpsumDiscount(0);
             setReferredBy('');
-            addNotification("Bill Saved Successfully", "success");
+            addNotification(`Bill saved successfully. Bill No: ${transaction.id}`, "success");
         } catch (e: any) {
-            addNotification("Failed to save: " + e.message, "error");
+            const errorMessage = e?.message || String(e) || "Unknown error";
+            addNotification(`Failed to save bill: ${errorMessage}`, "error");
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, strictStock, inventory]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -333,17 +342,27 @@ const POS = forwardRef<any, POSProps>(({
         const grouped = new Map<string, { item: InventoryItem; batches: InventoryItem[] }>();
         const term = modalSearchTerm.toLowerCase().trim();
 
-        inventory.forEach(i => {
+        inventoryWithPolicy.forEach(({ item: i, policy }) => {
+            if (!policy.salesEnabled) return;
             const name = i.name.toLowerCase();
             const code = (i.code || '').toLowerCase();
             if (!term || name.startsWith(term) || code.startsWith(term)) {
                 const key = `${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
                 if (!grouped.has(key)) grouped.set(key, { item: i, batches: [i] });
-                else grouped.get(key)!.batches.push(i);
+                else {
+                    const existing = grouped.get(key)!;
+                    existing.batches.push(i);
+                    existing.item = {
+                        ...existing.item,
+                        stock: existing.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0),
+                    };
+                }
             }
         });
 
         medicines.forEach(m => {
+            const medPolicy = getResolvedMedicinePolicy(m);
+            if (!medPolicy.salesEnabled) return;
             const name = m.name.toLowerCase();
             const materialCode = (m.materialCode || '').toLowerCase();
             if (!term || name.startsWith(term) || materialCode.startsWith(term)) {
@@ -361,8 +380,8 @@ const POS = forwardRef<any, POSProps>(({
                         unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '10', 10),
                         packType: m.pack || '',
                         minStockLimit: 0,
-                        batch: 'NEW-STOCK',
-                        expiry: 'N/A',
+                        batch: medPolicy.inventorised ? 'NEW-STOCK' : '',
+                        expiry: medPolicy.inventorised ? 'N/A' : '',
                         purchasePrice: 0,
                         mrp: parseFloat(m.mrp || '0'),
                         gstPercent: m.gstRate || 0,
@@ -379,7 +398,7 @@ const POS = forwardRef<any, POSProps>(({
         return Array.from(grouped.values())
             .sort((a, b) => a.item.name.localeCompare(b.item.name))
             .slice(0, 30);
-    }, [modalSearchTerm, inventory, medicines]);
+    }, [modalSearchTerm, inventoryWithPolicy, medicines]);
 
     const activeIntelItem = useMemo(() => {
         if (isSearchModalOpen && deduplicatedSearchInventory.length > 0) {
@@ -501,6 +520,12 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
+        const policy = getInventoryPolicy(batch, medicines);
+        if (shouldPreventNegativeStock && policy.inventorised && Number(batch.stock || 0) <= 0) {
+            addNotification(`Insufficient stock for ${batch.name}. Available: ${Number(batch.stock || 0)}`, 'error');
+            return;
+        }
+
         let rateValue = batch.mrp;
         const globalDefaultRateTier = configurations?.displayOptions?.defaultRateTier || 'mrp';
         let rateTierToUse = selectedCustomer?.defaultRateTier !== 'none' ? selectedCustomer?.defaultRateTier : globalDefaultRateTier;
@@ -524,8 +549,8 @@ const POS = forwardRef<any, POSProps>(({
             gstPercent: batch.gstPercent,
             discountPercent: selectedCustomer?.defaultDiscount || 0,
             itemFlatDiscount: 0,
-            batch: ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (batch.batch || ''),
-            expiry: batch.expiry ? String(batch.expiry) : 'N/A',
+            batch: policy.inventorised && ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (policy.inventorised ? (batch.batch || '') : ''),
+            expiry: policy.inventorised ? (batch.expiry ? String(batch.expiry) : 'N/A') : '',
             rate: rateValue,
             unitsPerPack: batch.unitsPerPack || 1,
             packType: batch.packType
@@ -1191,9 +1216,26 @@ const POS = forwardRef<any, POSProps>(({
                             ) : null}
                             {isSaving ? 'Saving' : 'Accept (Ent)'}
                         </button>
+                        <button
+                            onClick={() => setIsJournalModalOpen(true)}
+                            disabled={!canOpenJournalEntry}
+                            className="w-full py-2 border border-primary text-primary bg-white hover:bg-primary/5 disabled:opacity-50 disabled:cursor-not-allowed font-black text-[10px] uppercase tracking-widest"
+                        >
+                            View Journal Entry
+                        </button>
                     </div>
                 </div>
             </div>
+
+            <JournalEntryViewerModal
+                isOpen={isJournalModalOpen}
+                onClose={() => setIsJournalModalOpen(false)}
+                invoiceId={transactionToEdit?.id}
+                invoiceNumber={transactionToEdit?.id || currentInvoiceNo}
+                documentType="SALES"
+                currentUser={currentUser}
+                isPosted={isPostedVoucher}
+            />
 
             <Modal
                 isOpen={isSearchModalOpen}
@@ -1230,7 +1272,9 @@ const POS = forwardRef<any, POSProps>(({
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">Description of Medicine</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200 w-32 text-center">Code</th>
                                                 <th className="p-1.5 px-3 text-left border-r border-gray-200">MFR / Brand</th>
-                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Strips Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Loose Stock</th>
+                                                <th className="p-1.5 px-3 text-center border-r border-gray-200">Total Stock</th>
                                                 <th className="p-1.5 px-3 text-right">MRP</th>
                                             </tr>
                                         </thead>
@@ -1238,6 +1282,10 @@ const POS = forwardRef<any, POSProps>(({
                                             {deduplicatedSearchInventory.map((res, sIdx) => {
                                                 const isSelected = sIdx === selectedSearchIndex;
                                                 const item = res.item;
+                                                const totalStock = res.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0);
+                                                const unitsPerPack = item.unitsPerPack || 1;
+                                                const stripsStock = Math.floor(totalStock / unitsPerPack);
+                                                const looseStock = totalStock % unitsPerPack;
                                                 return (
                                                     <tr
                                                         key={item.id}
@@ -1253,7 +1301,9 @@ const POS = forwardRef<any, POSProps>(({
                                                             {item.code}
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (item.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{item.stock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{stripsStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{looseStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{totalStock}</td>
                                                         <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>
                                                 );

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 // Fix: Added AppConfigurations to imports
 import type { DetailedBill, InventoryItem, Medicine, AppConfigurations } from '../types';
@@ -7,7 +7,8 @@ import MediOneTemplate from './invoice-templates/MediOneTemplate';
 import MargTemplate from './invoice-templates/MargTemplate';
 import GftTemplate from './invoice-templates/GftTemplate';
 import AbhigyanTemplate from './invoice-templates/AbhigyanTemplate';
-import DosageInstructions from './DosageInstructions';
+import MediThreeTemplate from './invoice-templates/MediThreeTemplate';
+import ThermalTemplate from './invoice-templates/ThermalTemplate';
 
 // Declare html2pdf for TypeScript since it's loaded via CDN
 declare const html2pdf: any;
@@ -20,39 +21,26 @@ interface PrintBillModalProps {
   medicines: Medicine[];
 }
 
-const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, medicines }) => {
-  const [template, setTemplate] = useState<'medi-1' | 'marg' | 'gft' | 'abhigyan'>('marg');
+const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, medicines: _medicines }) => {
+  const [template, setTemplate] = useState<'medi-1' | 'marg' | 'gft' | 'abhigyan' | 'medi-3' | 'thermal'>('marg');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
   const [isSharing, setIsSharing] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  
-  // Define isLandscape from orientation
-  const isLandscape = orientation === 'landscape';
-    
-  // NEW: Automatically trigger print when modal opens
+
   useEffect(() => {
-    if (isOpen && bill) {
-      const originalTitle = document.title;
-      const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
-      document.title = `Invoice_${bill.id}_${sanitizedCustomerName}`;
-
-      // A slight delay to ensure the DOM is fully rendered before printing
-      const printTimeout = setTimeout(() => {
-        window.print();
-        // Restore title after a safe delay
-        setTimeout(() => {
-          document.title = originalTitle;
-        }, 1000); 
-      }, 200); // Increased delay to 200ms for better rendering
-
-      return () => clearTimeout(printTimeout);
+    if (template === 'medi-3') {
+      setOrientation('portrait');
     }
-  }, [isOpen, bill]);
+  }, [template]);
 
-
+  const effectiveOrientation: 'portrait' | 'landscape' = orientation;
+  const isLandscape = effectiveOrientation === 'landscape';
+  const isThermal = template === 'thermal';
+  const printWidth = isThermal ? '76mm' : (isLandscape ? '210mm' : '148mm');
+  const printMinHeight = isThermal ? '203mm' : (template === 'medi-3' ? 'auto' : (isLandscape ? '148mm' : '210mm'));
+    
   if (!isOpen || !bill) return null;
 
-  const handlePrint = () => {
+  const triggerBrowserPrint = () => {
     const originalTitle = document.title;
     const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
     document.title = `Invoice_${bill.id}_${sanitizedCustomerName}`;
@@ -68,43 +56,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     }, 100);
   };
 
-  const handleDownloadOnly = async () => {
-    if (typeof html2pdf === 'undefined') {
-        alert("PDF generation library is not loaded. Please use the 'Print / Save PDF' button to 'Save as PDF' via your browser.");
-        return;
-    }
-
-    setIsDownloading(true);
-    const element = document.getElementById('print-area');
-    
-    const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
-    const opt = {
-        margin: [2, 2, 2, 2], // T, L, B, R in mm
-        filename: `Invoice_${bill.id}_${sanitizedCustomerName}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { 
-            scale: 2.5, 
-            useCORS: true, 
-            logging: false,
-            letterRendering: true,
-            backgroundColor: '#ffffff'
-        },
-        jsPDF: { 
-            unit: 'mm', 
-            format: 'a5', 
-            orientation: orientation, 
-            compress: true 
-        }
-    };
-
-    try {
-        await html2pdf().set(opt).from(element).save();
-    } catch (e) {
-        console.error("Download error:", e);
-        alert("Direct PDF generation failed. Please use 'Print / Save PDF' button and select 'Save as PDF' instead.");
-    } finally {
-        setIsDownloading(false);
-    }
+  const handleDownloadOnly = () => {
+    triggerBrowserPrint();
   };
 
   const handleWhatsAppShare = async () => {
@@ -127,11 +80,15 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
     const element = document.getElementById('print-area');
     const opt = {
-        margin: [5, 5, 5, 5],
+        margin: 0,
         filename: `Invoice_${bill.id}.pdf`,
         image: { type: 'jpeg', quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a5', orientation: orientation }
+        jsPDF: {
+          unit: 'mm',
+          format: isThermal ? [203, 76] : 'a5',
+          orientation: isThermal ? 'portrait' : effectiveOrientation
+        }
     };
 
     try {
@@ -162,15 +119,19 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     { id: 'medi-1', name: 'MEDI-1 (A5)' },
     { id: 'gft', name: 'GFT Pharma' },
     { id: 'abhigyan', name: 'Classic GST' },
+    { id: 'medi-3', name: 'MEDI-3' },
+    { id: 'thermal', name: 'THERMAL 3×8' },
   ];
 
   const renderTemplate = () => {
     switch (template) {
-        case 'medi-1': return <MediOneTemplate bill={bill} orientation={orientation} />;
-        case 'marg': return <MargTemplate bill={bill} orientation={orientation} />;
+        case 'medi-1': return <MediOneTemplate bill={bill} orientation={effectiveOrientation} />;
+        case 'marg': return <MargTemplate bill={bill} orientation={effectiveOrientation} />;
         case 'gft': return <GftTemplate bill={bill} />;
         case 'abhigyan': return <AbhigyanTemplate bill={bill} />;
-        default: return <MargTemplate bill={bill} orientation={orientation} />;
+        case 'medi-3': return <MediThreeTemplate bill={bill} orientation={effectiveOrientation} />;
+        case 'thermal': return <ThermalTemplate bill={bill} />;
+        default: return <MargTemplate bill={bill} orientation={effectiveOrientation} />;
     }
   };
 
@@ -184,13 +145,15 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
                 <span className="text-[10px] font-bold text-gray-400 uppercase">Orientation:</span>
                 <button 
                   onClick={() => setOrientation('portrait')}
-                  className={`px-2 py-0.5 text-xs rounded border transition-all ${orientation === 'portrait' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
+                  disabled={isThermal}
+                  className={`px-2 py-0.5 text-xs rounded border transition-all ${effectiveOrientation === 'portrait' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
                 >
                   Portrait
                 </button>
                 <button 
                   onClick={() => setOrientation('landscape')}
-                  className={`px-2 py-0.5 text-xs rounded border transition-all ${orientation === 'landscape' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
+                  disabled={isThermal}
+                  className={`px-2 py-0.5 text-xs rounded border transition-all ${effectiveOrientation === 'landscape' ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
                 >
                   Landscape
                 </button>
@@ -214,16 +177,18 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           </button>
         </div>
 
-        <div className={`flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:overflow-visible print:bg-white`}>
-            <div id="print-area" className={`${isLandscape ? 'max-w-[210mm]' : 'max-w-[148mm]'} min-h-fit p-0 text-black bg-white shadow-lg print:shadow-none mx-auto`}>
+        <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
+            <div
+              id="print-area"
+              className={`p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0 ${isThermal ? 'w-[76mm] min-h-[203mm]' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]')} ${template === 'medi-3' || isThermal ? 'h-auto overflow-visible' : ''}`}
+            >
                 {renderTemplate()}
-                <DosageInstructions items={bill.items} medicines={medicines} />
             </div>
         </div>
 
         <div className="flex justify-end items-center p-4 bg-gray-50 border-t no-print space-x-3 z-10 relative">
-            <button onClick={handleDownloadOnly} disabled={isDownloading} className="px-5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 flex items-center">
-                {isDownloading ? 'Generating...' : 'Save as PDF'}
+            <button onClick={handleDownloadOnly} className="px-5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 flex items-center">
+                Save as PDF
             </button>
             
             {(bill.customerPhone || bill.customerDetails?.phone) && (
@@ -235,7 +200,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             <button onClick={onClose} className="px-5 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900">
                 Close
             </button>
-            <button onClick={handlePrint} className="px-5 py-2 text-sm font-semibold text-white bg-primary rounded-lg shadow-sm hover:bg-primary-dark">
+            <button onClick={triggerBrowserPrint} className="px-5 py-2 text-sm font-semibold text-white bg-primary rounded-lg shadow-sm hover:bg-primary-dark">
                 Re-Print / Save PDF
             </button>
         </div>
@@ -244,45 +209,80 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
       <style>{`
         @media print {
           @page {
-            size: A5 ${orientation};
             margin: 0;
+            size: ${isThermal ? '76mm 203mm' : `A5 ${effectiveOrientation}`};
           }
 
-          body * {
-            visibility: hidden;
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
 
-          #print-bill-modal-container,
-          #print-bill-modal-container * {
-            visibility: visible;
+          #root,
+          #chatbot-container,
+          .notification-container {
+            display: none !important;
           }
 
           #print-bill-modal-container {
             position: static !important;
             inset: auto !important;
-            background: #fff !important;
             display: block !important;
+            background: white !important;
+            width: auto !important;
             height: auto !important;
             overflow: visible !important;
+            visibility: visible !important;
           }
 
           #print-bill-modal-container > div {
-            width: 100% !important;
-            max-width: 100% !important;
+            width: auto !important;
+            max-width: none !important;
             max-height: none !important;
-            overflow: visible !important;
+            height: auto !important;
+            overflow: hidden !important;
+            border-radius: 0 !important;
             box-shadow: none !important;
+            visibility: visible !important;
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: block !important;
+          }
+
+          #print-area {
+            width: ${printWidth} !important;
+            min-height: ${printMinHeight} !important;
+            height: auto !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            visibility: visible !important;
+            page-break-before: auto !important;
+            page-break-after: auto !important;
+            break-before: auto !important;
+            break-after: auto !important;
+          }
+
+          #print-area,
+          #print-area * {
+            visibility: visible !important;
           }
 
           #print-bill-modal-container .no-print {
             display: none !important;
           }
 
-          #print-area {
-            width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            box-shadow: none !important;
+          #print-bill-modal-container,
+          #print-bill-modal-container * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
         }
       `}</style>

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -17,10 +18,12 @@ import MaterialMaster from './components/MaterialMaster';
 import SubstituteFinder from './pages/SubstituteFinder';
 import Promotions from './pages/Promotions';
 import Reports from './pages/Reports';
+import BalanceCarryforward from './pages/BalanceCarryforward';
 import GstCenter from './pages/GstCenter';
 import BusinessUserAssignment from './pages/BusinessUserAssignment';
 import BusinessRoles from './pages/BusinessRoles';
 import Configuration from './pages/Configuration';
+import CompanyConfiguration from './pages/CompanyConfiguration';
 import Settings from './pages/Settings';
 import Auth from './pages/Auth';
 import AccountReceivable from './pages/AccountReceivable';
@@ -49,6 +52,8 @@ import {
 } from './types';
 import { navigation } from './constants';
 import { generateNewInvoiceId } from './utils/invoice';
+import { getInventoryPolicy } from './utils/materialType';
+import { resolveUnitsPerStrip } from './utils/pack';
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
@@ -87,6 +92,8 @@ const App: React.FC = () => {
     const [teamMembers, setTeamMembers] = useState<OrganizationMember[]>([]);
 
     const [configurations, setConfigurations] = useState<AppConfigurations>({ organization_id: '' });
+    const [defaultCustomerControlGlId, setDefaultCustomerControlGlId] = useState<string>('');
+    const [defaultSupplierControlGlId, setDefaultSupplierControlGlId] = useState<string>('');
 
     const [sourceChallansForPurchase, setSourceChallansForPurchase] = useState<{ items: PurchaseItem[], supplier: string, ids: string[] } | null>(null);
     const [mobileSyncSessionId, setMobileSyncSessionId] = useState<string | null>(null);
@@ -97,6 +104,30 @@ const App: React.FC = () => {
     const [viewPurchase, setViewPurchase] = useState<Purchase | null>(null);
     const [printPO, setPrintPO] = useState<PurchaseOrder | null>(null);
     const [viewReport, setViewReport] = useState<any>(null);
+
+    const resolveAuthViewFromLocation = (): 'auth' | 'forgot' | 'reset' => {
+        const path = window.location.pathname.toLowerCase();
+        if (path === '/reset-password') return 'reset';
+        if (path === '/forgot-password') return 'forgot';
+        return 'auth';
+    };
+
+    const [authView, setAuthView] = useState<'auth' | 'forgot' | 'reset'>(resolveAuthViewFromLocation);
+
+    // Robust recovery detection on initial load
+    useEffect(() => {
+        if (window.location.hash.includes('type=recovery') || window.location.href.includes('recovery')) {
+            setAuthView('reset');
+        }
+    }, []);
+
+    useEffect(() => {
+        const onPopState = () => {
+            setAuthView(resolveAuthViewFromLocation());
+        };
+        window.addEventListener('popstate', onPopState);
+        return () => window.removeEventListener('popstate', onPopState);
+    }, []);
 
     const addNotification = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
         setNotifications(prev => [...prev, { id: Date.now(), message, type }]);
@@ -270,6 +301,9 @@ const App: React.FC = () => {
                 setTransactions([]);
                 setPurchases([]);
                 setIsAppLoading(false);
+                setAuthView('auth');
+            } else if (event === 'PASSWORD_RECOVERY') {
+                setAuthView('reset');
             } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 if (session?.user) {
                     storage.getCurrentUser().then(async user => {
@@ -388,30 +422,52 @@ const App: React.FC = () => {
     const [isFullScreen, setIsFullScreen] = useState(false);
 
     const handleSaveOrUpdateTransaction = async (tx: Transaction, isUpdate: boolean, nextCounter?: number) => {
-        if (!currentUser) return;
+        if (!currentUser) {
+            throw new Error("Unauthorized: please log in again.");
+        }
+
+        const strictStock = configurations.displayOptions?.strictStock ?? false;
+        const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
+        const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
+
+        if (shouldPreventNegativeStock) {
+            const requiredUnitsByInventoryId = new Map<string, number>();
+            for (const item of tx.items || []) {
+                if (!item.inventoryItemId) continue;
+                const requiredUnits = ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0);
+                requiredUnitsByInventoryId.set(
+                    item.inventoryItemId,
+                    (requiredUnitsByInventoryId.get(item.inventoryItemId) || 0) + requiredUnits
+                );
+            }
+
+            for (const [inventoryItemId, requiredUnits] of requiredUnitsByInventoryId.entries()) {
+                const invItem = inventory.find(i => i.id === inventoryItemId);
+                if (!invItem) continue;
+                const policy = getInventoryPolicy(invItem, medicines);
+                if (!policy.inventorised) continue;
+                if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
+                    throw new Error(`Insufficient stock for ${invItem.name}. Available: ${Number(invItem.stock || 0)}`);
+                }
+            }
+        }
+
         try {
             const savedTx = await storage.addTransaction(tx, currentUser);
 
-            // Immediate local state update to ensure data shows in history without waiting for background reload
+            // Immediate local state update to ensure data shows in history without waiting for background reload.
             if (isUpdate) {
                 setTransactions(prev => prev.map(t => t.id === savedTx.id ? savedTx : t));
             } else {
                 setTransactions(prev => [savedTx, ...prev]);
             }
 
-            if (nextCounter && !isUpdate) {
-                const configKey = tx.billType === 'non-gst' ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-                const updatedConfigs = {
-                    ...configurations,
-                    [configKey]: { ...configurations[configKey], currentNumber: nextCounter }
-                };
-                await storage.saveData('configurations', updatedConfigs, currentUser);
-                setConfigurations(updatedConfigs);
-            }
-            // Background reload for other potential changes (stock, etc.)
-            loadData(currentUser, 'background');
+            // Do not block UI success state on background refresh.
+            loadData(currentUser, 'background').catch((err) => {
+                console.warn('Background reload after sales save failed:', err);
+            });
         } catch (e) {
-            addNotification(parseNetworkAndApiError(e), "error");
+            throw new Error(parseNetworkAndApiError(e));
         }
     };
 
@@ -436,14 +492,6 @@ const App: React.FC = () => {
             // Immediate local state update
             setPurchases(prev => [savedPurchase, ...prev]);
 
-            if (nextCounter) {
-                const updatedConfigs = {
-                    ...configurations,
-                    purchaseConfig: { ...configurations.purchaseConfig!, currentNumber: nextCounter }
-                };
-                await storage.saveData('configurations', updatedConfigs, currentUser);
-                setConfigurations(updatedConfigs);
-            }
             loadData(currentUser, 'background');
             addNotification("Purchase entry posted.", "success");
         } catch (e) {
@@ -460,6 +508,7 @@ const App: React.FC = () => {
             // 1. Mark status as cancelled
             const cancelledPurchase = { ...purchase, status: 'cancelled' as const };
             await storage.saveData('purchases', cancelledPurchase, currentUser);
+            await storage.syncPurchaseLedger(cancelledPurchase, currentUser);
 
             // 2. Reverse inventory (decrement stock that was added by this purchase)
             for (const item of purchase.items) {
@@ -470,7 +519,7 @@ const App: React.FC = () => {
                 );
 
                 if (inventoryMatch) {
-                    const uPP = inventoryMatch.unitsPerPack || 1;
+                    const uPP = resolveUnitsPerStrip(inventoryMatch.unitsPerPack, inventoryMatch.packType);
                     const unitsToRemove = (item.quantity * uPP) + (item.looseQuantity || 0) + (item.freeQuantity || 0);
 
                     const updatedInv = {
@@ -502,9 +551,102 @@ const App: React.FC = () => {
         return saved;
     };
 
+    const handleUpdateMedicineMaster = useCallback(async (updatedMedicine: Medicine) => {
+        if (!currentUser) throw new Error("Unauthorized");
+
+        const normalize = (value?: string) => (value || '').trim().toLowerCase();
+        const updatedPack = (updatedMedicine.pack || '').trim();
+        const inferredUnitsPerPack = resolveUnitsPerStrip(parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10), updatedPack);
+
+        const isLinkedInventoryItem = (item: InventoryItem) => {
+            const itemCode = normalize(item.code);
+            const materialCode = normalize(updatedMedicine.materialCode);
+            if (itemCode && materialCode && itemCode === materialCode) return true;
+
+            const sameName = normalize(item.name) === normalize(updatedMedicine.name);
+            if (!sameName) return false;
+
+            const masterBrand = normalize(updatedMedicine.brand);
+            const inventoryBrand = normalize(item.brand);
+            return !masterBrand || !inventoryBrand || masterBrand === inventoryBrand;
+        };
+
+        await storage.saveData('material_master', updatedMedicine, currentUser);
+
+        const linkedInventoryItems = inventory.filter(isLinkedInventoryItem);
+        if (linkedInventoryItems.length > 0) {
+            await Promise.all(
+                linkedInventoryItems.map(item =>
+                    storage.saveData('inventory', {
+                        ...item,
+                        packType: updatedPack,
+                        unitsPerPack: inferredUnitsPerPack,
+                    }, currentUser)
+                )
+            );
+
+            setInventory(prev => prev.map(item =>
+                isLinkedInventoryItem(item)
+                    ? { ...item, packType: updatedPack, unitsPerPack: inferredUnitsPerPack }
+                    : item
+            ));
+        }
+
+        setMedicines(prev => prev.map(m => (m.id === updatedMedicine.id ? updatedMedicine : m)));
+        await loadData(currentUser, 'background');
+    }, [currentUser, inventory, loadData]);
+
+    const resolveControlGlByCode = useCallback(async (organizationId: string, glCode: string): Promise<string | undefined> => {
+        const { data: bookRows, error: bookErr } = await supabase
+            .from('set_of_books')
+            .select('id')
+            .eq('organization_id', organizationId)
+            .eq('active_status', 'Active')
+            .order('created_at', { ascending: true })
+            .limit(1);
+
+        if (bookErr) throw bookErr;
+        const activeBookId = bookRows?.[0]?.id;
+        if (!activeBookId) return undefined;
+
+        const { data: glRows, error: glErr } = await supabase
+            .from('gl_master')
+            .select('id')
+            .eq('organization_id', organizationId)
+            .eq('set_of_books_id', activeBookId)
+            .eq('gl_code', glCode)
+            .eq('active_status', 'Active')
+            .limit(1);
+
+        if (glErr) throw glErr;
+        return glRows?.[0]?.id;
+    }, []);
+
+    const refreshDefaultControlGls = useCallback(async () => {
+        if (!currentUser) return;
+        try {
+            const [customerGl, supplierGl] = await Promise.all([
+                resolveControlGlByCode(currentUser.organization_id, '120000'),
+                resolveControlGlByCode(currentUser.organization_id, '210000'),
+            ]);
+            setDefaultCustomerControlGlId(customerGl || '');
+            setDefaultSupplierControlGlId(supplierGl || '');
+        } catch {
+            setDefaultCustomerControlGlId('');
+            setDefaultSupplierControlGlId('');
+        }
+    }, [currentUser, resolveControlGlByCode]);
+
+    useEffect(() => {
+        refreshDefaultControlGls();
+    }, [refreshDefaultControlGls]);
+
     const handleAddDistributor = async (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
         if (!currentUser) throw new Error("Unauthorized");
-        const newDist = await storage.saveData('suppliers', data, currentUser);
+        const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '210000');
+        if (!mappedControlGlId) throw new Error('Supplier Control GL (210000) not found in active Set of Books.');
+        const supplierPayload = { ...data, supplier_group: data.supplier_group || 'Sundry Creditors', control_gl_id: mappedControlGlId };
+        const newDist = await storage.saveData('suppliers', supplierPayload, currentUser);
         if (balance !== 0) {
             await storage.addLedgerEntry({
                 id: storage.generateUUID(),
@@ -523,7 +665,10 @@ const App: React.FC = () => {
     const handleAddCustomer = async (data: Omit<Customer, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
         if (!currentUser) return;
         try {
-            const newCust = await storage.saveData('customers', { ...data, opening_balance: balance }, currentUser);
+            const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '120000');
+            if (!mappedControlGlId) throw new Error('Customer Control GL (120000) not found in active Set of Books.');
+            const customerPayload = { ...data, customerGroup: data.customerGroup || 'Sundry Debtors', controlGlId: mappedControlGlId, opening_balance: balance };
+            const newCust = await storage.saveData('customers', customerPayload, currentUser);
             if (balance !== 0) {
                 await storage.addLedgerEntry({
                     id: storage.generateUUID(),
@@ -560,11 +705,15 @@ const App: React.FC = () => {
         if (!currentUser) return;
         const tx = transactions.find(t => t.id === id);
         if (tx) {
-            await storage.saveData('sales_bill', { ...tx, status: 'cancelled' }, currentUser);
+            const cancelledTx = { ...tx, status: 'cancelled' as const };
+            await storage.saveData('sales_bill', cancelledTx, currentUser);
+            await storage.syncSalesLedger(cancelledTx, currentUser);
             for (const item of tx.items) {
                 const inv = inventory.find(i => i.id === item.inventoryItemId);
                 if (inv) {
-                    await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * (inv.unitsPerPack || 1) + (item.looseQuantity || 0)) }, currentUser);
+                    const policy = getInventoryPolicy(inv, medicines);
+                    if (!policy.inventorised) continue;
+                    await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0)) }, currentUser);
                 }
             }
             loadData(currentUser, 'background');
@@ -661,10 +810,50 @@ const App: React.FC = () => {
                 />;
             case 'physicalInventory':
                 return <PhysicalInventory
-                    inventory={inventory} physicalInventorySessions={physicalInventory}
-                    onStartNewCount={() => { }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
+                    inventory={inventory} medicines={medicines} physicalInventorySessions={physicalInventory}
+                    onStartNewCount={async () => {
+                        if (!currentUser) return;
+
+                        const hasOpenSession = physicalInventory.some(s => s.status === PhysicalInventoryStatus.IN_PROGRESS);
+                        if (hasOpenSession) {
+                            addNotification('An audit session is already in progress.', 'warning');
+                            return;
+                        }
+
+                        const { id, nextExternalNumber } = generateNewInvoiceId(configurations.physicalInventoryConfig, 'physical-inventory');
+                        const session: PhysicalInventorySession = {
+                            id,
+                            organization_id: currentUser.organization_id,
+                            status: PhysicalInventoryStatus.IN_PROGRESS,
+                            startDate: new Date().toISOString(),
+                            reason: '',
+                            items: [],
+                            totalVarianceValue: 0,
+                            performedById: currentUser.id,
+                            performedByName: currentUser.full_name,
+                        };
+
+                        const updatedConfig = {
+                            ...configurations,
+                            physicalInventoryConfig: {
+                                ...configurations.physicalInventoryConfig,
+                                currentNumber: nextExternalNumber,
+                            },
+                        };
+
+                        await storage.saveData('configurations', updatedConfig, currentUser);
+                        await storage.saveData('physical_inventory', session, currentUser);
+                        await loadData(currentUser, 'background');
+                    }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
                     onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
-                    onCancelCount={() => { }}
+                    onCancelCount={(session) => {
+                        const cancelledSession: PhysicalInventorySession = {
+                            ...session,
+                            status: PhysicalInventoryStatus.CANCELLED,
+                            endDate: new Date().toISOString(),
+                        };
+                        return storage.saveData('physical_inventory', cancelledSession, currentUser).then(() => loadData(currentUser!, 'background'));
+                    }}
                 />;
             case 'suppliers':
                 return <Suppliers
@@ -672,7 +861,7 @@ const App: React.FC = () => {
                     onBulkAddSuppliers={(list) => storage.saveBulkData('suppliers', list, currentUser)}
                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'supplier')}
                     onUpdateSupplier={(d) => storage.saveData('suppliers', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    config={config} currentUser={currentUser}
+                    config={config} currentUser={currentUser} defaultSupplierControlGlId={defaultSupplierControlGlId}
                 />;
             case 'customers':
                 return <Customers
@@ -680,14 +869,14 @@ const App: React.FC = () => {
                     onBulkAddCustomers={(list) => storage.saveBulkData('customers', list, currentUser)}
                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'customer')}
                     onUpdateCustomer={(c) => storage.saveData('customers', c, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    currentUser={currentUser} config={config} inventory={inventory}
+                    currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
                 />;
             case 'medicineMasterList':
             case 'vendorNomenclature':
             case 'bulkUtility':
                 return <MaterialMaster
                     medicines={medicines} onAddMedicine={handleAddMedicineMaster}
-                    onUpdateMedicine={(updated) => storage.saveData('material_master', updated, currentUser).then(() => loadData(currentUser!, 'background'))} currentUser={currentUser}
+                    onUpdateMedicine={handleUpdateMedicineMaster} currentUser={currentUser}
                     suppliers={suppliers} onAddPurchase={handleAddPurchase as any}
                     onBulkAddMedicines={(list) => storage.saveBulkData('material_master', list, currentUser)}
                     onSearchMedicines={() => { }} onMassUpdateClick={() => { }}
@@ -705,6 +894,8 @@ const App: React.FC = () => {
                     distributors={suppliers} customers={customers} salesReturns={salesReturns}
                     purchaseReturns={purchaseReturns} onPrintReport={setViewReport} config={config}
                 />;
+            case 'balanceCarryforward':
+                return <BalanceCarryforward />;
             case 'gst':
                 return <GstCenter
                     transactions={transactions} purchases={purchases} customers={customers}
@@ -718,6 +909,8 @@ const App: React.FC = () => {
                 />;
             case 'businessRoles':
                 return <BusinessRoles currentUser={currentUser!} addNotification={addNotification} />;
+            case 'companyConfiguration':
+                return <CompanyConfiguration currentUser={currentUser} />;
             case 'configuration':
                 return <Configuration
                     configurations={configurations}
@@ -775,7 +968,12 @@ const App: React.FC = () => {
             case 'purchaseOrders':
                 return <PurchaseOrders
                     distributors={suppliers} inventory={inventory} purchaseOrders={purchaseOrders}
-                    onAddPurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                    onAddPurchaseOrder={async (d) => {
+                        const reserved = await storage.reserveVoucherNumber('purchase-order', currentUser!);
+                        const payload = { ...d, serialId: reserved.documentNumber };
+                        await storage.saveData('purchase_orders', payload, currentUser);
+                        await loadData(currentUser!, 'background');
+                    }}
                     onUpdatePurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
                     onCreatePurchaseEntry={() => { }} onPrintPurchaseOrder={setPrintPO as any}
                     onCancelPurchaseOrder={(id) => storage.deleteData('purchase_orders', id).then(() => loadData(currentUser!, 'background'))}
@@ -792,8 +990,8 @@ const App: React.FC = () => {
                 return <Returns
                     currentUser={currentUser} transactions={transactions} inventory={inventory}
                     salesReturns={salesReturns} purchaseReturns={purchaseReturns} purchases={purchases}
-                    onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(() => loadData(currentUser!, 'background'))}
+                    onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(async () => { await storage.syncSalesReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
+                    onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(async () => { await storage.syncPurchaseReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
                     addNotification={addNotification} defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'} isFixedMode={true}
                 />;
             default:
@@ -814,8 +1012,27 @@ const App: React.FC = () => {
         return <MobileCaptureView sessionId={mobileSyncSession} orgId={mobileSyncOrgId} />;
     }
 
-    if (!currentUser && !isAppLoading) {
-        return <Auth onLogin={handleLogin} />;
+    // Keep URL aligned with auth/app state for direct links like /login.
+    useEffect(() => {
+        if (isAppLoading) return;
+
+        const currentPath = window.location.pathname;
+        if (!currentUser || authView === 'reset') {
+            const target = authView === 'forgot' ? '/forgot-password' : authView === 'reset' ? '/reset-password' : '/login';
+            if (currentPath !== target) {
+                window.history.replaceState({}, '', target);
+            }
+            return;
+        }
+
+        if (currentPath !== '/') {
+            window.history.replaceState({}, '', '/');
+        }
+    }, [authView, currentUser, isAppLoading]);
+
+    // Show Auth page if no user is logged in OR if we are in the middle of a password reset
+    if ((!currentUser || authView === 'reset') && !isAppLoading) {
+        return <Auth onLogin={handleLogin} initialView={authView} />;
     }
 
     if (isAppLoading) {
@@ -869,8 +1086,8 @@ const App: React.FC = () => {
             <NotificationSystem notifications={notifications} removeNotification={removeNotification} />
 
             {printBill && <PrintBillModal isOpen={!!printBill} onClose={() => setPrintBill(null)} bill={printBill} medicines={medicines} />}
-            {viewTransaction && <TransactionDetailModal isOpen={!!viewTransaction} onClose={() => setViewTransaction(null)} transaction={viewTransaction} customer={customers.find(c => c.id === viewTransaction.customerId)} onPrintBill={setPrintBill as any} onProcessReturn={() => { }} />}
-            {viewPurchase && <PurchaseDetailModal isOpen={!!viewPurchase} onClose={() => setViewPurchase(null)} purchase={viewPurchase} />}
+            {viewTransaction && <TransactionDetailModal isOpen={!!viewTransaction} onClose={() => setViewTransaction(null)} transaction={viewTransaction} customer={customers.find(c => c.id === viewTransaction.customerId)} onPrintBill={setPrintBill as any} onProcessReturn={() => { }} currentUser={currentUser} />}
+            {viewPurchase && <PurchaseDetailModal isOpen={!!viewPurchase} onClose={() => setViewPurchase(null)} purchase={viewPurchase} currentUser={currentUser} />}
             {printPO && <PrintPurchaseOrderModal isOpen={!!printPO} onClose={() => setPrintPO(null)} purchaseOrder={printPO as any} pharmacy={currentUser} />}
             {viewReport && <PrintableReportModal isOpen={!!viewReport} onClose={() => setViewReport(null)} {...viewReport} pharmacyDetails={currentUser} />}
             {showLogoutPrompt && <TallyPrompt isOpen={showLogoutPrompt} title="Quit Application" message="Are you sure you want to exit Medimart ERP?" onAccept={handleLogout} onDiscard={() => setShowLogoutPrompt(false)} onCancel={() => setShowLogoutPrompt(false)} />}

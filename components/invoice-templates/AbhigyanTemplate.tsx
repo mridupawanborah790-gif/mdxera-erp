@@ -13,24 +13,18 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
 
   const calculations = useMemo(() => {
     let subTotalTaxable = 0;
-    let totalDiscount = bill.totalItemDiscount || 0;
 
     const items = (bill.items || []).map((item, idx) => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
       
       const rate = item.rate ?? item.mrp ?? 0;
       const unitsPerPack = item.unitsPerPack || 1;
-      const totalUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-      const unitRate = rate / unitsPerPack;
-      
-      const lineGross = unitRate * totalUnits;
-      const tradeDiscAmt = lineGross * ((item.discountPercent || 0) / 100);
-      const schDiscAmt = item.schemeDiscountAmount || 0;
-      const lineNet = lineGross - tradeDiscAmt - schDiscAmt;
+      const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
+      const lineAmount = billedQty * rate;
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
-      const taxableVal = lineNet / (1 + (effectiveGst / 100));
-      const gstAmt = lineNet - taxableVal;
+      const taxableVal = lineAmount / (1 + (effectiveGst / 100));
+      const gstAmt = lineAmount - taxableVal;
       
       subTotalTaxable += taxableVal;
 
@@ -38,6 +32,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
         ...item,
         sn: idx + 1,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
+        packSize: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : ''),
         gstRate: item.gstPercent || 0,
         taxableVal,
         gstAmt,
@@ -65,7 +60,13 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    return { items, itemChunks, subTotalTaxable, totalDiscount, gstSummary };
+        const totalTax = isNonGst ? 0 : (bill.totalGst || Object.values(gstSummary).reduce((sum, slab) => sum + slab.cgst + slab.sgst + slab.igst, 0));
+    const subTotal = bill.subtotal || (subTotalTaxable + totalTax);
+    const billDiscount = bill.schemeDiscount || 0;
+    const roundOff = bill.roundOff || 0;
+    const grandTotal = bill.total || (subTotal - billDiscount + totalTax + roundOff);
+
+    return { items, itemChunks, subTotalTaxable, gstSummary, subTotal, totalTax, billDiscount, roundOff, grandTotal };
   }, [bill, isNonGst]);
 
   const totalQty = (bill.items || []).reduce((acc, i) => acc + i.quantity, 0);
@@ -147,7 +148,8 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
           <thead>
               <tr>
                   <th className="w-[5%]">Sl.</th>
-                  <th className="w-[45%] text-left">Description of Goods</th>
+                  <th className="w-[36%] text-left">Description of Goods</th>
+                  <th className="w-[9%]">Pack</th>
                   <th className="w-[10%]">HSN/SAC</th>
                   <th className="w-[8%]">GST</th>
                   <th className="w-[8%]">Qty</th>
@@ -207,7 +209,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   <td colSpan={4} className="p-1 text-right font-bold uppercase text-[8pt]">Total</td>
                   <td className="p-1 text-center font-bold text-[8.5pt]">{totalQty.toFixed(2)}</td>
                   <td colSpan={2}></td>
-                  <td className="p-1 text-right font-bold text-[9.5pt]">₹ {bill.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td className="p-1 text-right font-bold text-[9.5pt]">₹ {calculations.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
               </tr>
           </tfoot>
       </table>
@@ -215,7 +217,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
       {/* Amount in words */}
       <div className="border border-black border-t-0 p-1">
           <p className="text-[7pt] text-gray-500 font-bold uppercase leading-none">Amount Chargeable (in words)</p>
-          <p className="font-bold uppercase text-[8pt] italic">{numberToWords(bill.total)}</p>
+          <p className="font-bold uppercase text-[8pt] italic">{numberToWords(calculations.grandTotal)}</p>
       </div>
 
       {/* Tax Analysis Table */}

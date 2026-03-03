@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import Modal from './Modal';
 import type { Medicine } from '../types';
+import { getResolvedMedicinePolicy, MATERIAL_TYPE_RULES, type MaterialMasterType } from '../utils/materialType';
 
 interface AddMedicineModalProps {
     isOpen: boolean;
@@ -30,6 +31,12 @@ const initialState: Omit<Medicine, 'id' | 'created_at' | 'updated_at'> = {
     barcode: '',
     countryOfOrigin: 'India', 
     isPrescriptionRequired: false, 
+    materialMasterType: 'trading_goods',
+    isInventorised: true,
+    isSalesEnabled: true,
+    isPurchaseEnabled: true,
+    isProductionEnabled: false,
+    isInternalIssueEnabled: false,
     // Renamed isActive to is_active
     is_active: true,
     organization_id: '',
@@ -78,10 +85,25 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
     
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
+        if (name === 'materialMasterType') {
+            const policy = getResolvedMedicinePolicy({ materialMasterType: value as MaterialMasterType });
+            setFormState(prev => ({
+                ...prev,
+                materialMasterType: value as MaterialMasterType,
+                isInventorised: policy.inventorised,
+                isSalesEnabled: policy.salesEnabled,
+                isPurchaseEnabled: policy.purchaseEnabled,
+                isProductionEnabled: policy.productionEnabled,
+                isInternalIssueEnabled: policy.internalIssueEnabled,
+            }));
+            return;
+        }
         const isNumber = type === 'number';
         setFormState(prev => ({ ...prev, [name]: isNumber ? parseFloat(value) || 0 : value }));
     };
     
+    const materialPolicy = getResolvedMedicinePolicy(formState);
+
     const renderInput = (name: keyof typeof initialState, label: string, type = 'text', isOptional = true, placeholder = "") => (
         <div>
             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">{label} {!isOptional && '*'}</label>
@@ -109,8 +131,27 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
                         {renderInput('manufacturer', 'Manufacturer')}
                         {renderInput('marketer', 'Marketer')}
                         {renderInput('pack', 'Pack (e.g. 10s, 100ml)')}
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Material Master Type *</label>
+                            <select
+                                name="materialMasterType"
+                                value={formState.materialMasterType || 'trading_goods'}
+                                onChange={handleChange}
+                                className="mt-1 block w-full p-2 border border-gray-400 font-bold text-sm bg-white text-app-text-primary focus:bg-yellow-50 outline-none"
+                            >
+                                {Object.entries(MATERIAL_TYPE_RULES).map(([value, rule]) => (
+                                    <option key={value} value={value}>{rule.label}</option>
+                                ))}
+                            </select>
+                        </div>
                         {renderInput('hsnCode', 'HSN Code')}
                         {renderInput('countryOfOrigin', 'Country of Origin')}
+                    </div>
+
+                    <div className="bg-blue-50 p-4 border border-blue-100 grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="text-xs font-bold uppercase text-blue-900">Inventorised: {materialPolicy.inventorised ? 'Yes' : 'No'}</div>
+                        <div className="text-xs font-bold uppercase text-blue-900">Sales Enabled: {materialPolicy.salesEnabled ? 'Yes' : 'No'}</div>
+                        <div className="text-xs font-bold uppercase text-blue-900">Purchase Enabled: {materialPolicy.purchaseEnabled ? 'Yes' : 'No'}</div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -75,9 +75,12 @@ export interface OrganizationMember {
 }
 
 export interface InvoiceNumberConfig {
+    fy?: string;
     prefix: string;
     startingNumber: number;
+    endNumber?: number;
     paddingLength: number;
+    resetRule?: 'financial-year';
     useFiscalYear: boolean;
     currentNumber: number;
     internalCurrentNumber?: number;
@@ -126,6 +129,8 @@ export interface DiscountRule {
 export type DiscountLevel = 'line' | 'quantity' | 'invoice';
 export type DiscountValueType = 'flat' | 'percentage';
 export type DiscCalculationBase = 'mrp' | 'ptr' | 'selling_price' | 'net_amount' | 'total_amount';
+export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount';
+export type TaxCalculationBaseOption = 'subtotal' | 'after_trade_discount' | 'after_all_discounts';
 
 export interface AppConfigurations {
     id?: string;
@@ -155,6 +160,8 @@ export interface AppConfigurations {
         showItemWiseDiscountOnPrint?: boolean;
         enableNegativeStock?: boolean;
         printCopies?: number;
+        schemeDiscountCalculationBase?: SchemeDiscountCalculationBase;
+        taxCalculationBase?: TaxCalculationBaseOption;
     };
     modules?: { [key: string]: ModuleConfig };
     discountRules?: DiscountRule[];
@@ -319,6 +326,8 @@ export interface Transaction {
     billedByName?: string;
     taxCalculationType?: TaxCalculationBasis;
     linkedChallans?: string[];
+    companyCodeId?: string;
+    setOfBooksId?: string;
 }
 
 export type DetailedBill = Transaction & { pharmacy: RegisteredPharmacy; customerDetails?: Customer; };
@@ -382,6 +391,8 @@ export interface Purchase {
     eWayBillNo?: string;
     eWayBillDate?: string;
     linkedChallans?: string[];
+    companyCodeId?: string;
+    setOfBooksId?: string;
 }
 
 export enum DeliveryChallanStatus {
@@ -512,6 +523,8 @@ export interface Supplier {
     is_active: boolean;
     is_blocked?: boolean;
     remarks?: string;
+    supplier_group?: string;
+    control_gl_id?: string;
     created_at?: string;
     updated_at?: string;
 }
@@ -541,6 +554,8 @@ export interface Customer {
     assignedStaffId?: string;
     assignedStaffName?: string;
     opening_balance?: number;
+    customerGroup?: string;
+    controlGlId?: string;
 }
 
 export interface Medicine {
@@ -566,6 +581,12 @@ export interface Medicine {
     is_active: boolean;
     countryOfOrigin?: string;
     directions?: string;
+    materialMasterType?: 'trading_goods' | 'finished_goods' | 'consumables' | 'service_material' | 'packaging';
+    isInventorised?: boolean;
+    isSalesEnabled?: boolean;
+    isPurchaseEnabled?: boolean;
+    isProductionEnabled?: boolean;
+    isInternalIssueEnabled?: boolean;
     created_at?: string;
     updated_at?: string;
 }
@@ -695,6 +716,9 @@ export interface ExtractedPurchaseBill {
     invoiceNumber?: string;
     date?: string;
     supplierGstNumber?: string;
+    supplierPanNumber?: string;
+    supplierPhone?: string;
+    supplierAddress?: string;
     schemeDiscount?: number;
     items: Partial<PurchaseItem>[];
     error?: string;
@@ -729,6 +753,7 @@ export interface PhysicalInventoryCountItem {
     physicalCount: number;
     variance: number;
     cost: number;
+    unitsPerPack?: number;
 }
 
 export enum PhysicalInventoryStatus {

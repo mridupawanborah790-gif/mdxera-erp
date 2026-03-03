@@ -99,7 +99,7 @@ export const extractPurchaseDetailsFromBill = async (
     pharmacyName: string
 ): Promise<ExtractedPurchaseBill> => {
     try {
-        const prompt = `Analyze purchase invoice images for \"${pharmacyName}\". Extract supplier, GST, invoice number, date and items. Return JSON only with fields: supplier, supplierGstNumber, invoiceNumber, date, items: [{name, batch, packType, expiry, quantity, purchasePrice, mrp, gstPercent, discountPercent}].`;
+        const prompt = `Analyze purchase invoice images for \"${pharmacyName}\". Extract supplier, GSTIN, PAN, supplier phone, supplier address, invoice number, date and items. Return JSON only with fields: supplier, supplierGstNumber, supplierPanNumber, supplierPhone, supplierAddress, invoiceNumber, date, items: [{name, batch, packType, expiry, quantity, purchasePrice, mrp, gstPercent, discountPercent}].`;
 
         const responseData = await callGeminiOcr({
             prompt,
@@ -132,6 +132,9 @@ export const extractPurchaseDetailsFromBill = async (
             supplierGstNumber: String(root?.supplierGstNumber || root?.supplierGst || root?.gst || '').trim(),
             invoiceNumber: String(root?.invoiceNumber || root?.billNumber || '').trim(),
             date: String(root?.date || root?.invoiceDate || '').trim(),
+            supplierPanNumber: String(root?.supplierPanNumber || root?.supplierPan || root?.pan || '').trim(),
+            supplierPhone: String(root?.supplierPhone || root?.phone || root?.mobile || '').trim(),
+            supplierAddress: String(root?.supplierAddress || root?.address || '').trim(),
             items: normalizedItems,
             ...(normalizedItems.length === 0 ? { error: 'AI could not detect line items from this image. Try a full-page, well-lit photo with item rows clearly visible.' } : {}),
         };

@@ -10,11 +10,12 @@ import MobileSyncModal from '../components/MobileSyncModal';
 import LinkToMasterModal from '../components/LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
 import { fetchSupplierProductMaps, generateUUID, saveData } from '../services/storageService';
-import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
+import { parseNumber, normalizeImportDate, getOutstandingBalance, formatExpiryToMMYY } from '../utils/helpers';
 import SupplierLedgerModal from '../components/SupplierLedgerModal';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { parseNetworkAndApiError } from '../utils/error';
 import { prepareCapturedImageForAiExtraction, prepareFilesForAiExtraction } from '../utils/aiImagePrep';
+import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 
 const UploadIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>;
 const CameraIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="4" /></svg>;
@@ -26,6 +27,39 @@ const Spinner = () => (
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
     </svg>
 );
+
+const currencyFormatter = new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
+const formatCurrency = (value: number) => currencyFormatter.format(Number.isFinite(value) ? value : 0);
+
+const formatSignedCurrency = (value: number, sign: '+' | '-' = '-') => {
+    const normalizedValue = Number.isFinite(value) ? Math.abs(value) : 0;
+    return `${sign}${formatCurrency(normalizedValue)}`;
+};
+
+const normalizeExpiryInput = (value: string) => {
+    const digitsOnly = value.replace(/\D/g, '').slice(0, 4);
+    if (digitsOnly.length <= 2) return digitsOnly;
+    return `${digitsOnly.slice(0, 2)}/${digitsOnly.slice(2)}`;
+};
+
+const isExpiryComplete = (value: string) => /^((0[1-9])|(1[0-2]))\/(\d{2})$/.test(value);
+
+const getLineTotal = (item: PurchaseItem) => {
+    const gross = (item.purchasePrice || 0) * (item.quantity || 0);
+    const tradeDisc = gross * ((item.discountPercent || 0) / 100);
+    const afterTrade = gross - tradeDisc;
+    const schemeDiscPercentAmount = afterTrade * ((item.schemeDiscountPercent || 0) / 100);
+    const schemeDisc = item.schemeDiscountAmount > 0 ? item.schemeDiscountAmount : schemeDiscPercentAmount;
+    const taxable = afterTrade - schemeDisc;
+    const gst = taxable * ((item.gstPercent || 0) / 100);
+    return taxable + gst;
+};
 
 // Fix: Added missing createBlankItem helper function to initialize empty purchase items
 const createBlankItem = (): PurchaseItem => ({
@@ -114,6 +148,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [supplierForLedger, setSupplierForLedger] = useState<Distributor | null>(null);
     const [supplierNameError, setSupplierNameError] = useState<string | null>(null);
     const [invoiceNumberError, setInvoiceNumberError] = useState<string | null>(null);
+    const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
@@ -126,6 +161,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         if (!lowerSupplier) return null;
         return distributors.find(d => (d.name || '').toLowerCase().trim() === lowerSupplier) ?? null;
     }, [distributors, supplier]);
+
+    const canOpenJournalEntry = Boolean(purchaseToEdit?.id);
+    const isPostedVoucher = (purchaseToEdit?.status || '') === 'completed';
 
     const attemptAutoLink = useCallback((itemList: PurchaseItem[], targetDistributor: Distributor | null) => {
         if (!medicines.length) return itemList;
@@ -190,6 +228,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 // Fix: createBlankItem now defined
                 ...createBlankItem(),
                 ...item,
+                expiry: normalizeExpiryInput(formatExpiryToMMYY(item.expiry || '')),
                 quantity: Number(item.quantity || 0),
                 purchasePrice: Number(item.purchasePrice || 0),
                 mrp: Number(item.mrp || 0),
@@ -206,7 +245,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const matchedDist = distributors.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
             const newItems = Array.isArray(draftItems) ? draftItems.map(item => ({
                 // Fix: createBlankItem now defined
-                ...createBlankItem(), ...item, quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
+                ...createBlankItem(), ...item,
+                expiry: normalizeExpiryInput(formatExpiryToMMYY(item.expiry || '')),
+                quantity: item.quantity,
+                freeQuantity: item.freeQuantity || 0,
+                purchasePrice: item.purchasePrice,
+                matchStatus: 'pending' as const
             })) : [];
             const linked = attemptAutoLink(newItems as PurchaseItem[], matchedDist || null);
             // Fix: createBlankItem now defined
@@ -218,8 +262,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [purchaseToEdit, draftItems, distributors, draftSupplier, attemptAutoLink]);
 
     const calculatedTotals = useMemo(() => {
+        const billDiscount = 0;
         let subtotal = 0;
         let totalGst = 0;
+        let grossAmount = 0;
         let totalItemDiscount = 0;
         let totalItemSchemeDiscount = 0;
 
@@ -228,11 +274,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const gross = (p.purchasePrice || 0) * (p.quantity || 0);
             const tradeDisc = gross * ((p.discountPercent || 0) / 100);
             const afterTrade = gross - tradeDisc;
-            const schemeDisc = (p.schemeDiscountAmount || 0);
+            const schemeDiscPercentAmount = afterTrade * ((p.schemeDiscountPercent || 0) / 100);
+            const schemeDisc = p.schemeDiscountAmount > 0 ? p.schemeDiscountAmount : schemeDiscPercentAmount;
             const taxable = afterTrade - schemeDisc;
             const gst = taxable * ((p.gstPercent || 0) / 100);
             const total = taxable + gst;
 
+            grossAmount += gross;
             subtotal += taxable;
             totalGst += gst;
             totalItemDiscount += tradeDisc;
@@ -249,11 +297,20 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             };
         });
 
+        const preRoundTotal = subtotal + totalGst - billDiscount;
+        const grandTotal = Math.round(preRoundTotal);
+        const roundOff = Number((grandTotal - preRoundTotal).toFixed(2));
+
         return {
             itemsWithCalculations,
+            grossAmount,
             subtotal,
             totalGst,
-            totalAmount: subtotal + totalGst,
+            billDiscount,
+            preRoundTotal,
+            roundOff,
+            grandTotal,
+            totalAmount: grandTotal,
             totalItemDiscount,
             totalItemSchemeDiscount
         };
@@ -290,7 +347,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 totalItemSchemeDiscount: calculatedTotals.totalItemSchemeDiscount,
                 status: 'completed' as const,
                 organization_id: organizationId,
-                roundOff: 0,
+                roundOff: calculatedTotals.roundOff,
                 schemeDiscount: 0
             };
 
@@ -317,11 +374,22 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             let updatedItem = { ...prev[index], [field]: value };
             if (field === 'name') { updatedItem.matchStatus = 'pending'; updatedItem.inventoryItemId = undefined; }
             if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
+            if (field === 'expiry') {
+                updatedItem.expiry = normalizeExpiryInput(String(value).toUpperCase());
+            }
             const updated = prev.map(p => p.id === id ? updatedItem : p);
             // Fix: createBlankItem now defined
             if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
             return updated;
         });
+    };
+
+    const handleExpiryBlur = (id: string, value: string) => {
+        if (!value) return;
+        if (!isExpiryComplete(value)) {
+            addNotification('Expiry must be in MM/YY format with month between 01 and 12.', 'error');
+            handleUpdateItem(id, 'expiry', '');
+        }
     };
 
     const processAiExtraction = useCallback(async (fileInputs: FileInput[]) => {
@@ -342,6 +410,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 const newItems = bill.items.map(item => ({
                     ...createBlankItem(),
                     ...item,
+                    expiry: normalizeExpiryInput(formatExpiryToMMYY(item.expiry || '')),
                     quantity: parseNumber(item.quantity),
                     purchasePrice: parseNumber(item.purchasePrice),
                     mrp: parseNumber(item.mrp),
@@ -418,8 +487,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
                 <span className="text-[10px] font-black uppercase text-accent">No. {isEditing ? purchaseToEdit?.purchaseSerialId : 'New'}</span>
             </div>
-            <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
-                <div className="p-3 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-4 gap-4 items-end flex-shrink-0">
+            <div className="p-2 md:p-3 flex-1 flex flex-col gap-2 md:gap-3 overflow-hidden">
+                <div className="p-2 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-4 gap-2 md:gap-3 items-end flex-shrink-0">
                     <div className="md:col-span-2 relative">
                         <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Particulars (Supplier Name)</label>
                         <input
@@ -471,7 +540,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
 
                 {!isEditing && !disableAIInput && !isManualEntry && (
-                    <div className="flex space-x-2 flex-shrink-0 px-2">
+                    <div className="flex flex-wrap gap-2 flex-shrink-0 px-1">
                         <button onClick={() => setIsWebcamModalOpen(true)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><CameraIcon /> Webcam Scan</button>
                         <button onClick={() => setMobileSyncSessionId(generateUUID())} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><SmartphoneIcon /> Mobile Sync</button>
                         <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><UploadIcon /> {isUploading ? <Spinner /> : 'Import Document'}</button>
@@ -479,17 +548,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 )}
 
-                <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
+                <Card className="flex-1 min-h-[380px] md:min-h-[460px] flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
                     <div className="flex-1 overflow-auto">
                         <table className="min-w-full border-collapse text-sm">
-                            <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400">
-                                <tr className="text-[10px] font-black uppercase text-gray-600">
+                            <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400 z-10">
+                                <tr className="text-[10px] font-black uppercase text-gray-600 h-9">
                                     <th className="p-1 border-r border-gray-400 text-left w-8">Sl.</th>
                                     <th className="p-1 border-r border-gray-400 text-left min-w-[200px]">Name of Item</th>
                                     <th className="p-1 border-r border-gray-400 text-left w-20">MFR</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Pack</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-20">Batch</th>
-                                    <th className="p-1 border-r border-gray-400 text-center w-16">Exp.</th>
+                                    <th className="p-1 border-r border-gray-400 text-center w-20">Expiry Date</th>
                                     <th className="p-1 border-r border-gray-400 text-right w-24">MRP</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Qty</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Free</th>
@@ -501,7 +570,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {items.map((p, idx) => (
-                                    <tr key={p.id} className="hover:bg-gray-50 group">
+                                    <tr key={p.id} className="hover:bg-gray-50 group h-10">
                                         <td className="p-1 border-r border-gray-200 font-bold text-gray-400 text-center">{idx + 1}</td>
                                         <td className="p-1 border-r border-gray-200 font-bold text-primary uppercase relative">
                                             <input type="text" id={`name-${p.id}`} value={p.name} autoComplete="off" onChange={e => handleUpdateItem(p.id, 'name', e.target.value)} onFocus={() => setActiveRowId(p.id)} className="w-full bg-transparent outline-none focus:bg-yellow-50" />
@@ -509,14 +578,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         <td className="p-1 border-r border-gray-400"><input type="text" id={`mfr-${p.id}`} value={p.brand} onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)} className="w-full bg-transparent text-[10px] outline-none" /></td>
                                         <td className="p-1 border-r border-gray-200 text-center"><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className="w-full text-center bg-transparent text-[10px] outline-none" /></td>
                                         <td className="p-1 border-r border-gray-200 text-center font-mono text-[10px] uppercase"><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className="w-full text-center bg-transparent outline-none" /></td>
-                                        <td className="p-1 border-r border-gray-200 text-center text-[10px]"><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} className="w-full text-center bg-transparent outline-none" /></td>
+                                        <td className="p-1 border-r border-gray-200 text-center text-[10px]"><input type="text" id={`expiry-${p.id}`} value={p.expiry} maxLength={5} inputMode="numeric" pattern="(0[1-9]|1[0-2])\/\d{2}" placeholder="MM/YY" title="Enter expiry as MM/YY" onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} onBlur={e => handleExpiryBlur(p.id, e.target.value)} className="w-full text-center bg-transparent outline-none" /></td>
                                         <td className="p-1 border-r border-gray-400 text-right text-[11px] font-mono whitespace-nowrap"><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className="w-full text-right bg-transparent outline-none no-spinner" /></td>
                                         <td className="p-1 border-r border-gray-400 text-center font-black"><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
                                         <td className="p-1 border-r border-gray-400 text-center text-emerald-600 font-bold"><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
                                         <td className="p-1 border-r border-gray-400 text-right font-bold text-blue-900"><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} className="w-full text-right bg-transparent outline-none no-spinner font-mono" /></td>
                                         {isFieldVisible('colDisc') && <td className="p-1 border-r border-gray-400 text-center text-red-600"><input type="number" value={p.discountPercent || ''} onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>}
                                         <td className="p-1 border-r border-gray-400 text-center text-red-600"><input type="number" value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} className="w-full text-center bg-transparent no-spinner outline-none font-mono" /></td>
-                                        <td className="p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap">₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.discountPercent || 0) / 100) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
+                                        <td className="p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap">{formatCurrency(getLineTotal(p))}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -524,12 +593,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </Card>
 
-                <div className="flex justify-end gap-6">
-                    <div className="w-full md:w-1/3 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md">
-                        <div className="space-y-1.5 font-bold text-xs uppercase tracking-tight">
-                            <div className="flex justify-between text-gray-500"><span>Subtotal</span> <span className="font-mono">₹{calculatedTotals.subtotal.toFixed(2)}</span></div>
-                            <div className="flex justify-between text-blue-700"><span>Tax (GST)</span> <span className="font-mono">+₹{calculatedTotals.totalGst.toFixed(2)}</span></div>
-                            <div className="border-t border-gray-400 pt-2 flex justify-between text-xl font-black text-primary"><span>TOTAL</span><span className="font-mono">₹{calculatedTotals.totalAmount.toFixed(2)}</span></div>
+                <div className="flex justify-end gap-3 flex-shrink-0">
+                    <div className="w-full md:w-[380px] bg-[#e5f0f0] p-3 tally-border !rounded-none shadow-md">
+                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
+                        <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-tight">
+                            <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                            <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                            <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
+                            <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatCurrency(calculatedTotals.roundOff)}</span></div>
+                            <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
                         </div>
                     </div>
                 </div>
@@ -538,6 +612,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     <button onClick={onCancel} className="px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
                     <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
                         {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Accept (Enter)')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setIsJournalModalOpen(true)}
+                        disabled={!canOpenJournalEntry}
+                        className="px-5 py-2 bg-white border border-primary text-primary hover:bg-primary/5 font-black uppercase tracking-widest text-[10px] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Show Accounting Entry
                     </button>
                 </div>
             </div>
@@ -553,6 +635,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             )}
             {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
             <MobileSyncModal isOpen={!!mobileSyncSessionId} onClose={() => setMobileSyncSessionId(null)} sessionId={mobileSyncSessionId} orgId={organizationId} />
+            <JournalEntryViewerModal
+                isOpen={isJournalModalOpen}
+                onClose={() => setIsJournalModalOpen(false)}
+                invoiceId={purchaseToEdit?.id}
+                invoiceNumber={purchaseToEdit?.invoiceNumber || invoiceNumber}
+                documentType="PURCHASE"
+                currentUser={currentUser}
+                isPosted={isPostedVoucher}
+            />
         </div>
     );
 });

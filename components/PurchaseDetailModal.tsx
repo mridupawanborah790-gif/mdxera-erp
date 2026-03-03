@@ -1,15 +1,18 @@
 
 import React, { useMemo } from 'react';
 import Modal from './Modal';
-import type { Purchase } from '../types';
+import JournalEntryViewerModal from './JournalEntryViewerModal';
+import type { Purchase, RegisteredPharmacy } from '../types';
 
 interface PurchaseDetailModalProps {
     isOpen: boolean;
     onClose: () => void;
     purchase: Purchase | null;
+    currentUser?: RegisteredPharmacy | null;
 }
 
-const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClose, purchase }) => {
+const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClose, purchase, currentUser }) => {
+    const [isJournalOpen, setIsJournalOpen] = React.useState(false);
     const items = useMemo(() => {
         if (!purchase || !purchase.items) return [];
         let rawItems: any[] = [];
@@ -134,9 +137,20 @@ const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClo
                         <div className="flex items-baseline gap-4 md:col-span-1 pt-0"><span className="text-[10px] font-black text-gray-400 uppercase tracking-widest opacity-60">Bill Total</span><span className="text-4xl font-black text-indigo-700 leading-none tracking-tighter">₹{Number(totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
                     </div>
                     <div className="flex items-center space-x-3 w-full md:w-auto flex-shrink-0">
+                        <button onClick={() => setIsJournalOpen(true)} className="flex-1 md:flex-none px-8 py-4 text-xs font-black uppercase tracking-[0.2em] text-indigo-700 bg-indigo-50 border-2 border-indigo-200 rounded-2xl shadow-sm hover:bg-indigo-100 transition-all transform active:scale-95">View Journal Entry</button>
                         <button onClick={onClose} className="flex-1 md:flex-none px-12 py-4 text-xs font-black uppercase tracking-[0.2em] text-white bg-gray-900 rounded-2xl shadow-xl hover:bg-black transition-all transform active:scale-95">Close Summary</button>
                     </div>
                 </div>
+
+                <JournalEntryViewerModal
+                    isOpen={isJournalOpen}
+                    onClose={() => setIsJournalOpen(false)}
+                    invoiceId={purchase.id}
+                    invoiceNumber={purchase.invoiceNumber || purchase.purchaseSerialId}
+                    documentType="PURCHASE"
+                    currentUser={currentUser || null}
+                    isPosted={purchase.status === 'completed'}
+                />
             </div>
         </Modal>
     );

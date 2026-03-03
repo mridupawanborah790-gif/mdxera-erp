@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { InventoryItem, BillItem, Customer, AppConfigurations } from '../types';
+import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 
 interface SalesLineModalProps {
     isOpen: boolean;
@@ -56,6 +57,8 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     const activeBatchRef = useRef<HTMLButtonElement>(null);
 
     const strictStock = configurations?.displayOptions?.strictStock ?? false;
+    const enableNegativeStock = configurations?.displayOptions?.enableNegativeStock ?? false;
+    const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
     const globalDefaultRateTier = configurations?.displayOptions?.defaultRateTier || 'mrp';
 
     const sortedBatches = useMemo(() => {
@@ -79,6 +82,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     }, [batches, cartUnitsByBatchId, initialItem]);
 
     const activeBatch = sortedBatches[selectedBatchIndex];
+    const allowLooseForBatch = activeBatch ? !isLiquidOrWeightPack(activeBatch.packType) : true;
 
     const currentAvailableStock = useMemo(() => {
         if (!activeBatch) return 0;
@@ -95,7 +99,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
                 const bIdx = sortedBatches.findIndex(b => b.id === initialItem.inventoryItemId);
                 setSelectedBatchIndex(bIdx !== -1 ? bIdx : 0);
                 setPacks(initialItem.quantity || 0);
-                setLoose(initialItem.looseQuantity || 0);
+                setLoose((allowLooseForBatch ? initialItem.looseQuantity : 0) || 0);
                 setFreePacks(initialItem.freeQuantity || 0);
                 setDiscount(initialItem.discountPercent || 0);
                 setItemFlatDiscount(initialItem.itemFlatDiscount || 0);
@@ -117,7 +121,9 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             }
             setTimeout(() => packsInputRef.current?.focus(), 150);
         }
-    }, [isOpen, initialItem, sortedBatches, customer]);
+    }, [isOpen, initialItem, sortedBatches, customer, allowLooseForBatch]);
+
+
 
     // Auto-scroll active batch into view
     useEffect(() => {
@@ -129,8 +135,9 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     const lineTotals = useMemo(() => {
         if (!activeBatch) return { gross: 0, afterTrade: 0, schemeDiscount: 0, net: 0, units: 0 };
         
-        const unitsPerPack = activeBatch.unitsPerPack || 1;
-        const totalUnits = (packs * unitsPerPack) + loose;
+        const unitsPerPack = resolveUnitsPerStrip(activeBatch.unitsPerPack, activeBatch.packType);
+        const normalizedLoose = allowLooseForBatch ? loose : 0;
+        const totalUnits = (packs * unitsPerPack) + normalizedLoose;
         const baseRate = activeBatch.mrp; 
         
         let rateValue = baseRate;
@@ -163,7 +170,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
         const net = afterTrade - schemeDiscountAmt - itemFlatDiscount;
 
         return { gross, afterTrade, schemeDiscount: schemeDiscountAmt, net, units: totalUnits };
-    }, [activeBatch, packs, loose, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, customer, globalDefaultRateTier]);
+    }, [activeBatch, packs, loose, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, customer, globalDefaultRateTier, allowLooseForBatch]);
 
     const handleConfirm = useCallback(() => {
         if (!activeBatch || isReadOnly) return;
@@ -173,8 +180,11 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             return;
         }
 
-        // PERMIT SALES EVEN IF STOCK IS ZERO OR BELOW (NEGATIVE STOCK ENABLED)
-        // BLOCKING ALERT REMOVED TO ALLOW TRANSACTION PROCEEDING
+
+        if (shouldPreventNegativeStock && (currentAvailableStock <= 0 || lineTotals.units > currentAvailableStock)) {
+            alert(`Insufficient stock for ${activeBatch.name}. Available: ${currentAvailableStock}`);
+            return;
+        }
 
         let rateTierToUse = customer?.defaultRateTier !== 'none' ? customer?.defaultRateTier : globalDefaultRateTier;
         let rateValue = activeBatch.mrp;
@@ -191,7 +201,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             brand: activeBatch.brand,
             mrp: activeBatch.mrp,
             quantity: packs,
-            looseQuantity: loose,
+            looseQuantity: allowLooseForBatch ? loose : 0,
             freeQuantity: freePacks,
             unit: 'pack',
             gstPercent: activeBatch.gstPercent,
@@ -200,7 +210,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
             batch: activeBatch.batch,
             expiry: activeBatch.expiry,
             rate: rateValue,
-            unitsPerPack: activeBatch.unitsPerPack || 1,
+            unitsPerPack: resolveUnitsPerStrip(activeBatch.unitsPerPack, activeBatch.packType),
             schemeMode: schemeMode === 'No Scheme' ? undefined : schemeMode,
             schemeValue,
             schemeQty,
@@ -211,7 +221,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
 
         onConfirm(item);
         onClose();
-    }, [activeBatch, packs, loose, freePacks, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, initialItem, onConfirm, onClose, isReadOnly, strictStock, currentAvailableStock, customer, globalDefaultRateTier, lineTotals]);
+    }, [activeBatch, packs, loose, freePacks, discount, itemFlatDiscount, schemeMode, schemeValue, schemeQty, schemeTotalQty, initialItem, onConfirm, onClose, isReadOnly, shouldPreventNegativeStock, currentAvailableStock, customer, globalDefaultRateTier, lineTotals, allowLooseForBatch]);
 
     const handleGlobalKeyDown = (e: React.KeyboardEvent) => {
         // Only trigger batch cycling if we are not in a select dropdown
@@ -313,18 +323,20 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
                                                 className="w-full p-4 text-4xl font-black border-2 border-app-border rounded-none bg-white focus:border-primary focus:ring-8 focus:ring-primary/5 outline-none transition-all no-spinner shadow-sm"
                                             />
                                         </div>
-                                        <span className="text-4xl font-black text-gray-200 mb-5">:</span>
-                                        <div className="flex-1">
-                                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">Loose</label>
-                                            <input 
-                                                ref={looseInputRef}
-                                                type="number" 
-                                                value={loose === 0 ? '' : loose} 
-                                                onChange={e => setLoose(parseInt(e.target.value) || 0)}
-                                                onKeyDown={e => handleInputKeyDown(e, discInputRef)}
-                                                className="w-full p-4 text-4xl font-black border-2 border-app-border rounded-none bg-white focus:border-primary focus:ring-8 focus:ring-primary/5 outline-none transition-all no-spinner shadow-sm"
-                                            />
-                                        </div>
+                                        {allowLooseForBatch && <span className="text-4xl font-black text-gray-200 mb-5">:</span>}
+                                        {allowLooseForBatch && (
+                                            <div className="flex-1">
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">Loose</label>
+                                                <input 
+                                                    ref={looseInputRef}
+                                                    type="number" 
+                                                    value={loose === 0 ? '' : loose} 
+                                                    onChange={e => setLoose(parseInt(e.target.value) || 0)}
+                                                    onKeyDown={e => handleInputKeyDown(e, discInputRef)}
+                                                    className="w-full p-4 text-4xl font-black border-2 border-app-border rounded-none bg-white focus:border-primary focus:ring-8 focus:ring-primary/5 outline-none transition-all no-spinner shadow-sm"
+                                                />
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="space-y-4">

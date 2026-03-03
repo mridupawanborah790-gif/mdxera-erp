@@ -1,5 +1,3 @@
-
-
 import { supabase } from './supabaseClient';
 import { idb, STORES } from './indexedDbService';
 import {
@@ -7,10 +5,13 @@ import {
     Customer, PurchaseOrder, TransactionLedgerItem, UserRole, OrganizationMember,
     Medicine, SupplierProductMap, EWayBill,
     DeliveryChallan, DeliveryChallanStatus, PhysicalInventorySession, PhysicalInventoryStatus,
-    CustomerPriceListEntry, SalesChallanStatus, SalesChallan, AppConfigurations
+    CustomerPriceListEntry, SalesChallanStatus, SalesChallan, AppConfigurations,
+    SalesReturn, PurchaseReturn
 } from '../types';
 import { parseNetworkAndApiError } from '../utils/error';
 import { normalizeImportDate } from '../utils/helpers';
+import { deductStockLooseFirst } from '../utils/stock';
+import { DEFAULT_CONFIG_MISSING_MESSAGE, loadDefaultPostingContext } from './companyDefaultsService';
 
 export const generateUUID = () => crypto.randomUUID();
 
@@ -48,7 +49,8 @@ const SALES_BILL_ALLOWED_FIELDS = [
     'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'roundOff', 'total', 'amountReceived',
     'status', 'paymentMode', 'billType',
     'prescriptionUrl', 'prescriptionImages', 'linkedChallans',
-    'createdAt', 'updatedAt'
+    'createdAt', 'updatedAt',
+    'companyCodeId', 'setOfBooksId'
 ];
 
 const PURCHASES_ALLOWED_FIELDS = [
@@ -57,7 +59,8 @@ const PURCHASES_ALLOWED_FIELDS = [
     'subtotal', 'totalGst', 'totalItemDiscount', 'totalItemSchemeDiscount', 'schemeDiscount', 'roundOff', 'totalAmount',
     'items',
     'status', 'eWayBillNo', 'eWayBillDate', 'referenceDocNumber', 'idempotency_key', 'linkedChallans',
-    'createdAt', 'updatedAt'
+    'createdAt', 'updatedAt',
+    'companyCodeId', 'setOfBooksId'
 ];
 
 const isValidUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -166,6 +169,66 @@ export const fetchPhysicalInventory = (user: RegisteredPharmacy) => getData('phy
 // Added missing fetchEWayBills function
 export const fetchEWayBills = (user: RegisteredPharmacy) => getData('ewaybills', [], user);
 
+export type VoucherDocumentType = 'sales-gst' | 'sales-non-gst' | 'purchase-entry' | 'purchase-order';
+
+interface VoucherReservationResult {
+    documentNumber: string;
+    usedNumber: number;
+    nextNumber: number;
+    remainingCount: number | null;
+}
+
+const getVoucherConfigKey = (docType: VoucherDocumentType): keyof AppConfigurations => {
+    switch (docType) {
+        case 'sales-gst':
+            return 'invoiceConfig';
+        case 'sales-non-gst':
+            return 'nonGstInvoiceConfig';
+        case 'purchase-entry':
+            return 'purchaseConfig';
+        case 'purchase-order':
+            return 'purchaseOrderConfig';
+        default:
+            return 'invoiceConfig';
+    }
+};
+
+
+export const reserveVoucherNumber = async (docType: VoucherDocumentType, user: RegisteredPharmacy): Promise<VoucherReservationResult> => {
+    const { data, error } = await supabase.rpc('reserve_voucher_number', {
+        p_organization_id: user.organization_id,
+        p_document_type: docType
+    });
+
+    if (error) {
+        throw new Error(parseNetworkAndApiError(error));
+    }
+
+    const payload = Array.isArray(data) ? data[0] : data;
+    if (!payload?.success) {
+        throw new Error(payload?.message || 'Unable to reserve voucher number.');
+    }
+
+    const configList = await getData('configurations', [], user) as AppConfigurations[];
+    const config = configList[0] || { organization_id: user.organization_id };
+    const configKey = getVoucherConfigKey(docType);
+    const existing = (config[configKey] as any) || {};
+    const updated = {
+        ...existing,
+        currentNumber: payload.used_number,
+        fy: payload.fy,
+        resetRule: 'financial-year'
+    };
+    await saveData('configurations', { ...config, [configKey]: updated }, user);
+
+    return {
+        documentNumber: payload.document_number,
+        usedNumber: payload.used_number,
+        nextNumber: payload.next_number,
+        remainingCount: payload.remaining_count ?? null
+    };
+};
+
 /**
  * Fetches all organization records from Supabase by handling PostgREST pagination (default 1000 limit).
  */
@@ -235,16 +298,76 @@ export const getData = async (tableName: string, defaultValue: any[] = [], user:
     return cached.length > 0 ? cached : defaultValue;
 };
 
+
+const ensurePostingContext = async (
+    payload: { companyCodeId?: string; setOfBooksId?: string },
+    user: RegisteredPharmacy
+): Promise<{ companyCodeId: string; setOfBooksId: string }> => {
+    // Transaction posting must always follow the configured default company + default set of books.
+    // Ignore payload-level company/books values to prevent cross-company ledger posting.
+    const defaults = await loadDefaultPostingContext(user.organization_id);
+    return {
+        companyCodeId: defaults.companyCodeId,
+        setOfBooksId: defaults.setOfBooksId,
+    };
+};
+
 export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) => {
     if (!tx.user_id) tx.user_id = user.user_id;
+
+    try {
+        const postingContext = await ensurePostingContext(tx, user);
+        tx.companyCodeId = postingContext.companyCodeId;
+        tx.setOfBooksId = postingContext.setOfBooksId;
+    } catch (e: any) {
+        throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+    }
+
     const res = await saveData('sales_bill', tx, user);
+
+    // Batch inventory updates to avoid one network/database roundtrip per line item.
+    const unitsToDeductByInventoryId = new Map<string, number>();
     for (const item of tx.items) {
-        const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem;
-        if (inv) {
-            inv.stock -= (item.quantity * (inv.unitsPerPack || 1)) + (item.looseQuantity || 0);
-            await saveData('inventory', inv, user);
+        if (!item.inventoryItemId) continue;
+        const current = unitsToDeductByInventoryId.get(item.inventoryItemId) || 0;
+        unitsToDeductByInventoryId.set(
+            item.inventoryItemId,
+            current + ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0)
+        );
+    }
+
+    if (unitsToDeductByInventoryId.size > 0) {
+        const inventoryIds = Array.from(unitsToDeductByInventoryId.keys());
+        const inventoryRecords = await Promise.all(
+            inventoryIds.map(id => idb.get(STORES.INVENTORY, id) as Promise<InventoryItem | null>)
+        );
+
+        const updatedInventory: InventoryItem[] = inventoryRecords
+            .filter((inv): inv is InventoryItem => Boolean(inv))
+            .map(inv => {
+                const unitsToDeduct = unitsToDeductByInventoryId.get(inv.id) || 0;
+                return {
+                    ...inv,
+                    stock: deductStockLooseFirst(Number(inv.stock || 0), unitsToDeduct, inv.unitsPerPack, inv.packType),
+                };
+            });
+
+        if (updatedInventory.length > 0) {
+            await idb.putBulk(STORES.INVENTORY, updatedInventory);
+
+            if (navigator.onLine) {
+                try {
+                    const remotePayload = updatedInventory.map(inv => toSnake(getSupabasePayload('inventory', inv)));
+                    const { error } = await supabase.from('inventory').upsert(remotePayload);
+                    if (error) throw error;
+                } catch (e) {
+                    console.warn('Supabase batch inventory sync failed after sales transaction, local copy preserved.', e);
+                }
+            }
         }
     }
+
+    await syncSalesLedger(tx, user);
     return res;
 };
 
@@ -280,6 +403,14 @@ export const generateNextSalesBillId = async (templateId: string, user: Register
 };
 
 export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
+    try {
+        const postingContext = await ensurePostingContext(p, user);
+        p.companyCodeId = postingContext.companyCodeId;
+        p.setOfBooksId = postingContext.setOfBooksId;
+    } catch (e: any) {
+        throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+    }
+
     const res = await saveData('purchases', p, user);
 
     // Use a Map to accumulate stock changes for this purchase
@@ -350,6 +481,7 @@ export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
             await saveData('inventory', newInv, user);
         }
     }
+    await syncPurchaseLedger(p, user);
     return res;
 };
 
@@ -439,6 +571,7 @@ export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
         }
     }
 
+    await syncPurchaseLedger(p, user);
     return res;
 };
 export const saveCustomerPriceList = (entry: CustomerPriceListEntry, user: RegisteredPharmacy) => saveData('customer_price_list', entry, user);
@@ -495,6 +628,38 @@ export const clearCurrentUser = async () => {
     await idb.clearAllStores();
 };
 
+export const requestPasswordReset = async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/`,
+    });
+    if (error) throw error;
+};
+
+export const verifyRecoveryToken = async (email: string, token: string) => {
+    const cleanToken = token.trim();
+    const isOtp = /^\d{6}$/.test(cleanToken);
+    
+    if (isOtp) {
+        const { error } = await supabase.auth.verifyOtp({
+            email,
+            token: cleanToken,
+            type: 'recovery',
+        });
+        if (error) throw error;
+    } else {
+        const { error } = await supabase.auth.verifyOtp({
+            token_hash: cleanToken,
+            type: 'recovery',
+        });
+        if (error) throw error;
+    }
+};
+
+export const updatePassword = async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw error;
+};
+
 export const getCurrentUser = async (): Promise<RegisteredPharmacy | null> => {
     const cached = await idb.getAll(STORES.PROFILES);
     return cached.length > 0 ? cached[0] : null;
@@ -533,6 +698,376 @@ export const addLedgerEntry = async (entry: TransactionLedgerItem, owner: { type
     return await saveData(type === 'customer' ? 'customers' : 'suppliers', entity, user);
 };
 
+const AUTO_LEDGER_PREFIX = '[AUTO_LEDGER]';
+
+const sortLedgerEntries = (entries: TransactionLedgerItem[]) => {
+    return [...entries].sort((a, b) => {
+        const dateDiff = new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        return (a.id || '').localeCompare(b.id || '');
+    });
+};
+
+const recalculateLedger = (entries: TransactionLedgerItem[], openingBalance = 0): TransactionLedgerItem[] => {
+    let runningBalance = Number(openingBalance || 0);
+    return sortLedgerEntries(entries).map((entry) => {
+        runningBalance += Number(entry.debit || 0) - Number(entry.credit || 0);
+        return { ...entry, balance: runningBalance };
+    });
+};
+
+const isAutoLedgerEntry = (entry: TransactionLedgerItem, referenceKey: string): boolean => {
+    return entry.id === referenceKey || (entry.description || '').includes(`${AUTO_LEDGER_PREFIX}:${referenceKey}`);
+};
+
+const upsertAutoLedgerEntry = async (
+    owner: { type: 'customer' | 'supplier', id: string },
+    user: RegisteredPharmacy,
+    entry: Omit<TransactionLedgerItem, 'balance'>,
+    shouldPost: boolean
+) => {
+    const storeName = owner.type === 'customer' ? STORES.CUSTOMERS : STORES.SUPPLIERS;
+    const tableName = owner.type === 'customer' ? 'customers' : 'suppliers';
+    const entity = await idb.get(storeName, owner.id) as (Customer | Supplier | undefined);
+    if (!entity) return;
+
+    const nextLedger = (entity.ledger || []).filter((item) => !isAutoLedgerEntry(item, entry.id));
+    if (shouldPost) {
+        nextLedger.push({
+            ...entry,
+            description: `${entry.description} ${AUTO_LEDGER_PREFIX}:${entry.id}`.trim(),
+            balance: 0,
+        });
+    }
+
+    entity.ledger = recalculateLedger(nextLedger, entity.opening_balance || 0);
+    await saveData(tableName, entity, user);
+};
+
+
+const mapMaterialType = (value?: string): string => {
+    const v = String(value || '').toLowerCase();
+    if (v.includes('finish')) return 'Finished Goods';
+    if (v.includes('consum')) return 'Consumables';
+    if (v.includes('service')) return 'Service Material';
+    if (v.includes('pack')) return 'Packaging';
+    return 'Trading Goods';
+};
+
+const buildJournalNumber = (prefix: 'SAL' | 'PUR') => `${prefix}-${Date.now()}`;
+
+const postJournal = async (
+    user: RegisteredPharmacy,
+    args: {
+        referenceId: string;
+        referenceType: 'SALES_BILL' | 'PURCHASE_BILL';
+        documentType: 'SALES' | 'PURCHASE';
+        documentReference: string;
+        postingDate: string;
+        companyCodeId: string;
+        setOfBooksId: string;
+        lines: Array<{ glId: string; debit: number; credit: number; memo: string }>;
+    }
+) => {
+    if (!navigator.onLine) return;
+
+    const { data: setOfBooks, error: sobError } = await supabase
+        .from('set_of_books')
+        .select('id, set_of_books_id, company_code_id, default_customer_gl_id, default_supplier_gl_id')
+        .eq('organization_id', user.organization_id)
+        .eq('id', args.setOfBooksId)
+        .single();
+    if (sobError || !setOfBooks || setOfBooks.company_code_id !== args.companyCodeId) {
+        throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
+    }
+
+    const glIds = Array.from(new Set(args.lines.map(l => l.glId)));
+    const { data: glRows, error: glError } = await supabase
+        .from('gl_master')
+        .select('id, gl_code, gl_name, set_of_books_id')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', args.setOfBooksId)
+        .in('id', glIds);
+    if (glError) throw glError;
+    const glById = new Map((glRows || []).map((g: any) => [g.id, g]));
+
+    const enrichedLines = args.lines.map((line) => {
+        const gl = glById.get(line.glId);
+        if (!gl || gl.set_of_books_id !== args.setOfBooksId) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        return {
+            ...line,
+            gl_code: gl.gl_code,
+            gl_name: gl.gl_name,
+        };
+    });
+
+    const totalDebit = Number(enrichedLines.reduce((sum, l) => sum + l.debit, 0).toFixed(2));
+    const totalCredit = Number(enrichedLines.reduce((sum, l) => sum + l.credit, 0).toFixed(2));
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        throw new Error('Generated accounting journals are not balanced.');
+    }
+
+    const { data: companyRow } = await supabase
+        .from('company_codes')
+        .select('code')
+        .eq('id', args.companyCodeId)
+        .maybeSingle();
+
+    const { data: header, error: headerError } = await supabase
+        .from('journal_entry_header')
+        .insert({
+            organization_id: user.organization_id,
+            journal_entry_number: buildJournalNumber(args.documentType === 'SALES' ? 'SAL' : 'PUR'),
+            posting_date: args.postingDate,
+            status: 'Posted',
+            reference_type: args.referenceType,
+            reference_id: args.referenceId,
+            reference_document_id: args.referenceId,
+            document_type: args.documentType,
+            document_reference: args.documentReference,
+            company: companyRow?.code || args.companyCodeId,
+            company_code_id: args.companyCodeId,
+            set_of_books: setOfBooks.set_of_books_id || args.setOfBooksId,
+            set_of_books_id: args.setOfBooksId,
+            total_debit: totalDebit,
+            total_credit: totalCredit,
+        })
+        .select('id')
+        .single();
+    if (headerError) throw headerError;
+
+    const { error: lineError } = await supabase
+        .from('journal_entry_lines')
+        .insert(enrichedLines.map((line, index) => ({
+            organization_id: user.organization_id,
+            journal_entry_id: header.id,
+            reference_document_id: args.referenceId,
+            document_type: args.documentType,
+            line_number: index + 1,
+            gl_code: line.gl_code,
+            gl_name: line.gl_name,
+            debit: Number(line.debit.toFixed(2)),
+            credit: Number(line.credit.toFixed(2)),
+            line_memo: line.memo,
+        })));
+    if (lineError) throw lineError;
+};
+
+const findCustomerForTransaction = async (tx: Transaction): Promise<Customer | undefined> => {
+    const customers = await idb.getAll(STORES.CUSTOMERS) as Customer[];
+    if (tx.customerId) {
+        const byId = customers.find(c => c.id === tx.customerId);
+        if (byId) return byId;
+    }
+
+    const customerName = (tx.customerName || '').trim().toLowerCase();
+    return customers.find(c => (c.name || '').trim().toLowerCase() === customerName);
+};
+
+const findSupplierForPurchase = async (purchase: Purchase): Promise<Supplier | undefined> => {
+    const suppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
+    const supplierName = (purchase.supplier || '').trim().toLowerCase();
+    return suppliers.find(s => (s.name || '').trim().toLowerCase() === supplierName);
+};
+
+export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy) => {
+    const customer = await findCustomerForTransaction(tx);
+    if (!customer) return;
+
+    await upsertAutoLedgerEntry(
+        { type: 'customer', id: customer.id },
+        user,
+        {
+            id: `auto-sale-${tx.id}`,
+            date: tx.date,
+            type: 'sale',
+            description: `Sales Voucher ${tx.id}`,
+            debit: Number(tx.total || 0),
+            credit: 0,
+        },
+        tx.status !== 'cancelled'
+    );
+
+    if (tx.status === 'cancelled') return;
+
+    const postingContext = await ensurePostingContext(tx, user);
+    tx.companyCodeId = postingContext.companyCodeId;
+    tx.setOfBooksId = postingContext.setOfBooksId;
+
+    const { data: assignments, error: assignmentError } = await supabase
+        .from('gl_assignments')
+        .select('material_master_type, sales_gl, tax_gl')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', tx.setOfBooksId);
+    if (assignmentError) throw assignmentError;
+
+    const assignmentByType = new Map((assignments || []).map((a: any) => [a.material_master_type, a]));
+    const { data: books } = await supabase
+        .from('set_of_books')
+        .select('default_customer_gl_id')
+        .eq('organization_id', user.organization_id)
+        .eq('id', tx.setOfBooksId)
+        .single();
+    const customerControlGl = books?.default_customer_gl_id;
+    if (!customerControlGl) throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+
+    const lineAcc = new Map<string, { debit: number; credit: number; memo: string }>();
+    const addLine = (glId: string, debit: number, credit: number, memo: string) => {
+        const cur = lineAcc.get(glId) || { debit: 0, credit: 0, memo };
+        cur.debit += debit;
+        cur.credit += credit;
+        lineAcc.set(glId, cur);
+    };
+
+    addLine(customerControlGl, Number(tx.total || 0), 0, 'Customer control');
+
+    for (const item of tx.items || []) {
+        const materialType = mapMaterialType((item as any).category);
+        const assignment = assignmentByType.get(materialType) || assignmentByType.get('Trading Goods');
+        if (!assignment?.sales_gl || !assignment?.tax_gl) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        const taxable = Number((item as any).taxableValue || 0);
+        const gst = Number((item as any).gstAmount || 0);
+        addLine(String(assignment.sales_gl), 0, taxable, `${materialType} sales`);
+        if (gst > 0) addLine(String(assignment.tax_gl), 0, gst, `${materialType} tax`);
+    }
+
+    const lines = Array.from(lineAcc.entries()).map(([glId, v]) => ({ glId, debit: v.debit, credit: v.credit, memo: v.memo }));
+
+    await postJournal(user, {
+        referenceId: tx.id,
+        referenceType: 'SALES_BILL',
+        documentType: 'SALES',
+        documentReference: tx.id,
+        postingDate: tx.date,
+        companyCodeId: tx.companyCodeId,
+        setOfBooksId: tx.setOfBooksId,
+        lines,
+    });
+};
+
+export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPharmacy) => {
+    const supplier = await findSupplierForPurchase(purchase);
+    if (!supplier) return;
+
+    await upsertAutoLedgerEntry(
+        { type: 'supplier', id: supplier.id },
+        user,
+        {
+            id: `auto-purchase-${purchase.id}`,
+            date: purchase.date,
+            type: 'purchase',
+            description: `Purchase Voucher ${purchase.invoiceNumber || purchase.id}`,
+            debit: Number(purchase.totalAmount || 0),
+            credit: 0,
+        },
+        purchase.status !== 'cancelled'
+    );
+
+    if (purchase.status === 'cancelled') return;
+
+    const postingContext = await ensurePostingContext(purchase, user);
+    purchase.companyCodeId = postingContext.companyCodeId;
+    purchase.setOfBooksId = postingContext.setOfBooksId;
+
+    const { data: assignments, error: assignmentError } = await supabase
+        .from('gl_assignments')
+        .select('material_master_type, purchase_gl, tax_gl')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', purchase.setOfBooksId);
+    if (assignmentError) throw assignmentError;
+
+    const assignmentByType = new Map((assignments || []).map((a: any) => [a.material_master_type, a]));
+    const { data: books } = await supabase
+        .from('set_of_books')
+        .select('default_supplier_gl_id')
+        .eq('organization_id', user.organization_id)
+        .eq('id', purchase.setOfBooksId)
+        .single();
+    const supplierControlGl = books?.default_supplier_gl_id;
+    if (!supplierControlGl) throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+
+    const lineAcc = new Map<string, { debit: number; credit: number; memo: string }>();
+    const addLine = (glId: string, debit: number, credit: number, memo: string) => {
+        const cur = lineAcc.get(glId) || { debit: 0, credit: 0, memo };
+        cur.debit += debit;
+        cur.credit += credit;
+        lineAcc.set(glId, cur);
+    };
+
+    addLine(String(supplierControlGl), 0, Number(purchase.totalAmount || 0), 'Supplier control');
+
+    for (const item of purchase.items || []) {
+        const materialType = mapMaterialType((item as any).category);
+        const assignment = assignmentByType.get(materialType) || assignmentByType.get('Trading Goods');
+        if (!assignment?.purchase_gl || !assignment?.tax_gl) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        const taxable = Number((item as any).taxableValue || 0);
+        const gst = Number((item as any).gstAmount || 0);
+        addLine(String(assignment.purchase_gl), taxable, 0, `${materialType} purchase`);
+        if (gst > 0) addLine(String(assignment.tax_gl), gst, 0, `${materialType} tax`);
+    }
+
+    const lines = Array.from(lineAcc.entries()).map(([glId, v]) => ({ glId, debit: v.debit, credit: v.credit, memo: v.memo }));
+
+    await postJournal(user, {
+        referenceId: purchase.id,
+        referenceType: 'PURCHASE_BILL',
+        documentType: 'PURCHASE',
+        documentReference: purchase.invoiceNumber || purchase.id,
+        postingDate: purchase.date,
+        companyCodeId: purchase.companyCodeId,
+        setOfBooksId: purchase.setOfBooksId,
+        lines,
+    });
+};
+
+export const syncSalesReturnLedger = async (salesReturn: SalesReturn, user: RegisteredPharmacy) => {
+    const customers = await idb.getAll(STORES.CUSTOMERS) as Customer[];
+    const customer = salesReturn.customerId
+        ? customers.find(c => c.id === salesReturn.customerId)
+        : customers.find(c => (c.name || '').trim().toLowerCase() === (salesReturn.customerName || '').trim().toLowerCase());
+    if (!customer) return;
+
+    await upsertAutoLedgerEntry(
+        { type: 'customer', id: customer.id },
+        user,
+        {
+            id: `auto-sales-return-${salesReturn.id}`,
+            date: salesReturn.date,
+            type: 'return',
+            description: `Sales Return ${salesReturn.id}`,
+            debit: 0,
+            credit: Number(salesReturn.totalRefund || 0),
+        },
+        true
+    );
+};
+
+export const syncPurchaseReturnLedger = async (purchaseReturn: PurchaseReturn, user: RegisteredPharmacy) => {
+    const suppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
+    const supplier = suppliers.find(s => (s.name || '').trim().toLowerCase() === (purchaseReturn.supplier || '').trim().toLowerCase());
+    if (!supplier) return;
+
+    await upsertAutoLedgerEntry(
+        { type: 'supplier', id: supplier.id },
+        user,
+        {
+            id: `auto-purchase-return-${purchaseReturn.id}`,
+            date: purchaseReturn.date,
+            type: 'return',
+            description: `Purchase Return ${purchaseReturn.id}`,
+            debit: 0,
+            credit: Number(purchaseReturn.totalValue || 0),
+        },
+        true
+    );
+};
+
 export const pushPartnerOrder = async (senderOrgId: string, senderName: string, receiverEmail: string, payload: any, senderPoId: string) => {
     if (navigator.onLine) {
         const { error } = await supabase.from('partner_orders').insert({ sender_org_id: senderOrgId, sender_name: senderName, receiver_email: receiverEmail, payload, sender_po_id: senderPoId, status: 'pending' });
@@ -540,16 +1075,221 @@ export const pushPartnerOrder = async (senderOrgId: string, senderName: string, 
     }
 };
 
+const latestSyncPayloadBySession = new Map<string, any>();
+
+const MOBILE_SYNC_TABLE = 'mobile_purchase_sync';
+const MOBILE_BILL_SYNC_TABLE = 'mobile_bill_sync_queue';
+
+export interface MobileSyncServerBill {
+    id: string;
+    session_id: string;
+    organization_id: string;
+    user_id: string;
+    device_id: string;
+    invoice_id: string;
+    payload: any;
+    status: 'synced' | 'imported' | 'failed';
+    imported_at?: string | null;
+    import_error?: string | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface MobileBillSyncRecord {
+    id: string;
+    session_id: string;
+    organization_id: string;
+    user_id: string;
+    device_id: string;
+    status: 'synced' | 'imported' | 'failed';
+    payload: any;
+    error_message: string | null;
+    created_at: string;
+    imported_at: string | null;
+}
+
+export interface SaveMobileBillUploadInput {
+    sessionId: string;
+    organizationId: string;
+    userId: string;
+    deviceId: string;
+    payload: any;
+}
+
+export interface FetchMobileBillUploadInput {
+    organizationId: string;
+    userId: string;
+    deviceId: string;
+    sessionId?: string | null;
+}
+
+export const getOrCreateMobileDeviceId = (): string => {
+    const key = 'mdxera.mobile.device_id';
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const next = crypto.randomUUID();
+    localStorage.setItem(key, next);
+    return next;
+};
+
+const toMobileSyncBill = (row: any): MobileSyncServerBill => ({
+    id: String(row.id),
+    session_id: String(row.session_id),
+    organization_id: String(row.organization_id),
+    user_id: String(row.user_id),
+    device_id: String(row.device_id),
+    invoice_id: String(row.invoice_id),
+    payload: row.payload,
+    status: row.status,
+    imported_at: row.imported_at ?? null,
+    import_error: row.import_error ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+});
+
+export const createMobileSyncedBill = async (payload: Omit<MobileSyncServerBill, 'id' | 'status' | 'imported_at' | 'import_error' | 'created_at' | 'updated_at'>): Promise<MobileSyncServerBill> => {
+    const row = {
+        session_id: payload.session_id,
+        organization_id: payload.organization_id,
+        user_id: payload.user_id,
+        device_id: payload.device_id,
+        invoice_id: payload.invoice_id,
+        payload: payload.payload,
+        status: 'synced',
+    };
+
+    const { data, error } = await supabase.from(MOBILE_SYNC_TABLE).insert(row).select('*').single();
+    if (error) throw error;
+    return toMobileSyncBill(data);
+};
+
+export const fetchPendingMobileBills = async (filters: { organizationId: string; userId: string; deviceId: string; sessionId?: string | null; }): Promise<MobileSyncServerBill[]> => {
+    let query = supabase
+        .from(MOBILE_SYNC_TABLE)
+        .select('*')
+        .eq('organization_id', filters.organizationId)
+        .eq('user_id', filters.userId)
+        .eq('device_id', filters.deviceId)
+        .eq('status', 'synced')
+        .order('created_at', { ascending: false });
+
+    if (filters.sessionId) {
+        query = query.eq('session_id', filters.sessionId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data || []).map(toMobileSyncBill);
+};
+
+export const markMobileBillImported = async (id: string, status: 'imported' | 'failed', importError?: string | null): Promise<void> => {
+    const patch: Record<string, any> = {
+        status,
+        import_error: importError || null,
+        updated_at: new Date().toISOString(),
+    };
+    if (status === 'imported') {
+        patch.imported_at = new Date().toISOString();
+        patch.import_error = null;
+    }
+
+    const { error } = await supabase.from(MOBILE_SYNC_TABLE).update(patch).eq('id', id).neq('status', 'imported');
+    if (error) throw error;
+};
+
 export const broadcastSyncMessage = async (sessionId: string, data: any) => {
+    latestSyncPayloadBySession.set(sessionId, data);
     const channel = supabase.channel(`sync:${sessionId}`);
     await channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') await channel.send({ type: 'broadcast', event: 'capture', payload: data });
     });
 };
 
-export const listenForSyncMessage = (sessionId: string, callback: (data: any) => void) => {
-    return supabase.channel(`sync:${sessionId}`).on('broadcast', { event: 'capture' }, ({ payload }) => callback(payload)).subscribe();
+export const saveMobileBillUpload = async ({
+    sessionId,
+    organizationId,
+    userId,
+    deviceId,
+    payload,
+}: SaveMobileBillUploadInput): Promise<MobileBillSyncRecord> => {
+    const recordPayload = {
+        session_id: sessionId,
+        organization_id: organizationId,
+        user_id: userId,
+        device_id: deviceId,
+        status: 'synced',
+        payload,
+        error_message: null,
+    };
+
+    const { data, error } = await supabase
+        .from(MOBILE_BILL_SYNC_TABLE)
+        .insert(recordPayload)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data as MobileBillSyncRecord;
 };
+
+export const fetchLatestPendingMobileBillUpload = async ({
+    organizationId,
+    userId,
+    deviceId,
+    sessionId,
+}: FetchMobileBillUploadInput): Promise<MobileBillSyncRecord | null> => {
+    let query = supabase
+        .from(MOBILE_BILL_SYNC_TABLE)
+        .select('*')
+        .eq('organization_id', organizationId)
+        .eq('user_id', userId)
+        .eq('device_id', deviceId)
+        .eq('status', 'synced')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+    if (sessionId) {
+        query = query.eq('session_id', sessionId);
+    }
+
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    return (data as MobileBillSyncRecord | null) ?? null;
+};
+
+export const markMobileBillUploadImported = async (id: string) => {
+    const { data, error } = await supabase
+        .from(MOBILE_BILL_SYNC_TABLE)
+        .update({ status: 'imported', imported_at: new Date().toISOString(), error_message: null })
+        .eq('id', id)
+        .eq('status', 'synced')
+        .select('id,status,imported_at')
+        .maybeSingle();
+
+    if (error) throw error;
+    return data;
+};
+
+export const markMobileBillUploadFailed = async (id: string, errorMessage: string) => {
+    const { error } = await supabase
+        .from(MOBILE_BILL_SYNC_TABLE)
+        .update({ status: 'failed', error_message: errorMessage })
+        .eq('id', id);
+
+    if (error) throw error;
+};
+
+export const listenForSyncMessage = (sessionId: string, callback: (data: any) => void) => {
+    return supabase
+        .channel(`sync:${sessionId}`)
+        .on('broadcast', { event: 'capture' }, ({ payload }) => {
+            latestSyncPayloadBySession.set(sessionId, payload);
+            callback(payload);
+        })
+        .subscribe();
+};
+
+export const getLatestSyncMessage = (sessionId: string) => latestSyncPayloadBySession.get(sessionId) ?? null;
 
 export const updateSalesChallanStatus = async (id: string, status: SalesChallanStatus, user: RegisteredPharmacy) => {
     const challan = await idb.get(STORES.SALES_CHALLANS, id) as SalesChallan;

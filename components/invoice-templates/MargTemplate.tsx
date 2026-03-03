@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
+import { calculateBillingTotals } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -20,37 +21,45 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const showItemWiseDisc = displayOptions.showItemWiseDiscountOnPrint !== false;
   const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
 
+  const computedBillTotals = useMemo(() => calculateBillingTotals({
+    items: bill.items || [],
+    billDiscount: bill.schemeDiscount || 0,
+    isNonGst,
+    configurations: bill.configurations,
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst]);
+
   const calculations = useMemo(() => {
     let subtotalValue = 0;
-    let totalDiscount = 0;
     let totalSgst = 0;
     let totalCgst = 0;
 
     const items = (bill.items || []).map(item => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
-      
+
       const rate = item.rate ?? item.mrp ?? 0;
       const unitsPerPack = item.unitsPerPack || 1;
-      const totalUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-      const unitRate = rate / unitsPerPack;
-      
-      const lineGross = unitRate * totalUnits;
-      const tradeDiscAmt = lineGross * ((item.discountPercent || 0) / 100);
-      const schDiscAmt = item.schemeDiscountAmount || 0;
-      const lineNet = lineGross - tradeDiscAmt - schDiscAmt;
+      const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
+      const lineGross = billedQty * rate;
+      const tradeDiscount = lineGross * ((item.discountPercent || 0) / 100);
+      const schemeDiscount = item.schemeDiscountAmount || 0;
+      const lineAmount = Number.isFinite(item.finalAmount)
+        ? (item.finalAmount as number)
+        : Number.isFinite(item.amount)
+          ? (item.amount as number)
+          : (lineGross - tradeDiscount - schemeDiscount);
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
-      const taxableVal = lineNet / (1 + (effectiveGst / 100));
-      const gstAmt = lineNet - taxableVal;
+      const taxableVal = lineAmount / (1 + (effectiveGst / 100));
+      const gstAmt = lineAmount - taxableVal;
       
-      subtotalValue += taxableVal + gstAmt;
-      totalDiscount += tradeDiscAmt + schDiscAmt;
+      subtotalValue += lineAmount;
       totalSgst += gstAmt / 2;
       totalCgst += gstAmt / 2;
 
       return {
         ...item,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
+        pack: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack}` : ''),
         batch: item.batch || inventoryItem?.batch || '',
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : ''),
         taxableVal,
@@ -78,8 +87,15 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    return { items, itemChunks, subtotalValue, totalDiscount, totalSgst, totalCgst, gstSummary };
-  }, [bill, isNonGst]);
+    const tradeDiscount = computedBillTotals.tradeDiscount || bill.totalItemDiscount || 0;
+    const billDiscount = showBillDiscount ? (computedBillTotals.billDiscount || 0) : 0;
+    const taxableValue = computedBillTotals.taxableValue;
+    const totalGst = isNonGst ? 0 : computedBillTotals.tax;
+    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
+    const grandTotal = bill.total || (taxableValue + totalGst + roundOff);
+
+    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, billDiscount, taxableValue, totalGst, roundOff, grandTotal };
+  }, [bill, isNonGst, computedBillTotals, showBillDiscount]);
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased" style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}>
@@ -171,8 +187,10 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
                 <th className="w-[10%]">QTY+F</th>
-                <th className="text-left w-[32%]">DESCRIPTION</th>
-                <th className="w-[10%]">BATCH</th>
+                <th className="text-left w-[23%]">DESCRIPTION</th>
+                <th className="w-[8%]">HSN</th>
+                <th className="w-[7%]">PACK</th>
+                <th className="w-[9%]">BATCH</th>
                 <th className="w-[7%]">EXP.</th>
                 <th className="w-[8%] text-right">M.R.P</th>
                 <th className="w-[8%] text-right">RATE</th>
@@ -197,12 +215,14 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     {showItemWiseDisc && <td className="text-center text-red-600">{item.discountPercent || '0'}</td>}
                     {showSchemeColumn && <td className="text-center text-emerald-700">{item.schemeDiscountPercent || '-'}</td>}
                     <td className="text-center">{(item.gstPercent || 0).toFixed(0)}</td>
-                    <td className="text-right font-black border-r-0 text-gray-950">{(item.lineTotal || 0).toFixed(2)}</td>
+                    <td className="text-right font-black border-r-0 text-gray-950">{(item.lineAmount || 0).toFixed(2)}</td>
                   </tr>
                 );
               })}
               {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                 <tr key={`spacer-${i}`} className="row-height border-b border-gray-100 last:border-b-0">
+                    <td className="border-r border-black"></td>
+                    <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
@@ -250,12 +270,12 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
                   <div className="mt-1">
                     <p className="text-[7.5pt] font-black uppercase text-gray-950 border-b border-dashed border-gray-300 pb-1 mb-1 leading-tight">
-                      {numberToWords(bill.total)}
+                      {numberToWords(calculations.grandTotal)}
                     </p>
                     <div className="mt-2 flex justify-between items-end">
                         <div>
                             <span className="text-base font-black text-gray-900 mr-2">BAL:</span>
-                            <span className="text-base font-black text-red-600">₹{(bill.total - (bill.amountReceived || 0)).toFixed(2)}</span>
+                            <span className="text-base font-black text-red-600">₹{(calculations.grandTotal - (bill.amountReceived || 0)).toFixed(2)}</span>
                         </div>
                         <div className="text-center pr-1">
                             <p className="text-[6pt] font-black mb-4 uppercase tracking-wider">FOR {bill.pharmacy.pharmacy_name}</p>
@@ -267,22 +287,21 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
                 <div className="flex flex-col bg-gray-50/80">
                   <div className="p-2 flex-1 space-y-1 text-[8.5pt] font-bold">
-                      <div className="flex justify-between"><span>SUB TOTAL</span> <span className="font-black">₹ {(calculations.subtotalValue || 0).toFixed(2)}</span></div>
+                      <div className="flex justify-between"><span>SUB TOTAL</span> <span className="font-black">₹ {(bill.subtotal || 0).toFixed(2)}</span></div>
                       
-                      {showBillDiscount && (bill.schemeDiscount || 0) > 0 && (
+                      {showBillDiscount && calculations.billDiscount > 0 && (
                         <div className="flex justify-between text-indigo-700 font-black">
                             <span>{isMode8 ? 'Adjustment (Mode 8)' : 'Bill Discount'}</span> 
-                            <span>- {(bill.schemeDiscount || 0).toFixed(2)}</span>
+                            <span>- {calculations.billDiscount.toFixed(2)}</span>
                         </div>
                       )}
-                      
-                      <div className="flex justify-between text-gray-600"><span>Trade Discount</span> <span className="text-red-700 font-black">- {(calculations.totalDiscount || 0).toFixed(2)}</span></div>
-                      {!isNonGst && <div className="flex justify-between text-gray-600"><span>Tax Amount</span> <span className="font-black text-gray-900">{((calculations.totalSgst || 0) + (calculations.totalCgst || 0)).toFixed(2)}</span></div>}
-                      <div className="flex justify-between text-gray-500"><span>Round Off</span> <span className="text-[8pt] font-normal">{(bill.roundOff || 0).toFixed(2)}</span></div>
+
+                      {!isNonGst && <div className="flex justify-between text-gray-600"><span>Tax Amount</span> <span className="font-black text-gray-900">{(calculations.totalGst || 0).toFixed(2)}</span></div>}
+                      <div className="flex justify-between text-gray-500"><span>Round Off</span> <span className="text-[8pt] font-normal">{(calculations.roundOff || 0).toFixed(2)}</span></div>
                   </div>
                   <div className="p-2 bg-white border-t border-black flex justify-between items-center shadow-inner">
                       <span className="text-sm font-black text-gray-800 tracking-tighter">GRAND TOTAL</span>
-                      <span className="text-2xl font-black text-blue-900 tracking-tighter">₹ {Math.round(bill.total).toFixed(0)}</span>
+                      <span className="text-2xl font-black text-blue-900 tracking-tighter">₹ {calculations.grandTotal.toFixed(2)}</span>
                   </div>
                 </div>
             </div>
