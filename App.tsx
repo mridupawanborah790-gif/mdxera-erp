@@ -403,10 +403,16 @@ const App: React.FC = () => {
         try {
             await storage.clearCurrentUser();
             setCurrentUser(null);
-            window.location.reload();
+            setCurrentPage('dashboard');
+            setAuthView('auth');
+            window.history.replaceState({}, '', '/');
         } catch (e) {
             setCurrentUser(null);
-            window.location.reload();
+            setCurrentPage('dashboard');
+            setAuthView('auth');
+            window.history.replaceState({}, '', '/');
+        } finally {
+            setIsAppLoading(false);
         }
     };
 
