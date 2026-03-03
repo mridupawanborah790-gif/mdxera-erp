@@ -19,6 +19,11 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen,
     const [isJournalOpen, setIsJournalOpen] = React.useState(false);
     if (!isOpen || !transaction) return null;
 
+    const getItemDisplayName = (item: BillItem) => {
+        const pack = item.packType?.trim();
+        return pack ? `${item.name} (${pack})` : item.name;
+    };
+
     const { 
         total, 
         subtotal, 
@@ -164,7 +169,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen,
                               {items.map(item => (
                                   <tr key={item.id} className="hover:bg-[var(--modal-content-bg-light)]/[var(--modal-opacity-low)] transition-colors font-normal">
                                       <td className="p-6">
-                                          <span className="text-gray-950 block text-base leading-none mb-1">{item.name}</span>
+                                          <span className="text-gray-950 block text-base leading-none mb-1">{getItemDisplayName(item)}</span>
                                           <div className="text-[11px] text-gray-400 font-normal uppercase tracking-widest flex items-center gap-2">
                                             <span className="px-1.5 py-0.5 bg-slate-100 rounded border border-slate-200 text-slate-500 font-mono">BATCH: {item.batch}</span>
                                             <span className="px-1.5 py-0.5 bg-blue-50 rounded border border-blue-100 text-blue-500">EXP: {item.expiry}</span>

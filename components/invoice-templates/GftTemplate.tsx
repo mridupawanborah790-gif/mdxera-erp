@@ -46,7 +46,10 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
             batch,
             expiry,
             hsn,
-            packSize,
+            displayName: (() => {
+          const packLabel = item.packType?.trim() || inventoryItem?.packType?.trim() || '';
+          return packLabel ? `${item.name} (${packLabel})` : item.name;
+        })(),
             finalAmount: finalAmount,
             taxableValue
         };
@@ -181,10 +184,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     {chunk.map((item, index) => (
                         <tr key={item.id} className="border-b border-gray-300 last:border-b-0">
                             <td className="p-1 border-r border-black text-center">{(pageIdx * ITEMS_PER_PAGE) + index + 1}</td>
-                            <td className="p-1 border-r border-black font-semibold leading-tight">
-                                <p className="truncate">{item.name}</p>
-                                <p className="text-[9px] font-medium normal-case text-gray-600">Pack Size: {item.packSize || '-'}</p>
-                            </td>
+                            <td className="p-1 border-r border-black font-semibold">{item.displayName}</td>
                             <td className="p-1 border-r border-black">{item.hsn}</td>
                             <td className="p-1 border-r border-black">{item.batch}</td>
                             <td className="p-1 border-r border-black text-center">{item.expiry}</td>
