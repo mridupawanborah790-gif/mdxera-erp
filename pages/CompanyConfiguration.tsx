@@ -248,7 +248,6 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
         const normalizedCompanies: CompanyCode[] = (companiesRes.data || []).map((c: any) => {
           const rawDefaultSob = String(c.default_set_of_books_id || '').trim();
-          const mappedById = booksForOrg.find((b) => b.id === rawDefaultSob && b.companyCodeId === c.id && b.activeStatus === 'Active');
           const mappedByCode = booksForOrg.find((b) => b.setOfBooksId === rawDefaultSob && b.companyCodeId === c.id && b.activeStatus === 'Active');
 
           return {
@@ -258,7 +257,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
             description: c.description || '',
             status: c.status || 'Active',
             isDefault: !!c.is_default,
-            defaultSetOfBooksId: mappedById?.id || mappedByCode?.id || '',
+            defaultSetOfBooksId: mappedByCode?.setOfBooksId || '',
             created_by: c.created_by || SYSTEM_USER,
             created_at: c.created_at || now(),
             updated_by: c.updated_by || SYSTEM_USER,
@@ -482,7 +481,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     if (companyForm.isDefault && !companyForm.defaultSetOfBooksId) return setError('Default Company must always have a Default Set of Books assigned.');
 
     if (companyForm.isDefault && editingCompanyId) {
-      const mappedBooks = store.setOfBooks.find(b => b.id === companyForm.defaultSetOfBooksId && b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
+      const mappedBooks = store.setOfBooks.find(b => b.setOfBooksId === companyForm.defaultSetOfBooksId && b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
       if (!mappedBooks) return setError('Default Set of Books must belong to the selected Company Code and must be Active.');
     }
 
@@ -701,15 +700,11 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         setError('Default Company must always have a Default Set of Books assigned.');
         return;
       }
-      if (!isUuid(defaultCompany.defaultSetOfBooksId)) {
-        setError('Default Set of Books must be selected from the dropdown (UUID mapping).');
-        return;
-      }
       if (defaultCompany.status !== 'Active') {
         setError('Inactive company cannot be selected as default company.');
         return;
       }
-      const mappedBooks = store.setOfBooks.find(b => b.id === defaultCompany.defaultSetOfBooksId && b.companyCodeId === defaultCompany.id && b.activeStatus === 'Active');
+      const mappedBooks = store.setOfBooks.find(b => b.setOfBooksId === defaultCompany.defaultSetOfBooksId && b.companyCodeId === defaultCompany.id && b.activeStatus === 'Active');
       if (!mappedBooks) {
         setError('Default Set of Books must belong to the selected Default Company and must be Active.');
         return;
@@ -768,7 +763,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           description: c.description,
           status: c.status,
           is_default: !!c.isDefault,
-          default_set_of_books_id: isUuid(c.defaultSetOfBooksId) ? c.defaultSetOfBooksId : null,
+          default_set_of_books_id: c.defaultSetOfBooksId?.trim() || null,
           created_by: c.created_by || userName,
           created_at: c.created_at,
           updated_by: userName,
@@ -905,12 +900,12 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               disabled={!companyForm.isDefault || !companyForm.code.trim()}
             >
               <option value="">Default Set of Books*</option>
-              {defaultBooksOptions.map(b => <option key={b.id} value={b.id}>{b.setOfBooksId} - {b.description || 'NA'}</option>)}
+              {defaultBooksOptions.map(b => <option key={b.id} value={b.setOfBooksId}>{b.setOfBooksId} - {b.description || 'NA'}</option>)}
             </select>
             <button className="text-xs font-bold text-primary" onClick={() => exportCsv('company-codes.csv', ['Code', 'Description', 'Status', 'Created By', 'Created At'], filteredCompanies.map(c => [c.code, c.description, c.status, c.created_by, c.created_at]))}>Export CSV</button>
             <div className="overflow-auto border border-gray-200">
               <table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Code</th><th className="p-2 text-left">Description</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Default</th><th className="p-2 text-left">Default Set of Books</th><th className="p-2 text-left">Audit</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>
-                {filteredCompanies.map(c => <tr key={c.id} className="border-t"><td className="p-2">{c.code}</td><td className="p-2">{c.description}</td><td className="p-2">{c.status}</td><td className="p-2">{c.isDefault ? 'Yes' : 'No'}</td><td className="p-2">{booksById.get(c.defaultSetOfBooksId || '')?.setOfBooksId || '-'}</td><td className="p-2">{c.created_by}<br />{new Date(c.created_at).toLocaleString()}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setCompanyForm({ code: c.code, description: c.description, status: c.status, isDefault: !!c.isDefault, defaultSetOfBooksId: c.defaultSetOfBooksId || '' }); setEditingCompanyId(c.id); }}>Edit</button></td></tr>)}
+                {filteredCompanies.map(c => <tr key={c.id} className="border-t"><td className="p-2">{c.code}</td><td className="p-2">{c.description}</td><td className="p-2">{c.status}</td><td className="p-2">{c.isDefault ? 'Yes' : 'No'}</td><td className="p-2">{c.defaultSetOfBooksId || '-'}</td><td className="p-2">{c.created_by}<br />{new Date(c.created_at).toLocaleString()}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setCompanyForm({ code: c.code, description: c.description, status: c.status, isDefault: !!c.isDefault, defaultSetOfBooksId: c.defaultSetOfBooksId || '' }); setEditingCompanyId(c.id); }}>Edit</button></td></tr>)}
               </tbody></table>
             </div>
           </div>
