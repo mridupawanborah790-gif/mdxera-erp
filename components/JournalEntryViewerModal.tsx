@@ -33,6 +33,11 @@ interface JournalHeader {
 
 const normalizeNumber = (value: any): number => Number(value || 0);
 
+const isMissingTableError = (error: any, tableName: string): boolean => {
+    const message = String(error?.message || '').toLowerCase();
+    return error?.code === 'PGRST205' && message.includes(tableName.toLowerCase());
+};
+
 const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
     isOpen,
     onClose,
@@ -87,6 +92,13 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
                     .eq('reference_id', invoiceId)
                     .order('posting_date', { ascending: false })
                     .order('created_at', { ascending: false });
+
+                if (isMissingTableError(headerError, 'journal_entry_header')) {
+                    setEntries([]);
+                    setLines([]);
+                    setEmptyMessage('Journal module is not configured in this environment yet. Please create the accounting journal tables and refresh schema cache.');
+                    return;
+                }
 
                 let fallbackRows: any[] = headerRows || [];
                 if (!headerError && !fallbackRows.length) {
@@ -145,6 +157,12 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
                     .select('*')
                     .eq('journal_entry_id', selectedEntryId)
                     .order('id', { ascending: true });
+
+                if (isMissingTableError(byHeaderId.error, 'journal_entry_lines')) {
+                    setLines([]);
+                    setEmptyMessage('Journal lines table is missing in this environment. Please run accounting journal migrations and refresh schema cache.');
+                    return;
+                }
 
                 if (!byHeaderId.error && byHeaderId.data?.length) {
                     lineRows = byHeaderId.data;
