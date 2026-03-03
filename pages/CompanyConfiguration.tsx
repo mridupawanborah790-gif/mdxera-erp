@@ -717,7 +717,9 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     }
 
     try {
-      // Step 1: Upsert Company Codes (without default SOB mapping first to avoid FK ordering issues)
+      // Step 1: Upsert Company Codes with temporary non-default flags.
+      // This avoids the DB trigger rejecting rows where a default company is persisted
+      // before its Set of Books row exists in the same sync run.
       if (store.companies.length > 0) {
         const { error: companyErr } = await supabase.from('company_codes').upsert(store.companies.map(c => ({
           id: c.id,
@@ -725,7 +727,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           code: c.code,
           description: c.description,
           status: c.status,
-          is_default: !!c.isDefault,
+          is_default: false,
           default_set_of_books_id: null,
           created_by: c.created_by || userName,
           created_at: c.created_at,
