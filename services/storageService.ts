@@ -11,6 +11,7 @@ import {
 import { parseNetworkAndApiError } from '../utils/error';
 import { normalizeImportDate } from '../utils/helpers';
 import { deductStockLooseFirst } from '../utils/stock';
+import { DEFAULT_CONFIG_MISSING_MESSAGE, loadDefaultPostingContext } from './companyDefaultsService';
 
 export const generateUUID = () => crypto.randomUUID();
 
@@ -48,7 +49,8 @@ const SALES_BILL_ALLOWED_FIELDS = [
     'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'roundOff', 'total', 'amountReceived',
     'status', 'paymentMode', 'billType',
     'prescriptionUrl', 'prescriptionImages', 'linkedChallans',
-    'createdAt', 'updatedAt'
+    'createdAt', 'updatedAt',
+    'companyCodeId', 'setOfBooksId'
 ];
 
 const PURCHASES_ALLOWED_FIELDS = [
@@ -57,7 +59,8 @@ const PURCHASES_ALLOWED_FIELDS = [
     'subtotal', 'totalGst', 'totalItemDiscount', 'totalItemSchemeDiscount', 'schemeDiscount', 'roundOff', 'totalAmount',
     'items',
     'status', 'eWayBillNo', 'eWayBillDate', 'referenceDocNumber', 'idempotency_key', 'linkedChallans',
-    'createdAt', 'updatedAt'
+    'createdAt', 'updatedAt',
+    'companyCodeId', 'setOfBooksId'
 ];
 
 const isValidUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -295,8 +298,33 @@ export const getData = async (tableName: string, defaultValue: any[] = [], user:
     return cached.length > 0 ? cached : defaultValue;
 };
 
+
+const ensurePostingContext = async (
+    payload: { companyCodeId?: string; setOfBooksId?: string },
+    user: RegisteredPharmacy
+): Promise<{ companyCodeId: string; setOfBooksId: string }> => {
+    if (payload.companyCodeId && payload.setOfBooksId) {
+        return { companyCodeId: payload.companyCodeId, setOfBooksId: payload.setOfBooksId };
+    }
+
+    const defaults = await loadDefaultPostingContext(user.organization_id);
+    return {
+        companyCodeId: defaults.companyCodeId,
+        setOfBooksId: defaults.setOfBooksId,
+    };
+};
+
 export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) => {
     if (!tx.user_id) tx.user_id = user.user_id;
+
+    try {
+        const postingContext = await ensurePostingContext(tx, user);
+        tx.companyCodeId = postingContext.companyCodeId;
+        tx.setOfBooksId = postingContext.setOfBooksId;
+    } catch (e: any) {
+        throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+    }
+
     const res = await saveData('sales_bill', tx, user);
 
     // Batch inventory updates to avoid one network/database roundtrip per line item.
@@ -377,6 +405,14 @@ export const generateNextSalesBillId = async (templateId: string, user: Register
 };
 
 export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
+    try {
+        const postingContext = await ensurePostingContext(p, user);
+        p.companyCodeId = postingContext.companyCodeId;
+        p.setOfBooksId = postingContext.setOfBooksId;
+    } catch (e: any) {
+        throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+    }
+
     const res = await saveData('purchases', p, user);
 
     // Use a Map to accumulate stock changes for this purchase
@@ -710,6 +746,117 @@ const upsertAutoLedgerEntry = async (
     await saveData(tableName, entity, user);
 };
 
+
+const mapMaterialType = (value?: string): string => {
+    const v = String(value || '').toLowerCase();
+    if (v.includes('finish')) return 'Finished Goods';
+    if (v.includes('consum')) return 'Consumables';
+    if (v.includes('service')) return 'Service Material';
+    if (v.includes('pack')) return 'Packaging';
+    return 'Trading Goods';
+};
+
+const buildJournalNumber = (prefix: 'SAL' | 'PUR') => `${prefix}-${Date.now()}`;
+
+const postJournal = async (
+    user: RegisteredPharmacy,
+    args: {
+        referenceId: string;
+        referenceType: 'SALES_BILL' | 'PURCHASE_BILL';
+        documentType: 'SALES' | 'PURCHASE';
+        documentReference: string;
+        postingDate: string;
+        companyCodeId: string;
+        setOfBooksId: string;
+        lines: Array<{ glId: string; debit: number; credit: number; memo: string }>;
+    }
+) => {
+    if (!navigator.onLine) return;
+
+    const { data: setOfBooks, error: sobError } = await supabase
+        .from('set_of_books')
+        .select('id, set_of_books_id, company_code_id, default_customer_gl_id, default_supplier_gl_id')
+        .eq('organization_id', user.organization_id)
+        .eq('id', args.setOfBooksId)
+        .single();
+    if (sobError || !setOfBooks || setOfBooks.company_code_id !== args.companyCodeId) {
+        throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
+    }
+
+    const glIds = Array.from(new Set(args.lines.map(l => l.glId)));
+    const { data: glRows, error: glError } = await supabase
+        .from('gl_master')
+        .select('id, gl_code, gl_name, set_of_books_id')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', args.setOfBooksId)
+        .in('id', glIds);
+    if (glError) throw glError;
+    const glById = new Map((glRows || []).map((g: any) => [g.id, g]));
+
+    const enrichedLines = args.lines.map((line) => {
+        const gl = glById.get(line.glId);
+        if (!gl || gl.set_of_books_id !== args.setOfBooksId) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        return {
+            ...line,
+            gl_code: gl.gl_code,
+            gl_name: gl.gl_name,
+        };
+    });
+
+    const totalDebit = Number(enrichedLines.reduce((sum, l) => sum + l.debit, 0).toFixed(2));
+    const totalCredit = Number(enrichedLines.reduce((sum, l) => sum + l.credit, 0).toFixed(2));
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        throw new Error('Generated accounting journals are not balanced.');
+    }
+
+    const { data: companyRow } = await supabase
+        .from('company_codes')
+        .select('code')
+        .eq('id', args.companyCodeId)
+        .maybeSingle();
+
+    const { data: header, error: headerError } = await supabase
+        .from('journal_entry_header')
+        .insert({
+            organization_id: user.organization_id,
+            journal_entry_number: buildJournalNumber(args.documentType === 'SALES' ? 'SAL' : 'PUR'),
+            posting_date: args.postingDate,
+            status: 'Posted',
+            reference_type: args.referenceType,
+            reference_id: args.referenceId,
+            reference_document_id: args.referenceId,
+            document_type: args.documentType,
+            document_reference: args.documentReference,
+            company: companyRow?.code || args.companyCodeId,
+            company_code_id: args.companyCodeId,
+            set_of_books: setOfBooks.set_of_books_id || args.setOfBooksId,
+            set_of_books_id: args.setOfBooksId,
+            total_debit: totalDebit,
+            total_credit: totalCredit,
+        })
+        .select('id')
+        .single();
+    if (headerError) throw headerError;
+
+    const { error: lineError } = await supabase
+        .from('journal_entry_lines')
+        .insert(enrichedLines.map((line, index) => ({
+            organization_id: user.organization_id,
+            journal_entry_id: header.id,
+            reference_document_id: args.referenceId,
+            document_type: args.documentType,
+            line_number: index + 1,
+            gl_code: line.gl_code,
+            gl_name: line.gl_name,
+            debit: Number(line.debit.toFixed(2)),
+            credit: Number(line.credit.toFixed(2)),
+            line_memo: line.memo,
+        })));
+    if (lineError) throw lineError;
+};
+
 const findCustomerForTransaction = async (tx: Transaction): Promise<Customer | undefined> => {
     const customers = await idb.getAll(STORES.CUSTOMERS) as Customer[];
     if (tx.customerId) {
@@ -744,6 +891,60 @@ export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy)
         },
         tx.status !== 'cancelled'
     );
+
+    if (tx.status === 'cancelled' || !tx.companyCodeId || !tx.setOfBooksId) return;
+
+    const { data: assignments, error: assignmentError } = await supabase
+        .from('gl_assignments')
+        .select('material_master_type, sales_gl, tax_gl')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', tx.setOfBooksId);
+    if (assignmentError) throw assignmentError;
+
+    const assignmentByType = new Map((assignments || []).map((a: any) => [a.material_master_type, a]));
+    const { data: books } = await supabase
+        .from('set_of_books')
+        .select('default_customer_gl_id')
+        .eq('organization_id', user.organization_id)
+        .eq('id', tx.setOfBooksId)
+        .single();
+    const customerControlGl = books?.default_customer_gl_id;
+    if (!customerControlGl) throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+
+    const lineAcc = new Map<string, { debit: number; credit: number; memo: string }>();
+    const addLine = (glId: string, debit: number, credit: number, memo: string) => {
+        const cur = lineAcc.get(glId) || { debit: 0, credit: 0, memo };
+        cur.debit += debit;
+        cur.credit += credit;
+        lineAcc.set(glId, cur);
+    };
+
+    addLine(customerControlGl, Number(tx.total || 0), 0, 'Customer control');
+
+    for (const item of tx.items || []) {
+        const materialType = mapMaterialType((item as any).category);
+        const assignment = assignmentByType.get(materialType) || assignmentByType.get('Trading Goods');
+        if (!assignment?.sales_gl || !assignment?.tax_gl) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        const taxable = Number((item as any).taxableValue || 0);
+        const gst = Number((item as any).gstAmount || 0);
+        addLine(String(assignment.sales_gl), 0, taxable, `${materialType} sales`);
+        if (gst > 0) addLine(String(assignment.tax_gl), 0, gst, `${materialType} tax`);
+    }
+
+    const lines = Array.from(lineAcc.entries()).map(([glId, v]) => ({ glId, debit: v.debit, credit: v.credit, memo: v.memo }));
+
+    await postJournal(user, {
+        referenceId: tx.id,
+        referenceType: 'SALES_BILL',
+        documentType: 'SALES',
+        documentReference: tx.id,
+        postingDate: tx.date,
+        companyCodeId: tx.companyCodeId,
+        setOfBooksId: tx.setOfBooksId,
+        lines,
+    });
 };
 
 export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPharmacy) => {
@@ -763,6 +964,60 @@ export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPha
         },
         purchase.status !== 'cancelled'
     );
+
+    if (purchase.status === 'cancelled' || !purchase.companyCodeId || !purchase.setOfBooksId) return;
+
+    const { data: assignments, error: assignmentError } = await supabase
+        .from('gl_assignments')
+        .select('material_master_type, purchase_gl, tax_gl')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', purchase.setOfBooksId);
+    if (assignmentError) throw assignmentError;
+
+    const assignmentByType = new Map((assignments || []).map((a: any) => [a.material_master_type, a]));
+    const { data: books } = await supabase
+        .from('set_of_books')
+        .select('default_supplier_gl_id')
+        .eq('organization_id', user.organization_id)
+        .eq('id', purchase.setOfBooksId)
+        .single();
+    const supplierControlGl = books?.default_supplier_gl_id;
+    if (!supplierControlGl) throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+
+    const lineAcc = new Map<string, { debit: number; credit: number; memo: string }>();
+    const addLine = (glId: string, debit: number, credit: number, memo: string) => {
+        const cur = lineAcc.get(glId) || { debit: 0, credit: 0, memo };
+        cur.debit += debit;
+        cur.credit += credit;
+        lineAcc.set(glId, cur);
+    };
+
+    addLine(String(supplierControlGl), 0, Number(purchase.totalAmount || 0), 'Supplier control');
+
+    for (const item of purchase.items || []) {
+        const materialType = mapMaterialType((item as any).category);
+        const assignment = assignmentByType.get(materialType) || assignmentByType.get('Trading Goods');
+        if (!assignment?.purchase_gl || !assignment?.tax_gl) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        const taxable = Number((item as any).taxableValue || 0);
+        const gst = Number((item as any).gstAmount || 0);
+        addLine(String(assignment.purchase_gl), taxable, 0, `${materialType} purchase`);
+        if (gst > 0) addLine(String(assignment.tax_gl), gst, 0, `${materialType} tax`);
+    }
+
+    const lines = Array.from(lineAcc.entries()).map(([glId, v]) => ({ glId, debit: v.debit, credit: v.credit, memo: v.memo }));
+
+    await postJournal(user, {
+        referenceId: purchase.id,
+        referenceType: 'PURCHASE_BILL',
+        documentType: 'PURCHASE',
+        documentReference: purchase.invoiceNumber || purchase.id,
+        postingDate: purchase.date,
+        companyCodeId: purchase.companyCodeId,
+        setOfBooksId: purchase.setOfBooksId,
+        lines,
+    });
 };
 
 export const syncSalesReturnLedger = async (salesReturn: SalesReturn, user: RegisteredPharmacy) => {
