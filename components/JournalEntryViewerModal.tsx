@@ -58,6 +58,10 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
     const selectedHeader = useMemo(() => entries.find((entry) => entry.id === selectedEntryId) || null, [entries, selectedEntryId]);
 
     const referenceType = documentType === 'SALES' ? 'SALES_BILL' : 'PURCHASE_BILL';
+    const referenceCandidates = useMemo(
+        () => Array.from(new Set([invoiceId, invoiceNumber].filter(Boolean).map(String))),
+        [invoiceId, invoiceNumber]
+    );
 
     useEffect(() => {
         if (!isOpen) return;
@@ -85,13 +89,28 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
             setError(null);
             setEmptyMessage(null);
             try {
-                const { data: headerRows, error: headerError } = await supabase
+                const queryByReferenceType = async (candidate: string) => supabase
                     .from('journal_entry_header')
                     .select('*')
                     .eq('reference_type', referenceType)
-                    .eq('reference_id', invoiceId)
+                    .eq('reference_id', candidate)
                     .order('posting_date', { ascending: false })
                     .order('created_at', { ascending: false });
+
+                let headerRows: any[] = [];
+                let headerError: any = null;
+
+                for (const candidate of referenceCandidates) {
+                    const response = await queryByReferenceType(candidate);
+                    if (response.error) {
+                        headerError = response.error;
+                        break;
+                    }
+                    if (response.data?.length) {
+                        headerRows = response.data;
+                        break;
+                    }
+                }
 
                 if (isMissingTableError(headerError, 'journal_entry_header')) {
                     setEntries([]);
@@ -102,14 +121,30 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
 
                 let fallbackRows: any[] = headerRows || [];
                 if (!headerError && !fallbackRows.length) {
-                    const fallbackResponse = await supabase
-                        .from('journal_entry_header')
-                        .select('*')
-                        .eq('reference_document_id', invoiceId)
-                        .eq('document_type', documentType)
-                        .order('posting_date', { ascending: false })
-                        .order('created_at', { ascending: false });
-                    fallbackRows = fallbackResponse.data || [];
+                    const documentTypes = [documentType, referenceType];
+                    for (const candidate of referenceCandidates) {
+                        for (const docTypeCandidate of documentTypes) {
+                            const fallbackResponse = await supabase
+                                .from('journal_entry_header')
+                                .select('*')
+                                .eq('reference_document_id', candidate)
+                                .eq('document_type', docTypeCandidate)
+                                .order('posting_date', { ascending: false })
+                                .order('created_at', { ascending: false });
+
+                            if (fallbackResponse.error) {
+                                headerError = fallbackResponse.error;
+                                break;
+                            }
+
+                            if (fallbackResponse.data?.length) {
+                                fallbackRows = fallbackResponse.data;
+                                break;
+                            }
+                        }
+
+                        if (headerError || fallbackRows.length) break;
+                    }
                 }
 
                 if (headerError) throw headerError;
@@ -146,7 +181,7 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
     }, [isOpen, invoiceId, documentType, canView, isPosted, referenceType, invoiceNumber]);
 
     useEffect(() => {
-        if (!isOpen || !selectedEntryId || !invoiceId || !isPosted) return;
+        if (!isOpen || !selectedEntryId || !isPosted) return;
         const loadLines = async () => {
             setIsLoading(true);
             try {
@@ -167,14 +202,26 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
                 if (!byHeaderId.error && byHeaderId.data?.length) {
                     lineRows = byHeaderId.data;
                 } else {
-                    const byReference = await supabase
-                        .from('journal_entry_lines')
-                        .select('*')
-                        .eq('reference_document_id', invoiceId)
-                        .eq('document_type', documentType)
-                        .order('id', { ascending: true });
-                    if (byReference.error) throw byReference.error;
-                    lineRows = (byReference.data || []).filter((row: any) => String(row.journal_entry_id || '') === selectedEntryId || !row.journal_entry_id);
+                    const documentTypes = [documentType, referenceType];
+                    for (const candidate of referenceCandidates) {
+                        for (const docTypeCandidate of documentTypes) {
+                            const byReference = await supabase
+                                .from('journal_entry_lines')
+                                .select('*')
+                                .eq('reference_document_id', candidate)
+                                .eq('document_type', docTypeCandidate)
+                                .order('id', { ascending: true });
+
+                            if (byReference.error) throw byReference.error;
+
+                            if (byReference.data?.length) {
+                                lineRows = byReference.data.filter((row: any) => String(row.journal_entry_id || '') === selectedEntryId || !row.journal_entry_id);
+                                if (lineRows.length) break;
+                            }
+                        }
+
+                        if (lineRows.length) break;
+                    }
                 }
 
                 const mapped: JournalLine[] = (lineRows || []).map((row: any, idx: number) => ({
@@ -195,7 +242,7 @@ const JournalEntryViewerModal: React.FC<JournalEntryViewerModalProps> = ({
         };
 
         loadLines();
-    }, [isOpen, selectedEntryId, invoiceId, documentType, isPosted]);
+    }, [isOpen, selectedEntryId, documentType, isPosted, referenceCandidates, referenceType]);
 
     const totals = useMemo(() => {
         const totalDebit = lines.reduce((sum, row) => sum + row.debit, 0);
