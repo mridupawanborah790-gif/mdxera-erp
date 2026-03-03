@@ -1,6 +1,5 @@
--- Runnable migration for Default Company + Default Set of Books.
--- Use this file directly in SQL editor (raw SQL only).
--- If you see lines like `@@ -x,y +a,b @@`, you copied a git diff/patch instead of SQL.
+-- Default company + default set-of-books hardening migration (runnable SQL).
+-- Execute this file as-is in Supabase SQL editor.
 
 begin;
 

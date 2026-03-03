@@ -26,18 +26,31 @@ language plpgsql
 as $$
 declare
   mapped_company_id uuid;
+  mapped_org_id uuid;
 begin
+  if new.is_default and coalesce(new.status, 'Active') <> 'Active' then
+    raise exception 'Inactive company cannot be selected as default company.';
+  end if;
+
   if new.is_default and new.default_set_of_books_id is null then
     raise exception 'Default Company must always have a Default Set of Books assigned.';
   end if;
 
   if new.default_set_of_books_id is not null then
-    select company_code_id into mapped_company_id
+    select company_code_id, organization_id into mapped_company_id, mapped_org_id
     from public.set_of_books
     where id = new.default_set_of_books_id;
 
-    if mapped_company_id is null or mapped_company_id <> new.id then
+    if mapped_company_id is null then
+      raise exception 'Default Set of Books is invalid.';
+    end if;
+
+    if mapped_company_id <> new.id then
       raise exception 'Default Set of Books must belong to the selected Default Company.';
+    end if;
+
+    if mapped_org_id is null or mapped_org_id <> new.organization_id then
+      raise exception 'Default Set of Books must belong to the same organization.';
     end if;
   end if;
 

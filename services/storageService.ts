@@ -303,10 +303,8 @@ const ensurePostingContext = async (
     payload: { companyCodeId?: string; setOfBooksId?: string },
     user: RegisteredPharmacy
 ): Promise<{ companyCodeId: string; setOfBooksId: string }> => {
-    if (payload.companyCodeId && payload.setOfBooksId) {
-        return { companyCodeId: payload.companyCodeId, setOfBooksId: payload.setOfBooksId };
-    }
-
+    // Transaction posting must always follow the configured default company + default set of books.
+    // Ignore payload-level company/books values to prevent cross-company ledger posting.
     const defaults = await loadDefaultPostingContext(user.organization_id);
     return {
         companyCodeId: defaults.companyCodeId,
@@ -892,7 +890,11 @@ export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy)
         tx.status !== 'cancelled'
     );
 
-    if (tx.status === 'cancelled' || !tx.companyCodeId || !tx.setOfBooksId) return;
+    if (tx.status === 'cancelled') return;
+
+    const postingContext = await ensurePostingContext(tx, user);
+    tx.companyCodeId = postingContext.companyCodeId;
+    tx.setOfBooksId = postingContext.setOfBooksId;
 
     const { data: assignments, error: assignmentError } = await supabase
         .from('gl_assignments')
@@ -965,7 +967,11 @@ export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPha
         purchase.status !== 'cancelled'
     );
 
-    if (purchase.status === 'cancelled' || !purchase.companyCodeId || !purchase.setOfBooksId) return;
+    if (purchase.status === 'cancelled') return;
+
+    const postingContext = await ensurePostingContext(purchase, user);
+    purchase.companyCodeId = postingContext.companyCodeId;
+    purchase.setOfBooksId = postingContext.setOfBooksId;
 
     const { data: assignments, error: assignmentError } = await supabase
         .from('gl_assignments')
