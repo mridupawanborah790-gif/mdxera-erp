@@ -28,7 +28,7 @@ create table if not exists public.company_codes (
   description text,
   status text not null default 'Active' check (status in ('Active', 'Inactive')),
   is_default boolean not null default false,
-  default_set_of_books_id uuid,
+  default_set_of_books_id text,
   created_by text not null default 'system',
   created_at timestamptz not null default now(),
   updated_by text not null default 'system',
@@ -54,12 +54,17 @@ create table if not exists public.set_of_books (
   unique (organization_id, company_code_id, set_of_books_id)
 );
 
+create unique index if not exists uq_set_of_books_company_and_code
+  on public.set_of_books(company_code_id, set_of_books_id);
+
 
 alter table if exists public.company_codes
   drop constraint if exists fk_company_codes_default_set_of_books;
 alter table if exists public.company_codes
   add constraint fk_company_codes_default_set_of_books
-  foreign key (default_set_of_books_id) references public.set_of_books(id) on delete set null;
+  foreign key (id, default_set_of_books_id)
+  references public.set_of_books(company_code_id, set_of_books_id)
+  on update cascade;
 
 create table if not exists public.gl_master (
   id uuid primary key default gen_random_uuid(),
