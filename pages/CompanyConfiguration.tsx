@@ -248,6 +248,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
         const normalizedCompanies: CompanyCode[] = (companiesRes.data || []).map((c: any) => {
           const rawDefaultSob = String(c.default_set_of_books_id || '').trim();
+          const mappedById = booksForOrg.find((b) => b.id === rawDefaultSob && b.companyCodeId === c.id && b.activeStatus === 'Active');
           const mappedByCode = booksForOrg.find((b) => b.setOfBooksId === rawDefaultSob && b.companyCodeId === c.id && b.activeStatus === 'Active');
 
           return {
@@ -257,7 +258,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
             description: c.description || '',
             status: c.status || 'Active',
             isDefault: !!c.is_default,
-            defaultSetOfBooksId: mappedByCode?.setOfBooksId || '',
+            defaultSetOfBooksId: mappedById?.setOfBooksId || mappedByCode?.setOfBooksId || '',
             created_by: c.created_by || SYSTEM_USER,
             created_at: c.created_at || now(),
             updated_by: c.updated_by || SYSTEM_USER,
@@ -758,19 +759,22 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
       // Step 2b: Update default Set of Books mapping once Set of Books rows exist
       if (store.companies.length > 0) {
-        const { error: companyDefaultErr } = await supabase.from('company_codes').upsert(store.companies.map(c => ({
-          id: c.id,
-          organization_id: organizationId,
-          code: c.code,
-          description: c.description,
-          status: c.status,
-          is_default: !!c.isDefault,
-          default_set_of_books_id: c.defaultSetOfBooksId?.trim() || null,
-          created_by: c.created_by || userName,
-          created_at: c.created_at,
-          updated_by: userName,
-          updated_at: now(),
-        })), { onConflict: 'id' });
+        const { error: companyDefaultErr } = await supabase.from('company_codes').upsert(store.companies.map(c => {
+          const defaultSobRow = store.setOfBooks.find((b) => b.companyCodeId === c.id && (b.id === c.defaultSetOfBooksId || b.setOfBooksId === c.defaultSetOfBooksId));
+          return {
+            id: c.id,
+            organization_id: organizationId,
+            code: c.code,
+            description: c.description,
+            status: c.status,
+            is_default: !!c.isDefault,
+            default_set_of_books_id: c.isDefault ? (defaultSobRow?.id || null) : null,
+            created_by: c.created_by || userName,
+            created_at: c.created_at,
+            updated_by: userName,
+            updated_at: now(),
+          };
+        }), { onConflict: 'id' });
         if (companyDefaultErr) throw companyDefaultErr;
       }
 
