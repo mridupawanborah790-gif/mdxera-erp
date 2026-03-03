@@ -24,6 +24,10 @@ export interface DefaultPostingContext {
   setOfBooksId: string;
 }
 
+const isUuid = (value: string): boolean => (
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+);
+
 
 const isMissingDefaultColumnsError = (error: any): boolean => {
   const message = String(error?.message || '').toLowerCase();
@@ -86,13 +90,18 @@ export const loadDefaultPostingContext = async (organizationId: string): Promise
     throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
   }
 
-  const { data: books, error: booksError } = await supabase
+  const defaultSetOfBooksRef = String(defaultCompany.default_set_of_books_id);
+  const baseBooksQuery = supabase
     .from('set_of_books')
-    .select('id, company_code_id, organization_id, active_status')
+    .select('id, company_code_id, organization_id, active_status, set_of_books_id')
     .eq('organization_id', organizationId)
-    .eq('id', defaultCompany.default_set_of_books_id)
-    .eq('active_status', 'Active')
-    .limit(1);
+    .eq('active_status', 'Active');
+
+  const booksQuery = isUuid(defaultSetOfBooksRef)
+    ? baseBooksQuery.eq('id', defaultSetOfBooksRef)
+    : baseBooksQuery.eq('company_code_id', defaultCompany.id).eq('set_of_books_id', defaultSetOfBooksRef);
+
+  const { data: books, error: booksError } = await booksQuery.limit(1);
 
   if (booksError) throw booksError;
 
