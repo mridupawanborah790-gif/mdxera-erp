@@ -679,6 +679,14 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     const organizationId = currentUser.organization_id;
     const userName = currentUser.full_name || SYSTEM_USER;
     const companyById = new Map(store.companies.map(c => [c.id, c]));
+    let adjustedCustomerControlGl = false;
+    const normalizedGlMasters = store.glMasters.map((g) => {
+      if (g.glCode === CONTROL_GL_CODES.customer && g.glType !== 'Asset') {
+        adjustedCustomerControlGl = true;
+        return { ...g, glType: 'Asset' as GLType };
+      }
+      return g;
+    });
 
     const missingCompanyCode = store.setOfBooks.some((book) => {
       if (!book.companyCodeId || !isUuid(book.companyCodeId)) return true;
@@ -743,8 +751,9 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
             set_of_books_id: b.setOfBooksId,
             description: b.description,
             default_currency: b.defaultCurrency,
-            default_customer_gl_id: b.defaultCustomerGLId || null,
-            default_supplier_gl_id: b.defaultSupplierGLId || null,
+            // Save without defaults first so GL type corrections can be synced safely.
+            default_customer_gl_id: null,
+            default_supplier_gl_id: null,
             active_status: b.activeStatus,
             posting_count: b.postingCount || 0,
             created_by: b.created_by || userName,
@@ -775,8 +784,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       }
 
       // Step 3: Upsert GL Masters
-      if (store.glMasters.length > 0) {
-        const { error: glErr } = await supabase.from('gl_master').upsert(store.glMasters.map(g => ({
+      if (normalizedGlMasters.length > 0) {
+        const { error: glErr } = await supabase.from('gl_master').upsert(normalizedGlMasters.map(g => ({
           id: g.id,
           organization_id: organizationId,
           set_of_books_id: g.setOfBooksId,
@@ -795,6 +804,31 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           updated_at: now(),
         })), { onConflict: 'id' });
         if (glErr) throw glErr;
+      }
+
+      // Step 3b: Attach default control GL pointers after GL sync.
+      if (store.setOfBooks.length > 0) {
+        const { error: booksDefaultErr } = await supabase.from('set_of_books').upsert(store.setOfBooks.map(b => ({
+          id: b.id,
+          organization_id: organizationId,
+          company_code_id: b.companyCodeId,
+          set_of_books_id: b.setOfBooksId,
+          description: b.description,
+          default_currency: b.defaultCurrency,
+          default_customer_gl_id: b.defaultCustomerGLId || null,
+          default_supplier_gl_id: b.defaultSupplierGLId || null,
+          active_status: b.activeStatus,
+          posting_count: b.postingCount || 0,
+          created_by: b.created_by || userName,
+          created_at: b.created_at,
+          updated_by: userName,
+          updated_at: now(),
+        })), { onConflict: 'id' });
+        if (booksDefaultErr) throw booksDefaultErr;
+      }
+
+      if (adjustedCustomerControlGl) {
+        persist({ ...store, glMasters: normalizedGlMasters });
       }
 
       if (store.glAssignments.length > 0) {
