@@ -76,7 +76,13 @@ const pickFields = (payload: Record<string, any>, allowedFields: string[]) => {
 
 const getSupabasePayload = (tableName: string, payload: Record<string, any>): Record<string, any> => {
     if (tableName === 'sales_bill') {
-        return pickFields(payload, SALES_BILL_ALLOWED_FIELDS);
+        const sanitized = pickFields(payload, SALES_BILL_ALLOWED_FIELDS);
+        // Some deployments enforce `sales_bill.customer_id` as UUID.
+        // Keep POS save resilient when walk-in / imported customers use numeric IDs (e.g. "1000").
+        if (sanitized.customerId && !isValidUuid(String(sanitized.customerId))) {
+            sanitized.customerId = null;
+        }
+        return sanitized;
     }
 
     if (tableName === 'purchases') {
