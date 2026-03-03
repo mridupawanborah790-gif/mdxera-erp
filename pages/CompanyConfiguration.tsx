@@ -21,6 +21,8 @@ type CompanyCode = AuditFields & {
   code: string;
   description: string;
   status: Status;
+  isDefault: boolean;
+  defaultSetOfBooksId?: string;
 };
 
 type SetOfBooks = AuditFields & {
@@ -185,7 +187,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     return currentUser?.organization_id ? `${STORAGE_KEY}_${currentUser.organization_id}` : STORAGE_KEY;
   }, [currentUser?.organization_id]);
 
-  const [companyForm, setCompanyForm] = useState({ code: '', description: '', status: 'Active' as Status });
+  const [companyForm, setCompanyForm] = useState({ code: '', description: '', status: 'Active' as Status, isDefault: false, defaultSetOfBooksId: '' });
   const [booksForm, setBooksForm] = useState({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', activeStatus: 'Active' as Status, postingCount: 0 });
   const [glForm, setGlForm] = useState({ setOfBooksId: '', glCode: '', glName: '', glType: 'Asset' as GLType, postingAllowed: true, controlAccount: false, activeStatus: 'Active' as Status, postingCount: 0 });
   const [assignmentForm, setAssignmentForm] = useState({ setOfBooksId: '', materialMasterType: 'Trading Goods' as MaterialType, inventoryGL: '', purchaseGL: '', cogsGL: '', salesGL: '', discountGL: '', taxGL: '' });
@@ -230,6 +232,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           code: c.code,
           description: c.description || '',
           status: c.status || 'Active',
+          isDefault: !!c.is_default,
+          defaultSetOfBooksId: c.default_set_of_books_id || '',
           created_by: c.created_by || SYSTEM_USER,
           created_at: c.created_at || now(),
           updated_by: c.updated_by || SYSTEM_USER,
@@ -326,6 +330,11 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const booksById = useMemo(() => new Map(store.setOfBooks.map(s => [s.id, s])), [store.setOfBooks]);
   const glById = useMemo(() => new Map(store.glMasters.map(g => [g.id, g])), [store.glMasters]);
   const glForSelectedBooks = useMemo(() => store.glMasters.filter(g => g.setOfBooksId === assignmentForm.setOfBooksId && g.activeStatus === 'Active'), [store.glMasters, assignmentForm.setOfBooksId]);
+  const booksForCompanyForm = useMemo(() => {
+    if (!editingCompanyId) return [];
+    return store.setOfBooks.filter(b => b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
+  }, [store.setOfBooks, editingCompanyId]);
+
 
   const seedDefaultsForBooks = (setOfBooksId: string, mode: 'create' | 'append', currentStore?: Store) => {
     const activeStore = currentStore || store;
@@ -431,7 +440,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     return checks.find(Boolean) || null;
   };
 
-  const filteredCompanies = store.companies.filter(c => [c.code, c.description, c.status].join(' ').toLowerCase().includes(search.toLowerCase()));
+  const filteredCompanies = store.companies.filter(c => [c.code, c.description, c.status, c.isDefault ? 'default' : ''].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredBooks = store.setOfBooks.filter(b => [b.setOfBooksId, b.description, b.defaultCurrency].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredGL = store.glMasters.filter(g => [g.glCode, g.glName, g.glType].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredAssignments = store.glAssignments.filter(a => [a.materialMasterType, booksById.get(a.setOfBooksId)?.setOfBooksId || ''].join(' ').toLowerCase().includes(search.toLowerCase()));
@@ -442,17 +451,39 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     if (!companyForm.code.trim()) return setError('Company Code is mandatory before Set of Books setup.');
     const duplicate = store.companies.some(c => c.code.toLowerCase() === companyForm.code.trim().toLowerCase() && c.id !== editingCompanyId);
     if (duplicate) return setError('Company Code must be unique.');
-    const stamp = now();
+    if (companyForm.isDefault && !companyForm.defaultSetOfBooksId) return setError('Default Company must always have a Default Set of Books assigned.');
 
-    if (editingCompanyId) {
-      persist({ ...store, companies: store.companies.map(c => c.id === editingCompanyId ? { ...c, ...companyForm, code: companyForm.code.trim(), updated_at: stamp, updated_by: SYSTEM_USER } : c) });
-      setSuccess('Company Code updated.');
-    } else {
-      persist({ ...store, companies: [...store.companies, { id: getId(), ...companyForm, code: companyForm.code.trim(), created_at: stamp, updated_at: stamp, created_by: SYSTEM_USER, updated_by: SYSTEM_USER }] });
-      setSuccess('Company Code created.');
+    if (companyForm.isDefault && editingCompanyId) {
+      const mappedBooks = store.setOfBooks.find(b => b.id === companyForm.defaultSetOfBooksId && b.companyCodeId === editingCompanyId);
+      if (!mappedBooks) return setError('Default Set of Books must belong to the selected Company Code.');
     }
 
-    setCompanyForm({ code: '', description: '', status: 'Active' });
+    const stamp = now();
+    const baseCompany = editingCompanyId
+      ? store.companies.find(c => c.id === editingCompanyId)
+      : null;
+    const targetId = editingCompanyId || getId();
+
+    const nextCompanies = store.companies
+      .filter(c => c.id !== targetId)
+      .map(c => companyForm.isDefault ? { ...c, isDefault: false, updated_at: stamp, updated_by: SYSTEM_USER } : c);
+
+    nextCompanies.push({
+      ...(baseCompany || { created_at: stamp, created_by: SYSTEM_USER }),
+      id: targetId,
+      code: companyForm.code.trim(),
+      description: companyForm.description,
+      status: companyForm.status,
+      isDefault: companyForm.isDefault,
+      defaultSetOfBooksId: companyForm.defaultSetOfBooksId || '',
+      updated_at: stamp,
+      updated_by: SYSTEM_USER,
+    } as CompanyCode);
+
+    persist({ ...store, companies: nextCompanies });
+    setSuccess(editingCompanyId ? 'Company Code updated.' : 'Company Code created.');
+
+    setCompanyForm({ code: '', description: '', status: 'Active', isDefault: false, defaultSetOfBooksId: '' });
     setEditingCompanyId(null);
   };
 
@@ -618,6 +649,24 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     const organizationId = currentUser.organization_id;
     const userName = currentUser.full_name || SYSTEM_USER;
 
+    const defaultCompanies = store.companies.filter(c => c.isDefault);
+    if (defaultCompanies.length > 1) {
+      setError('Only one default company is allowed per organization.');
+      return;
+    }
+    if (defaultCompanies.length === 1) {
+      const defaultCompany = defaultCompanies[0];
+      if (!defaultCompany.defaultSetOfBooksId) {
+        setError('Default Company must always have a Default Set of Books assigned.');
+        return;
+      }
+      const mappedBooks = store.setOfBooks.find(b => b.id === defaultCompany.defaultSetOfBooksId && b.companyCodeId === defaultCompany.id);
+      if (!mappedBooks) {
+        setError('Default Set of Books must belong to the selected Default Company.');
+        return;
+      }
+    }
+
     try {
       // Step 1: Upsert Company Codes
       if (store.companies.length > 0) {
@@ -627,6 +676,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           code: c.code,
           description: c.description,
           status: c.status,
+          is_default: !!c.isDefault,
+          default_set_of_books_id: c.defaultSetOfBooksId || null,
           created_by: c.created_by || userName,
           created_at: c.created_at,
           updated_by: userName,
@@ -759,16 +810,37 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
         {activeTab === 'company' && (
           <div className="space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
               <input className="tally-input" placeholder="Company Code*" value={companyForm.code} onChange={e => setCompanyForm({ ...companyForm, code: e.target.value })} />
               <input className="tally-input" placeholder="Description" value={companyForm.description} onChange={e => setCompanyForm({ ...companyForm, description: e.target.value })} />
               <select className="tally-input" value={companyForm.status} onChange={e => setCompanyForm({ ...companyForm, status: e.target.value as Status })}><option>Active</option><option>Inactive</option></select>
+              <label className="flex items-center gap-2 text-xs font-black uppercase border border-gray-300 px-2">
+                <input
+                  type="checkbox"
+                  checked={companyForm.isDefault}
+                  onChange={(e) => setCompanyForm({
+                    ...companyForm,
+                    isDefault: e.target.checked,
+                    defaultSetOfBooksId: e.target.checked ? (companyForm.defaultSetOfBooksId || booksForCompanyForm[0]?.id || '') : '',
+                  })}
+                />
+                Set as Default Company
+              </label>
               <button className="bg-primary text-white text-xs font-black uppercase px-3" onClick={onSaveCompany}>{editingCompanyId ? 'Update' : 'Add'}</button>
             </div>
+            <select
+              className="tally-input"
+              value={companyForm.defaultSetOfBooksId}
+              onChange={e => setCompanyForm({ ...companyForm, defaultSetOfBooksId: e.target.value })}
+              disabled={!companyForm.isDefault || !editingCompanyId}
+            >
+              <option value="">Default Set of Books*</option>
+              {booksForCompanyForm.map(b => <option key={b.id} value={b.id}>{b.setOfBooksId} - {b.description || 'NA'}</option>)}
+            </select>
             <button className="text-xs font-bold text-primary" onClick={() => exportCsv('company-codes.csv', ['Code', 'Description', 'Status', 'Created By', 'Created At'], filteredCompanies.map(c => [c.code, c.description, c.status, c.created_by, c.created_at]))}>Export CSV</button>
             <div className="overflow-auto border border-gray-200">
-              <table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Code</th><th className="p-2 text-left">Description</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Audit</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>
-                {filteredCompanies.map(c => <tr key={c.id} className="border-t"><td className="p-2">{c.code}</td><td className="p-2">{c.description}</td><td className="p-2">{c.status}</td><td className="p-2">{c.created_by}<br />{new Date(c.created_at).toLocaleString()}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setCompanyForm({ code: c.code, description: c.description, status: c.status }); setEditingCompanyId(c.id); }}>Edit</button></td></tr>)}
+              <table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Code</th><th className="p-2 text-left">Description</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Default</th><th className="p-2 text-left">Default Set of Books</th><th className="p-2 text-left">Audit</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>
+                {filteredCompanies.map(c => <tr key={c.id} className="border-t"><td className="p-2">{c.code}</td><td className="p-2">{c.description}</td><td className="p-2">{c.status}</td><td className="p-2">{c.isDefault ? 'Yes' : 'No'}</td><td className="p-2">{booksById.get(c.defaultSetOfBooksId || '')?.setOfBooksId || '-'}</td><td className="p-2">{c.created_by}<br />{new Date(c.created_at).toLocaleString()}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setCompanyForm({ code: c.code, description: c.description, status: c.status, isDefault: !!c.isDefault, defaultSetOfBooksId: c.defaultSetOfBooksId || '' }); setEditingCompanyId(c.id); }}>Edit</button></td></tr>)}
               </tbody></table>
             </div>
           </div>

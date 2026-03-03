@@ -326,6 +326,8 @@ export interface Transaction {
     billedByName?: string;
     taxCalculationType?: TaxCalculationBasis;
     linkedChallans?: string[];
+    companyCodeId?: string;
+    setOfBooksId?: string;
 }
 
 export type DetailedBill = Transaction & { pharmacy: RegisteredPharmacy; customerDetails?: Customer; };
@@ -389,6 +391,8 @@ export interface Purchase {
     eWayBillNo?: string;
     eWayBillDate?: string;
     linkedChallans?: string[];
+    companyCodeId?: string;
+    setOfBooksId?: string;
 }
 
 export enum DeliveryChallanStatus {
