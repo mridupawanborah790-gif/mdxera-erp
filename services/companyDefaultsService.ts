@@ -21,19 +21,64 @@ export interface DefaultPostingContext {
   setOfBooksId: string;
 }
 
+
+const isMissingDefaultColumnsError = (error: any): boolean => {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('is_default') || message.includes('default_set_of_books_id');
+};
+
+const loadLegacyFallbackPostingContext = async (organizationId: string): Promise<DefaultPostingContext> => {
+  const { data: companies, error: companyError } = await supabase
+    .from('company_codes')
+    .select('id, code, status')
+    .eq('organization_id', organizationId)
+    .eq('status', 'Active')
+    .order('created_at', { ascending: true })
+    .limit(1);
+
+  if (companyError) throw companyError;
+
+  const company = (companies || [])[0] as { id: string; code: string } | undefined;
+  if (!company?.id) throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
+
+  const { data: books, error: booksError } = await supabase
+    .from('set_of_books')
+    .select('id, company_code_id, active_status')
+    .eq('organization_id', organizationId)
+    .eq('company_code_id', company.id)
+    .eq('active_status', 'Active')
+    .order('created_at', { ascending: true })
+    .limit(1);
+
+  if (booksError) throw booksError;
+
+  const book = (books || [])[0] as SetOfBooksRow | undefined;
+  if (!book?.id) throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
+
+  return {
+    companyCodeId: company.id,
+    companyCode: company.code,
+    setOfBooksId: book.id,
+  };
+};
+
 export const loadDefaultPostingContext = async (organizationId: string): Promise<DefaultPostingContext> => {
   const { data: companies, error: companyError } = await supabase
     .from('company_codes')
     .select('id, code, is_default, default_set_of_books_id')
     .eq('organization_id', organizationId)
-    .order('is_default', { ascending: false });
+    .eq('is_default', true)
+    .limit(1);
 
-  if (companyError) throw companyError;
+  if (companyError) {
+    if (isMissingDefaultColumnsError(companyError)) {
+      return loadLegacyFallbackPostingContext(organizationId);
+    }
+    throw companyError;
+  }
 
-  const companyRows = (companies || []) as CompanyCodeRow[];
-  const defaultCompany = companyRows.find((company) => company.is_default) || companyRows[0];
-
-  if (!defaultCompany?.id) {
+  const defaultCompany = (companies || [])[0] as CompanyCodeRow | undefined;
+  if (!defaultCompany?.id || !defaultCompany.default_set_of_books_id) {
     throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
   }
 
@@ -41,24 +86,19 @@ export const loadDefaultPostingContext = async (organizationId: string): Promise
     .from('set_of_books')
     .select('id, company_code_id, active_status')
     .eq('organization_id', organizationId)
-    .eq('company_code_id', defaultCompany.id)
-    .neq('active_status', 'Inactive');
+    .eq('id', defaultCompany.default_set_of_books_id)
+    .limit(1);
 
   if (booksError) throw booksError;
 
-  const activeBooks = (books || []) as SetOfBooksRow[];
-  const defaultBook = defaultCompany.default_set_of_books_id
-    ? activeBooks.find((book) => book.id === defaultCompany.default_set_of_books_id)
-    : undefined;
-  const fallbackBook = defaultBook || activeBooks[0];
-
-  if (!fallbackBook || fallbackBook.company_code_id !== defaultCompany.id) {
+  const defaultBook = (books || [])[0] as SetOfBooksRow | undefined;
+  if (!defaultBook || defaultBook.company_code_id !== defaultCompany.id || defaultBook.active_status === 'Inactive') {
     throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
   }
 
   return {
     companyCodeId: defaultCompany.id,
     companyCode: defaultCompany.code,
-    setOfBooksId: fallbackBook.id,
+    setOfBooksId: defaultBook.id,
   };
 };

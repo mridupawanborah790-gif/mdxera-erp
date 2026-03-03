@@ -5,6 +5,9 @@
 -- 4) GL Assignment
 -- 5) Setup Wizard / Defaults Log
 -- + GL Assignment history for future-effective audit
+-- IMPORTANT: run this SQL file content directly; do NOT paste git diff hunks (e.g. lines starting with @@, +, -),
+-- otherwise PostgreSQL will throw syntax error 42601 near '@@'.
+-- Prefer running: supabase/company_configuration_default_company_migration.sql for default-company rollout.
 
 create extension if not exists pgcrypto;
 

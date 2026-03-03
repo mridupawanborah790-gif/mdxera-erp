@@ -1,7 +1,6 @@
--- Default Company + Default Set of Books controls
--- IMPORTANT:
---   Run this file content directly in SQL editor.
---   Do NOT paste git diff text (lines starting with @@, +, -), which causes syntax error 42601.
+-- Runnable migration for Default Company + Default Set of Books.
+-- Use this file directly in SQL editor (raw SQL only).
+-- If you see lines like `@@ -x,y +a,b @@`, you copied a git diff/patch instead of SQL.
 
 begin;
 

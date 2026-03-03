@@ -668,7 +668,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     }
 
     try {
-      // Step 1: Upsert Company Codes
+      // Step 1: Upsert Company Codes (without default SOB mapping first to avoid FK ordering issues)
       if (store.companies.length > 0) {
         const { error: companyErr } = await supabase.from('company_codes').upsert(store.companies.map(c => ({
           id: c.id,
@@ -677,7 +677,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           description: c.description,
           status: c.status,
           is_default: !!c.isDefault,
-          default_set_of_books_id: c.defaultSetOfBooksId || null,
+          default_set_of_books_id: null,
           created_by: c.created_by || userName,
           created_at: c.created_at,
           updated_by: userName,
@@ -705,6 +705,24 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           updated_at: now(),
         })), { onConflict: 'id' });
         if (booksErr) throw booksErr;
+      }
+
+      // Step 2b: Update default Set of Books mapping once Set of Books rows exist
+      if (store.companies.length > 0) {
+        const { error: companyDefaultErr } = await supabase.from('company_codes').upsert(store.companies.map(c => ({
+          id: c.id,
+          organization_id: organizationId,
+          code: c.code,
+          description: c.description,
+          status: c.status,
+          is_default: !!c.isDefault,
+          default_set_of_books_id: c.defaultSetOfBooksId || null,
+          created_by: c.created_by || userName,
+          created_at: c.created_at,
+          updated_by: userName,
+          updated_at: now(),
+        })), { onConflict: 'id' });
+        if (companyDefaultErr) throw companyDefaultErr;
       }
 
       // Step 3: Upsert GL Masters
