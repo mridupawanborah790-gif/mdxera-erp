@@ -36,7 +36,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
         gstRate: item.gstPercent || 0,
         taxableVal,
         gstAmt,
-        lineTotal: lineNet,
+        lineTotal: lineAmount,
         displayName: (() => {
           const packLabel = item.packType?.trim() || inventoryItem?.packType?.trim() || '';
           return packLabel ? `${item.name} (${packLabel})` : item.name;

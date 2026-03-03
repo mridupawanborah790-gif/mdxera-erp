@@ -64,7 +64,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : ''),
         taxableVal,
         gstAmt,
-        lineTotal: lineNet,
+        lineTotal: lineAmount,
         displayName: (() => {
           const packLabel = item.packType?.trim() || inventoryItem?.packType?.trim() || '';
           return packLabel ? `${item.name} (${packLabel})` : item.name;
@@ -215,7 +215,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     {showItemWiseDisc && <td className="text-center text-red-600">{item.discountPercent || '0'}</td>}
                     {showSchemeColumn && <td className="text-center text-emerald-700">{item.schemeDiscountPercent || '-'}</td>}
                     <td className="text-center">{(item.gstPercent || 0).toFixed(0)}</td>
-                    <td className="text-right font-black border-r-0 text-gray-950">{(item.lineAmount || 0).toFixed(2)}</td>
+                    <td className="text-right font-black border-r-0 text-gray-950">{(item.lineTotal || 0).toFixed(2)}</td>
                   </tr>
                 );
               })}
