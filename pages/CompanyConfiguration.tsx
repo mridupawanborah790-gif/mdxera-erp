@@ -125,6 +125,8 @@ const defaultStore: Store = {
 const DEFAULT_TEMPLATE_VERSION = 'v1.0';
 const SYSTEM_USER = 'system';
 const now = () => new Date().toISOString();
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (value: string | null | undefined): value is string => !!value && UUID_REGEX.test(value);
 const getId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -227,38 +229,49 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         const hasSchemaError = [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes].some(r => r.error);
         if (hasSchemaError) return;
 
-        const normalizedCompanies: CompanyCode[] = (companiesRes.data || []).map((c: any) => ({
-          id: c.id,
-          code: c.code,
-          description: c.description || '',
-          status: c.status || 'Active',
-          isDefault: !!c.is_default,
-          defaultSetOfBooksId: c.default_set_of_books_id || '',
-          created_by: c.created_by || SYSTEM_USER,
-          created_at: c.created_at || now(),
-          updated_by: c.updated_by || SYSTEM_USER,
-          updated_at: c.updated_at || now(),
+        const booksForOrg: SetOfBooks[] = (booksRes.data || []).map((b: any) => ({
+          id: b.id,
+          companyCodeId: b.companyCodeId,
+          setOfBooksId: b.set_of_books_id,
+          description: b.description || '',
+          defaultCurrency: b.default_currency || 'INR',
+          defaultCustomerGLId: b.default_customer_gl_id || undefined,
+          defaultSupplierGLId: b.default_supplier_gl_id || undefined,
+          activeStatus: b.active_status || 'Active',
+          postingCount: b.posting_count || 0,
+          created_by: b.created_by || SYSTEM_USER,
+          created_at: b.created_at || now(),
+          updated_by: b.updated_by || SYSTEM_USER,
+          updated_at: b.updated_at || now(),
         }));
+
+        const normalizedCompanies: CompanyCode[] = (companiesRes.data || []).map((c: any) => {
+          const rawDefaultSob = String(c.default_set_of_books_id || '').trim();
+          const mappedById = booksForOrg.find((b) => b.id === rawDefaultSob && b.companyCodeId === c.id && b.activeStatus === 'Active');
+          const mappedByCode = booksForOrg.find((b) => b.setOfBooksId === rawDefaultSob && b.companyCodeId === c.id && b.activeStatus === 'Active');
+
+          return {
+            id: c.id,
+            code: c.code,
+            description: c.description || '',
+            status: c.status || 'Active',
+            isDefault: !!c.is_default,
+            defaultSetOfBooksId: mappedById?.id || mappedByCode?.id || '',
+            created_by: c.created_by || SYSTEM_USER,
+            created_at: c.created_at || now(),
+            updated_by: c.updated_by || SYSTEM_USER,
+            updated_at: c.updated_at || now(),
+          };
+        });
 
         const dbStore: Store = {
           companies: normalizedCompanies,
-          setOfBooks: (booksRes.data || []).map((b: any) => {
-            const matchingCompanyById = normalizedCompanies.find(c => c.id === b.company_code_id);
-            const matchingCompanyByCode = normalizedCompanies.find(c => c.code === b.company_code_id);
+          setOfBooks: booksForOrg.map((b) => {
+            const matchingCompanyById = normalizedCompanies.find(c => c.id === b.companyCodeId);
+            const matchingCompanyByCode = normalizedCompanies.find(c => c.code === b.companyCodeId);
             return {
-              id: b.id,
-              companyCodeId: matchingCompanyById?.id || matchingCompanyByCode?.id || b.company_code_id,
-              setOfBooksId: b.set_of_books_id,
-              description: b.description || '',
-              defaultCurrency: b.default_currency || 'INR',
-              defaultCustomerGLId: b.default_customer_gl_id || undefined,
-              defaultSupplierGLId: b.default_supplier_gl_id || undefined,
-              activeStatus: b.active_status || 'Active',
-              postingCount: b.posting_count || 0,
-              created_by: b.created_by || SYSTEM_USER,
-              created_at: b.created_at || now(),
-              updated_by: b.updated_by || SYSTEM_USER,
-              updated_at: b.updated_at || now(),
+              ...b,
+              companyCodeId: matchingCompanyById?.id || matchingCompanyByCode?.id || b.companyCodeId,
             };
           }),
           glMasters: (glRes.data || []).map((g: any) => ({
@@ -334,6 +347,17 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     if (!editingCompanyId) return [];
     return store.setOfBooks.filter(b => b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
   }, [store.setOfBooks, editingCompanyId]);
+  const defaultBooksOptions = useMemo(() => {
+    if (editingCompanyId) {
+      return store.setOfBooks.filter(b => b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
+    }
+    const companyCode = companyForm.code.trim().toLowerCase();
+    if (!companyCode) return [];
+    const matchingCompanyIds = store.companies
+      .filter(c => c.code.trim().toLowerCase() === companyCode)
+      .map(c => c.id);
+    return store.setOfBooks.filter(b => matchingCompanyIds.includes(b.companyCodeId) && b.activeStatus === 'Active');
+  }, [store.setOfBooks, store.companies, editingCompanyId, companyForm.code]);
   const activeCompanies = useMemo(() => store.companies.filter(c => c.status === 'Active'), [store.companies]);
 
 
@@ -662,6 +686,10 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         setError('Default Company must always have a Default Set of Books assigned.');
         return;
       }
+      if (!isUuid(defaultCompany.defaultSetOfBooksId)) {
+        setError('Default Set of Books must be selected from the dropdown (UUID mapping).');
+        return;
+      }
       if (defaultCompany.status !== 'Active') {
         setError('Inactive company cannot be selected as default company.');
         return;
@@ -722,7 +750,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           description: c.description,
           status: c.status,
           is_default: !!c.isDefault,
-          default_set_of_books_id: c.defaultSetOfBooksId || null,
+          default_set_of_books_id: isUuid(c.defaultSetOfBooksId) ? c.defaultSetOfBooksId : null,
           created_by: c.created_by || userName,
           created_at: c.created_at,
           updated_by: userName,
@@ -845,7 +873,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
                   onChange={(e) => setCompanyForm({
                     ...companyForm,
                     isDefault: e.target.checked,
-                    defaultSetOfBooksId: e.target.checked ? (companyForm.defaultSetOfBooksId || booksForCompanyForm[0]?.id || '') : '',
+                    defaultSetOfBooksId: e.target.checked ? companyForm.defaultSetOfBooksId : '',
                   })}
                 />
                 Set as Default Company
@@ -859,13 +887,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               disabled={!companyForm.isDefault || !companyForm.code.trim()}
             >
               <option value="">Default Set of Books*</option>
-              {(editingCompanyId
-                ? booksForCompanyForm
-                : store.setOfBooks.filter((b) => {
-                    const match = store.companies.find((c) => c.id === b.companyCodeId);
-                    return b.activeStatus === 'Active' && !!match && match.code.toLowerCase() === companyForm.code.trim().toLowerCase();
-                  })
-              ).map(b => <option key={b.id} value={b.id}>{b.setOfBooksId} - {b.description || 'NA'}</option>)}
+              {defaultBooksOptions.map(b => <option key={b.id} value={b.id}>{b.setOfBooksId} - {b.description || 'NA'}</option>)}
             </select>
             <button className="text-xs font-bold text-primary" onClick={() => exportCsv('company-codes.csv', ['Code', 'Description', 'Status', 'Created By', 'Created At'], filteredCompanies.map(c => [c.code, c.description, c.status, c.created_by, c.created_at]))}>Export CSV</button>
             <div className="overflow-auto border border-gray-200">
