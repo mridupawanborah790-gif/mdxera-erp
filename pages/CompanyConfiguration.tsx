@@ -22,8 +22,6 @@ type CompanyCode = AuditFields & {
   code: string;
   description: string;
   status: Status;
-  isDefault: boolean;
-  defaultSetOfBooksId?: string;
 };
 
 type SetOfBooks = AuditFields & {
@@ -190,7 +188,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     return currentUser?.organization_id ? `${STORAGE_KEY}_${currentUser.organization_id}` : STORAGE_KEY;
   }, [currentUser?.organization_id]);
 
-  const [companyForm, setCompanyForm] = useState({ code: '', description: '', status: 'Active' as Status, isDefault: false, defaultSetOfBooksId: '' });
+  const [companyForm, setCompanyForm] = useState({ code: '', description: '', status: 'Active' as Status });
   const [booksForm, setBooksForm] = useState({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', activeStatus: 'Active' as Status, postingCount: 0 });
   const [glForm, setGlForm] = useState({ setOfBooksId: '', glCode: '', glName: '', glType: 'Asset' as GLType, postingAllowed: true, controlAccount: false, activeStatus: 'Active' as Status, postingCount: 0 });
   const [assignmentForm, setAssignmentForm] = useState({ setOfBooksId: '', materialMasterType: 'Trading Goods' as MaterialType, inventoryGL: '', purchaseGL: '', cogsGL: '', salesGL: '', discountGL: '', taxGL: '' });
@@ -246,24 +244,17 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           updated_at: b.updated_at || now(),
         }));
 
-        const normalizedCompanies: CompanyCode[] = (companiesRes.data || []).map((c: any) => {
-          const rawDefaultSob = String(c.default_set_of_books_id || '').trim();
-          const mappedByCode = booksForOrg.find((b) => b.setOfBooksId === rawDefaultSob && b.companyCodeId === c.id && b.activeStatus === 'Active');
-
-          return {
+        const normalizedCompanies: CompanyCode[] = (companiesRes.data || []).map((c: any) => ({
             id: c.id,
             organizationId: c.organization_id,
             code: c.code,
             description: c.description || '',
             status: c.status || 'Active',
-            isDefault: !!c.is_default,
-            defaultSetOfBooksId: mappedByCode?.setOfBooksId || '',
             created_by: c.created_by || SYSTEM_USER,
             created_at: c.created_at || now(),
             updated_by: c.updated_by || SYSTEM_USER,
             updated_at: c.updated_at || now(),
-          };
-        });
+        }));
 
         const dbStore: Store = {
           companies: normalizedCompanies,
@@ -344,21 +335,6 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const booksById = useMemo(() => new Map(store.setOfBooks.map(s => [s.id, s])), [store.setOfBooks]);
   const glById = useMemo(() => new Map(store.glMasters.map(g => [g.id, g])), [store.glMasters]);
   const glForSelectedBooks = useMemo(() => store.glMasters.filter(g => g.setOfBooksId === assignmentForm.setOfBooksId && g.activeStatus === 'Active'), [store.glMasters, assignmentForm.setOfBooksId]);
-  const booksForCompanyForm = useMemo(() => {
-    if (!editingCompanyId) return [];
-    return store.setOfBooks.filter(b => b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
-  }, [store.setOfBooks, editingCompanyId]);
-  const defaultBooksOptions = useMemo(() => {
-    if (editingCompanyId) {
-      return store.setOfBooks.filter(b => b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
-    }
-    const companyCode = companyForm.code.trim().toLowerCase();
-    if (!companyCode) return [];
-    const matchingCompanyIds = store.companies
-      .filter(c => c.code.trim().toLowerCase() === companyCode)
-      .map(c => c.id);
-    return store.setOfBooks.filter(b => matchingCompanyIds.includes(b.companyCodeId) && b.activeStatus === 'Active');
-  }, [store.setOfBooks, store.companies, editingCompanyId, companyForm.code]);
   const activeCompanies = useMemo(() => store.companies.filter(c => c.status === 'Active'), [store.companies]);
 
 
@@ -466,7 +442,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     return checks.find(Boolean) || null;
   };
 
-  const filteredCompanies = store.companies.filter(c => [c.code, c.description, c.status, c.isDefault ? 'default' : ''].join(' ').toLowerCase().includes(search.toLowerCase()));
+  const filteredCompanies = store.companies.filter(c => [c.code, c.description, c.status].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredBooks = store.setOfBooks.filter(b => [b.setOfBooksId, b.description, b.defaultCurrency].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredGL = store.glMasters.filter(g => [g.glCode, g.glName, g.glType].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredAssignments = store.glAssignments.filter(a => [a.materialMasterType, booksById.get(a.setOfBooksId)?.setOfBooksId || ''].join(' ').toLowerCase().includes(search.toLowerCase()));
@@ -477,23 +453,13 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     if (!companyForm.code.trim()) return setError('Company Code is mandatory before Set of Books setup.');
     const duplicate = store.companies.some(c => c.code.toLowerCase() === companyForm.code.trim().toLowerCase() && c.id !== editingCompanyId);
     if (duplicate) return setError('Company Code must be unique.');
-    if (companyForm.isDefault && companyForm.status !== 'Active') return setError('Inactive company cannot be selected as default company.');
-    if (companyForm.isDefault && !companyForm.defaultSetOfBooksId) return setError('Default Company must always have a Default Set of Books assigned.');
-
-    if (companyForm.isDefault && editingCompanyId) {
-      const mappedBooks = store.setOfBooks.find(b => b.setOfBooksId === companyForm.defaultSetOfBooksId && b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
-      if (!mappedBooks) return setError('Default Set of Books must belong to the selected Company Code and must be Active.');
-    }
-
     const stamp = now();
     const baseCompany = editingCompanyId
       ? store.companies.find(c => c.id === editingCompanyId)
       : null;
     const targetId = editingCompanyId || getId();
 
-    const nextCompanies = store.companies
-      .filter(c => c.id !== targetId)
-      .map(c => companyForm.isDefault ? { ...c, isDefault: false, updated_at: stamp, updated_by: SYSTEM_USER } : c);
+    const nextCompanies = store.companies.filter(c => c.id !== targetId);
 
     nextCompanies.push({
       ...(baseCompany || { created_at: stamp, created_by: SYSTEM_USER }),
@@ -502,8 +468,6 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       code: companyForm.code.trim(),
       description: companyForm.description,
       status: companyForm.status,
-      isDefault: companyForm.isDefault,
-      defaultSetOfBooksId: companyForm.defaultSetOfBooksId || '',
       updated_at: stamp,
       updated_by: SYSTEM_USER,
     } as CompanyCode);
@@ -511,7 +475,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     persist({ ...store, companies: nextCompanies });
     setSuccess(editingCompanyId ? 'Company Code updated.' : 'Company Code created.');
 
-    setCompanyForm({ code: '', description: '', status: 'Active', isDefault: false, defaultSetOfBooksId: '' });
+    setCompanyForm({ code: '', description: '', status: 'Active' });
     setEditingCompanyId(null);
   };
 
@@ -689,32 +653,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       return;
     }
 
-    const defaultCompanies = store.companies.filter(c => c.isDefault);
-    if (defaultCompanies.length > 1) {
-      setError('Only one default company is allowed per organization.');
-      return;
-    }
-    if (defaultCompanies.length === 1) {
-      const defaultCompany = defaultCompanies[0];
-      if (!defaultCompany.defaultSetOfBooksId) {
-        setError('Default Company must always have a Default Set of Books assigned.');
-        return;
-      }
-      if (defaultCompany.status !== 'Active') {
-        setError('Inactive company cannot be selected as default company.');
-        return;
-      }
-      const mappedBooks = store.setOfBooks.find(b => b.setOfBooksId === defaultCompany.defaultSetOfBooksId && b.companyCodeId === defaultCompany.id && b.activeStatus === 'Active');
-      if (!mappedBooks) {
-        setError('Default Set of Books must belong to the selected Default Company and must be Active.');
-        return;
-      }
-    }
-
     try {
-      // Step 1: Upsert Company Codes with temporary non-default flags.
-      // This avoids the DB trigger rejecting rows where a default company is persisted
-      // before its Set of Books row exists in the same sync run.
+      // Step 1: Upsert Company Codes with default mapping disabled.
       if (store.companies.length > 0) {
         const { error: companyErr } = await supabase.from('company_codes').upsert(store.companies.map(c => ({
           id: c.id,
@@ -756,25 +696,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         if (booksErr) throw booksErr;
       }
 
-      // Step 2b: Update default Set of Books mapping once Set of Books rows exist
-      if (store.companies.length > 0) {
-        const { error: companyDefaultErr } = await supabase.from('company_codes').upsert(store.companies.map(c => ({
-          id: c.id,
-          organization_id: organizationId,
-          code: c.code,
-          description: c.description,
-          status: c.status,
-          is_default: !!c.isDefault,
-          default_set_of_books_id: c.defaultSetOfBooksId?.trim() || null,
-          created_by: c.created_by || userName,
-          created_at: c.created_at,
-          updated_by: userName,
-          updated_at: now(),
-        })), { onConflict: 'id' });
-        if (companyDefaultErr) throw companyDefaultErr;
-      }
-
-      // Step 3: Upsert GL Masters
+      // Step 2: Upsert GL Masters
       if (store.glMasters.length > 0) {
         const { error: glErr } = await supabase.from('gl_master').upsert(store.glMasters.map(g => ({
           id: g.id,
@@ -877,37 +799,16 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
         {activeTab === 'company' && (
           <div className="space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
               <input className="tally-input" placeholder="Company Code*" value={companyForm.code} onChange={e => setCompanyForm({ ...companyForm, code: e.target.value })} />
               <input className="tally-input" placeholder="Description" value={companyForm.description} onChange={e => setCompanyForm({ ...companyForm, description: e.target.value })} />
               <select className="tally-input" value={companyForm.status} onChange={e => setCompanyForm({ ...companyForm, status: e.target.value as Status })}><option>Active</option><option>Inactive</option></select>
-              <label className="flex items-center gap-2 text-xs font-black uppercase border border-gray-300 px-2">
-                <input
-                  type="checkbox"
-                  checked={companyForm.isDefault}
-                  onChange={(e) => setCompanyForm({
-                    ...companyForm,
-                    isDefault: e.target.checked,
-                    defaultSetOfBooksId: e.target.checked ? companyForm.defaultSetOfBooksId : '',
-                  })}
-                />
-                Set as Default Company
-              </label>
               <button className="bg-primary text-white text-xs font-black uppercase px-3" onClick={onSaveCompany}>{editingCompanyId ? 'Update' : 'Add'}</button>
             </div>
-            <select
-              className="tally-input"
-              value={companyForm.defaultSetOfBooksId}
-              onChange={e => setCompanyForm({ ...companyForm, defaultSetOfBooksId: e.target.value })}
-              disabled={!companyForm.isDefault || !companyForm.code.trim()}
-            >
-              <option value="">Default Set of Books*</option>
-              {defaultBooksOptions.map(b => <option key={b.id} value={b.setOfBooksId}>{b.setOfBooksId} - {b.description || 'NA'}</option>)}
-            </select>
             <button className="text-xs font-bold text-primary" onClick={() => exportCsv('company-codes.csv', ['Code', 'Description', 'Status', 'Created By', 'Created At'], filteredCompanies.map(c => [c.code, c.description, c.status, c.created_by, c.created_at]))}>Export CSV</button>
             <div className="overflow-auto border border-gray-200">
-              <table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Code</th><th className="p-2 text-left">Description</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Default</th><th className="p-2 text-left">Default Set of Books</th><th className="p-2 text-left">Audit</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>
-                {filteredCompanies.map(c => <tr key={c.id} className="border-t"><td className="p-2">{c.code}</td><td className="p-2">{c.description}</td><td className="p-2">{c.status}</td><td className="p-2">{c.isDefault ? 'Yes' : 'No'}</td><td className="p-2">{c.defaultSetOfBooksId || '-'}</td><td className="p-2">{c.created_by}<br />{new Date(c.created_at).toLocaleString()}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setCompanyForm({ code: c.code, description: c.description, status: c.status, isDefault: !!c.isDefault, defaultSetOfBooksId: c.defaultSetOfBooksId || '' }); setEditingCompanyId(c.id); }}>Edit</button></td></tr>)}
+              <table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Code</th><th className="p-2 text-left">Description</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Audit</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>
+                {filteredCompanies.map(c => <tr key={c.id} className="border-t"><td className="p-2">{c.code}</td><td className="p-2">{c.description}</td><td className="p-2">{c.status}</td><td className="p-2">{c.created_by}<br />{new Date(c.created_at).toLocaleString()}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setCompanyForm({ code: c.code, description: c.description, status: c.status }); setEditingCompanyId(c.id); }}>Edit</button></td></tr>)}
               </tbody></table>
             </div>
           </div>
