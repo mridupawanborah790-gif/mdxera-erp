@@ -184,6 +184,7 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                         customer={selectedCustomer} 
                         config={config}
                         teamMembers={teamMembers}
+                        defaultControlGlId={defaultCustomerControlGlId}
                     />
                     <PrintCustomerLedgerModal 
                         isOpen={isPrintModalOpen}

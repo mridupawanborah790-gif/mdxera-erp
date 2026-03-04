@@ -693,6 +693,23 @@ const App: React.FC = () => {
         }
     };
 
+
+    const handleUpdateCustomer = async (customer: Customer) => {
+        if (!currentUser) return;
+        try {
+            const customerPayload = {
+                ...customer,
+                customerGroup: customer.customerGroup || 'Sundry Debtors',
+                controlGlId: undefined,
+            };
+            await storage.saveData('customers', customerPayload, currentUser);
+            await loadData(currentUser, 'background');
+            addNotification(`Customer ${customer.name} updated successfully.`, "success");
+        } catch (e) {
+            addNotification(parseNetworkAndApiError(e), "error");
+        }
+    };
+
     const handleRecordPayment = async (id: string, amount: number, date: string, desc: string, type: 'customer' | 'supplier') => {
         if (!currentUser) return;
         await storage.addLedgerEntry({
@@ -874,7 +891,7 @@ const App: React.FC = () => {
                     customers={customers} teamMembers={teamMembers} onAddCustomer={handleAddCustomer}
                     onBulkAddCustomers={(list) => storage.saveBulkData('customers', list, currentUser)}
                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'customer')}
-                    onUpdateCustomer={(c) => storage.saveData('customers', c, currentUser).then(() => loadData(currentUser!, 'background'))}
+                    onUpdateCustomer={handleUpdateCustomer}
                     currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
                 />;
             case 'medicineMasterList':
