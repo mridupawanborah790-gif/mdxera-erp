@@ -9,7 +9,7 @@ interface TemplateProps {
   orientation?: 'portrait' | 'landscape';
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 14;
 
 const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -140,9 +140,24 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         .erp-table { border: 1px solid black; }
         .erp-table th { border: 1px solid black; padding: 1px 3px; font-weight: 600 !important; font-size: 7.5pt; }
         .erp-table td { border-left: 1px solid black; border-right: 1px solid black; padding: 1px 3px; font-size: 8pt; font-weight: 500; }
+        .items-table th,
+        .items-table td {
+          line-height: 1.05;
+        }
+        .items-table td {
+          padding-top: 0.5px;
+          padding-bottom: 0.5px;
+          padding-left: 2px;
+          padding-right: 2px;
+          vertical-align: middle;
+        }
+        .items-table td > * {
+          margin-top: 0;
+          margin-bottom: 0;
+        }
         .font-mono-erp { font-family: 'Courier New', Courier, monospace; }
         .footer-border { border: 1px solid black; border-top: 0; }
-        .row-height { height: 26px; }
+        .row-height { height: 18px; }
       `}</style>
 
       {calculations.itemChunks.map((chunk, pageIdx) => {
@@ -190,7 +205,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               </div>
           </div>
 
-          <table className="w-full erp-table border-collapse flex-1 bg-white">
+          <table className="w-full erp-table items-table border-collapse flex-1 bg-white">
             <thead>
               <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
