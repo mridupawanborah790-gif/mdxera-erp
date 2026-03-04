@@ -942,7 +942,7 @@ export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy)
     const debitControlGl = isCashSale && cashOrBankGl ? cashOrBankGl : customerControlGl;
     addLine(String(debitControlGl), Number(tx.total || 0), 0, isCashSale ? 'Cash / bank receipt' : 'Customer control');
 
-    let taxableValue = 0;
+    let inferredTaxableValue = 0;
     let cgstTotal = 0;
     let sgstTotal = 0;
     let igstTotal = 0;
@@ -954,7 +954,7 @@ export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy)
         const explicitSgst = Number((item as any).sgstValue || 0);
         const explicitIgst = Number((item as any).igstValue || 0);
 
-        taxableValue += taxable;
+        inferredTaxableValue += taxable;
         if (explicitCgst > 0 || explicitSgst > 0 || explicitIgst > 0) {
             cgstTotal += explicitCgst;
             sgstTotal += explicitSgst;
@@ -965,10 +965,34 @@ export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy)
         }
     }
 
-    taxableValue = Number(taxableValue.toFixed(2));
+    inferredTaxableValue = Number(inferredTaxableValue.toFixed(2));
     cgstTotal = Number(cgstTotal.toFixed(2));
     sgstTotal = Number(sgstTotal.toFixed(2));
     igstTotal = Number(igstTotal.toFixed(2));
+
+    const transactionTax = Number(Number(tx.totalGst || 0).toFixed(2));
+    const splitTax = Number((cgstTotal + sgstTotal + igstTotal).toFixed(2));
+
+    // Keep tax split aligned with the persisted transaction-level GST so journal totals remain balanced.
+    if (Math.abs(transactionTax - splitTax) > 0.01) {
+        if (igstTotal > 0 && cgstTotal === 0 && sgstTotal === 0) {
+            igstTotal = transactionTax;
+        } else if (cgstTotal > 0 || sgstTotal > 0) {
+            cgstTotal = Number((transactionTax / 2).toFixed(2));
+            sgstTotal = Number((transactionTax - cgstTotal).toFixed(2));
+            igstTotal = 0;
+        } else if (transactionTax > 0) {
+            cgstTotal = Number((transactionTax / 2).toFixed(2));
+            sgstTotal = Number((transactionTax - cgstTotal).toFixed(2));
+        }
+    }
+
+    const totalTax = Number((cgstTotal + sgstTotal + igstTotal).toFixed(2));
+    let taxableValue = Number((Number(tx.total || 0) - totalTax - Number(tx.roundOff || 0)).toFixed(2));
+    if (Math.abs(taxableValue) <= 0.01) taxableValue = 0;
+    if (taxableValue < 0 && inferredTaxableValue > 0) {
+        taxableValue = inferredTaxableValue;
+    }
 
     addLine(String(salesGl), 0, taxableValue, 'Sales account');
     if (cgstTotal > 0) addLine(String(outputCgstGl), 0, cgstTotal, 'Output CGST');
