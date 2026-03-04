@@ -220,7 +220,8 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               </div>
           </div>
 
-          <table className="w-full erp-table items-table invoice-items border-collapse flex-1 bg-white">
+          <div className="flex flex-col">
+          <table className="w-full erp-table items-table invoice-items border-collapse bg-white">
             <thead>
               <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
@@ -259,7 +260,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                   </tr>
                 );
               })}
-              {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
+              {isLastPage && Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                 <tr key={`spacer-${i}`} className="row-height border-b border-gray-100 last:border-b-0">
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
@@ -284,9 +285,23 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
             </tbody>
           </table>
 
+          {!isLastPage && (
+            <div className="grid grid-cols-2 border-x border-b border-black bg-white">
+              <div className="border-r border-black p-1.5">
+                <p className="text-[8pt] font-black text-gray-700 uppercase">Continued on next page…</p>
+              </div>
+              <div className="p-1.5 flex justify-between items-center bg-gray-50/80">
+                <span className="text-sm font-black text-gray-800 tracking-tighter">PAGE TOTAL</span>
+                <span className="text-2xl font-black text-blue-900 tracking-tighter">₹ {pageTotal.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+          </div>
+
+          {isLastPage && (
           <div className="grid grid-cols-2 footer-border flex-shrink-0 bg-white">
                 <div className="border-r border-black p-1.5 flex flex-col justify-between">
-                  {isLastPage && !isNonGst && (
+                  {!isNonGst && (
                     <table className="w-full text-[6.5pt] border-collapse erp-table mb-1">
                         <thead className="bg-gray-100 uppercase font-black">
                           <tr>
@@ -314,59 +329,47 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                   )}
 
                   <div className="mt-1">
-                    {isLastPage ? (
-                      <>
-                        <p className="text-[7.5pt] font-black uppercase text-gray-950 border-b border-dashed border-gray-300 pb-1 mb-1 leading-tight">
-                          {numberToWords(calculations.grandTotal)}
-                        </p>
-                        <div className="mt-2 flex justify-between items-end">
-                            <div>
-                                <span className="text-base font-black text-gray-900 mr-2">BAL:</span>
-                                <span className="text-base font-black text-red-600">₹{(calculations.grandTotal - (bill.amountReceived || 0)).toFixed(2)}</span>
-                            </div>
-                            <div className="text-center pr-1">
-                                <p className="text-[6pt] font-black mb-4 uppercase tracking-wider">FOR {bill.pharmacy.pharmacy_name}</p>
-                                <p className="text-[7pt] font-black border-t border-black pt-0.5 px-4 inline-block uppercase leading-none">Auth. Signatory</p>
-                            </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="h-full flex items-end justify-start">
-                        <p className="text-[8pt] font-black text-gray-700 uppercase">Continued on next page…</p>
+                    <>
+                      <p className="text-[7.5pt] font-black uppercase text-gray-950 border-b border-dashed border-gray-300 pb-1 mb-1 leading-tight">
+                        {numberToWords(calculations.grandTotal)}
+                      </p>
+                      <div className="mt-2 flex justify-between items-end">
+                          <div>
+                              <span className="text-base font-black text-gray-900 mr-2">BAL:</span>
+                              <span className="text-base font-black text-red-600">₹{(calculations.grandTotal - (bill.amountReceived || 0)).toFixed(2)}</span>
+                          </div>
+                          <div className="text-center pr-1">
+                              <p className="text-[6pt] font-black mb-4 uppercase tracking-wider">FOR {bill.pharmacy.pharmacy_name}</p>
+                              <p className="text-[7pt] font-black border-t border-black pt-0.5 px-4 inline-block uppercase leading-none">Auth. Signatory</p>
+                          </div>
                       </div>
-                    )}
+                    </>
                   </div>
                 </div>
 
                 <div className="flex flex-col bg-gray-50/80">
-                  {isLastPage ? (
-                    <>
-                      <div className="p-2 flex-1 space-y-1 text-[8.5pt] font-bold">
-                          <div className="flex justify-between"><span>SUB TOTAL</span> <span className="font-black">₹ {(bill.subtotal || 0).toFixed(2)}</span></div>
-                          
-                          {showBillDiscount && calculations.billDiscount > 0 && (
-                            <div className="flex justify-between text-indigo-700 font-black">
-                                <span>{isMode8 ? 'Adjustment (Mode 8)' : 'Bill Discount'}</span> 
-                                <span>- {calculations.billDiscount.toFixed(2)}</span>
-                            </div>
-                          )}
+                  <>
+                    <div className="p-2 flex-1 space-y-1 text-[8.5pt] font-bold">
+                        <div className="flex justify-between"><span>SUB TOTAL</span> <span className="font-black">₹ {(bill.subtotal || 0).toFixed(2)}</span></div>
+                        
+                        {showBillDiscount && calculations.billDiscount > 0 && (
+                          <div className="flex justify-between text-indigo-700 font-black">
+                              <span>{isMode8 ? 'Adjustment (Mode 8)' : 'Bill Discount'}</span> 
+                              <span>- {calculations.billDiscount.toFixed(2)}</span>
+                          </div>
+                        )}
 
-                          {!isNonGst && <div className="flex justify-between text-gray-600"><span>Tax Amount</span> <span className="font-black text-gray-900">{(calculations.totalGst || 0).toFixed(2)}</span></div>}
-                          <div className="flex justify-between text-gray-500"><span>Round Off</span> <span className="text-[8pt] font-normal">{(calculations.roundOff || 0).toFixed(2)}</span></div>
-                      </div>
-                      <div className="p-2 bg-white border-t border-black flex justify-between items-center shadow-inner">
-                          <span className="text-sm font-black text-gray-800 tracking-tighter">GRAND TOTAL</span>
-                          <span className="text-2xl font-black text-blue-900 tracking-tighter">₹ {calculations.grandTotal.toFixed(2)}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="p-2 bg-white h-full flex justify-between items-center border-t border-black shadow-inner">
-                      <span className="text-sm font-black text-gray-800 tracking-tighter">PAGE TOTAL</span>
-                      <span className="text-2xl font-black text-blue-900 tracking-tighter">₹ {pageTotal.toFixed(2)}</span>
+                        {!isNonGst && <div className="flex justify-between text-gray-600"><span>Tax Amount</span> <span className="font-black text-gray-900">{(calculations.totalGst || 0).toFixed(2)}</span></div>}
+                        <div className="flex justify-between text-gray-500"><span>Round Off</span> <span className="text-[8pt] font-normal">{(calculations.roundOff || 0).toFixed(2)}</span></div>
                     </div>
-                  )}
+                    <div className="p-2 bg-white border-t border-black flex justify-between items-center shadow-inner">
+                        <span className="text-sm font-black text-gray-800 tracking-tighter">GRAND TOTAL</span>
+                        <span className="text-2xl font-black text-blue-900 tracking-tighter">₹ {calculations.grandTotal.toFixed(2)}</span>
+                    </div>
+                  </>
                 </div>
             </div>
+          )}
         </div>
       )})}
     </div>
