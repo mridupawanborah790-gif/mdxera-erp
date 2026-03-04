@@ -155,6 +155,21 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           margin-top: 0;
           margin-bottom: 0;
         }
+        .invoice-items {
+          border-bottom: 1px solid #000;
+        }
+        .invoice-items td,
+        .invoice-items th {
+          font-family: inherit;
+          font-size: inherit;
+          font-weight: normal;
+        }
+        .invoice-items tbody tr:last-child td {
+          border-bottom: 1px solid #000;
+        }
+        .invoice-items .page-break-footer td {
+          border-bottom: 1px solid #000;
+        }
         .font-mono-erp { font-family: 'Courier New', Courier, monospace; }
         .footer-border { border: 1px solid black; border-top: 0; }
         .row-height { height: 18px; }
@@ -205,7 +220,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               </div>
           </div>
 
-          <table className="w-full erp-table items-table border-collapse flex-1 bg-white">
+          <table className="w-full erp-table items-table invoice-items border-collapse flex-1 bg-white">
             <thead>
               <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
@@ -231,9 +246,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <td className="text-center font-black">{sn}</td>
                     <td className="text-center font-black">{item.displayQty}</td>
                     <td className="font-black uppercase truncate text-gray-900">{item.displayName}</td>
-                    <td className="text-center font-mono-erp text-[7.5pt]">{item.hsn}</td>
+                    <td className="text-center">{item.hsn}</td>
                     <td className="text-center text-[7pt]">{item.pack}</td>
-                    <td className="text-center font-mono-erp text-[7.5pt]">{item.batch}</td>
+                    <td className="text-center">{item.batch}</td>
                     <td className="text-center text-[7pt]">{item.expiry}</td>
                     <td className="text-right">{(item.mrp || 0).toFixed(2)}</td>
                     <td className="text-right text-blue-900">{(item.billedRate || 0).toFixed(2)}</td>
@@ -261,6 +276,11 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <td className=""></td>
                 </tr>
               ))}
+              {!isLastPage && (
+                <tr className="page-break-footer">
+                  <td colSpan={11 + (showItemWiseDisc ? 1 : 0) + (showSchemeColumn ? 1 : 0)} style={{ borderBottom: '1px solid #000' }}></td>
+                </tr>
+              )}
             </tbody>
           </table>
 
