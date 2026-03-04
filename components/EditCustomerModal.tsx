@@ -13,7 +13,16 @@ interface EditCustomerModalProps {
     customer: Customer;
     config: ModuleConfig;
     teamMembers?: OrganizationMember[]; 
+    defaultControlGlId?: string;
 }
+
+const CUSTOMER_GROUP_OPTIONS = [
+    'Sundry Debtors',
+    'Cash Customers',
+    'Corporate Customers',
+    'Retail Customers',
+    'Government Customers',
+] as const;
 
 // Reusing the Toggle component for consistency
 const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: boolean) => void }> = ({ label, enabled, setEnabled }) => (
@@ -25,7 +34,7 @@ const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: 
     </div>
 );
 
-export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, onClose, onSave, customer, config, teamMembers = [] }) => {
+export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, onClose, onSave, customer, config, teamMembers = [], defaultControlGlId }) => {
     const [formData, setFormData] = useState(customer);
     const [isPincodeLoading, setIsPincodeLoading] = useState(false);
     
@@ -56,8 +65,9 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
         } else if (name === 'assignedStaffId') {
             const member = teamMembers.find(m => m.id === value);
             setFormData(prev => ({ ...prev, assignedStaffId: value, assignedStaffName: member?.name || '' }));
-        }
-        else {
+        } else if (name === 'customerGroup') {
+            setFormData(prev => ({ ...prev, customerGroup: value, controlGlId: '' }));
+        } else {
             setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) || 0 : value }));
         }
     };
@@ -65,6 +75,10 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
     const handleSubmit = () => {
         if (!formData.name.trim()) {
             alert("Customer Name is required");
+            return;
+        }
+        if (!formData.customerGroup?.trim()) {
+            alert("Customer Group is required");
             return;
         }
         onSave(formData);
@@ -97,6 +111,32 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
                             <option value="regular">General</option>
                             <option value="retail">Retailer</option>
                         </select>
+                     </div>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div>
+                        <label className="block text-sm font-medium text-app-text-secondary">Customer Group <span className="text-red-500">*</span></label>
+                        <select
+                            name="customerGroup"
+                            value={formData.customerGroup || 'Sundry Debtors'}
+                            onChange={handleChange}
+                            required
+                            className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]"
+                        >
+                            {CUSTOMER_GROUP_OPTIONS.map(group => (
+                                <option key={group} value={group}>{group}</option>
+                            ))}
+                        </select>
+                     </div>
+                     <div>
+                        <label className="block text-sm font-medium text-app-text-secondary">Customer Control GL</label>
+                        <input
+                            type="text"
+                            value={formData.controlGlId || defaultControlGlId ? `Mapped (${formData.controlGlId || defaultControlGlId})` : 'Auto-map from Company Configuration'}
+                            readOnly
+                            className="mt-1 block w-full p-2 border border-app-border rounded-md bg-gray-100 dark:bg-gray-800"
+                        />
                      </div>
                  </div>
 
