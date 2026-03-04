@@ -166,7 +166,12 @@ begin
     (p_organization_id, p_set_of_books_id, '110002', 'Corporate Trade Receivables', 'Asset', false, true, 'Active', true, 'v2.0', 'system', 'system'),
     (p_organization_id, p_set_of_books_id, '110003', 'Retail Trade Receivables', 'Asset', false, true, 'Active', true, 'v2.0', 'system', 'system'),
     (p_organization_id, p_set_of_books_id, '110004', 'Government Receivables', 'Asset', false, true, 'Active', true, 'v2.0', 'system', 'system'),
-    (p_organization_id, p_set_of_books_id, '100001', 'Cash on Hand / POS Cash Account', 'Asset', true, false, 'Active', true, 'v2.0', 'system', 'system')
+    (p_organization_id, p_set_of_books_id, '100001', 'Cash on Hand / POS Cash Account', 'Asset', true, false, 'Active', true, 'v2.0', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '400100', 'Sales Account', 'Income', true, false, 'Active', true, 'v2.0', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '210110', 'Output CGST', 'Liability', true, false, 'Active', true, 'v2.0', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '210120', 'Output SGST', 'Liability', true, false, 'Active', true, 'v2.0', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '210130', 'Output IGST', 'Liability', true, false, 'Active', true, 'v2.0', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '510000', 'Round Off Account', 'Expense', true, false, 'Active', true, 'v2.0', 'system', 'system')
   on conflict (organization_id, set_of_books_id, gl_code) do nothing;
 
   -- Mapping helper macro-style block

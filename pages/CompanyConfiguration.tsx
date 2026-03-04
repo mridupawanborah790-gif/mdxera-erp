@@ -150,7 +150,10 @@ const defaultGlTemplate: Array<{ key: string; glName: string; glType: GLType; co
   { key: 'discount', glName: 'Discount Account', glType: 'Expense', code: 500300 },
   { key: 'serviceCost', glName: 'Service Cost', glType: 'Expense', code: 500400 },
   { key: 'sales', glName: 'Sales Account', glType: 'Income', code: 400100 },
-  { key: 'gstOutput', glName: 'GST Output', glType: 'Liability', code: 210100 },
+  { key: 'outputCgst', glName: 'Output CGST', glType: 'Liability', code: 210110 },
+  { key: 'outputSgst', glName: 'Output SGST', glType: 'Liability', code: 210120 },
+  { key: 'outputIgst', glName: 'Output IGST', glType: 'Liability', code: 210130 },
+  { key: 'roundOff', glName: 'Round Off Account', glType: 'Expense', code: 510000 },
   { key: 'gstInput', glName: 'GST Input', glType: 'Liability', code: 210200 },
   { key: 'supplierControl', glName: 'Accounts Payable (Trade Creditors)', glType: 'Liability', code: 210000 },
   { key: 'payables', glName: 'Trade Payables', glType: 'Liability', code: 220000 },
@@ -401,11 +404,11 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     });
 
     const assignmentSeed: Array<Omit<GLAssignment, keyof AuditFields | 'id'>> = [
-      { setOfBooksId, materialMasterType: 'Trading Goods', inventoryGL: keyToGlId.get('invTrading') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('gstOutput') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
-      { setOfBooksId, materialMasterType: 'Finished Goods', inventoryGL: keyToGlId.get('invFinished') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('gstOutput') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
-      { setOfBooksId, materialMasterType: 'Consumables', inventoryGL: keyToGlId.get('invConsumable') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('gstOutput') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
-      { setOfBooksId, materialMasterType: 'Service Material', inventoryGL: '', purchaseGL: keyToGlId.get('serviceCost') || keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('serviceCost') || keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('gstOutput') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
-      { setOfBooksId, materialMasterType: 'Packaging', inventoryGL: keyToGlId.get('invPackaging') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('gstOutput') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { setOfBooksId, materialMasterType: 'Trading Goods', inventoryGL: keyToGlId.get('invTrading') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { setOfBooksId, materialMasterType: 'Finished Goods', inventoryGL: keyToGlId.get('invFinished') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { setOfBooksId, materialMasterType: 'Consumables', inventoryGL: keyToGlId.get('invConsumable') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { setOfBooksId, materialMasterType: 'Service Material', inventoryGL: '', purchaseGL: keyToGlId.get('serviceCost') || keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('serviceCost') || keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { setOfBooksId, materialMasterType: 'Packaging', inventoryGL: keyToGlId.get('invPackaging') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
     ];
 
     const existingAssignments = activeStore.glAssignments.filter(a => a.setOfBooksId === setOfBooksId);

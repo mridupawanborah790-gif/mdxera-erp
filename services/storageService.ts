@@ -902,14 +902,6 @@ export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy)
     tx.companyCodeId = postingContext.companyCodeId;
     tx.setOfBooksId = postingContext.setOfBooksId;
 
-    const { data: assignments, error: assignmentError } = await supabase
-        .from('gl_assignments')
-        .select('material_master_type, sales_gl, tax_gl')
-        .eq('organization_id', user.organization_id)
-        .eq('set_of_books_id', tx.setOfBooksId);
-    if (assignmentError) throw assignmentError;
-
-    const assignmentByType = new Map((assignments || []).map((a: any) => [a.material_master_type, a]));
     const { data: books } = await supabase
         .from('set_of_books')
         .select('default_customer_gl_id')
@@ -919,6 +911,24 @@ export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy)
     const customerControlGl = books?.default_customer_gl_id;
     if (!customerControlGl) throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
 
+    const { data: glRows, error: glError } = await supabase
+        .from('gl_master')
+        .select('id, gl_code')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', tx.setOfBooksId)
+        .in('gl_code', ['100001', '400100', '210110', '210120', '210130', '510000']);
+    if (glError) throw glError;
+    const glByCode = new Map((glRows || []).map((row: any) => [String(row.gl_code), String(row.id)]));
+
+    const salesGl = glByCode.get('400100');
+    const outputCgstGl = glByCode.get('210110');
+    const outputSgstGl = glByCode.get('210120');
+    const outputIgstGl = glByCode.get('210130');
+    const roundOffGl = glByCode.get('510000');
+    if (!salesGl || !outputCgstGl || !outputSgstGl || !outputIgstGl || !roundOffGl) {
+        throw new Error('Set of Books GL mapping incomplete. Required: Sales (400100), Output CGST (210110), Output SGST (210120), Output IGST (210130), Round Off (510000).');
+    }
+
     const lineAcc = new Map<string, { debit: number; credit: number; memo: string }>();
     const addLine = (glId: string, debit: number, credit: number, memo: string) => {
         const cur = lineAcc.get(glId) || { debit: 0, credit: 0, memo };
@@ -927,18 +937,48 @@ export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy)
         lineAcc.set(glId, cur);
     };
 
-    addLine(customerControlGl, Number(tx.total || 0), 0, 'Customer control');
+    const isCashSale = (tx.paymentMode || '').toLowerCase() === 'cash';
+    const cashOrBankGl = glByCode.get('100001');
+    const debitControlGl = isCashSale && cashOrBankGl ? cashOrBankGl : customerControlGl;
+    addLine(String(debitControlGl), Number(tx.total || 0), 0, isCashSale ? 'Cash / bank receipt' : 'Customer control');
+
+    let taxableValue = 0;
+    let cgstTotal = 0;
+    let sgstTotal = 0;
+    let igstTotal = 0;
 
     for (const item of tx.items || []) {
-        const materialType = mapMaterialType((item as any).category);
-        const assignment = assignmentByType.get(materialType) || assignmentByType.get('Trading Goods');
-        if (!assignment?.sales_gl || !assignment?.tax_gl) {
-            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
-        }
         const taxable = Number((item as any).taxableValue || 0);
         const gst = Number((item as any).gstAmount || 0);
-        addLine(String(assignment.sales_gl), 0, taxable, `${materialType} sales`);
-        if (gst > 0) addLine(String(assignment.tax_gl), 0, gst, `${materialType} tax`);
+        const explicitCgst = Number((item as any).cgstValue || 0);
+        const explicitSgst = Number((item as any).sgstValue || 0);
+        const explicitIgst = Number((item as any).igstValue || 0);
+
+        taxableValue += taxable;
+        if (explicitCgst > 0 || explicitSgst > 0 || explicitIgst > 0) {
+            cgstTotal += explicitCgst;
+            sgstTotal += explicitSgst;
+            igstTotal += explicitIgst;
+        } else if (gst > 0) {
+            cgstTotal += Number((gst / 2).toFixed(4));
+            sgstTotal += Number((gst / 2).toFixed(4));
+        }
+    }
+
+    taxableValue = Number(taxableValue.toFixed(2));
+    cgstTotal = Number(cgstTotal.toFixed(2));
+    sgstTotal = Number(sgstTotal.toFixed(2));
+    igstTotal = Number(igstTotal.toFixed(2));
+
+    addLine(String(salesGl), 0, taxableValue, 'Sales account');
+    if (cgstTotal > 0) addLine(String(outputCgstGl), 0, cgstTotal, 'Output CGST');
+    if (sgstTotal > 0) addLine(String(outputSgstGl), 0, sgstTotal, 'Output SGST');
+    if (igstTotal > 0) addLine(String(outputIgstGl), 0, igstTotal, 'Output IGST');
+
+    const roundOff = Number(tx.roundOff || 0);
+    if (Math.abs(roundOff) > 0.0001) {
+        if (roundOff > 0) addLine(String(roundOffGl), 0, roundOff, 'Round off');
+        else addLine(String(roundOffGl), Math.abs(roundOff), 0, 'Round off');
     }
 
     const lines = Array.from(lineAcc.entries()).map(([glId, v]) => ({ glId, debit: v.debit, credit: v.credit, memo: v.memo }));
