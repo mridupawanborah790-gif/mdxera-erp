@@ -630,7 +630,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             {isLinkModalOpen && currentDistributor && (
                 <LinkToMasterModal
                     isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={currentDistributor as any} medicines={medicines} mappings={mappings}
-                    onLink={onSaveMapping} scannedItems={items} onFinalize={(reconciled) => setItems(reconciled)} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
+                    onLink={onSaveMapping} scannedItems={items} onFinalize={(reconciled) => { setItems(reconciled); setIsLinkModalOpen(false); }} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
                 />
             )}
             {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}

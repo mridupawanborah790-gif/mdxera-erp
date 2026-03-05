@@ -19,6 +19,7 @@ interface LinkToMasterModalProps {
 }
 
 const uniformTextStyle = "text-base font-medium tracking-tight uppercase";
+const isUnresolved = (item: PurchaseItem) => item.matchStatus !== 'matched';
 
 const cleanItemName = (name: string): string => {
     return name
@@ -104,7 +105,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     useEffect(() => {
         if (isOpen) {
             setReconciledItems(scannedItems.filter(i => (i.name || "").trim()).map(i => ({ ...i, extractedName: (i as any).extractedName || i.name } as any)));
-            const firstPending = scannedItems.findIndex(i => i.matchStatus === 'pending');
+            const firstPending = scannedItems.findIndex(i => isUnresolved(i));
             const initialIdx = firstPending !== -1 ? firstPending : 0;
             setActiveScannedIndex(initialIdx);
             autoResolvedRef.current = false;
@@ -216,8 +217,8 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         setStatusToast(`Mapped successfully: ${rawNomenclatureName} → ${masterMed.name}`);
 
         // Find next pending item
-        const nextPendingIdx = updatedItems.findIndex((item, idx) => idx > activeScannedIndex && item.matchStatus === 'pending');
-        const wrapPendingIdx = nextPendingIdx === -1 ? updatedItems.findIndex(item => item.matchStatus === 'pending') : nextPendingIdx;
+        const nextPendingIdx = updatedItems.findIndex((item, idx) => idx > activeScannedIndex && isUnresolved(item));
+        const wrapPendingIdx = nextPendingIdx === -1 ? updatedItems.findIndex(item => isUnresolved(item)) : nextPendingIdx;
 
         if (wrapPendingIdx !== -1) {
             setActiveScannedIndex(wrapPendingIdx);
@@ -230,14 +231,13 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         } else {
             setStatusToast('All items matched. Import completed successfully.');
             onFinalize(updatedItems);
-            onClose();
         }
     };
 
     const handleFinalize = (e?: React.MouseEvent | React.KeyboardEvent) => {
         if (e) { e.preventDefault(); e.stopPropagation(); }
         if (!isComplete) {
-            const pendingCount = reconciledItems.filter(i => i.matchStatus === 'pending').length;
+            const pendingCount = reconciledItems.filter(i => isUnresolved(i)).length;
             alert(`Confirm Import blocked: ${pendingCount} extracted item(s) require action (Map/Create).`);
             return;
         }
@@ -256,7 +256,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             return;
         }
 
-        const pendingCount = reconciledItems.filter(i => i.matchStatus === 'pending').length;
+        const pendingCount = reconciledItems.filter(i => isUnresolved(i)).length;
         setCloseWarning(`Mapping pending: ${pendingCount} items remaining. Please map or create new SKU before closing.`);
     };
 
@@ -274,7 +274,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             if (isComplete) {
                 handleFinalize();
             } else if (currentItem && currentItem.matchStatus === 'matched') {
-                const nextPending = reconciledItems.findIndex(i => i.matchStatus === 'pending');
+                const nextPending = reconciledItems.findIndex(i => isUnresolved(i));
                 if (nextPending !== -1) {
                     setActiveScannedIndex(nextPending);
                 } else {
@@ -318,7 +318,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         let updated = [...reconciledItems];
         for (let i = 0; i < updated.length; i++) {
             const item = updated[i];
-            if (item.matchStatus === 'pending' && suggestions[item.id]) {
+            if (isUnresolved(item) && suggestions[item.id]) {
                 const match = suggestions[item.id]!;
 
                 const existingMap = (mappings || []).find(m =>
@@ -357,7 +357,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         setReconciledItems(updated);
         setCloseWarning(null);
 
-        const nextPending = updated.findIndex(i => i.matchStatus === 'pending');
+        const nextPending = updated.findIndex(i => isUnresolved(i));
         if (nextPending !== -1) {
             setActiveScannedIndex(nextPending);
             setTimeout(() => {
@@ -367,7 +367,6 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         } else {
             setStatusToast('All items matched. Import completed successfully.');
             onFinalize(updated);
-            onClose();
         }
     };
 
@@ -386,7 +385,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
 
     if (!isOpen) return null;
 
-    const unmappedCount = reconciledItems.filter(i => i.matchStatus === 'pending').length;
+    const unmappedCount = reconciledItems.filter(i => isUnresolved(i)).length;
 
     return (
         <>
