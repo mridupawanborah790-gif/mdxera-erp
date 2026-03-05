@@ -713,6 +713,12 @@ const POS = forwardRef<any, POSProps>(({
         setTimeout(() => modalSearchInputRef.current?.focus(), 150);
     }, [isReadOnly]);
 
+    const closeInsightsPanel = useCallback(() => {
+        setIsInsightsOpen(false);
+        if (!isSearchModalOpen) return;
+        setTimeout(() => modalSearchInputRef.current?.focus(), 0);
+    }, [isSearchModalOpen]);
+
     const handleDeleteRow = useCallback((id: string, index: number) => {
         if (isReadOnly) return;
 
@@ -1446,7 +1452,7 @@ const POS = forwardRef<any, POSProps>(({
                             purchases={purchases}
                             sales={salesHistory}
                             loading={isInsightsLoading}
-                            onClose={() => setIsInsightsOpen(false)}
+                            onClose={closeInsightsPanel}
                         />
 
                         <div className="w-80 bg-[#f9f7d9] dark:bg-zinc-900 border-l-2 border-primary/10 flex flex-col overflow-y-auto">
