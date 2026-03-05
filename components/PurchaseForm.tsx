@@ -265,6 +265,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
     const invoiceNumberInputRef = useRef<HTMLInputElement>(null);
     const dateInputRef = useRef<HTMLInputElement>(null);
+    const voucherGridRef = useRef<HTMLDivElement>(null);
     const modalSearchInputRef = useRef<HTMLInputElement>(null);
     const searchResultsRef = useRef<HTMLDivElement>(null);
     const lastSourceRef = useRef<string | null>(null);
@@ -1529,7 +1530,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 )}
 
                 <Card className="flex-1 min-h-[420px] md:min-h-[500px] flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
-                    <div className="flex-1 overflow-auto">
+                    <div ref={voucherGridRef} tabIndex={-1} className="flex-1 overflow-auto">
                         <table className="min-w-full border-collapse text-sm">
                             <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400 z-10">
                                 <tr className="text-[10px] font-black uppercase text-gray-600 h-9">
@@ -1682,7 +1683,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             {isLinkModalOpen && reconciliationSupplier && (
                 <LinkToMasterModal
                     isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={reconciliationSupplier as any} medicines={medicines} mappings={mappings}
-                    onLink={onSaveMapping} scannedItems={items.filter(i => (i.name || "").trim())} onFinalize={(reconciled) => { setItems([...reconciled, createBlankItem()]); setIsLinkModalOpen(false); }} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
+                    onLink={onSaveMapping} scannedItems={items.filter(i => (i.name || "").trim())} onFinalize={(reconciled) => { setItems([...reconciled, createBlankItem()]); setIsLinkModalOpen(false); addNotification('Reconciliation completed. Items added to Purchase Voucher.', 'success'); requestAnimationFrame(() => voucherGridRef.current?.focus()); }} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
                 />
             )}
             {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
