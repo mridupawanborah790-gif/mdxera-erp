@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
 import type { Supplier } from '../types';
+import type { SupplierQuickResult } from '../services/supplierService';
 import { handleEnterToNextField } from '../utils/navigation';
 import { STATE_DISTRICT_MAP } from '../constants';
 import { getOutstandingBalance } from '../utils/helpers';
@@ -50,13 +51,15 @@ const createInitialState = (): Omit<Supplier, 'ledger' | 'organization_id'> => (
 export const AddSupplierModal: React.FC<{
     isOpen: boolean; 
     onClose: () => void; 
-    onAdd: (data: Omit<Supplier, 'ledger' | 'organization_id'>, balance: number, date: string) => void;
+    onAdd: (data: Omit<Supplier, 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<SupplierQuickResult>;
+    onDuplicate?: (supplier: Supplier) => void;
     organizationId: string;
     prefillData?: Partial<Supplier>;
     defaultControlGlId?: string;
-}> = ({ isOpen, onClose, onAdd, organizationId, prefillData, defaultControlGlId }) => {
+}> = ({ isOpen, onClose, onAdd, onDuplicate, organizationId, prefillData, defaultControlGlId }) => {
     const [form, setForm] = useState(createInitialState());
     const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -88,7 +91,7 @@ export const AddSupplierModal: React.FC<{
         }
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!form.name.trim()) {
             alert('Supplier Name is required.');
             return;
@@ -97,8 +100,16 @@ export const AddSupplierModal: React.FC<{
             alert('Supplier Group is required.');
             return;
         }
-        onAdd(form, form.opening_balance || 0, asOfDate);
-        onClose();
+        setIsSaving(true);
+        try {
+            const result = await onAdd(form, form.opening_balance || 0, asOfDate);
+            if (result.status === 'duplicate') {
+                onDuplicate?.(result.supplier);
+            }
+            onClose();
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -194,7 +205,7 @@ export const AddSupplierModal: React.FC<{
             </div>
             <div className="flex justify-end p-5 bg-gray-100 border-t border-gray-300 gap-3">
                 <button onClick={onClose} className="px-6 py-2 text-[10px] font-black uppercase border border-gray-400 bg-white hover:bg-red-50 text-red-600 transition-colors">Discard</button>
-                <button onClick={handleSubmit} className="px-14 py-2 tally-button-primary shadow-xl tracking-widest text-[11px]">Accept (Ent)</button>
+                <button onClick={handleSubmit} disabled={isSaving} className="px-14 py-2 tally-button-primary shadow-xl tracking-widest text-[11px] disabled:opacity-50">{isSaving ? 'Saving…' : 'Accept (Ent)'}</button>
             </div>
         </Modal>
     );

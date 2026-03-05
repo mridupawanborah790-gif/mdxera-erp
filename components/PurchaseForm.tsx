@@ -15,6 +15,7 @@ import { fetchPendingMobileBills, fetchSupplierProductMaps, fetchTransactions, g
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
+import type { SupplierQuickResult } from '../services/supplierService';
 import JournalEntryViewerModal from './JournalEntryViewerModal';
 import ProductInsightsPanel from './ProductInsightsPanel';
 import { generateNewInvoiceId } from '../utils/invoice';
@@ -182,7 +183,7 @@ interface PurchaseFormProps {
     currentUser: RegisteredPharmacy | null;
     onAddInventoryItem?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
-    onAddsupplier: (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<Supplier>;
+    onAddsupplier: (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<SupplierQuickResult>;
     onAddInventoryItemDirectly?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onSaveMapping: (map: Partial<SupplierProductMap>) => Promise<void>;
     setIsDirty: (isDirty: boolean) => void;
@@ -1228,7 +1229,61 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         invoiceNumberInputRef.current?.focus();
     };
 
+    const handleQuickCreateSupplier = async () => {
+        if (isReadOnly || !Supplier.trim()) return;
+        try {
+            const result = await onAddsupplier({
+                user_id: '',
+                name: Supplier.trim(),
+                contact_person: '',
+                category: 'Wholesaler',
+                phone: '',
+                mobile: '',
+                email: '',
+                website: '',
+                address: '',
+                address_line2: '',
+                area: '',
+                pincode: '',
+                district: '',
+                state: '',
+                gst_number: supplierGst || '',
+                pan_number: '',
+                drug_license: '',
+                food_license: '',
+                opening_balance: 0,
+                payment_details: { upi_id: '', bank_name: '', ifsc_code: '', branch_name: '', payment_terms: '30 Days', account_number: '' },
+                is_active: true,
+                is_blocked: false,
+                remarks: '',
+                supplier_group: 'Sundry Creditors',
+                control_gl_id: ''
+            }, 0, date);
+
+            setSupplier(result.supplier.name || Supplier);
+            setSupplierGst(result.supplier.gst_number || '');
+            setSupplierNameError(null);
+            setIsSupplierDropdownOpen(false);
+            setIsAddSupplierModalOpen(false);
+            setSupplierQuickCreatePrefill(undefined);
+            invoiceNumberInputRef.current?.focus();
+        } catch (_) {
+            // Notification already handled by shared supplier service caller in App
+        }
+    };
+
     const handleSupplierKeyDown = (e: React.KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            const exact = suppliers.find(d => normalizeSupplierKey(d.name || '') === normalizeSupplierKey(Supplier));
+            if (exact) {
+                handleSupplierSelect(exact);
+                return;
+            }
+            handleQuickCreateSupplier();
+            return;
+        }
+
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             const filtered = suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10);
@@ -1241,7 +1296,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             e.preventDefault();
             setIsSupplierSearchModalOpen(true);
         } else if (e.key === 'Escape') {
+            e.preventDefault();
             setIsSupplierDropdownOpen(false);
+            setIsAddSupplierModalOpen(false);
         }
     };
 
@@ -1274,7 +1331,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
                             className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
-                            placeholder="Press Enter to Select Supplier..."
+                            placeholder="Enter: search | Ctrl+Enter: quick create supplier"
                         />
                         {isSupplierDropdownOpen && Supplier.length > 0 && (
                             <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
@@ -1486,7 +1543,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             </div>
 
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleWebcamCapture} />}
-            {isAddSupplierModalOpen && <AddSupplierModal isOpen={isAddSupplierModalOpen} onClose={() => { setIsAddSupplierModalOpen(false); setSupplierQuickCreatePrefill(undefined); }} onAdd={onAddsupplier} organizationId={organizationId} prefillData={supplierQuickCreatePrefill} />}
+            {isAddSupplierModalOpen && <AddSupplierModal isOpen={isAddSupplierModalOpen} onClose={() => { setIsAddSupplierModalOpen(false); setSupplierQuickCreatePrefill(undefined); }} onAdd={onAddsupplier} onDuplicate={handleSupplierSelect} organizationId={organizationId} prefillData={supplierQuickCreatePrefill} />}
             {isAddMedicineMasterModalOpen && <AddMedicineModal isOpen={isAddMedicineMasterModalOpen} onClose={() => setIsAddMedicineMasterModalOpen(false)} onAddMedicine={onAddMedicineMaster} organizationId={organizationId} />}
             {isLinkModalOpen && reconciliationSupplier && (
                 <LinkToMasterModal

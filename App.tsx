@@ -55,6 +55,7 @@ import { navigation } from './constants';
 import { generateNewInvoiceId } from './utils/invoice';
 import { getInventoryPolicy } from './utils/materialType';
 import { resolveUnitsPerStrip } from './utils/pack';
+import { createSupplierQuick, SupplierQuickResult } from './services/supplierService';
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
@@ -648,25 +649,43 @@ const App: React.FC = () => {
         refreshDefaultControlGls();
     }, [refreshDefaultControlGls]);
 
-    const handleAddDistributor = async (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
+    const handleAddDistributor = async (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string): Promise<SupplierQuickResult> => {
         if (!currentUser) throw new Error("Unauthorized");
-        const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '210000');
-        if (!mappedControlGlId) throw new Error('Supplier Control GL (210000) not found in active Set of Books.');
-        const supplierPayload = { ...data, supplier_group: data.supplier_group || 'Sundry Creditors', control_gl_id: mappedControlGlId };
-        const newDist = await storage.saveData('suppliers', supplierPayload, currentUser);
-        if (balance !== 0) {
-            await storage.addLedgerEntry({
-                id: storage.generateUUID(),
-                date,
-                type: 'openingBalance',
-                description: 'Opening Balance',
-                debit: balance < 0 ? Math.abs(balance) : 0,
-                credit: balance > 0 ? balance : 0,
-                balance: 0,
-            }, { type: 'supplier', id: newDist.id }, currentUser);
+        addNotification('Saving…', 'warning');
+        try {
+            const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '210000');
+            if (!mappedControlGlId) throw new Error('Supplier Control GL (210000) not found in active Set of Books.');
+
+            const result = await createSupplierQuick(currentUser.organization_id, {
+                ...data,
+                supplier_group: data.supplier_group || 'Sundry Creditors',
+                control_gl_id: mappedControlGlId,
+            }, {
+                currentUser,
+                existingSuppliers: suppliers,
+                defaultControlGlId: mappedControlGlId,
+            });
+
+            if (result.status !== 'duplicate' && balance !== 0) {
+                await storage.addLedgerEntry({
+                    id: storage.generateUUID(),
+                    date,
+                    type: 'openingBalance',
+                    description: 'Opening Balance',
+                    debit: balance < 0 ? Math.abs(balance) : 0,
+                    credit: balance > 0 ? balance : 0,
+                    balance: 0,
+                }, { type: 'supplier', id: result.supplier.id }, currentUser);
+            }
+
+            await loadData(currentUser, 'background');
+            addNotification(result.message, result.status === 'duplicate' ? 'warning' : 'success');
+            return result;
+        } catch (e) {
+            const message = parseNetworkAndApiError(e);
+            addNotification(message, 'error');
+            throw new Error(message);
         }
-        loadData(currentUser, 'background');
-        return newDist;
     };
 
     const handleAddCustomer = async (data: Omit<Customer, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
@@ -694,6 +713,23 @@ const App: React.FC = () => {
         }
     };
 
+
+
+    const handleUpdateSupplier = async (supplier: Supplier) => {
+        if (!currentUser) return;
+        addNotification('Saving…', 'warning');
+        try {
+            const result = await createSupplierQuick(currentUser.organization_id, supplier, {
+                currentUser,
+                existingSuppliers: suppliers,
+                defaultControlGlId: defaultSupplierControlGlId,
+            });
+            await loadData(currentUser, 'background');
+            addNotification(result.message, result.status === 'duplicate' ? 'warning' : 'success');
+        } catch (e) {
+            addNotification(parseNetworkAndApiError(e), 'error');
+        }
+    };
 
     const handleUpdateCustomer = async (customer: Customer) => {
         if (!currentUser) return;
@@ -891,7 +927,7 @@ const App: React.FC = () => {
                     suppliers={suppliers} onAddSupplier={handleAddDistributor}
                     onBulkAddSuppliers={(list) => storage.saveBulkData('suppliers', list, currentUser)}
                     onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'supplier')}
-                    onUpdateSupplier={(d) => storage.saveData('suppliers', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                    onUpdateSupplier={handleUpdateSupplier}
                     config={config} currentUser={currentUser} defaultSupplierControlGlId={defaultSupplierControlGlId}
                 />;
             case 'customers':
