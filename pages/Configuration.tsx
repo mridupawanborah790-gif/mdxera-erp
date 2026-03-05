@@ -14,6 +14,7 @@ import CustomerImportPreviewModal from '../components/CustomerImportPreviewModal
 import PurchaseBillImportPreviewModal from '../components/PurchaseBillImportPreviewModal';
 import SalesBillImportPreviewModal from '../components/SalesBillImportPreviewModal';
 import Modal from '../components/Modal';
+import MasterDataMigrationWizard from '../components/MasterDataMigrationWizard';
 import { fuzzyMatch } from '../utils/search';
 import { getFinancialYearLabel } from '../utils/invoice';
 
@@ -609,6 +610,14 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                         {activeSection === 'dataManagement' && (
                             <div className="space-y-6 animate-in fade-in duration-300">
                                 <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter border-b-2 border-primary pb-2 mb-6">Central Data Migration Center</h2>
+                                <MasterDataMigrationWizard
+                                    currentUser={currentUser}
+                                    suppliers={distributors}
+                                    customers={customers}
+                                    medicines={medicines}
+                                    inventory={inventory}
+                                    addNotification={addNotification}
+                                />
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     <MigrationCard title="Material Master" desc="Global SKU catalog including composition, HSN, and Tax details." onTemplate={downloadMasterTemplate} type="master" />
                                     <MigrationCard title="Inventory (Stock)" desc="Batch-wise physical stock data with expiry and purchase rates." onTemplate={downloadInventoryTemplate} type="inventory" />
