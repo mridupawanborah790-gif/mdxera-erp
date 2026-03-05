@@ -374,7 +374,6 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     useEffect(() => {
         if (!isOpen || autoResolvedRef.current) return;
         autoResolvedRef.current = true;
-        handleSmartMatchAll().catch(() => undefined);
     }, [isOpen]);
 
     const handleAddMedicineSuccess = async (newMedData: Omit<Medicine, 'id' | 'created_at' | 'updated_at'>) => {
@@ -388,7 +387,6 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     if (!isOpen) return null;
 
     const unmappedCount = reconciledItems.filter(i => i.matchStatus === 'pending').length;
-    const autoMatchCount = reconciledItems.filter(i => i.matchStatus === 'pending' && suggestions[i.id]).length;
 
     return (
         <>
@@ -405,11 +403,6 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                             )}
                         </div>
                         <div className="flex items-center gap-3">
-                            {autoMatchCount > 0 && unmappedCount > 0 && (
-                                <button onClick={handleSmartMatchAll} className="bg-white text-primary px-4 py-1.5 text-[10px] font-black uppercase rounded-none border-2 border-white hover:bg-accent hover:text-black transition-all shadow-lg animate-bounce">
-                                    ✨ AI SMART-RESOLVE {autoMatchCount} ITEMS
-                                </button>
-                            )}
                             <button
                                 ref={finalizeBtnRef}
                                 onClick={handleFinalize}
@@ -433,8 +426,8 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                         </div>
                     )}
 
-                    <div className="flex flex-1 overflow-hidden">
-                        <div ref={scannedListRef} tabIndex={0} onKeyDown={handleLeftListKeyDown} className="w-[35%] border-r-4 border-primary/10 flex flex-col bg-white overflow-hidden shadow-2xl z-10 outline-none focus:ring-4 focus:ring-primary/20">
+                    <div className="flex flex-1 min-h-0 overflow-hidden">
+                        <div ref={scannedListRef} tabIndex={0} onKeyDown={handleLeftListKeyDown} className="w-[35%] min-h-0 border-r-4 border-primary/10 flex flex-col bg-white overflow-hidden shadow-2xl z-10 outline-none focus:ring-4 focus:ring-primary/20">
                             <div className="p-4 bg-gray-50 border-b border-app-border flex justify-between items-center">
                                 <h3 className="text-[11px] font-black uppercase text-primary tracking-widest">Unmatched / New Invoice Items</h3>
                                 {isComplete && <span className="text-[10px] font-black text-emerald-600 uppercase flex items-center gap-1"><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" /></svg> 100% RECONCILED</span>}
@@ -463,7 +456,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                             </div>
                         </div>
 
-                        <div className="flex-1 flex flex-col bg-[#fffde7]/20 overflow-hidden">
+                        <div className="flex-1 min-h-0 flex flex-col bg-[#fffde7]/20 overflow-hidden">
                             <div className="p-4 bg-white dark:bg-zinc-900 border-b-2 border-primary/10 flex-shrink-0">
                                 <div className="flex justify-between items-center mb-3">
                                     <div className="flex items-center gap-2">
