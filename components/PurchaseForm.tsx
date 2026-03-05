@@ -224,6 +224,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [importWorkflowError, setImportWorkflowError] = useState<string | null>(null);
     const [lastImportedFingerprint, setLastImportedFingerprint] = useState<string | null>(null);
     const [hasAutoOpenedReconciliation, setHasAutoOpenedReconciliation] = useState(false);
+    const [pendingReconciliationItems, setPendingReconciliationItems] = useState<PurchaseItem[] | null>(null);
 
     // Matrix Props
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -310,6 +311,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setInvoiceNumber('');
         setDate(new Date().toISOString().split('T')[0]);
         setItems([createBlankItem()]);
+        setPendingReconciliationItems(null);
         setRateTierHandledRows(new Set());
         setSupplierNameError(null);
         setInvoiceNumberError(null);
@@ -1160,11 +1162,6 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 matchStatus: 'pending' as const
             }));
             linkedItems = attemptAutoLink(newItems as PurchaseItem[], matchedSupplier || null);
-            setItems([...linkedItems, createBlankItem()]);
-            console.info('Grid rows inserted', {
-                insertedRows: linkedItems.length,
-            });
-            setRateTierHandledRows(new Set());
 
             if (linkedItems.length === 0) {
                 const emptyReconciliationMessage = 'Bill import saved but reconciliation fetch returned 0';
@@ -1187,6 +1184,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setLastImportedFingerprint(fingerprint);
 
             if (unresolvedCount > 0) {
+                setPendingReconciliationItems(linkedItems);
                 if (isDuplicateImport) {
                     addNotification('Bill already imported/reconciled. Use Reconcile Again to reopen worksheet.', 'warning');
                 } else {
@@ -1203,6 +1201,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         }
                     }, 0);
                 }
+            } else {
+                setPendingReconciliationItems(null);
+                setItems([...linkedItems, createBlankItem()]);
+                console.info('Grid rows inserted', {
+                    insertedRows: linkedItems.length,
+                });
+                setRateTierHandledRows(new Set());
             }
 
             addNotification('AI Extracted bill details successfully.', 'success');
@@ -1683,7 +1688,18 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             {isLinkModalOpen && reconciliationSupplier && (
                 <LinkToMasterModal
                     isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={reconciliationSupplier as any} medicines={medicines} mappings={mappings}
-                    onLink={onSaveMapping} scannedItems={items.filter(i => (i.name || "").trim())} onFinalize={(reconciled) => { setItems([...reconciled, createBlankItem()]); setIsLinkModalOpen(false); addNotification('Reconciliation completed. Items added to Purchase Voucher.', 'success'); requestAnimationFrame(() => voucherGridRef.current?.focus()); }} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
+                    onLink={onSaveMapping}
+                    scannedItems={(pendingReconciliationItems || items).filter(i => (i.name || "").trim())}
+                    onFinalize={(reconciled) => {
+                        setItems([...reconciled, createBlankItem()]);
+                        setPendingReconciliationItems(null);
+                        setRateTierHandledRows(new Set());
+                        setIsLinkModalOpen(false);
+                        addNotification('Reconciliation completed. Items added to Purchase Voucher.', 'success');
+                        requestAnimationFrame(() => voucherGridRef.current?.focus());
+                    }}
+                    onAddMedicineMaster={onAddMedicineMaster}
+                    organizationId={organizationId}
                 />
             )}
             {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}
