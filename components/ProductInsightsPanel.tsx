@@ -127,39 +127,41 @@ const ProductInsightsPanel: React.FC<Props> = ({ isOpen, product, purchases, sal
   if (!isOpen || !product) return null;
 
   return (
-    <div className="absolute top-0 right-0 h-full w-[48%] bg-white border-l border-gray-200 shadow-2xl z-20 flex flex-col">
-      <div className="p-3 border-b border-gray-200 flex items-center justify-between">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Product Details / Insights</p>
-          <p className="text-sm font-bold text-gray-900">{product.name}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-6">
+      <div className="flex h-[85vh] w-[90vw] max-w-[1700px] flex-col overflow-hidden rounded-lg border border-gray-300 bg-white shadow-2xl">
+        <div className="flex items-center justify-between gap-3 border-b border-gray-200 p-4 sm:p-5">
+          <div>
+            <p className="text-base font-black uppercase tracking-widest text-gray-500 sm:text-lg">Product Details / Insights</p>
+            <p className="text-lg font-bold leading-tight text-gray-900 sm:text-xl">{product.name}</p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button onClick={exportCsv} className="border border-gray-300 px-3 py-1.5 text-sm font-bold hover:bg-gray-50">CSV</button>
+            <button onClick={exportExcel} className="border border-gray-300 px-3 py-1.5 text-sm font-bold hover:bg-gray-50">Excel</button>
+            <button onClick={() => window.print()} className="border border-gray-300 px-3 py-1.5 text-sm font-bold hover:bg-gray-50">PDF</button>
+            <button onClick={onClose} className="border border-gray-300 px-3 py-1.5 text-sm font-bold hover:bg-gray-50">Close</button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button onClick={exportCsv} className="px-2 py-1 text-xs font-bold border">CSV</button>
-          <button onClick={exportExcel} className="px-2 py-1 text-xs font-bold border">Excel</button>
-          <button onClick={() => window.print()} className="px-2 py-1 text-xs font-bold border">PDF</button>
-          <button onClick={onClose} className="px-2 py-1 text-xs font-bold border">Close</button>
-        </div>
+        {loading ? <div className="space-y-4 p-6 animate-pulse"><div className="h-10 bg-gray-100" /><div className="h-24 bg-gray-100" /><div className="h-24 bg-gray-100" /></div> : (
+        <div className="flex-1 space-y-6 overflow-auto p-4 text-sm sm:p-6 sm:text-[15px]">
+          <div>
+            <p className="mb-2 text-base font-black uppercase text-gray-500 sm:text-lg">Purchase Summary</p>
+            <p>Last Purchase Rate: <span className="font-bold">{fmtMoney(purchaseSummary.last)}</span> · Avg 30/90: <span className="font-bold">{fmtMoney(purchaseSummary.avg30)} / {fmtMoney(purchaseSummary.avg90)}</span> · Best: <span className="font-bold">{fmtMoney(purchaseSummary.best?.rate || 0)} ({purchaseSummary.best?.supplier || '-'})</span></p>
+          </div>
+          <table className="w-full border border-gray-300 text-sm leading-relaxed sm:text-[15px]"><thead><tr className="bg-gray-50"><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Date</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Supplier</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Voucher</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Batch</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Exp</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Qty</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">PTR</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Disc</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Landed</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">GST</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Invoice</th></tr></thead><tbody>{purchaseRows.map((r,idx)=><tr key={idx} className="h-9"><td className="border border-gray-300 px-2 py-1.5">{fmtDate(r.date)}</td><td className="border border-gray-300 px-2 py-1.5">{r.supplier}</td><td className="border border-gray-300 px-2 py-1.5">{r.voucherNo}</td><td className="border border-gray-300 px-2 py-1.5">{r.batch}</td><td className="border border-gray-300 px-2 py-1.5">{r.expiry}</td><td className="border border-gray-300 px-2 py-1.5">{r.qty}/{r.loose}</td><td className="border border-gray-300 px-2 py-1.5">{fmtMoney(r.rate)}</td><td className="border border-gray-300 px-2 py-1.5">{r.discount.toFixed(2)}%</td><td className="border border-gray-300 px-2 py-1.5">{fmtMoney(r.landedCost)}</td><td className="border border-gray-300 px-2 py-1.5">{r.gst}%</td><td className="border border-gray-300 px-2 py-1.5">{fmtMoney(r.invoiceValue)}</td></tr>)}</tbody></table>
+
+          <div>
+            <p className="mb-2 text-base font-black uppercase text-gray-500 sm:text-lg">Sales Summary</p>
+            <p>Last Selling Rate: <span className="font-bold">{fmtMoney(salesSummary.last)}</span> · Avg 30/90: <span className="font-bold">{fmtMoney(salesSummary.avg30)} / {fmtMoney(salesSummary.avg90)}</span></p>
+          </div>
+          <table className="w-full border border-gray-300 text-sm leading-relaxed sm:text-[15px]"><thead><tr className="bg-gray-50"><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Date</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Customer</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Bill</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Qty</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Rate</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Disc</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">GST</th><th className="border border-gray-300 px-2 py-2 text-left text-[15px] font-bold sm:text-base">Net</th></tr></thead><tbody>{salesRows.map((r,idx)=><tr key={idx} className="h-9"><td className="border border-gray-300 px-2 py-1.5">{fmtDate(r.date)}</td><td className="border border-gray-300 px-2 py-1.5">{r.customer}</td><td className="border border-gray-300 px-2 py-1.5">{r.billId}</td><td className="border border-gray-300 px-2 py-1.5">{r.qty}</td><td className="border border-gray-300 px-2 py-1.5">{fmtMoney(r.rate)}</td><td className="border border-gray-300 px-2 py-1.5">{r.discount.toFixed(2)}%</td><td className="border border-gray-300 px-2 py-1.5">{r.gst}%</td><td className="border border-gray-300 px-2 py-1.5">{fmtMoney(r.net)}</td></tr>)}</tbody></table>
+
+          <div className="border border-gray-300 p-4">
+            <p className="text-base font-black uppercase text-gray-500 sm:text-lg">Profit / Margin Summary</p>
+            <p className={`${margin.currentMargin < 5 ? 'text-red-600' : 'text-gray-900'} text-sm font-bold sm:text-[15px]`}>Current Margin: {margin.currentMargin.toFixed(2)}%</p>
+            <p className={`${margin.profitPerUnit < 0 ? 'text-red-600' : 'text-gray-900'} text-sm font-bold sm:text-[15px]`}>Profit per unit: {fmtMoney(margin.profitPerUnit)}</p>
+          </div>
+        </div>)}
       </div>
-      {loading ? <div className="p-4 animate-pulse space-y-3"><div className="h-8 bg-gray-100" /><div className="h-20 bg-gray-100" /><div className="h-20 bg-gray-100" /></div> : (
-      <div className="p-3 overflow-auto space-y-4 text-xs">
-        <div>
-          <p className="font-black uppercase text-gray-500 mb-1">Purchase Summary</p>
-          <p>Last Purchase Rate: <span className="font-bold">{fmtMoney(purchaseSummary.last)}</span> · Avg 30/90: <span className="font-bold">{fmtMoney(purchaseSummary.avg30)} / {fmtMoney(purchaseSummary.avg90)}</span> · Best: <span className="font-bold">{fmtMoney(purchaseSummary.best?.rate || 0)} ({purchaseSummary.best?.supplier || '-'})</span></p>
-        </div>
-        <table className="w-full border text-[11px]"><thead><tr className="bg-gray-50"><th>Date</th><th>Supplier</th><th>Voucher</th><th>Batch</th><th>Exp</th><th>Qty</th><th>PTR</th><th>Disc</th><th>Landed</th><th>GST</th><th>Invoice</th></tr></thead><tbody>{purchaseRows.map((r,idx)=><tr key={idx} className="border-t"><td>{fmtDate(r.date)}</td><td>{r.supplier}</td><td>{r.voucherNo}</td><td>{r.batch}</td><td>{r.expiry}</td><td>{r.qty}/{r.loose}</td><td>{fmtMoney(r.rate)}</td><td>{r.discount.toFixed(2)}%</td><td>{fmtMoney(r.landedCost)}</td><td>{r.gst}%</td><td>{fmtMoney(r.invoiceValue)}</td></tr>)}</tbody></table>
-
-        <div>
-          <p className="font-black uppercase text-gray-500 mb-1">Sales Summary</p>
-          <p>Last Selling Rate: <span className="font-bold">{fmtMoney(salesSummary.last)}</span> · Avg 30/90: <span className="font-bold">{fmtMoney(salesSummary.avg30)} / {fmtMoney(salesSummary.avg90)}</span></p>
-        </div>
-        <table className="w-full border text-[11px]"><thead><tr className="bg-gray-50"><th>Date</th><th>Customer</th><th>Bill</th><th>Qty</th><th>Rate</th><th>Disc</th><th>GST</th><th>Net</th></tr></thead><tbody>{salesRows.map((r,idx)=><tr key={idx} className="border-t"><td>{fmtDate(r.date)}</td><td>{r.customer}</td><td>{r.billId}</td><td>{r.qty}</td><td>{fmtMoney(r.rate)}</td><td>{r.discount.toFixed(2)}%</td><td>{r.gst}%</td><td>{fmtMoney(r.net)}</td></tr>)}</tbody></table>
-
-        <div className="border p-2">
-          <p className="font-black uppercase text-gray-500">Profit / Margin Summary</p>
-          <p className={margin.currentMargin < 5 ? 'text-red-600 font-bold' : 'font-bold'}>Current Margin: {margin.currentMargin.toFixed(2)}%</p>
-          <p className={margin.profitPerUnit < 0 ? 'text-red-600 font-bold' : 'font-bold'}>Profit per unit: {fmtMoney(margin.profitPerUnit)}</p>
-        </div>
-      </div>)}
     </div>
   );
 };
