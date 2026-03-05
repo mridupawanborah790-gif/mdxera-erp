@@ -51,7 +51,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     const [isAddMedicineSubModalOpen, setIsAddMedicineSubModalOpen] = useState(false);
     const [statusToast, setStatusToast] = useState<string | null>(null);
     const [closeWarning, setCloseWarning] = useState<string | null>(null);
-    const [unmatchedItems, setUnmatchedItems] = useState<PurchaseItem[]>([]);
+    const [worksheetItems, setWorksheetItems] = useState<PurchaseItem[]>([]);
 
     const searchInputRef = useRef<HTMLInputElement>(null);
     const scannedListRef = useRef<HTMLDivElement>(null);
@@ -65,8 +65,8 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     const unresolvedItems = useMemo(() => reconciledItems.filter(i => isUnresolved(i)), [reconciledItems]);
 
     useEffect(() => {
-        setUnmatchedItems(unresolvedItems);
-    }, [unresolvedItems]);
+        setWorksheetItems(reconciledItems);
+    }, [reconciledItems]);
 
     const suggestions = useMemo(() => {
         const map: Record<string, Medicine | null> = {};
@@ -284,9 +284,10 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             if (isComplete) {
                 handleFinalize();
             } else if (currentItem && currentItem.matchStatus === 'matched') {
-                const nextPending = reconciledItems.findIndex(i => isUnresolved(i));
-                if (nextPending !== -1) {
-                    setActiveScannedIndex(nextPending);
+                const nextPending = reconciledItems.findIndex((item, idx) => idx > activeScannedIndex && isUnresolved(item));
+                const wrappedPending = nextPending === -1 ? reconciledItems.findIndex(i => isUnresolved(i)) : nextPending;
+                if (wrappedPending !== -1) {
+                    setActiveScannedIndex(wrappedPending);
                 } else {
                     finalizeBtnRef.current?.focus();
                 }
@@ -398,7 +399,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
 
     if (!isOpen) return null;
 
-    const unmappedCount = unmatchedItems.length;
+    const unmappedCount = unresolvedItems.length;
 
     return (
         <>
@@ -445,23 +446,25 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                                 {isComplete && <span className="text-[10px] font-black text-emerald-600 uppercase flex items-center gap-1"><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" /></svg> 100% RECONCILED</span>}
                             </div>
                             <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50">
-                                {unmatchedItems.map((item, idx) => {
+                                {worksheetItems.map((item) => {
                                     const sourceIndex = reconciledItems.findIndex(r => r.id === item.id);
                                     const isActive = sourceIndex === activeScannedIndex;
+                                    const isResolved = item.matchStatus === 'matched';
                                     const hasAutoMatch = !!suggestions[item.id];
                                     return (
                                         <button
                                             key={item.id}
                                             data-scanned-idx={sourceIndex}
                                             onClick={() => { setActiveScannedIndex(sourceIndex); scannedListRef.current?.focus(); }}
-                                            className={`w-full py-2.5 px-4 border-b border-gray-200 text-left transition-all flex items-center gap-4 ${isActive ? 'bg-blue-600 text-white z-10 shadow-lg' : 'bg-white hover:bg-gray-50'}`}
+                                            className={`w-full py-2.5 px-4 border-b border-gray-200 text-left transition-all flex items-center gap-4 ${isActive ? 'bg-blue-600 text-white z-10 shadow-lg' : isResolved ? 'bg-emerald-100 hover:bg-emerald-200' : 'bg-white hover:bg-gray-50'}`}
                                         >
-                                            <div className={`w-8 h-8 rounded-none flex items-center justify-center font-black text-sm flex-shrink-0 ${isActive ? 'bg-white/20' : (hasAutoMatch ? 'bg-amber-100 text-amber-700 animate-pulse' : 'bg-red-50 text-red-600 border border-red-200')}`}>
-                                                {hasAutoMatch ? '✨' : '!'}
+                                            <div className={`w-8 h-8 rounded-none flex items-center justify-center font-black text-sm flex-shrink-0 ${isActive ? 'bg-white/20' : isResolved ? 'bg-emerald-600 text-white' : (hasAutoMatch ? 'bg-amber-100 text-amber-700 animate-pulse' : 'bg-red-50 text-red-600 border border-red-200')}`}>
+                                                {isResolved ? '✓' : hasAutoMatch ? '✨' : '!'}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className={`truncate leading-none ${uniformTextStyle} ${isActive ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
+                                                <p className={`truncate leading-none ${uniformTextStyle} ${isActive ? 'text-white' : isResolved ? 'text-emerald-900' : 'text-gray-950'}`}>{item.name}</p>
                                             </div>
+                                            <span className={`text-[9px] font-black uppercase tracking-widest ${isActive ? 'text-white/90' : isResolved ? 'text-emerald-700' : 'text-red-600'}`}>{isResolved ? 'Matched' : 'Unmatched'}</span>
                                         </button>
                                     );
                                 })}
