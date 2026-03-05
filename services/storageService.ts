@@ -1138,6 +1138,91 @@ export const syncPurchaseReturnLedger = async (purchaseReturn: PurchaseReturn, u
     );
 };
 
+type ManualSalesPostingInput = {
+    voucherId: string;
+    voucherDate: string;
+    paymentMode: string;
+    grandTotal: number;
+    taxableValue: number;
+    taxAmount: number;
+    discountAmount: number;
+    salesGlId: string;
+    taxGlId?: string;
+    discountGlId?: string;
+    customerControlGlId: string;
+    narration?: string;
+};
+
+export const postManualSalesVoucher = async (args: ManualSalesPostingInput, user: RegisteredPharmacy): Promise<void> => {
+    const postingContext = await ensurePostingContext({}, user);
+
+    const { data: books } = await supabase
+        .from('set_of_books')
+        .select('default_customer_gl_id')
+        .eq('organization_id', user.organization_id)
+        .eq('id', postingContext.setOfBooksId)
+        .single();
+
+    const receivableGl = books?.default_customer_gl_id || args.customerControlGlId;
+    if (!receivableGl) {
+        throw new Error('Customer/Receivable GL is not configured for default set of books.');
+    }
+
+    const { data: cashGlRows, error: cashGlError } = await supabase
+        .from('gl_master')
+        .select('id, gl_code')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', postingContext.setOfBooksId)
+        .eq('gl_code', '100001')
+        .limit(1);
+    if (cashGlError) throw cashGlError;
+
+    const isImmediatePayment = ['cash', 'card', 'upi'].includes(String(args.paymentMode || '').toLowerCase());
+    const debitGlId = isImmediatePayment && cashGlRows?.[0]?.id ? String(cashGlRows[0].id) : String(receivableGl);
+
+    const lineAcc = new Map<string, { debit: number; credit: number; memo: string }>();
+    const addLine = (glId: string, debit: number, credit: number, memo: string) => {
+        const cur = lineAcc.get(glId) || { debit: 0, credit: 0, memo };
+        cur.debit += Number(debit || 0);
+        cur.credit += Number(credit || 0);
+        lineAcc.set(glId, cur);
+    };
+
+    addLine(debitGlId, Number(args.grandTotal || 0), 0, isImmediatePayment ? 'Cash/Bank collection' : 'Customer receivable');
+    addLine(String(args.salesGlId), 0, Number(args.taxableValue || 0), 'Manual sales income');
+    if (Number(args.taxAmount || 0) > 0 && args.taxGlId) addLine(String(args.taxGlId), 0, Number(args.taxAmount || 0), 'Output tax');
+    if (Number(args.discountAmount || 0) > 0 && args.discountGlId) addLine(String(args.discountGlId), Number(args.discountAmount || 0), 0, 'Discount allowed');
+
+    const lines = Array.from(lineAcc.entries()).map(([glId, v]) => ({
+        glId,
+        debit: Number(v.debit.toFixed(2)),
+        credit: Number(v.credit.toFixed(2)),
+        memo: v.memo,
+    }));
+
+    const totalDebit = Number(lines.reduce((sum, line) => sum + line.debit, 0).toFixed(2));
+    const totalCredit = Number(lines.reduce((sum, line) => sum + line.credit, 0).toFixed(2));
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        throw new Error(`Journal is not balanced. Debit ${totalDebit.toFixed(2)} != Credit ${totalCredit.toFixed(2)}.`);
+    }
+
+    await postJournal(user, {
+        referenceId: args.voucherId,
+        referenceType: 'SALES_BILL',
+        documentType: 'SALES',
+        documentReference: args.voucherId,
+        postingDate: args.voucherDate,
+        companyCodeId: postingContext.companyCodeId,
+        setOfBooksId: postingContext.setOfBooksId,
+        lines: lines.map((line) => ({ ...line, memo: args.narration || line.memo })),
+    });
+
+    const existingTx = await idb.get(STORES.SALES_BILL, args.voucherId) as Transaction | undefined;
+    if (existingTx) {
+        await saveData('sales_bill', { ...existingTx, status: 'completed' }, user);
+    }
+};
+
 export const pushPartnerOrder = async (senderOrgId: string, senderName: string, receiverEmail: string, payload: any, senderPoId: string) => {
     if (navigator.onLine) {
         const { error } = await supabase.from('partner_orders').insert({ sender_org_id: senderOrgId, sender_name: senderName, receiver_email: receiverEmail, payload, sender_po_id: senderPoId, status: 'pending' });
