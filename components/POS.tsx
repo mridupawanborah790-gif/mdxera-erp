@@ -8,6 +8,7 @@ import BatchSelectionModal from './BatchSelectionModal';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import CustomerSearchModal from './CustomerSearchModal';
 import JournalEntryViewerModal from './JournalEntryViewerModal';
+import ProductInsightsPanel from './ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
@@ -100,6 +101,10 @@ const POS = forwardRef<any, POSProps>(({
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+    const [isInsightsOpen, setIsInsightsOpen] = useState(false);
+    const [isKeywordFocused, setIsKeywordFocused] = useState(false);
+    const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
+    const [isInsightsLoading, setIsInsightsLoading] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
@@ -452,6 +457,12 @@ const POS = forwardRef<any, POSProps>(({
     }, [activeIntelItem, purchases]);
 
     const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'F4') {
+            e.preventDefault();
+            setIsInsightsOpen(true);
+            return;
+        }
+
         if (deduplicatedSearchInventory.length === 0) return;
 
         if (e.key === 'ArrowDown') {
@@ -466,6 +477,21 @@ const POS = forwardRef<any, POSProps>(({
             if (selectedWrapper) triggerBatchSelection(selectedWrapper);
         }
     };
+
+    useEffect(() => {
+        if (!isInsightsOpen || !currentUser || salesHistory.length > 0) return;
+        let isMounted = true;
+        setIsInsightsLoading(true);
+        storage.fetchTransactions(currentUser)
+            .then((rows) => {
+                if (!isMounted) return;
+                setSalesHistory((rows || []).filter((row: Transaction) => row.organization_id === currentUser.organization_id));
+            })
+            .finally(() => {
+                if (isMounted) setIsInsightsLoading(false);
+            });
+        return () => { isMounted = false; };
+    }, [isInsightsOpen, currentUser, salesHistory.length]);
 
     const handleDateKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
@@ -1329,7 +1355,7 @@ const POS = forwardRef<any, POSProps>(({
 
             <Modal
                 isOpen={isSearchModalOpen}
-                onClose={() => setIsSearchModalOpen(false)}
+                onClose={() => { setIsSearchModalOpen(false); setIsInsightsOpen(false); }}
                 title="Product selection Matrix"
             >
                 <div className="flex flex-col h-full bg-[#fffde7] dark:bg-zinc-950 font-normal outline-none" onKeyDown={handleSearchKeyDown}>
@@ -1338,10 +1364,10 @@ const POS = forwardRef<any, POSProps>(({
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                             <span className="text-xs font-black uppercase tracking-[0.2em]">Material Discovery Engine</span>
                         </div>
-                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Enter Select</span>
+                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | F4 Product Details | Enter Select</span>
                     </div>
 
-                    <div className="flex flex-1 overflow-hidden">
+                    <div className="flex flex-1 overflow-hidden relative">
                         <div className="flex-1 flex flex-col overflow-hidden">
                             <div className="p-2 bg-white dark:bg-zinc-900 border-b-2 border-primary/10">
                                 <input
@@ -1349,9 +1375,14 @@ const POS = forwardRef<any, POSProps>(({
                                     type="text"
                                     value={modalSearchTerm}
                                     onChange={e => setModalSearchTerm(e.target.value)}
+                                    onFocus={() => setIsKeywordFocused(true)}
+                                    onBlur={() => setIsKeywordFocused(false)}
                                     placeholder="Type medicine name or code..."
                                     className={`w-full p-2 border-2 border-primary/20 bg-white text-base font-black focus:border-primary outline-none shadow-inner uppercase tracking-tighter`}
                                 />
+                                {isKeywordFocused && (
+                                    <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-primary/80">F4: Product Details</p>
+                                )}
                             </div>
 
                             <div className="flex-1 overflow-auto bg-white" ref={searchResultsRef}>
@@ -1408,6 +1439,15 @@ const POS = forwardRef<any, POSProps>(({
                                 )}
                             </div>
                         </div>
+
+                        <ProductInsightsPanel
+                            isOpen={isInsightsOpen}
+                            product={activeIntelItem}
+                            purchases={purchases}
+                            sales={salesHistory}
+                            loading={isInsightsLoading}
+                            onClose={() => setIsInsightsOpen(false)}
+                        />
 
                         <div className="w-80 bg-[#f9f7d9] dark:bg-zinc-900 border-l-2 border-primary/10 flex flex-col overflow-y-auto">
                             {activeIntelItem ? (
