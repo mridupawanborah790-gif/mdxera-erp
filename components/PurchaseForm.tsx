@@ -1059,7 +1059,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 linkedItems = attemptAutoLink(newItems as PurchaseItem[], matchedSupplier || null);
                 setItems([...linkedItems, createBlankItem()]);
                 setRateTierHandledRows(new Set());
-                setTimeout(() => setIsLinkModalOpen(true), 0);
+
+                const unresolvedCount = linkedItems.filter(item => item.matchStatus !== 'matched').length;
+                if (unresolvedCount > 0) {
+                    setTimeout(() => setIsLinkModalOpen(true), 0);
+                }
             }
 
             addNotification('AI Extracted bill details successfully.', 'success');
@@ -1518,7 +1522,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             {isLinkModalOpen && reconciliationSupplier && (
                 <LinkToMasterModal
                     isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={reconciliationSupplier as any} medicines={medicines} mappings={mappings}
-                    onLink={onSaveMapping} scannedItems={items.filter(i => (i.name || "").trim())} onFinalize={(reconciled) => setItems([...reconciled, createBlankItem()])} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
+                    onLink={onSaveMapping} scannedItems={items.filter(i => (i.name || "").trim())} onFinalize={(reconciled) => { setItems([...reconciled, createBlankItem()]); setIsLinkModalOpen(false); }} onAddMedicineMaster={onAddMedicineMaster} organizationId={organizationId}
                 />
             )}
             {isSupplierLedgerModalOpen && supplierForLedger && <SupplierLedgerModal isOpen={isSupplierLedgerModalOpen} onClose={() => setIsSupplierLedgerModalOpen(false)} supplier={supplierForLedger} />}

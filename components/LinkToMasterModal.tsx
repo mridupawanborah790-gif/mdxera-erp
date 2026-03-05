@@ -48,6 +48,8 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     const [activeScannedIndex, setActiveScannedIndex] = useState(0);
     const [reconciledItems, setReconciledItems] = useState<PurchaseItem[]>([]);
     const [isAddMedicineSubModalOpen, setIsAddMedicineSubModalOpen] = useState(false);
+    const [statusToast, setStatusToast] = useState<string | null>(null);
+    const [closeWarning, setCloseWarning] = useState<string | null>(null);
 
     const searchInputRef = useRef<HTMLInputElement>(null);
     const scannedListRef = useRef<HTMLDivElement>(null);
@@ -107,9 +109,17 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             setActiveScannedIndex(initialIdx);
             autoResolvedRef.current = false;
             setSearchTerm('');
+            setStatusToast(null);
+            setCloseWarning(null);
             setTimeout(() => scannedListRef.current?.focus(), 150);
         }
     }, [isOpen, scannedItems]);
+
+    useEffect(() => {
+        if (!statusToast) return;
+        const timer = window.setTimeout(() => setStatusToast(null), 2200);
+        return () => window.clearTimeout(timer);
+    }, [statusToast]);
 
     useEffect(() => {
         const activeItem = scannedListRef.current?.querySelector(`[data-scanned-idx="${activeScannedIndex}"]`);
@@ -202,6 +212,8 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         });
 
         setReconciledItems(updatedItems);
+        setCloseWarning(null);
+        setStatusToast(`Mapped successfully: ${rawNomenclatureName} → ${masterMed.name}`);
 
         // Find next pending item
         const nextPendingIdx = updatedItems.findIndex((item, idx) => idx > activeScannedIndex && item.matchStatus === 'pending');
@@ -210,11 +222,15 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         if (wrapPendingIdx !== -1) {
             setActiveScannedIndex(wrapPendingIdx);
             setSearchTerm('');
-            setTimeout(() => scannedListRef.current?.focus(), 10);
-        } else {
+            setMasterSelectedIndex(0);
             setTimeout(() => {
-                finalizeBtnRef.current?.focus();
-            }, 150);
+                searchInputRef.current?.focus();
+                if (searchInputRef.current) searchInputRef.current.select();
+            }, 10);
+        } else {
+            setStatusToast('All items matched. Import completed successfully.');
+            onFinalize(updatedItems);
+            onClose();
         }
     };
 
@@ -235,11 +251,13 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     };
 
     const handleCloseAttempt = () => {
-        if (isComplete) {
+        if (isComplete || reconciledItems.length === 0) {
             onClose();
-        } else if (confirm("Reconciliation is incomplete. If you close now, the AI scan results will be discarded. Are you sure?")) {
-            onClose();
+            return;
         }
+
+        const pendingCount = reconciledItems.filter(i => i.matchStatus === 'pending').length;
+        setCloseWarning(`Mapping pending: ${pendingCount} items remaining. Please map or create new SKU before closing.`);
     };
 
     const handleLeftListKeyDown = (e: React.KeyboardEvent) => {
@@ -263,8 +281,13 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                     finalizeBtnRef.current?.focus();
                 }
             } else {
-                searchInputRef.current?.focus();
-                if (searchInputRef.current) searchInputRef.current.select();
+                const selectedMaster = masterResults[masterSelectedIndex];
+                if (selectedMaster) {
+                    handleMapItem(selectedMaster);
+                } else {
+                    searchInputRef.current?.focus();
+                    if (searchInputRef.current) searchInputRef.current.select();
+                }
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();
@@ -332,13 +355,19 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             }
         }
         setReconciledItems(updated);
+        setCloseWarning(null);
 
         const nextPending = updated.findIndex(i => i.matchStatus === 'pending');
         if (nextPending !== -1) {
             setActiveScannedIndex(nextPending);
-            scannedListRef.current?.focus();
+            setTimeout(() => {
+                searchInputRef.current?.focus();
+                if (searchInputRef.current) searchInputRef.current.select();
+            }, 10);
         } else {
-            finalizeBtnRef.current?.focus();
+            setStatusToast('All items matched. Import completed successfully.');
+            onFinalize(updated);
+            onClose();
         }
     };
 
@@ -393,6 +422,16 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                             </button>
                         </div>
                     </div>
+                    {closeWarning && (
+                        <div className="px-4 py-2 bg-red-700 text-white text-[10px] font-black uppercase tracking-wider border-b-2 border-red-900">
+                            {closeWarning}
+                        </div>
+                    )}
+                    {statusToast && (
+                        <div className="px-4 py-2 bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider border-b-2 border-emerald-900">
+                            {statusToast}
+                        </div>
+                    )}
 
                     <div className="flex flex-1 overflow-hidden">
                         <div ref={scannedListRef} tabIndex={0} onKeyDown={handleLeftListKeyDown} className="w-[35%] border-r-4 border-primary/10 flex flex-col bg-white overflow-hidden shadow-2xl z-10 outline-none focus:ring-4 focus:ring-primary/20">
