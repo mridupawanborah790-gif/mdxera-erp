@@ -712,6 +712,8 @@ export interface ChatMessage {
 }
 
 export interface ExtractedPurchaseBill {
+    importStatus?: string;
+    extractedItemsCount?: number;
     supplier?: string;
     invoiceNumber?: string;
     date?: string;

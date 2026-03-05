@@ -128,6 +128,8 @@ export const extractPurchaseDetailsFromBill = async (
             .filter((item: any) => item.name && (item.quantity > 0 || item.purchasePrice > 0 || item.mrp > 0));
 
         return {
+            importStatus: 'success',
+            extractedItemsCount: normalizedItems.length,
             supplier: String(root?.supplier || root?.vendor || '').trim(),
             supplierGstNumber: String(root?.supplierGstNumber || root?.supplierGst || root?.gst || '').trim(),
             invoiceNumber: String(root?.invoiceNumber || root?.billNumber || '').trim(),
@@ -140,7 +142,7 @@ export const extractPurchaseDetailsFromBill = async (
         };
     } catch (error: any) {
         console.error('OCR Extraction Error:', error);
-        return { supplier: '', invoiceNumber: '', date: '', items: [], error: `AI Extraction failed. ${parseNetworkAndApiError(error)}` };
+        return { importStatus: 'failed', extractedItemsCount: 0, supplier: '', invoiceNumber: '', date: '', items: [], error: `AI Extraction failed. ${parseNetworkAndApiError(error)}` };
     }
 };
 

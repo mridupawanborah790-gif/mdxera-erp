@@ -1052,6 +1052,19 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 throw new Error(String(bill.error));
             }
 
+            const importStatus = String(bill.importStatus || 'success').toLowerCase();
+            const extractedItemsCount = Number.isFinite(Number(bill.extractedItemsCount))
+                ? Number(bill.extractedItemsCount)
+                : (Array.isArray(bill.items) ? bill.items.length : 0);
+            console.debug('[Purchase Import] Bill imported', {
+                importStatus,
+                invoiceNumber: bill.invoiceNumber || '',
+            });
+
+            if (importStatus !== 'success') {
+                throw new Error('Bill import failed. Please retry import.');
+            }
+
             if (bill.invoiceNumber) setInvoiceNumber(bill.invoiceNumber);
             if (bill.date) setDate(normalizeImportDate(bill.date) || date);
 
@@ -1063,8 +1076,18 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 setSupplier(matchedSupplier.name || '');
                 setSupplierGst(matchedSupplier.gst_number || bill.supplierGstNumber || '');
                 setSupplierNameError(null);
+                console.debug('[Purchase Import] Supplier detected', {
+                    supplier: matchedSupplier.name || '',
+                    supplierId: matchedSupplier.id,
+                    matchedBy: supplierMatch.reason,
+                });
                 addNotification(`Supplier auto-matched by ${supplierMatch.reason.toUpperCase()}: ${matchedSupplier.name}`, 'success');
             } else {
+                console.debug('[Purchase Import] Supplier detected', {
+                    supplier: bill.supplier || '',
+                    supplierId: null,
+                    matchedBy: 'unmatched',
+                });
                 setSupplier(bill.supplier || '');
                 setSupplierGst(bill.supplierGstNumber || '');
                 setSupplierNameError('Supplier Not Found');
@@ -1082,8 +1105,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             }
 
             setImportWorkflowStage('validating-items');
-            if (!bill.items || bill.items.length === 0) {
-                const missingItemsMessage = 'No extracted items found';
+            console.debug('[Purchase Import] Extracted items count', {
+                extractedItemsCount,
+                rawItemsCount: Array.isArray(bill.items) ? bill.items.length : 0,
+            });
+            if (extractedItemsCount <= 0 || !bill.items || bill.items.length === 0) {
+                const missingItemsMessage = 'No line items detected in scanned bill.';
                 console.error(missingItemsMessage);
                 setImportWorkflowError(missingItemsMessage);
                 addNotification(missingItemsMessage, 'error');
@@ -1096,11 +1123,20 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const newItems = bill.items.map(item => ({
                 ...createBlankItem(),
                 ...item,
+                name: String(item.name || '').trim(),
+                manufacturer: String(item.manufacturer || item.brand || '').trim(),
+                brand: String(item.manufacturer || item.brand || '').trim(),
+                packType: String(item.packType || (item as any).pack || '').trim(),
+                batch: String(item.batch || '').trim(),
+                expiry: normalizeExpiryInput(formatExpiryToMMYY(String(item.expiry || ''))),
                 quantity: parseNumber(item.quantity),
-                purchasePrice: parseNumber(item.purchasePrice),
+                freeQuantity: parseNumber(item.freeQuantity),
+                purchasePrice: parseNumber(item.purchasePrice || (item as any).rate),
                 mrp: parseNumber(item.mrp),
                 gstPercent: parseNumber(item.gstPercent) || 5,
                 discountPercent: parseNumber(item.discountPercent),
+                schemeDiscountPercent: parseNumber(item.schemeDiscountPercent || (item as any).scheme),
+                schemeDiscountAmount: parseNumber(item.schemeDiscountAmount),
                 matchStatus: 'pending' as const
             }));
             linkedItems = attemptAutoLink(newItems as PurchaseItem[], matchedSupplier || null);
@@ -1115,6 +1151,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             }
 
             const unresolvedCount = linkedItems.filter(item => item.matchStatus !== 'matched').length;
+            const mappedItemsCount = linkedItems.length - unresolvedCount;
+            console.debug('[Purchase Import] Mapping summary', {
+                mappedItemsCount,
+                unmatchedItemsCount: unresolvedCount,
+                extractedItemsCount,
+            });
             const fingerprint = buildBillFingerprint(bill, linkedItems.length);
             const isDuplicateImport = hasAutoOpenedReconciliation && lastImportedFingerprint === fingerprint;
             setLastImportedFingerprint(fingerprint);
