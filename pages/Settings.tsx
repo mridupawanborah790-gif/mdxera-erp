@@ -87,7 +87,7 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUpdateProfile, addNo
                                 <span className="text-[9px] font-bold text-gray-400">UUID: {formData.user_id}</span>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <InputGroup label="Pharmacy Trade Name" name="pharmacy_name" value={formData.pharmacy_name} onChange={handleChange} required />
+                                <InputGroup label="Trade Name" name="pharmacy_name" value={formData.pharmacy_name} onChange={handleChange} required />
                                 <InputGroup label="Manager Name" name="manager_name" value={formData.manager_name} onChange={handleChange} required />
                                 <InputGroup label="Authorized Person" name="full_name" value={formData.full_name} onChange={handleChange} required />
                                 
