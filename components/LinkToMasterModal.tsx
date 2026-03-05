@@ -375,30 +375,6 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                                 </span>
                             )}
                         </div>
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 p-3 bg-white border-b border-app-border">
-                        <div className="border border-emerald-200">
-                            <div className="px-2 py-1 bg-emerald-50 text-[10px] font-black uppercase">A) Matched Items</div>
-                            <div className="max-h-40 overflow-auto">
-                                <table className="min-w-full text-[10px]"><thead><tr className="bg-emerald-100"><th className="p-1 text-left">Extracted</th><th className="p-1 text-center">Qty</th><th className="p-1 text-right">Rate</th><th className="p-1 text-left">Matched Product</th><th className="p-1 text-center">Confidence</th></tr></thead><tbody>
-                                {reconciledItems.filter(i => i.matchStatus === 'matched').map((item) => {
-                                    const med = medicines.find(m => m.id === item.inventoryItemId);
-                                    return <tr key={`m-${item.id}`} className="border-t"><td className="p-1">{((item as any).extractedName || item.name)}</td><td className="p-1 text-center">{item.quantity || 0}</td><td className="p-1 text-right">{(item.purchasePrice || 0).toFixed(2)}</td><td className="p-1">{med?.name || item.name}</td><td className="p-1 text-center">High</td></tr>;
-                                })}
-                                </tbody></table>
-                            </div>
-                        </div>
-                        <div className="border border-amber-200">
-                            <div className="px-2 py-1 bg-amber-50 text-[10px] font-black uppercase">B) Unmatched / New Invoice Items</div>
-                            <div className="max-h-40 overflow-auto">
-                                <table className="min-w-full text-[10px]"><thead><tr className="bg-amber-100"><th className="p-1 text-left">Extracted</th><th className="p-1 text-center">Qty</th><th className="p-1 text-right">Rate</th><th className="p-1 text-left">Suggested Matches</th><th className="p-1 text-left">Action</th></tr></thead><tbody>
-                                {reconciledItems.filter(i => i.matchStatus !== 'matched').map((item) => {
-                                    const top3 = medicines.filter(m => fuzzyMatch(m.name || '', ((item as any).extractedName || item.name) || '')).slice(0, 3).map(m => m.name).join(', ');
-                                    return <tr key={`u-${item.id}`} className="border-t"><td className="p-1">{((item as any).extractedName || item.name)}</td><td className="p-1 text-center">{item.quantity || 0}</td><td className="p-1 text-right">{(item.purchasePrice || 0).toFixed(2)}</td><td className="p-1">{top3 || '—'}</td><td className="p-1">Map to existing / Create new</td></tr>;
-                                })}
-                                </tbody></table>
-                            </div>
-                        </div>
-                    </div>
                         <div className="flex items-center gap-3">
                             {autoMatchCount > 0 && unmappedCount > 0 && (
                                 <button onClick={handleSmartMatchAll} className="bg-white text-primary px-4 py-1.5 text-[10px] font-black uppercase rounded-none border-2 border-white hover:bg-accent hover:text-black transition-all shadow-lg animate-bounce">
@@ -455,7 +431,6 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                                         <span className="w-5 h-5 rounded-none bg-emerald-600 text-white flex items-center justify-center font-black text-[10px]">SKU</span>
                                         <h3 className="text-[11px] font-black uppercase tracking-widest text-emerald-700">Database Reconciliation Engine</h3>
                                     </div>
-                                    <button onClick={() => setIsAddMedicineSubModalOpen(true)} className="px-4 py-1.5 bg-emerald-50 text-emerald-700 border-2 border-emerald-200 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-100">+ Register Missing SKU</button>
                                 </div>
                                 <div className="relative">
                                     <input ref={searchInputRef} type="text" value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setMasterSelectedIndex(0); }} onKeyDown={handleSearchKeyDown} placeholder="Search catalog manually... (Ctrl + + to create new)" className={`w-full h-11 p-2.5 pl-10 border-2 border-gray-400 bg-white focus:border-primary focus:bg-[#fffde7] outline-none shadow-sm ${uniformTextStyle}`} />
@@ -505,6 +480,15 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                                 <span className="text-[9px] font-black uppercase tracking-tighter"><span className="px-1.5 py-0.5 bg-white/10 border border-white/20 mr-1">ENTER</span> Map SKU</span>
                             </div>
                         </div>
+                    </div>
+
+                    <div className="p-3 bg-white border-t border-app-border flex-shrink-0">
+                        <button
+                            onClick={() => setIsAddMedicineSubModalOpen(true)}
+                            className="w-full px-4 py-2 bg-emerald-50 text-emerald-700 border-2 border-emerald-200 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-100"
+                        >
+                            + Register Missing SKU
+                        </button>
                     </div>
                 </div>
             </Modal>
