@@ -51,6 +51,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     const [isAddMedicineSubModalOpen, setIsAddMedicineSubModalOpen] = useState(false);
     const [statusToast, setStatusToast] = useState<string | null>(null);
     const [closeWarning, setCloseWarning] = useState<string | null>(null);
+    const [unmatchedItems, setUnmatchedItems] = useState<PurchaseItem[]>([]);
 
     const searchInputRef = useRef<HTMLInputElement>(null);
     const scannedListRef = useRef<HTMLDivElement>(null);
@@ -60,6 +61,12 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     const isComplete = useMemo(() =>
         reconciledItems.length > 0 && reconciledItems.every(i => i.matchStatus === 'matched'),
         [reconciledItems]);
+
+    const unresolvedItems = useMemo(() => reconciledItems.filter(i => isUnresolved(i)), [reconciledItems]);
+
+    useEffect(() => {
+        setUnmatchedItems(unresolvedItems);
+    }, [unresolvedItems]);
 
     const suggestions = useMemo(() => {
         const map: Record<string, Medicine | null> = {};
@@ -186,7 +193,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                 supplier_id: supplier.id,
                 supplier_product_name: rawNomenclatureName,
                 master_medicine_id: masterMed.id,
-                auto_apply: true
+                auto_apply: false
             }).catch(err => console.error("Link saving failed", err));
         }
 
@@ -229,7 +236,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                 if (searchInputRef.current) searchInputRef.current.select();
             }, 10);
         } else {
-            setStatusToast('All items matched. Import completed successfully.');
+            setStatusToast('Reconciliation completed. Items added to Purchase Voucher.');
             onFinalize(updatedItems);
         }
     };
@@ -250,14 +257,16 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         onFinalize(reconciledItems);
     };
 
+    const closeBlockedMessage = 'Please map or create all remaining items before closing.';
+
     const handleCloseAttempt = () => {
         if (isComplete || reconciledItems.length === 0) {
             onClose();
             return;
         }
 
-        const pendingCount = reconciledItems.filter(i => isUnresolved(i)).length;
-        setCloseWarning(`Mapping pending: ${pendingCount} items remaining. Please map or create new SKU before closing.`);
+        setCloseWarning(closeBlockedMessage);
+        setStatusToast(closeBlockedMessage);
     };
 
     const handleLeftListKeyDown = (e: React.KeyboardEvent) => {
@@ -365,7 +374,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                 if (searchInputRef.current) searchInputRef.current.select();
             }, 10);
         } else {
-            setStatusToast('All items matched. Import completed successfully.');
+            setStatusToast('Reconciliation completed. Items added to Purchase Voucher.');
             onFinalize(updated);
         }
     };
@@ -385,11 +394,11 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
 
     if (!isOpen) return null;
 
-    const unmappedCount = reconciledItems.filter(i => isUnresolved(i)).length;
+    const unmappedCount = unmatchedItems.length;
 
     return (
         <>
-            <Modal isOpen={isOpen} onClose={handleCloseAttempt} title="Scanned Bill Reconciliation Worksheet" widthClass="max-w-[95vw]" heightClass="h-[90vh]">
+            <Modal isOpen={isOpen} onClose={handleCloseAttempt} onCloseBlocked={handleCloseAttempt} disableClose={!isComplete && reconciledItems.length > 0} title="Scanned Bill Reconciliation Worksheet" widthClass="max-w-[95vw]" heightClass="h-[90vh]">
                 <div className="flex flex-col h-full bg-slate-100 dark:bg-zinc-950 overflow-hidden">
                     <div className="bg-primary text-white p-3 flex justify-between items-center flex-shrink-0 shadow-lg z-20">
                         <div className="flex items-center gap-4">
@@ -432,15 +441,15 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                                 {isComplete && <span className="text-[10px] font-black text-emerald-600 uppercase flex items-center gap-1"><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" /></svg> 100% RECONCILED</span>}
                             </div>
                             <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50">
-                                {reconciledItems.map((item, idx) => {
-                                    if (item.matchStatus === 'matched') return null;
-                                    const isActive = idx === activeScannedIndex;
+                                {unmatchedItems.map((item, idx) => {
+                                    const sourceIndex = reconciledItems.findIndex(r => r.id === item.id);
+                                    const isActive = sourceIndex === activeScannedIndex;
                                     const hasAutoMatch = !!suggestions[item.id];
                                     return (
                                         <button
                                             key={item.id}
-                                            data-scanned-idx={idx}
-                                            onClick={() => { setActiveScannedIndex(idx); scannedListRef.current?.focus(); }}
+                                            data-scanned-idx={sourceIndex}
+                                            onClick={() => { setActiveScannedIndex(sourceIndex); scannedListRef.current?.focus(); }}
                                             className={`w-full py-2.5 px-4 border-b border-gray-200 text-left transition-all flex items-center gap-4 ${isActive ? 'bg-blue-600 text-white z-10 shadow-lg' : 'bg-white hover:bg-gray-50'}`}
                                         >
                                             <div className={`w-8 h-8 rounded-none flex items-center justify-center font-black text-sm flex-shrink-0 ${isActive ? 'bg-white/20' : (hasAutoMatch ? 'bg-amber-100 text-amber-700 animate-pulse' : 'bg-red-50 text-red-600 border border-red-200')}`}>
