@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Card from '../components/Card';
 import type { AppConfigurations, ModuleConfig, InvoiceNumberConfig, DiscountRule, SlabRule, InventoryItem, Transaction, Purchase, RegisteredPharmacy, Medicine, Distributor, SupplierProductMap, Customer } from '../types';
 import { configurableModules, MASTER_SHORTCUT_OPTIONS } from '../constants';
@@ -17,6 +17,60 @@ import Modal from '../components/Modal';
 import MasterDataMigrationWizard from '../components/MasterDataMigrationWizard';
 import { fuzzyMatch } from '../utils/search';
 import { getFinancialYearLabel } from '../utils/invoice';
+
+type DemoBusinessType = 'RETAIL' | 'DISTRIBUTOR';
+type DuplicateHandlingMode = 'SKIP' | 'UPDATE';
+
+type PharmacyDemoMaterial = {
+    id: string;
+    industry: 'PHARMACY';
+    is_demo: boolean;
+    business_type: DemoBusinessType;
+    material_name: string;
+    item_code: string;
+    sku: string;
+    barcode?: string;
+    pack?: string;
+    uom?: string;
+    hsn?: string;
+    gst_rate?: number;
+    category?: string;
+    manufacturer?: string;
+    brand?: string;
+    mrp?: number;
+    purchase_rate?: number;
+    sale_rate?: number;
+};
+
+type DemoMigrationAction = 'inserted' | 'skipped' | 'updated';
+
+type DemoMigrationJob = {
+    job_id: string;
+    organization_id: string;
+    user_id?: string;
+    source_table: 'material_master_all';
+    target_table: 'material_master';
+    business_type: DemoBusinessType;
+    duplicate_mode: DuplicateHandlingMode;
+    timestamp: string;
+    records_found: number;
+    records_processed: number;
+    imported_count: number;
+    skipped_count: number;
+    updated_count: number;
+    status: 'COMPLETED' | 'FAILED';
+    error_message?: string;
+    row_mappings: Array<{ source_row_id: string; target_material_id?: string; action: DemoMigrationAction }>;
+};
+
+const DEFAULT_PHARMACY_DEMO_MATERIALS: PharmacyDemoMaterial[] = [
+    { id: 'DEMO-MAT-001', industry: 'PHARMACY', is_demo: true, business_type: 'RETAIL', material_name: 'Paracetamol 650 Tablet', item_code: 'PCM650-TAB', sku: 'PCM650-TAB', barcode: '8908001000011', pack: "10'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'ANALGESIC', manufacturer: 'MediCare Labs', brand: 'MediCare', mrp: 32, purchase_rate: 24, sale_rate: 30 },
+    { id: 'DEMO-MAT-002', industry: 'PHARMACY', is_demo: true, business_type: 'RETAIL', material_name: 'Azithromycin 500 Tablet', item_code: 'AZI500-TAB', sku: 'AZI500-TAB', barcode: '8908001000028', pack: "3'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'ANTIBIOTIC', manufacturer: 'Healix Pharma', brand: 'Healix', mrp: 98, purchase_rate: 80, sale_rate: 92 },
+    { id: 'DEMO-MAT-003', industry: 'PHARMACY', is_demo: true, business_type: 'RETAIL', material_name: 'ORS Powder Orange', item_code: 'ORS-POW-01', sku: 'ORS-POW-01', barcode: '8908001000035', pack: '21G', uom: 'SACHET', hsn: '3004', gst_rate: 5, category: 'ELECTROLYTE', manufacturer: 'NutriSalts', brand: 'NutriSalts', mrp: 20, purchase_rate: 15, sale_rate: 18 },
+    { id: 'DEMO-MAT-004', industry: 'PHARMACY', is_demo: true, business_type: 'DISTRIBUTOR', material_name: 'Amoxicillin 500 Capsule', item_code: 'AMX500-CAP', sku: 'AMX500-CAP', barcode: '8908001000042', pack: "10'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'ANTIBIOTIC', manufacturer: 'BioCure Pharma', brand: 'BioCure', mrp: 85, purchase_rate: 68, sale_rate: 79 },
+    { id: 'DEMO-MAT-005', industry: 'PHARMACY', is_demo: true, business_type: 'DISTRIBUTOR', material_name: 'Pantoprazole 40 Tablet', item_code: 'PAN40-TAB', sku: 'PAN40-TAB', barcode: '8908001000059', pack: "15'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'GASTRO', manufacturer: 'AcidRelief Health', brand: 'AcidRelief', mrp: 120, purchase_rate: 92, sale_rate: 108 },
+    { id: 'DEMO-MAT-006', industry: 'PHARMACY', is_demo: true, business_type: 'DISTRIBUTOR', material_name: 'Cough Syrup DX', item_code: 'COUGH-DX-100', sku: 'COUGH-DX-100', barcode: '8908001000066', pack: '100ML', uom: 'BOTTLE', hsn: '3004', gst_rate: 12, category: 'RESPIRATORY', manufacturer: 'Respira Therapeutics', brand: 'Respira', mrp: 115, purchase_rate: 88, sale_rate: 106 }
+];
 
 const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: boolean) => void; description?: string }> = ({ label, enabled, setEnabled, description }) => (
     <div className="py-3 border-b border-gray-100 last:border-0 flex items-center justify-between group">
@@ -175,6 +229,141 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const [importType, setImportType] = useState<string | null>(null);
     const [previewData, setPreviewData] = useState<any[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const [demoBusinessType, setDemoBusinessType] = useState<DemoBusinessType>('RETAIL');
+    const [duplicateHandlingMode, setDuplicateHandlingMode] = useState<DuplicateHandlingMode>('SKIP');
+    const [demoPreviewRows, setDemoPreviewRows] = useState<PharmacyDemoMaterial[]>([]);
+    const [demoMigrationLogs, setDemoMigrationLogs] = useState<DemoMigrationJob[]>([]);
+
+    const fetchDemoMaterials = (businessType: DemoBusinessType) => DEFAULT_PHARMACY_DEMO_MATERIALS.filter(
+        row => row.industry === 'PHARMACY' && row.is_demo && row.business_type === businessType
+    );
+
+    const duplicateMatcher = (row: PharmacyDemoMaterial, mat: Medicine) => {
+        const rowName = (row.material_name || '').trim().toLowerCase();
+        const rowPack = (row.pack || '').trim().toLowerCase();
+        const rowHsn = (row.hsn || '').trim().toLowerCase();
+        const matName = (mat.name || '').trim().toLowerCase();
+        const matPack = (mat.pack || '').trim().toLowerCase();
+        const matHsn = (mat.hsnCode || '').trim().toLowerCase();
+        return rowName === matName && rowPack === matPack && rowHsn === matHsn;
+    };
+
+    const scopedDemoRows = useMemo(() => fetchDemoMaterials(demoBusinessType), [demoBusinessType]);
+    const scopedTargetMaterials = useMemo(
+        () => medicines.filter(m => m.organization_id === (currentUser?.organization_id || 'MDXERA')),
+        [medicines, currentUser?.organization_id]
+    );
+    const duplicatesInPreview = useMemo(
+        () => scopedDemoRows.filter(row => scopedTargetMaterials.some(mat => duplicateMatcher(row, mat))).length,
+        [scopedDemoRows, scopedTargetMaterials]
+    );
+
+    const mapDemoToMaterialMaster = (sourceRow: PharmacyDemoMaterial, existing?: Medicine): Medicine => ({
+        ...(existing || {} as Medicine),
+        id: existing?.id || crypto.randomUUID(),
+        organization_id: currentUser?.organization_id || 'MDXERA',
+        user_id: currentUser?.user_id,
+        name: sourceRow.material_name,
+        materialCode: sourceRow.item_code || sourceRow.sku,
+        barcode: sourceRow.barcode,
+        pack: sourceRow.pack,
+        manufacturer: sourceRow.manufacturer,
+        brand: sourceRow.brand || sourceRow.manufacturer,
+        gstRate: sourceRow.gst_rate,
+        hsnCode: sourceRow.hsn,
+        mrp: String(sourceRow.mrp ?? 0),
+        rateA: sourceRow.purchase_rate,
+        rateB: sourceRow.sale_rate,
+        description: sourceRow.category,
+        isPrescriptionRequired: false,
+        is_active: true,
+        created_at: existing?.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        ...( { source_uom: sourceRow.uom, migration_source_table: 'material_master_all', migration_run_type: 'Master data Migartion deafult' } as any )
+    });
+
+    const previewDefaultDemoMigration = () => {
+        setDemoPreviewRows(scopedDemoRows);
+        addNotification(`Preview ready. ${scopedDemoRows.length} records found in material_master_all demo dataset.`, 'success');
+    };
+
+    const runDefaultDemoMigration = () => {
+        if (!currentUser?.organization_id) {
+            addNotification('Missing organization context for migration.', 'error');
+            return;
+        }
+
+        const timestamp = new Date().toISOString();
+        const rowMappings: DemoMigrationJob['row_mappings'] = [];
+        const upserts: Medicine[] = [];
+        let skippedCount = 0;
+        let updatedCount = 0;
+
+        scopedDemoRows.forEach(row => {
+            const existing = scopedTargetMaterials.find(mat => duplicateMatcher(row, mat));
+            if (existing && duplicateHandlingMode === 'SKIP') {
+                skippedCount += 1;
+                rowMappings.push({ source_row_id: row.id, target_material_id: existing.id, action: 'skipped' });
+                return;
+            }
+
+            const mapped = mapDemoToMaterialMaster(row, duplicateHandlingMode === 'UPDATE' ? existing : undefined);
+            if (existing && duplicateHandlingMode === 'UPDATE') {
+                updatedCount += 1;
+                rowMappings.push({ source_row_id: row.id, target_material_id: existing.id, action: 'updated' });
+            } else {
+                rowMappings.push({ source_row_id: row.id, target_material_id: mapped.id, action: 'inserted' });
+            }
+            upserts.push(mapped);
+        });
+
+        try {
+            if (upserts.length > 0) onBulkAddMedicines(upserts as any[]);
+
+            const job: DemoMigrationJob = {
+                job_id: `DEMO-MAT-${Date.now()}`,
+                organization_id: currentUser.organization_id,
+                user_id: currentUser.id,
+                source_table: 'material_master_all',
+                target_table: 'material_master',
+                business_type: demoBusinessType,
+                duplicate_mode: duplicateHandlingMode,
+                timestamp,
+                records_found: scopedDemoRows.length,
+                records_processed: scopedDemoRows.length,
+                imported_count: rowMappings.filter(r => r.action === 'inserted').length,
+                skipped_count: skippedCount,
+                updated_count: updatedCount,
+                status: 'COMPLETED',
+                row_mappings: rowMappings
+            };
+
+            setDemoMigrationLogs(prev => [job, ...prev]);
+            addNotification(`Default demo migration complete. Found ${job.records_found}, Imported ${job.imported_count}, Skipped ${job.skipped_count}, Updated ${job.updated_count}.`, 'success');
+        } catch (error: any) {
+            const failedJob: DemoMigrationJob = {
+                job_id: `DEMO-MAT-${Date.now()}`,
+                organization_id: currentUser.organization_id,
+                user_id: currentUser.id,
+                source_table: 'material_master_all',
+                target_table: 'material_master',
+                business_type: demoBusinessType,
+                duplicate_mode: duplicateHandlingMode,
+                timestamp,
+                records_found: scopedDemoRows.length,
+                records_processed: 0,
+                imported_count: 0,
+                skipped_count: 0,
+                updated_count: 0,
+                status: 'FAILED',
+                error_message: error?.message || 'Unknown migration error.',
+                row_mappings: []
+            };
+            setDemoMigrationLogs(prev => [failedJob, ...prev]);
+            addNotification(`Demo migration failed: ${failedJob.error_message}`, 'error');
+        }
+    };
 
     useEffect(() => { if (configurations) setLocalConfigs(configurations); }, [configurations]);
 
@@ -618,6 +807,97 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                     inventory={inventory}
                                     addNotification={addNotification}
                                 />
+                                <div className="p-4 border-2 border-primary/20 bg-primary/5 space-y-4">
+                                    <h3 className="text-sm font-black uppercase tracking-widest">Master data Migartion deafult</h3>
+                                    <p className="text-[11px] text-gray-600 font-bold uppercase">Default demo migration for Pharmacy Retail & Medicine Distributor (Material Master only).</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[10px] font-black uppercase">
+                                        <div>Total records found: {scopedDemoRows.length}</div>
+                                        <div>Duplicates detected: {duplicatesInPreview}</div>
+                                        <div>Ready to import/update: {scopedDemoRows.length - (duplicateHandlingMode === 'SKIP' ? duplicatesInPreview : 0)}</div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase">Business Type</label>
+                                            <select className="w-full tally-input" value={demoBusinessType} onChange={e => setDemoBusinessType(e.target.value as DemoBusinessType)}>
+                                                <option value="RETAIL">Pharmacy Retail</option>
+                                                <option value="DISTRIBUTOR">Medicine Distributor</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase">Duplicate Handling</label>
+                                            <select className="w-full tally-input" value={duplicateHandlingMode} onChange={e => setDuplicateHandlingMode(e.target.value as DuplicateHandlingMode)}>
+                                                <option value="SKIP">Skip duplicates (Default)</option>
+                                                <option value="UPDATE">Update duplicates</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button onClick={previewDefaultDemoMigration} className="px-3 py-2 border text-[10px] font-black uppercase">Preview</button>
+                                        <button onClick={runDefaultDemoMigration} className="px-3 py-2 bg-green-700 text-white text-[10px] font-black uppercase">Run Default Demo Migration (Material Master)</button>
+                                    </div>
+                                    <div className="border bg-white p-2 max-h-48 overflow-auto">
+                                        <div className="text-[10px] font-black uppercase mb-1">Preview Grid (material_master_all → material_master)</div>
+                                        <table className="w-full text-[10px]">
+                                            <thead className="bg-gray-100 font-black uppercase">
+                                                <tr>
+                                                    <th className="p-1 text-left">Name</th>
+                                                    <th className="p-1 text-left">Pack</th>
+                                                    <th className="p-1 text-left">HSN</th>
+                                                    <th className="p-1 text-left">GST</th>
+                                                    <th className="p-1 text-left">Manufacturer / Brand</th>
+                                                    <th className="p-1 text-left">Unit</th>
+                                                    <th className="p-1 text-left">Category</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {demoPreviewRows.slice(0, 100).map(row => (
+                                                    <tr key={row.id} className="border-t">
+                                                        <td className="p-1">{row.material_name}</td>
+                                                        <td className="p-1">{row.pack}</td>
+                                                        <td className="p-1">{row.hsn}</td>
+                                                        <td className="p-1">{row.gst_rate}</td>
+                                                        <td className="p-1">{row.manufacturer || row.brand}</td>
+                                                        <td className="p-1">{row.uom}</td>
+                                                        <td className="p-1">{row.category}</td>
+                                                    </tr>
+                                                ))}
+                                                {demoPreviewRows.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={7}>Click Preview to load demo records from material_master_all dataset.</td></tr>}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div className="border bg-white p-2 max-h-48 overflow-auto">
+                                        <div className="text-[10px] font-black uppercase mb-1">Migration Run Log</div>
+                                        <table className="w-full text-[10px]">
+                                            <thead className="bg-gray-100 font-black uppercase">
+                                                <tr>
+                                                    <th className="p-1 text-left">Timestamp</th>
+                                                    <th className="p-1 text-left">Organization</th>
+                                                    <th className="p-1 text-left">User</th>
+                                                    <th className="p-1 text-right">Found</th>
+                                                    <th className="p-1 text-right">Imported</th>
+                                                    <th className="p-1 text-right">Skipped</th>
+                                                    <th className="p-1 text-right">Updated</th>
+                                                    <th className="p-1 text-left">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {demoMigrationLogs.map(log => (
+                                                    <tr key={log.job_id} className="border-t">
+                                                        <td className="p-1">{new Date(log.timestamp).toLocaleString()}</td>
+                                                        <td className="p-1">{log.organization_id}</td>
+                                                        <td className="p-1">{log.user_id || '-'}</td>
+                                                        <td className="p-1 text-right">{log.records_found}</td>
+                                                        <td className="p-1 text-right">{log.imported_count}</td>
+                                                        <td className="p-1 text-right">{log.skipped_count}</td>
+                                                        <td className="p-1 text-right">{log.updated_count}</td>
+                                                        <td className="p-1">{log.status}{log.error_message ? `: ${log.error_message}` : ''}</td>
+                                                    </tr>
+                                                ))}
+                                                {demoMigrationLogs.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={8}>No migration run yet.</td></tr>}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     <MigrationCard title="Material Master" desc="Global SKU catalog including composition, HSN, and Tax details." onTemplate={downloadMasterTemplate} type="master" />
                                     <MigrationCard title="Inventory (Stock)" desc="Batch-wise physical stock data with expiry and purchase rates." onTemplate={downloadInventoryTemplate} type="inventory" />
