@@ -207,6 +207,7 @@ export const navigation: NavItem[] = [
     roles: ['owner', 'admin', 'manager', 'clerk'],
     children: [
       { id: 'pos', name: 'POS Sales', href: '#', icon: POSIcon, roles: ['owner', 'admin', 'manager', 'clerk'] },
+      { id: 'manualSalesEntry', name: 'Manual Sales Entry', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'clerk'] },
       { id: 'salesChallans', name: 'Sales Challan', href: '#', icon: ChallanIcon, roles: ['owner', 'admin', 'manager', 'clerk'] },
       { id: 'salesReturns', name: 'Sales Return', href: '#', icon: ReturnsIcon, roles: ['owner', 'admin', 'manager', 'clerk'] },
       { id: 'salesHistory', name: 'Sales History', href: '#', icon: SalesHistoryIcon, roles: ['owner', 'admin', 'manager', 'clerk'] },

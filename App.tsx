@@ -31,6 +31,7 @@ import AccountPayable from './pages/AccountPayable';
 import Returns from './pages/Returns';
 import DeliveryChallans from './pages/DeliveryChallans';
 import SalesChallans from './pages/SalesChallans';
+import ManualSalesEntry from './pages/ManualSalesEntry';
 import PurchaseOrders from './pages/PurchaseOrders';
 import Classification from './pages/Classification';
 import PrintBillModal from './components/PrintBillModal';
@@ -796,6 +797,13 @@ const App: React.FC = () => {
                     onPrintBill={(tx) => setPrintBill({ ...tx, pharmacy: currentUser!, inventory, configurations } as any)}
                     onCancelTransaction={handleCancelTransaction}
                     currentUser={currentUser} onViewSale={setViewTransaction} onEditSale={() => { }}
+                />;
+            case 'manualSalesEntry':
+                return <ManualSalesEntry
+                    currentUser={currentUser}
+                    customers={customers}
+                    addNotification={addNotification}
+                    onSaved={() => loadData(currentUser!, 'background')}
                 />;
             case 'automatedPurchaseEntry':
             case 'manualPurchaseEntry':
