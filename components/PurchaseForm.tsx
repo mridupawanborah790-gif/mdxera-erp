@@ -122,6 +122,14 @@ const createBlankItem = (): PurchaseItem => ({
 type MobileSyncStatus = 'pending' | 'syncing' | 'uploading' | 'synced' | 'imported' | 'failed';
 type ImportWorkflowStage = 'idle' | 'importing' | 'validating-items' | 'opening-reconciliation';
 
+interface PurchaseVoucherDraftState {
+    supplier: string;
+    supplierGst: string;
+    invoiceNumber: string;
+    date: string;
+    items: PurchaseItem[];
+}
+
 interface MobileSyncPage {
     image: string;
     mimeType: string;
@@ -225,6 +233,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [lastImportedFingerprint, setLastImportedFingerprint] = useState<string | null>(null);
     const [hasAutoOpenedReconciliation, setHasAutoOpenedReconciliation] = useState(false);
     const [pendingReconciliationItems, setPendingReconciliationItems] = useState<PurchaseItem[] | null>(null);
+    const [voucherDraftCreated, setVoucherDraftCreated] = useState(false);
+    const [lockImportUIReset, setLockImportUIReset] = useState(false);
+    const [purchaseVoucherDraft, setPurchaseVoucherDraft] = useState<PurchaseVoucherDraftState | null>(null);
 
     // Matrix Props
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -276,6 +287,32 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const skipRateButtonRef = useRef<HTMLButtonElement>(null);
     const saveRateButtonRef = useRef<HTMLButtonElement>(null);
 
+    const unresolvedReconciliationCount = useMemo(
+        () => (pendingReconciliationItems || []).filter(item => item.matchStatus !== 'matched').length,
+        [pendingReconciliationItems],
+    );
+    const reconciliationModalVisible = unresolvedReconciliationCount > 0;
+    const voucherScreenOpen = voucherDraftCreated;
+
+    const commitVoucherDraftAndOpen = useCallback((nextItems: PurchaseItem[]) => {
+        const normalizedItems = [...nextItems, createBlankItem()];
+        const draftState: PurchaseVoucherDraftState = {
+            supplier: Supplier,
+            supplierGst,
+            invoiceNumber,
+            date,
+            items: normalizedItems,
+        };
+
+        setItems(normalizedItems);
+        setPurchaseVoucherDraft(draftState);
+        setPendingReconciliationItems(null);
+        setRateTierHandledRows(new Set());
+        setIsLinkModalOpen(false);
+        setVoucherDraftCreated(true);
+        setLockImportUIReset(true);
+    }, [Supplier, supplierGst, invoiceNumber, date]);
+
     const getImportWorkflowLabel = useCallback((stage: ImportWorkflowStage) => {
         switch (stage) {
             case 'importing':
@@ -312,6 +349,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setDate(new Date().toISOString().split('T')[0]);
         setItems([createBlankItem()]);
         setPendingReconciliationItems(null);
+        setPurchaseVoucherDraft(null);
+        setVoucherDraftCreated(false);
+        setLockImportUIReset(false);
         setRateTierHandledRows(new Set());
         setSupplierNameError(null);
         setInvoiceNumberError(null);
@@ -495,6 +535,21 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     useEffect(() => {
         const sourceId = purchaseToEdit?.id || (draftItems ? 'draft' : 'new');
+
+        if (!purchaseToEdit && !draftItems && lockImportUIReset && purchaseVoucherDraft) {
+            setSupplier(purchaseVoucherDraft.supplier);
+            setSupplierGst(purchaseVoucherDraft.supplierGst);
+            setInvoiceNumber(purchaseVoucherDraft.invoiceNumber);
+            setDate(purchaseVoucherDraft.date);
+            setItems(purchaseVoucherDraft.items);
+            setVoucherDraftCreated(true);
+            return;
+        }
+
+        if (!purchaseToEdit && !draftItems && voucherScreenOpen) {
+            return;
+        }
+
         if (lastSourceRef.current === sourceId && sourceId !== 'new') return;
         lastSourceRef.current = sourceId;
 
@@ -537,7 +592,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             // Focus Supplier name on new voucher
             setTimeout(() => supplierNameInputRef.current?.focus(), 200);
         }
-    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink, resetFormForNewEntry]);
+    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink, resetFormForNewEntry, lockImportUIReset, purchaseVoucherDraft, voucherScreenOpen]);
 
     const calculatedTotals = useMemo(() => {
         const billDiscount = 0;
@@ -1184,30 +1239,33 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setLastImportedFingerprint(fingerprint);
 
             if (unresolvedCount > 0) {
+                if (voucherScreenOpen) {
+                    addNotification('Voucher draft is already open. Ignoring import refresh reset.', 'warning');
+                    return {
+                        linkedItems,
+                        supplierForReconciliation: matchedSupplier,
+                    };
+                }
                 setPendingReconciliationItems(linkedItems);
                 if (isDuplicateImport) {
                     addNotification('Bill already imported/reconciled. Use Reconcile Again to reopen worksheet.', 'warning');
                 } else {
                     setImportWorkflowStage('opening-reconciliation');
-                    setTimeout(() => {
-                        try {
-                            setIsLinkModalOpen(true);
-                            setHasAutoOpenedReconciliation(true);
-                        } catch (openError: any) {
-                            const openMessage = normalizeReconciliationError(openError);
-                            console.error(openMessage);
-                            setImportWorkflowError(openMessage);
-                            addNotification(openMessage, 'error');
-                        }
-                    }, 0);
+                    try {
+                        setIsLinkModalOpen(true);
+                        setHasAutoOpenedReconciliation(true);
+                    } catch (openError: any) {
+                        const openMessage = normalizeReconciliationError(openError);
+                        console.error(openMessage);
+                        setImportWorkflowError(openMessage);
+                        addNotification(openMessage, 'error');
+                    }
                 }
             } else {
-                setPendingReconciliationItems(null);
-                setItems([...linkedItems, createBlankItem()]);
+                commitVoucherDraftAndOpen(linkedItems);
                 console.info('Grid rows inserted', {
                     insertedRows: linkedItems.length,
                 });
-                setRateTierHandledRows(new Set());
             }
 
             addNotification('AI Extracted bill details successfully.', 'success');
@@ -1224,7 +1282,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setIsUploading(false);
             setImportWorkflowStage('idle');
         }
-    }, [addNotification, attemptAutoLink, buildBillFingerprint, currentUser?.pharmacy_name, date, hasAutoOpenedReconciliation, lastImportedFingerprint, matchSupplierFromExtractedData, normalizeReconciliationError]);
+    }, [addNotification, attemptAutoLink, buildBillFingerprint, commitVoucherDraftAndOpen, currentUser?.pharmacy_name, date, hasAutoOpenedReconciliation, lastImportedFingerprint, matchSupplierFromExtractedData, normalizeReconciliationError, voucherScreenOpen]);
 
 
     const processMobileSyncPayload = useCallback(async (payload: MobileSyncInvoicePayload, options?: { skipSyncingStatus?: boolean }) => {
@@ -1501,7 +1559,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><UploadIcon /> {isUploading ? <Spinner /> : 'Import Document'}</button>
                         <button
                             type="button"
-                            onClick={() => setIsLinkModalOpen(true)}
+                            onClick={() => {
+                                if (!reconciliationModalVisible) return;
+                                setIsLinkModalOpen(true);
+                            }}
                             disabled={!items.some(item => (item.name || '').trim() && item.matchStatus !== 'matched')}
                             className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -1685,16 +1746,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleWebcamCapture} />}
             {isAddSupplierModalOpen && <AddSupplierModal isOpen={isAddSupplierModalOpen} onClose={() => { setIsAddSupplierModalOpen(false); setSupplierQuickCreatePrefill(undefined); }} onAdd={onAddsupplier} onDuplicate={handleSupplierSelect} organizationId={organizationId} prefillData={supplierQuickCreatePrefill} />}
             {isAddMedicineMasterModalOpen && <AddMedicineModal isOpen={isAddMedicineMasterModalOpen} onClose={() => setIsAddMedicineMasterModalOpen(false)} onAddMedicine={onAddMedicineMaster} organizationId={organizationId} />}
-            {isLinkModalOpen && reconciliationSupplier && (
+            {isLinkModalOpen && reconciliationModalVisible && reconciliationSupplier && (
                 <LinkToMasterModal
                     isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={reconciliationSupplier as any} medicines={medicines} mappings={mappings}
                     onLink={onSaveMapping}
                     scannedItems={(pendingReconciliationItems || items).filter(i => (i.name || "").trim())}
                     onFinalize={(reconciled) => {
-                        setItems([...reconciled, createBlankItem()]);
-                        setPendingReconciliationItems(null);
-                        setRateTierHandledRows(new Set());
-                        setIsLinkModalOpen(false);
+                        commitVoucherDraftAndOpen(reconciled);
                         addNotification('Reconciliation completed. Items added to Purchase Voucher.', 'success');
                         requestAnimationFrame(() => voucherGridRef.current?.focus());
                     }}

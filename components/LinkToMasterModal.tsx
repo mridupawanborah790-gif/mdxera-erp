@@ -297,6 +297,11 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                     handleMapItem(selectedMaster);
                 } else {
                     setStatusToast(selectSkuWarningMessage);
+                    const nextPending = reconciledItems.findIndex((item, idx) => idx > activeScannedIndex && isUnresolved(item));
+                    const wrappedPending = nextPending === -1 ? reconciledItems.findIndex(item => isUnresolved(item)) : nextPending;
+                    if (wrappedPending !== -1) {
+                        setActiveScannedIndex(wrappedPending);
+                    }
                     searchInputRef.current?.focus();
                     if (searchInputRef.current) searchInputRef.current.select();
                 }
