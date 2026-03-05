@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
 import type { Supplier, RegisteredPharmacy } from '../types';
+import type { SupplierQuickResult } from '../services/supplierService';
 import { AddSupplierModal, EditSupplierModal, RecordPaymentModal } from '../components/AddSupplierModal';
 import PrintLedgerModal from '../components/PrintLedgerModal';
 import ExportSuppliersModal from '../components/ExportSuppliersModal';
@@ -12,7 +13,7 @@ const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-
 
 interface SuppliersProps {
     suppliers: Supplier[];
-    onAddSupplier: (data: Omit<Supplier, 'ledger' | 'organization_id'>, balance: number, date: string) => void;
+    onAddSupplier: (data: Omit<Supplier, 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<SupplierQuickResult>;
     onBulkAddSuppliers: (suppliers: any[]) => void;
     onRecordPayment: (supplierId: string, paymentAmount: number, paymentDate: string, description: string) => void;
     onUpdateSupplier: (supplier: Supplier) => void;
@@ -63,6 +64,11 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
         setIsExportModalOpen(true);
     };
 
+
+    const handleDuplicateSupplier = (supplier: Supplier) => {
+        setSelectedSupplier(supplier);
+        setIsEditModalOpen(true);
+    };
     const handleEditSubmit = (updated: Supplier) => {
         onUpdateSupplier(updated);
         setSelectedSupplier(updated);
@@ -165,6 +171,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                     isOpen={isAddModalOpen} 
                     onClose={() => setIsAddModalOpen(false)} 
                     onAdd={onAddSupplier} 
+                    onDuplicate={handleDuplicateSupplier}
                     defaultControlGlId={defaultSupplierControlGlId}
                     organizationId={currentUser?.organization_id || ''} 
                 />
