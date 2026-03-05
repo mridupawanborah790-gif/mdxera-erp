@@ -17,8 +17,9 @@ import Modal from '../components/Modal';
 import MasterDataMigrationWizard from '../components/MasterDataMigrationWizard';
 import { fuzzyMatch } from '../utils/search';
 import { getFinancialYearLabel } from '../utils/invoice';
+import { supabase } from '../services/supabaseClient';
 
-type DemoBusinessType = 'RETAIL' | 'DISTRIBUTOR';
+type DemoBusinessType = 'ALL';
 type DuplicateHandlingMode = 'SKIP' | 'UPDATE';
 
 type PharmacyDemoMaterial = {
@@ -40,6 +41,7 @@ type PharmacyDemoMaterial = {
     mrp?: number;
     purchase_rate?: number;
     sale_rate?: number;
+    duplicate_exists?: boolean;
 };
 
 type DemoMigrationAction = 'inserted' | 'skipped' | 'updated';
@@ -48,7 +50,7 @@ type DemoMigrationJob = {
     job_id: string;
     organization_id: string;
     user_id?: string;
-    source_table: 'material_master_all';
+    source_table: 'material_master_all(migration)';
     target_table: 'material_master';
     business_type: DemoBusinessType;
     duplicate_mode: DuplicateHandlingMode;
@@ -63,14 +65,6 @@ type DemoMigrationJob = {
     row_mappings: Array<{ source_row_id: string; target_material_id?: string; action: DemoMigrationAction }>;
 };
 
-const DEFAULT_PHARMACY_DEMO_MATERIALS: PharmacyDemoMaterial[] = [
-    { id: 'DEMO-MAT-001', industry: 'PHARMACY', is_demo: true, business_type: 'RETAIL', material_name: 'Paracetamol 650 Tablet', item_code: 'PCM650-TAB', sku: 'PCM650-TAB', barcode: '8908001000011', pack: "10'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'ANALGESIC', manufacturer: 'MediCare Labs', brand: 'MediCare', mrp: 32, purchase_rate: 24, sale_rate: 30 },
-    { id: 'DEMO-MAT-002', industry: 'PHARMACY', is_demo: true, business_type: 'RETAIL', material_name: 'Azithromycin 500 Tablet', item_code: 'AZI500-TAB', sku: 'AZI500-TAB', barcode: '8908001000028', pack: "3'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'ANTIBIOTIC', manufacturer: 'Healix Pharma', brand: 'Healix', mrp: 98, purchase_rate: 80, sale_rate: 92 },
-    { id: 'DEMO-MAT-003', industry: 'PHARMACY', is_demo: true, business_type: 'RETAIL', material_name: 'ORS Powder Orange', item_code: 'ORS-POW-01', sku: 'ORS-POW-01', barcode: '8908001000035', pack: '21G', uom: 'SACHET', hsn: '3004', gst_rate: 5, category: 'ELECTROLYTE', manufacturer: 'NutriSalts', brand: 'NutriSalts', mrp: 20, purchase_rate: 15, sale_rate: 18 },
-    { id: 'DEMO-MAT-004', industry: 'PHARMACY', is_demo: true, business_type: 'DISTRIBUTOR', material_name: 'Amoxicillin 500 Capsule', item_code: 'AMX500-CAP', sku: 'AMX500-CAP', barcode: '8908001000042', pack: "10'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'ANTIBIOTIC', manufacturer: 'BioCure Pharma', brand: 'BioCure', mrp: 85, purchase_rate: 68, sale_rate: 79 },
-    { id: 'DEMO-MAT-005', industry: 'PHARMACY', is_demo: true, business_type: 'DISTRIBUTOR', material_name: 'Pantoprazole 40 Tablet', item_code: 'PAN40-TAB', sku: 'PAN40-TAB', barcode: '8908001000059', pack: "15'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'GASTRO', manufacturer: 'AcidRelief Health', brand: 'AcidRelief', mrp: 120, purchase_rate: 92, sale_rate: 108 },
-    { id: 'DEMO-MAT-006', industry: 'PHARMACY', is_demo: true, business_type: 'DISTRIBUTOR', material_name: 'Cough Syrup DX', item_code: 'COUGH-DX-100', sku: 'COUGH-DX-100', barcode: '8908001000066', pack: '100ML', uom: 'BOTTLE', hsn: '3004', gst_rate: 12, category: 'RESPIRATORY', manufacturer: 'Respira Therapeutics', brand: 'Respira', mrp: 115, purchase_rate: 88, sale_rate: 106 }
-];
 
 const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: boolean) => void; description?: string }> = ({ label, enabled, setEnabled, description }) => (
     <div className="py-3 border-b border-gray-100 last:border-0 flex items-center justify-between group">
@@ -230,138 +224,231 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const [previewData, setPreviewData] = useState<any[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const [demoBusinessType, setDemoBusinessType] = useState<DemoBusinessType>('RETAIL');
     const [duplicateHandlingMode, setDuplicateHandlingMode] = useState<DuplicateHandlingMode>('SKIP');
     const [demoPreviewRows, setDemoPreviewRows] = useState<PharmacyDemoMaterial[]>([]);
     const [demoMigrationLogs, setDemoMigrationLogs] = useState<DemoMigrationJob[]>([]);
+    const scopedDemoRows = useMemo(() => demoPreviewRows, [demoPreviewRows]);
+    const normalizeText = (value?: string | null) => (value || '').trim().toLowerCase();
+    const normalizePack = (value?: string | null) => {
+        const trimmed = (value || '').trim();
+        return trimmed === '' ? '' : trimmed.toLowerCase();
+    };
+    const duplicateMatcher = (row: PharmacyDemoMaterial, mat: Medicine, useMaterialCode = false) => {
+        const sameName = normalizeText(row.material_name) === normalizeText(mat.name);
+        const samePack = normalizePack(row.pack) === normalizePack(mat.pack);
+        const sameCode = normalizePack(row.item_code || row.sku) === normalizePack(mat.materialCode);
+        return sameName && samePack && (!useMaterialCode || sameCode);
+    };
+    const duplicatesInPreview = useMemo(() => scopedDemoRows.filter(row => row.duplicate_exists).length, [scopedDemoRows]);
 
-    const fetchDemoMaterials = (businessType: DemoBusinessType) => DEFAULT_PHARMACY_DEMO_MATERIALS.filter(
-        row => row.industry === 'PHARMACY' && row.is_demo && row.business_type === businessType
-    );
+    const getSourceRows = async () => {
+        const { data, error } = await supabase
+            .from('material_master_all(migration)')
+            .select('id, industry, is_demo, business_type, material_name, item_code, sku, barcode, pack, uom, hsn, gst_rate, category, manufacturer, brand, mrp, purchase_rate, sale_rate')
+            .eq('is_demo', true)
+            .order('material_name', { ascending: true });
 
-    const duplicateMatcher = (row: PharmacyDemoMaterial, mat: Medicine) => {
-        const rowName = (row.material_name || '').trim().toLowerCase();
-        const rowPack = (row.pack || '').trim().toLowerCase();
-        const rowHsn = (row.hsn || '').trim().toLowerCase();
-        const matName = (mat.name || '').trim().toLowerCase();
-        const matPack = (mat.pack || '').trim().toLowerCase();
-        const matHsn = (mat.hsnCode || '').trim().toLowerCase();
-        return rowName === matName && rowPack === matPack && rowHsn === matHsn;
+        if (error) throw error;
+        return (data || []) as PharmacyDemoMaterial[];
     };
 
-    const scopedDemoRows = useMemo(() => fetchDemoMaterials(demoBusinessType), [demoBusinessType]);
-    const scopedTargetMaterials = useMemo(
-        () => medicines.filter(m => m.organization_id === (currentUser?.organization_id || 'MDXERA')),
-        [medicines, currentUser?.organization_id]
-    );
-    const duplicatesInPreview = useMemo(
-        () => scopedDemoRows.filter(row => scopedTargetMaterials.some(mat => duplicateMatcher(row, mat))).length,
-        [scopedDemoRows, scopedTargetMaterials]
-    );
-
-    const mapDemoToMaterialMaster = (sourceRow: PharmacyDemoMaterial, existing?: Medicine): Medicine => ({
+    const mapDemoToMaterial = (row: PharmacyDemoMaterial, existing?: Medicine): Medicine => ({
         ...(existing || {} as Medicine),
         id: existing?.id || crypto.randomUUID(),
         organization_id: currentUser?.organization_id || 'MDXERA',
         user_id: currentUser?.user_id,
-        name: sourceRow.material_name,
-        materialCode: sourceRow.item_code || sourceRow.sku,
-        barcode: sourceRow.barcode,
-        pack: sourceRow.pack,
-        manufacturer: sourceRow.manufacturer,
-        brand: sourceRow.brand || sourceRow.manufacturer,
-        gstRate: sourceRow.gst_rate,
-        hsnCode: sourceRow.hsn,
-        mrp: String(sourceRow.mrp ?? 0),
-        rateA: sourceRow.purchase_rate,
-        rateB: sourceRow.sale_rate,
-        description: sourceRow.category,
-        isPrescriptionRequired: false,
-        is_active: true,
+        name: row.material_name,
+        materialCode: row.item_code || row.sku || row.id,
+        barcode: row.barcode,
+        pack: row.pack,
+        manufacturer: row.manufacturer,
+        brand: row.brand || row.manufacturer,
+        gstRate: row.gst_rate,
+        hsnCode: row.hsn,
+        mrp: String(row.mrp ?? 0),
+        rateA: row.purchase_rate,
+        rateB: row.sale_rate,
+        description: row.category,
+        isPrescriptionRequired: existing?.isPrescriptionRequired ?? false,
+        is_active: existing?.is_active ?? true,
         created_at: existing?.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        ...( { source_uom: sourceRow.uom, migration_source_table: 'material_master_all', migration_run_type: 'Master data Migartion deafult' } as any )
+        ...( { source_uom: row.uom, migration_source_table: 'material_master_all(migration)', migration_run_type: 'Master data Migration default' } as any )
     });
 
-    const previewDefaultDemoMigration = () => {
-        setDemoPreviewRows(scopedDemoRows);
-        addNotification(`Preview ready. ${scopedDemoRows.length} records found in material_master_all demo dataset.`, 'success');
+    const previewDefaultDemoMigration = async () => {
+        try {
+            const { data, error } = await supabase.rpc('preview_default_material_master_migration', {
+                p_use_material_code: false,
+            });
+
+            if (error) throw error;
+
+            const rows = (data || []) as PharmacyDemoMaterial[];
+            setDemoPreviewRows(rows);
+            addNotification(`Preview ready. ${rows.length} records found in material_master_all(migration).`, 'success');
+        } catch (error: any) {
+            const msg = String(error?.message || '');
+            const missingRpc = msg.includes('Could not find the function public.preview_default_material_master_migration');
+            if (!missingRpc) {
+                addNotification(`Failed to preview source data: ${msg}`, 'error');
+                return;
+            }
+
+            try {
+                const sourceRows = await getSourceRows();
+                const orgMats = medicines.filter(m => m.organization_id === (currentUser?.organization_id || 'MDXERA'));
+                const rowsWithDupes = sourceRows.map(row => ({
+                    ...row,
+                    duplicate_exists: orgMats.some(mat => duplicateMatcher(row, mat))
+                }));
+                setDemoPreviewRows(rowsWithDupes);
+                addNotification(`Preview ready. ${rowsWithDupes.length} records found in material_master_all(migration).`, 'success');
+            } catch (fallbackError: any) {
+                addNotification(`Failed to preview source data: ${fallbackError?.message || 'Unknown error'}`, 'error');
+            }
+        }
     };
 
-    const runDefaultDemoMigration = () => {
+    const runDefaultDemoMigration = async () => {
         if (!currentUser?.organization_id) {
             addNotification('Missing organization context for migration.', 'error');
             return;
         }
 
-        const timestamp = new Date().toISOString();
-        const rowMappings: DemoMigrationJob['row_mappings'] = [];
-        const upserts: Medicine[] = [];
-        let skippedCount = 0;
-        let updatedCount = 0;
-
-        scopedDemoRows.forEach(row => {
-            const existing = scopedTargetMaterials.find(mat => duplicateMatcher(row, mat));
-            if (existing && duplicateHandlingMode === 'SKIP') {
-                skippedCount += 1;
-                rowMappings.push({ source_row_id: row.id, target_material_id: existing.id, action: 'skipped' });
-                return;
-            }
-
-            const mapped = mapDemoToMaterialMaster(row, duplicateHandlingMode === 'UPDATE' ? existing : undefined);
-            if (existing && duplicateHandlingMode === 'UPDATE') {
-                updatedCount += 1;
-                rowMappings.push({ source_row_id: row.id, target_material_id: existing.id, action: 'updated' });
-            } else {
-                rowMappings.push({ source_row_id: row.id, target_material_id: mapped.id, action: 'inserted' });
-            }
-            upserts.push(mapped);
-        });
-
         try {
-            if (upserts.length > 0) onBulkAddMedicines(upserts as any[]);
+            const { data, error } = await supabase.rpc('run_default_material_master_migration', {
+                p_duplicate_mode: duplicateHandlingMode,
+                p_use_material_code: false,
+            });
+
+            if (error) throw error;
+
+            const result = Array.isArray(data) ? data[0] : data;
+            const timestamp = new Date().toISOString();
+            const insertedRows = Number(result?.imported_count || 0);
+            const updatedRows = Number(result?.updated_count || 0);
+            const skippedRows = Number(result?.skipped_count || 0);
+            const foundRows = Number(result?.found_count || 0);
+            const duplicates = Number(result?.duplicates_count || 0);
+            const readyRows = Number(result?.ready_count || 0);
 
             const job: DemoMigrationJob = {
                 job_id: `DEMO-MAT-${Date.now()}`,
                 organization_id: currentUser.organization_id,
                 user_id: currentUser.id,
-                source_table: 'material_master_all',
+                source_table: 'material_master_all(migration)',
                 target_table: 'material_master',
-                business_type: demoBusinessType,
+                business_type: 'ALL',
                 duplicate_mode: duplicateHandlingMode,
                 timestamp,
-                records_found: scopedDemoRows.length,
-                records_processed: scopedDemoRows.length,
-                imported_count: rowMappings.filter(r => r.action === 'inserted').length,
-                skipped_count: skippedCount,
-                updated_count: updatedCount,
+                records_found: foundRows,
+                records_processed: readyRows,
+                imported_count: insertedRows,
+                skipped_count: skippedRows,
+                updated_count: updatedRows,
                 status: 'COMPLETED',
-                row_mappings: rowMappings
+                row_mappings: []
             };
 
             setDemoMigrationLogs(prev => [job, ...prev]);
-            addNotification(`Default demo migration complete. Found ${job.records_found}, Imported ${job.imported_count}, Skipped ${job.skipped_count}, Updated ${job.updated_count}.`, 'success');
+            addNotification(`Default demo migration complete. Found ${foundRows}, Duplicates ${duplicates}, Ready ${readyRows}, Imported ${insertedRows}, Updated ${updatedRows}, Skipped ${skippedRows}.`, 'success');
+            await previewDefaultDemoMigration();
         } catch (error: any) {
-            const failedJob: DemoMigrationJob = {
-                job_id: `DEMO-MAT-${Date.now()}`,
-                organization_id: currentUser.organization_id,
-                user_id: currentUser.id,
-                source_table: 'material_master_all',
-                target_table: 'material_master',
-                business_type: demoBusinessType,
-                duplicate_mode: duplicateHandlingMode,
-                timestamp,
-                records_found: scopedDemoRows.length,
-                records_processed: 0,
-                imported_count: 0,
-                skipped_count: 0,
-                updated_count: 0,
-                status: 'FAILED',
-                error_message: error?.message || 'Unknown migration error.',
-                row_mappings: []
-            };
-            setDemoMigrationLogs(prev => [failedJob, ...prev]);
-            addNotification(`Demo migration failed: ${failedJob.error_message}`, 'error');
+            const msg = String(error?.message || '');
+            const missingRpc = msg.includes('Could not find the function public.run_default_material_master_migration');
+            if (!missingRpc) {
+                addNotification(`Demo migration failed: ${msg}`, 'error');
+                return;
+            }
+
+            try {
+                const sourceRows = demoPreviewRows.length > 0 ? demoPreviewRows : await getSourceRows();
+                const orgId = currentUser.organization_id;
+                const working = medicines.filter(m => m.organization_id === orgId);
+                const upserts: Medicine[] = [];
+                let duplicates = 0;
+                let skipped = 0;
+                let updated = 0;
+                let imported = 0;
+                let ready = 0;
+
+                for (const row of sourceRows) {
+                    const existing = working.find(mat => duplicateMatcher(row, mat));
+                    if (existing) duplicates += 1;
+
+                    if (duplicateHandlingMode === 'SKIP') {
+                        if (existing) {
+                            skipped += 1;
+                            continue;
+                        }
+                        ready += 1;
+                        const mapped = mapDemoToMaterial(row);
+                        upserts.push(mapped);
+                        working.push(mapped);
+                        imported += 1;
+                    } else {
+                        ready += 1;
+                        if (existing) {
+                            const mapped = mapDemoToMaterial(row, existing);
+                            upserts.push(mapped);
+                            const idx = working.findIndex(x => x.id === existing.id);
+                            if (idx >= 0) working[idx] = mapped;
+                            updated += 1;
+                        } else {
+                            const mapped = mapDemoToMaterial(row);
+                            upserts.push(mapped);
+                            working.push(mapped);
+                            imported += 1;
+                        }
+                    }
+                }
+
+                if (upserts.length > 0) onBulkAddMedicines(upserts as any[]);
+
+                const job: DemoMigrationJob = {
+                    job_id: `DEMO-MAT-${Date.now()}`,
+                    organization_id: orgId,
+                    user_id: currentUser.id,
+                    source_table: 'material_master_all(migration)',
+                    target_table: 'material_master',
+                    business_type: 'ALL',
+                    duplicate_mode: duplicateHandlingMode,
+                    timestamp: new Date().toISOString(),
+                    records_found: sourceRows.length,
+                    records_processed: ready,
+                    imported_count: imported,
+                    skipped_count: skipped,
+                    updated_count: updated,
+                    status: 'COMPLETED',
+                    row_mappings: []
+                };
+
+                setDemoMigrationLogs(prev => [job, ...prev]);
+                addNotification(`Default demo migration complete. Found ${sourceRows.length}, Duplicates ${duplicates}, Ready ${ready}, Imported ${imported}, Updated ${updated}, Skipped ${skipped}.`, 'success');
+                await previewDefaultDemoMigration();
+            } catch (fallbackError: any) {
+                const failedJob: DemoMigrationJob = {
+                    job_id: `DEMO-MAT-${Date.now()}`,
+                    organization_id: currentUser.organization_id,
+                    user_id: currentUser.id,
+                    source_table: 'material_master_all(migration)',
+                    target_table: 'material_master',
+                    business_type: 'ALL',
+                    duplicate_mode: duplicateHandlingMode,
+                    timestamp: new Date().toISOString(),
+                    records_found: scopedDemoRows.length,
+                    records_processed: 0,
+                    imported_count: 0,
+                    skipped_count: 0,
+                    updated_count: 0,
+                    status: 'FAILED',
+                    error_message: fallbackError?.message || 'Unknown migration error.',
+                    row_mappings: []
+                };
+                setDemoMigrationLogs(prev => [failedJob, ...prev]);
+                addNotification(`Demo migration failed: ${failedJob.error_message}`, 'error');
+            }
         }
     };
 
@@ -817,13 +904,6 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-[10px] font-black uppercase">Business Type</label>
-                                            <select className="w-full tally-input" value={demoBusinessType} onChange={e => setDemoBusinessType(e.target.value as DemoBusinessType)}>
-                                                <option value="RETAIL">Pharmacy Retail</option>
-                                                <option value="DISTRIBUTOR">Medicine Distributor</option>
-                                            </select>
-                                        </div>
-                                        <div>
                                             <label className="text-[10px] font-black uppercase">Duplicate Handling</label>
                                             <select className="w-full tally-input" value={duplicateHandlingMode} onChange={e => setDuplicateHandlingMode(e.target.value as DuplicateHandlingMode)}>
                                                 <option value="SKIP">Skip duplicates (Default)</option>
@@ -836,7 +916,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                         <button onClick={runDefaultDemoMigration} className="px-3 py-2 bg-green-700 text-white text-[10px] font-black uppercase">Run Default Demo Migration (Material Master)</button>
                                     </div>
                                     <div className="border bg-white p-2 max-h-48 overflow-auto">
-                                        <div className="text-[10px] font-black uppercase mb-1">Preview Grid (material_master_all → material_master)</div>
+                                        <div className="text-[10px] font-black uppercase mb-1">Preview Grid (material_master_all(migration) → material_master)</div>
                                         <table className="w-full text-[10px]">
                                             <thead className="bg-gray-100 font-black uppercase">
                                                 <tr>
@@ -861,7 +941,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                                         <td className="p-1">{row.category}</td>
                                                     </tr>
                                                 ))}
-                                                {demoPreviewRows.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={7}>Click Preview to load demo records from material_master_all dataset.</td></tr>}
+                                                {demoPreviewRows.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={7}>Click Preview to load demo records from material_master_all(migration) dataset.</td></tr>}
                                             </tbody>
                                         </table>
                                     </div>
