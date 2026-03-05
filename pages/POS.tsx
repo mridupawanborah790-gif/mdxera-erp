@@ -15,6 +15,7 @@ import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { getOutstandingBalance, parseNumber } from '../utils/helpers';
 import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
+import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -587,6 +588,20 @@ const POS = forwardRef<any, POSProps>(({
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
                     (updated as any)[field] = value === '' ? 0 : (parseFloat(value) || 0);
                 }
+
+                if (field === 'looseQuantity') {
+                    const enteredLooseQty = Math.max(0, Math.floor(Number((updated as BillItem).looseQuantity) || 0));
+                    const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
+                    const isPackBasedItem = unitsPerPack > 1 && !isLiquidOrWeightPack(item.packType);
+
+                    if (isPackBasedItem) {
+                        updated.quantity = Math.floor(enteredLooseQty / unitsPerPack);
+                        updated.looseQuantity = enteredLooseQty % unitsPerPack;
+                    } else {
+                        updated.looseQuantity = enteredLooseQty;
+                    }
+                }
+
                 return updated;
             }
             return item;
