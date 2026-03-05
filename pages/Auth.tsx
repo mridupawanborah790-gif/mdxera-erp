@@ -110,7 +110,7 @@
 //                             {isSignUp && (
 //                                 <>
 //                                     <div>
-//                                         <label className="block text-[9px] font-black uppercase text-gray-500 mb-1 ml-1">Pharmacy Trade Name</label>
+//                                         <label className="block text-[9px] font-black uppercase text-gray-500 mb-1 ml-1">Trade Name</label>
 //                                         <input 
 //                                             name="pharmacyName" 
 //                                             type="text" 
@@ -185,7 +185,7 @@
 //                             }}
 //                             className="text-[10px] font-black uppercase text-primary hover:text-primary-dark tracking-widest underline underline-offset-4 decoration-2 decoration-primary/20"
 //                         >
-//                             {isSignUp ? 'Already registered? Login here' : 'New Pharmacy? Create organization account'}
+//                             {isSignUp ? 'Already registered? Login here' : 'New Organization? Create organization account'}
 //                         </button>
 //                     </div>
 //                 </div>
@@ -356,7 +356,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin, initialView = 'auth' }) =>
                             {view === 'auth' && isSignUp && (
                                 <>
                                     <div>
-                                        <label className="block text-[9px] font-black uppercase text-gray-500 mb-1 ml-1">Pharmacy Trade Name</label>
+                                        <label className="block text-[9px] font-black uppercase text-gray-500 mb-1 ml-1">Trade Name</label>
                                         <input 
                                             name="pharmacyName" 
                                             type="text" 
@@ -479,7 +479,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin, initialView = 'auth' }) =>
                                 }}
                                 className="text-[10px] font-black uppercase text-primary hover:text-primary-dark tracking-widest underline underline-offset-4 decoration-2 decoration-primary/20"
                             >
-                                {isSignUp ? 'Already registered? Login here' : 'New Pharmacy? Create organization account'}
+                                {isSignUp ? 'Already registered? Login here' : 'New Organization? Create organization account'}
                             </button>
                         ) : (
                             <button 
