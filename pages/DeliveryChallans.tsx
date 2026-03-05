@@ -8,6 +8,7 @@ import { DeliveryChallanStatus } from '../types';
 import { generateNewInvoiceId } from '../utils/invoice';
 // Fixed: Corrected import from services/storageService
 import { saveData } from '../services/storageService';
+import type { SupplierQuickResult } from '../services/supplierService';
 
 interface DeliveryChallansPageProps {
     deliveryChallans: DeliveryChallan[];
@@ -22,7 +23,7 @@ interface DeliveryChallansPageProps {
     onConvertToPurchase: (mergedItems: PurchaseItem[], supplier: string, challanIds: string[]) => void;
     onAddInventoryItem: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
-    onAddDistributor: (data: Omit<Distributor, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<Distributor>;
+    onAddDistributor: (data: Omit<Distributor, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<SupplierQuickResult>;
     onSaveMapping: (map: Partial<SupplierProductMap>) => Promise<void>;
     addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
     // Added required mappings prop
