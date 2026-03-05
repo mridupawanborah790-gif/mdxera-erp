@@ -114,23 +114,28 @@ export const extractPurchaseDetailsFromBill = async (
 
         const normalizedItems = rawItems
             .map((item: any) => ({
-                name: String(item?.name || item?.product || '').trim(),
-                batch: String(item?.batch || item?.batchNo || '').trim(),
-                packType: String(item?.packType || item?.pack || '').trim(),
-                expiry: String(item?.expiry || item?.exp || '').trim(),
-                quantity: toNumeric(item?.quantity) ?? 0,
-                freeQuantity: toNumeric(item?.freeQuantity) ?? 0,
-                purchasePrice: toNumeric(item?.purchasePrice ?? item?.rate) ?? 0,
-                mrp: toNumeric(item?.mrp) ?? 0,
+                name: String(item?.name || item?.product || item?.extracted_item_name || '').trim(),
+                manufacturer: String(item?.manufacturer || item?.mfr || item?.brand || item?.extracted_manufacturer || '').trim(),
+                batch: String(item?.batch || item?.batchNo || item?.extracted_batch || '').trim(),
+                packType: String(item?.packType || item?.pack || item?.extracted_pack || '').trim(),
+                expiry: String(item?.expiry || item?.exp || item?.extracted_expiry || '').trim(),
+                quantity: toNumeric(item?.quantity ?? item?.extracted_quantity) ?? 0,
+                freeQuantity: toNumeric(item?.freeQuantity ?? item?.free ?? item?.extracted_free) ?? 0,
+                purchasePrice: toNumeric(item?.purchasePrice ?? item?.rate ?? item?.extracted_rate) ?? 0,
+                mrp: toNumeric(item?.mrp ?? item?.extracted_mrp) ?? 0,
                 gstPercent: toNumeric(item?.gstPercent ?? item?.gst) ?? undefined,
-                discountPercent: toNumeric(item?.discountPercent ?? item?.discount) ?? undefined,
+                discountPercent: toNumeric(item?.discountPercent ?? item?.discount ?? item?.extracted_discount) ?? undefined,
+                schemeDiscountPercent: toNumeric(item?.schemeDiscountPercent ?? item?.scheme ?? item?.extracted_scheme) ?? undefined,
             }))
             .filter((item: any) => item.name && (item.quantity > 0 || item.purchasePrice > 0 || item.mrp > 0));
 
+        const supplier = String(root?.supplier || root?.vendor || '').trim();
+
         return {
             importStatus: 'success',
+            supplierDetected: Boolean(supplier),
             extractedItemsCount: normalizedItems.length,
-            supplier: String(root?.supplier || root?.vendor || '').trim(),
+            supplier,
             supplierGstNumber: String(root?.supplierGstNumber || root?.supplierGst || root?.gst || '').trim(),
             invoiceNumber: String(root?.invoiceNumber || root?.billNumber || '').trim(),
             date: String(root?.date || root?.invoiceDate || '').trim(),
