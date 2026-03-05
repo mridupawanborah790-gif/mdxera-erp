@@ -17,7 +17,7 @@ import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber } from '../utils/helpers';
 import { calculateBillingTotals, calculateLineNetAmount, resolveBillingSettings } from '../utils/billing';
-import { resolveUnitsPerStrip } from '../utils/pack';
+import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -46,6 +46,25 @@ interface UploadedFile {
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
+
+const normalizePackConversion = (item: BillItem): BillItem => {
+    const parsedLoose = Math.max(0, Math.floor(Number(item.looseQuantity || 0)));
+    const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
+    const isPackBasedItem = unitsPerPack > 1 && !isLiquidOrWeightPack(item.packType);
+
+    if (!isPackBasedItem) {
+        return { ...item, looseQuantity: parsedLoose };
+    }
+
+    const convertedPackQty = Math.floor(parsedLoose / unitsPerPack);
+    const looseRemainder = parsedLoose % unitsPerPack;
+
+    return {
+        ...item,
+        quantity: convertedPackQty,
+        looseQuantity: looseRemainder
+    };
+};
 
 const createBlankItem = (): BillItem => ({
     id: crypto.randomUUID(),
@@ -173,7 +192,7 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerPhone(transactionToEdit.customerPhone || '');
             setReferredBy(transactionToEdit.referredBy || '');
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
-            setCartItems(transactionToEdit.items || []);
+            setCartItems((transactionToEdit.items || []).map(normalizePackConversion));
             setLumpsumDiscount(transactionToEdit.schemeDiscount || 0);
             setRoundOff(transactionToEdit.roundOff || 0);
             setIsRoundOffManuallyEdited(true);
@@ -329,7 +348,7 @@ const POS = forwardRef<any, POSProps>(({
                         });
                     }
                 }
-                setCartItems(prev => [...prev.filter(i => i.name !== ''), ...newBillItems]);
+                setCartItems(prev => [...prev.filter(i => i.name !== ''), ...newBillItems.map(normalizePackConversion)]);
                 addNotification(`Extracted ${result.items.length} items from prescription.`, "success");
             }
 
@@ -589,7 +608,7 @@ const POS = forwardRef<any, POSProps>(({
         else if (rateTierToUse === 'ptr' && batch.ptr) rateValue = batch.ptr;
 
         const newItemId = crypto.randomUUID();
-        const newItem: BillItem = {
+        const selectedItem: BillItem = {
             id: newItemId,
             inventoryItemId: batch.id,
             name: batch.name,
@@ -608,6 +627,8 @@ const POS = forwardRef<any, POSProps>(({
             unitsPerPack: resolveUnitsPerStrip(batch.unitsPerPack, batch.packType),
             packType: batch.packType
         };
+
+        const newItem = normalizePackConversion(selectedItem);
 
         setCartItems(prev => {
             const index = prev.findIndex(p => p.id === activeRowIdRef.current);
@@ -651,11 +672,19 @@ const POS = forwardRef<any, POSProps>(({
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
                     (updated as any)[field] = value === '' ? 0 : (parseFloat(value) || 0);
                 }
+
+                if (field === 'looseQuantity' || field === 'packType' || field === 'unitsPerPack') {
+                    return normalizePackConversion(updated);
+                }
                 return updated;
             }
             return item;
         }));
     }, [isValidRateInput, normalizeExpiryInput]);
+
+    const handleLooseQtyFinalize = useCallback((id: string) => {
+        setCartItems(prev => prev.map(item => item.id === id ? normalizePackConversion(item) : item));
+    }, []);
 
     const handleExpiryBlur = useCallback((id: string, value: string) => {
         if (!value) return;
@@ -1022,12 +1051,17 @@ const POS = forwardRef<any, POSProps>(({
                                             )}
                                             {isFieldVisible('colLQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
-<input
+                                                    <input
                                                         id={`qty-l-${item.id}`}
                                                         type="number"
                                                         value={item.looseQuantity === 0 ? '' : item.looseQuantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'looseQuantity', e.target.value)}
+                                                        onInput={e => handleUpdateCartItem(item.id, 'looseQuantity', (e.target as HTMLInputElement).value)}
+                                                        onBlur={() => handleLooseQtyFinalize(item.id)}
                                                         onKeyDown={e => {
+                                                            if (e.key === 'Enter') {
+                                                                handleLooseQtyFinalize(item.id);
+                                                            }
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
