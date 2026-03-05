@@ -1229,47 +1229,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         invoiceNumberInputRef.current?.focus();
     };
 
-    const handleQuickCreateSupplier = async () => {
-        if (isReadOnly || !Supplier.trim()) return;
-        try {
-            const result = await onAddsupplier({
-                user_id: '',
-                name: Supplier.trim(),
-                contact_person: '',
-                category: 'Wholesaler',
-                phone: '',
-                mobile: '',
-                email: '',
-                website: '',
-                address: '',
-                address_line2: '',
-                area: '',
-                pincode: '',
-                district: '',
-                state: '',
-                gst_number: supplierGst || '',
-                pan_number: '',
-                drug_license: '',
-                food_license: '',
-                opening_balance: 0,
-                payment_details: { upi_id: '', bank_name: '', ifsc_code: '', branch_name: '', payment_terms: '30 Days', account_number: '' },
-                is_active: true,
-                is_blocked: false,
-                remarks: '',
-                supplier_group: 'Sundry Creditors',
-                control_gl_id: ''
-            }, 0, date);
-
-            setSupplier(result.supplier.name || Supplier);
-            setSupplierGst(result.supplier.gst_number || '');
-            setSupplierNameError(null);
-            setIsSupplierDropdownOpen(false);
-            setIsAddSupplierModalOpen(false);
-            setSupplierQuickCreatePrefill(undefined);
-            invoiceNumberInputRef.current?.focus();
-        } catch (_) {
-            // Notification already handled by shared supplier service caller in App
-        }
+    const handleQuickCreateSupplier = () => {
+        if (isReadOnly) return;
+        setSupplierQuickCreatePrefill({
+            name: Supplier.trim(),
+            gst_number: supplierGst || '',
+            supplier_group: 'Sundry Creditors',
+        });
+        setIsSupplierDropdownOpen(false);
+        setIsSupplierSearchModalOpen(false);
+        setIsAddSupplierModalOpen(true);
     };
 
     const handleSupplierKeyDown = (e: React.KeyboardEvent) => {
@@ -1333,6 +1302,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                             placeholder="Enter: search | Ctrl+Enter: quick create supplier"
                         />
+                        <p className="mt-1 ml-1 text-[10px] font-semibold text-gray-500">Enter: search | Ctrl+Enter: quick create supplier</p>
                         {isSupplierDropdownOpen && Supplier.length > 0 && (
                             <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
                                 {suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10).map((d, sIdx) => (
