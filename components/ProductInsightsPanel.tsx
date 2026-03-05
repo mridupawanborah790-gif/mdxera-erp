@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import type { InventoryItem, Purchase, Transaction } from '../types';
 
 type Props = {
@@ -15,6 +15,20 @@ const fmtDate = (value?: string) => value ? new Date(value).toLocaleDateString('
 const fmtMoney = (value: number) => `₹${(Number.isFinite(value) ? value : 0).toFixed(2)}`;
 
 const ProductInsightsPanel: React.FC<Props> = ({ isOpen, product, purchases, sales, loading = false, onClose }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
+  }, [isOpen, onClose]);
+
   const purchaseRows = useMemo(() => {
     if (!product) return [];
     const rows: any[] = [];
