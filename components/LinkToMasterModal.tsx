@@ -258,6 +258,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
     };
 
     const closeBlockedMessage = 'Please map or create all remaining items before closing.';
+    const selectSkuWarningMessage = 'Select a SKU or create a new material first.';
 
     const handleCloseAttempt = () => {
         if (isComplete || reconciledItems.length === 0) {
@@ -294,6 +295,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                 if (selectedMaster) {
                     handleMapItem(selectedMaster);
                 } else {
+                    setStatusToast(selectSkuWarningMessage);
                     searchInputRef.current?.focus();
                     if (searchInputRef.current) searchInputRef.current.select();
                 }
@@ -316,6 +318,8 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             const selectedMaster = masterResults[masterSelectedIndex];
             if (selectedMaster) {
                 handleMapItem(selectedMaster);
+            } else {
+                setStatusToast(selectSkuWarningMessage);
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();
