@@ -5,17 +5,18 @@ import AddMedicineModal from './AddMedicineModal';
 import { AddSupplierModal } from './AddSupplierModal';
 import BatchSelectionModal from './BatchSelectionModal';
 import { extractPurchaseDetailsFromBill } from '../services/geminiService';
-import type { Purchase, InventoryItem, Supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, SupplierProductMap, Medicine, AppConfigurations, FileInput } from '../types';
+import type { Purchase, InventoryItem, Supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, SupplierProductMap, Medicine, AppConfigurations, FileInput, Transaction } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
 import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
-import { fetchPendingMobileBills, fetchSupplierProductMaps, generateUUID, getLatestSyncMessage, getOrCreateMobileDeviceId, listenForSyncMessage, markMobileBillImported, reserveVoucherNumber, saveData } from '../services/storageService';
+import { fetchPendingMobileBills, fetchSupplierProductMaps, fetchTransactions, generateUUID, getLatestSyncMessage, getOrCreateMobileDeviceId, listenForSyncMessage, markMobileBillImported, reserveVoucherNumber, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
 import JournalEntryViewerModal from './JournalEntryViewerModal';
+import ProductInsightsPanel from './ProductInsightsPanel';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { parseNetworkAndApiError } from '../utils/error';
 import { prepareCapturedImageForAiExtraction, prepareFilesForAiExtraction } from '../utils/aiImagePrep';
@@ -220,9 +221,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     // Matrix Props
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+    const [isInsightsOpen, setIsInsightsOpen] = useState(false);
+    const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
+    const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
+    const [isInsightsLoading, setIsInsightsLoading] = useState(false);
 
     // Modal States
     const [isWebcamModalOpen, setIsWebcamModalOpen] = useState(false);
@@ -731,6 +736,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [activeIntelItem, purchases]);
 
     const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'F4') {
+            e.preventDefault();
+            setIsInsightsOpen(true);
+            return;
+        }
+
         if (deduplicatedSearchInventory.length === 0) return;
 
         if (e.key === 'ArrowDown') {
@@ -745,6 +756,25 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (selectedWrapper) triggerBatchSelection(selectedWrapper);
         }
     };
+
+    useEffect(() => {
+        if (!isInsightsOpen || !currentUser || salesHistory.length > 0) return;
+        let isMounted = true;
+        setIsInsightsLoading(true);
+
+        fetchTransactions(currentUser)
+            .then((rows) => {
+                if (!isMounted) return;
+                setSalesHistory((rows || []).filter((row: Transaction) => row.organization_id === currentUser.organization_id));
+            })
+            .finally(() => {
+                if (isMounted) setIsInsightsLoading(false);
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [isInsightsOpen, currentUser, salesHistory.length]);
 
     const triggerBatchSelection = (productWrapper: { item: InventoryItem; batches: InventoryItem[] }) => {
         if (productWrapper.batches.length === 0) {
@@ -1469,7 +1499,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             <Modal
                 isOpen={isSearchModalOpen}
-                onClose={() => setIsSearchModalOpen(false)}
+                onClose={() => { setIsSearchModalOpen(false); setIsInsightsOpen(false); }}
                 title="Product selection Matrix"
             >
                 <div className="flex flex-col h-full bg-[#fffde7] dark:bg-zinc-950 font-normal outline-none" onKeyDown={handleSearchKeyDown}>
@@ -1478,10 +1508,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                             <span className="text-xs font-black uppercase tracking-[0.2em]">Material Discovery Engine</span>
                         </div>
-                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Enter Select</span>
+                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | F4 Product Details | Enter Select</span>
                     </div>
 
-                    <div className="flex flex-1 overflow-hidden">
+                    <div className="flex flex-1 overflow-hidden relative">
                         <div className="flex-1 flex flex-col overflow-hidden">
                             <div className="p-2 bg-white dark:bg-zinc-900 border-b-2 border-primary/10">
                                 <input
@@ -1489,9 +1519,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     type="text"
                                     value={modalSearchTerm}
                                     onChange={e => setModalSearchTerm(e.target.value)}
+                                    onFocus={() => setIsKeywordFocused(true)}
+                                    onBlur={() => setIsKeywordFocused(false)}
                                     placeholder="Type medicine name or code..."
                                     className={`w-full p-2 border-2 border-primary/20 bg-white text-base font-black focus:border-primary outline-none shadow-inner uppercase tracking-tighter`}
                                 />
+                                {isKeywordFocused && (
+                                    <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-primary/80">F4: Product Details</p>
+                                )}
                             </div>
 
                             <div className="flex-1 overflow-auto bg-white" ref={searchResultsRef}>
@@ -1548,6 +1583,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                 )}
                             </div>
                         </div>
+
+                        <ProductInsightsPanel
+                            isOpen={isInsightsOpen}
+                            product={activeIntelItem}
+                            purchases={purchases}
+                            sales={salesHistory}
+                            loading={isInsightsLoading}
+                            onClose={() => setIsInsightsOpen(false)}
+                        />
 
                         <div className="w-80 bg-[#f9f7d9] dark:bg-zinc-900 border-l-2 border-primary/10 flex flex-col overflow-y-auto">
                             {activeIntelItem ? (
