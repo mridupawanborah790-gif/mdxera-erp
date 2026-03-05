@@ -231,6 +231,50 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const scopedDemoRows = useMemo(() => demoPreviewRows, [demoPreviewRows]);
     const duplicatesInPreview = useMemo(() => scopedDemoRows.filter(row => row.duplicate_exists).length, [scopedDemoRows]);
 
+    const runDemoMigrationRpcWithFallback = async () => {
+        const args = {
+            businessType: demoBusinessType,
+            duplicateMode: duplicateHandlingMode,
+            useMaterialCode: false,
+        };
+
+        const attempts: Array<Record<string, string | boolean>> = [
+            {
+                p_business_type: args.businessType,
+                p_duplicate_mode: args.duplicateMode,
+                p_use_material_code: args.useMaterialCode,
+            },
+            {
+                business_type: args.businessType,
+                duplicate_mode: args.duplicateMode,
+                use_material_code: args.useMaterialCode,
+            },
+            {
+                p_business_type: args.businessType,
+                p_duplicate_mode: args.duplicateMode,
+            },
+            {
+                business_type: args.businessType,
+                duplicate_mode: args.duplicateMode,
+            },
+        ];
+
+        let lastError: any = null;
+        for (const payload of attempts) {
+            const response = await supabase.rpc('run_default_material_master_migration', payload);
+            if (!response.error) {
+                return response;
+            }
+
+            lastError = response.error;
+            if (!response.error.message?.includes('Could not find the function public.run_default_material_master_migration')) {
+                return response;
+            }
+        }
+
+        return { data: null, error: lastError };
+    };
+
     const previewDefaultDemoMigration = async () => {
         const { data, error } = await supabase.rpc('preview_default_material_master_migration', {
             p_business_type: demoBusinessType,
@@ -253,11 +297,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
             return;
         }
 
-        const { data, error } = await supabase.rpc('run_default_material_master_migration', {
-            p_business_type: demoBusinessType,
-            p_duplicate_mode: duplicateHandlingMode,
-            p_use_material_code: false,
-        });
+        const { data, error } = await runDemoMigrationRpcWithFallback();
 
         if (error) {
             addNotification(`Demo migration failed: ${error.message}`, 'error');
