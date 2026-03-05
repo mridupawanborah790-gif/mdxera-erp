@@ -316,6 +316,14 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
             return;
         }
 
+        if (error) {
+            addNotification(`Demo migration failed: ${error.message}`, 'error');
+            return;
+        }
+
+        const result = Array.isArray(data) ? data[0] : data;
+        const timestamp = new Date().toISOString();
+
         try {
             const { data, error } = await supabase.rpc('run_default_material_master_migration', {
                 p_duplicate_mode: duplicateHandlingMode,
