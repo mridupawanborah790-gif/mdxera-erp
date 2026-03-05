@@ -486,7 +486,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 return applyMatch(strongNameMatch);
             }
 
-            return { ...item, matchStatus: 'pending' as const };
+            return { ...item, matchStatus: 'unmatched' as const };
         });
     }, [medicines, mappings]);
 
@@ -1056,9 +1056,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const extractedItemsCount = Number.isFinite(Number(bill.extractedItemsCount))
                 ? Number(bill.extractedItemsCount)
                 : (Array.isArray(bill.items) ? bill.items.length : 0);
+            console.info('Bill OCR extraction completed', {
+                importStatus,
+                invoiceNumber: bill.invoiceNumber || '',
+            });
             console.debug('[Purchase Import] Bill imported', {
                 importStatus,
                 invoiceNumber: bill.invoiceNumber || '',
+                supplierDetected: Boolean((bill as any).supplierDetected ?? bill.supplier),
             });
 
             if (importStatus !== 'success') {
@@ -1076,6 +1081,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 setSupplier(matchedSupplier.name || '');
                 setSupplierGst(matchedSupplier.gst_number || bill.supplierGstNumber || '');
                 setSupplierNameError(null);
+                console.info('Supplier detected', {
+                    supplier: matchedSupplier.name || '',
+                    supplierId: matchedSupplier.id,
+                    matchedBy: supplierMatch.reason,
+                });
                 console.debug('[Purchase Import] Supplier detected', {
                     supplier: matchedSupplier.name || '',
                     supplierId: matchedSupplier.id,
@@ -1083,6 +1093,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 });
                 addNotification(`Supplier auto-matched by ${supplierMatch.reason.toUpperCase()}: ${matchedSupplier.name}`, 'success');
             } else {
+                console.info('Supplier detected', {
+                    supplier: bill.supplier || '',
+                    supplierId: null,
+                    matchedBy: 'unmatched',
+                });
                 console.debug('[Purchase Import] Supplier detected', {
                     supplier: bill.supplier || '',
                     supplierId: null,
@@ -1105,6 +1120,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             }
 
             setImportWorkflowStage('validating-items');
+            console.info('Extracted item count', {
+                extractedItemsCount,
+                rawItemsCount: Array.isArray(bill.items) ? bill.items.length : 0,
+            });
             console.debug('[Purchase Import] Extracted items count', {
                 extractedItemsCount,
                 rawItemsCount: Array.isArray(bill.items) ? bill.items.length : 0,
@@ -1141,6 +1160,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             }));
             linkedItems = attemptAutoLink(newItems as PurchaseItem[], matchedSupplier || null);
             setItems([...linkedItems, createBlankItem()]);
+            console.info('Grid rows inserted', {
+                insertedRows: linkedItems.length,
+            });
             setRateTierHandledRows(new Set());
 
             if (linkedItems.length === 0) {
@@ -1152,6 +1174,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             const unresolvedCount = linkedItems.filter(item => item.matchStatus !== 'matched').length;
             const mappedItemsCount = linkedItems.length - unresolvedCount;
+            console.info('Mapped item count', { mappedItemsCount });
+            console.info('Unmatched item count', { unmatchedItemsCount: unresolvedCount });
             console.debug('[Purchase Import] Mapping summary', {
                 mappedItemsCount,
                 unmatchedItemsCount: unresolvedCount,
