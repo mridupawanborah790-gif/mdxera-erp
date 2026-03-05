@@ -120,6 +120,7 @@ const createBlankItem = (): PurchaseItem => ({
 });
 
 type MobileSyncStatus = 'pending' | 'syncing' | 'uploading' | 'synced' | 'imported' | 'failed';
+type ImportWorkflowStage = 'idle' | 'importing' | 'validating-items' | 'opening-reconciliation';
 
 interface MobileSyncPage {
     image: string;
@@ -219,6 +220,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [activeRowId, setActiveRowId] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [importWorkflowStage, setImportWorkflowStage] = useState<ImportWorkflowStage>('idle');
+    const [importWorkflowError, setImportWorkflowError] = useState<string | null>(null);
+    const [lastImportedFingerprint, setLastImportedFingerprint] = useState<string | null>(null);
+    const [hasAutoOpenedReconciliation, setHasAutoOpenedReconciliation] = useState(false);
 
     // Matrix Props
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -268,6 +273,35 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const rateCInputRef = useRef<HTMLInputElement>(null);
     const skipRateButtonRef = useRef<HTMLButtonElement>(null);
     const saveRateButtonRef = useRef<HTMLButtonElement>(null);
+
+    const getImportWorkflowLabel = useCallback((stage: ImportWorkflowStage) => {
+        switch (stage) {
+            case 'importing':
+                return 'Importing…';
+            case 'validating-items':
+                return 'Validating Items…';
+            case 'opening-reconciliation':
+                return 'Opening Reconciliation…';
+            default:
+                return '';
+        }
+    }, []);
+
+    const buildBillFingerprint = useCallback((bill: any, extractedItemCount: number) => {
+        const normalizedSupplier = normalizeSupplierKey(String(bill?.supplier || ''));
+        const normalizedInvoice = String(bill?.invoiceNumber || '').trim().toLowerCase();
+        const normalizedDate = normalizeImportDate(String(bill?.date || '')) || '';
+        return `${normalizedSupplier}|${normalizedInvoice}|${normalizedDate}|${extractedItemCount}`;
+    }, []);
+
+    const normalizeReconciliationError = useCallback((error: unknown) => {
+        const baseMessage = parseNetworkAndApiError(error);
+        const normalized = String(baseMessage || '').toLowerCase();
+        if (normalized.includes('permission') || normalized.includes('rls') || normalized.includes('policy')) {
+            return 'Permission/RLS denied for bill_items';
+        }
+        return `API error: ${baseMessage}`;
+    }, []);
 
     const resetFormForNewEntry = useCallback(() => {
         setSupplier('');
@@ -1010,6 +1044,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         console.log(`MDXERA AI: Starting extraction for ${fileInputs.length} page(s).`);
 
         setIsUploading(true);
+        setImportWorkflowError(null);
+        setImportWorkflowStage('importing');
         try {
             const bill = await extractPurchaseDetailsFromBill(fileInputs, currentUser?.pharmacy_name || '');
             if (bill.error) {
@@ -1045,24 +1081,60 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 setIsAddSupplierModalOpen(true);
             }
 
-            if (bill.items && bill.items.length > 0) {
-                const newItems = bill.items.map(item => ({
-                    ...createBlankItem(),
-                    ...item,
-                    quantity: parseNumber(item.quantity),
-                    purchasePrice: parseNumber(item.purchasePrice),
-                    mrp: parseNumber(item.mrp),
-                    gstPercent: parseNumber(item.gstPercent) || 5,
-                    discountPercent: parseNumber(item.discountPercent),
-                    matchStatus: 'pending' as const
-                }));
-                linkedItems = attemptAutoLink(newItems as PurchaseItem[], matchedSupplier || null);
-                setItems([...linkedItems, createBlankItem()]);
-                setRateTierHandledRows(new Set());
+            setImportWorkflowStage('validating-items');
+            if (!bill.items || bill.items.length === 0) {
+                const missingItemsMessage = 'No extracted items found';
+                console.error(missingItemsMessage);
+                setImportWorkflowError(missingItemsMessage);
+                addNotification(missingItemsMessage, 'error');
+                return {
+                    linkedItems,
+                    supplierForReconciliation: matchedSupplier,
+                };
+            }
 
-                const unresolvedCount = linkedItems.filter(item => item.matchStatus !== 'matched').length;
-                if (unresolvedCount > 0) {
-                    setTimeout(() => setIsLinkModalOpen(true), 0);
+            const newItems = bill.items.map(item => ({
+                ...createBlankItem(),
+                ...item,
+                quantity: parseNumber(item.quantity),
+                purchasePrice: parseNumber(item.purchasePrice),
+                mrp: parseNumber(item.mrp),
+                gstPercent: parseNumber(item.gstPercent) || 5,
+                discountPercent: parseNumber(item.discountPercent),
+                matchStatus: 'pending' as const
+            }));
+            linkedItems = attemptAutoLink(newItems as PurchaseItem[], matchedSupplier || null);
+            setItems([...linkedItems, createBlankItem()]);
+            setRateTierHandledRows(new Set());
+
+            if (linkedItems.length === 0) {
+                const emptyReconciliationMessage = 'Bill import saved but reconciliation fetch returned 0';
+                console.error(emptyReconciliationMessage);
+                setImportWorkflowError(emptyReconciliationMessage);
+                addNotification(emptyReconciliationMessage, 'error');
+            }
+
+            const unresolvedCount = linkedItems.filter(item => item.matchStatus !== 'matched').length;
+            const fingerprint = buildBillFingerprint(bill, linkedItems.length);
+            const isDuplicateImport = hasAutoOpenedReconciliation && lastImportedFingerprint === fingerprint;
+            setLastImportedFingerprint(fingerprint);
+
+            if (unresolvedCount > 0) {
+                if (isDuplicateImport) {
+                    addNotification('Bill already imported/reconciled. Use Reconcile Again to reopen worksheet.', 'warning');
+                } else {
+                    setImportWorkflowStage('opening-reconciliation');
+                    setTimeout(() => {
+                        try {
+                            setIsLinkModalOpen(true);
+                            setHasAutoOpenedReconciliation(true);
+                        } catch (openError: any) {
+                            const openMessage = normalizeReconciliationError(openError);
+                            console.error(openMessage);
+                            setImportWorkflowError(openMessage);
+                            addNotification(openMessage, 'error');
+                        }
+                    }, 0);
                 }
             }
 
@@ -1074,11 +1146,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         } catch (err: any) {
             const message = String(err?.message || err || parseNetworkAndApiError(err));
             addNotification(`AI Extraction failed: ${message}`, 'error');
+            setImportWorkflowError(normalizeReconciliationError(err));
             throw new Error(message);
         } finally {
             setIsUploading(false);
+            setImportWorkflowStage('idle');
         }
-    }, [addNotification, attemptAutoLink, currentUser?.pharmacy_name, date, matchSupplierFromExtractedData]);
+    }, [addNotification, attemptAutoLink, buildBillFingerprint, currentUser?.pharmacy_name, date, hasAutoOpenedReconciliation, lastImportedFingerprint, matchSupplierFromExtractedData, normalizeReconciliationError]);
 
 
     const processMobileSyncPayload = useCallback(async (payload: MobileSyncInvoicePayload, options?: { skipSyncingStatus?: boolean }) => {
@@ -1353,8 +1427,28 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         <button onClick={() => { setMobileSyncStatus('pending'); setMobileSyncError(null); setMobilePageCount(0); setMobileInvoiceId(null); setMobileSyncSessionId(generateUUID()); }} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><SmartphoneIcon /> Mobile Sync</button>
                         <button onClick={handleSyncBill} disabled={!mobileSyncSessionId || isMobileSyncing} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{isMobileSyncing ? <Spinner /> : <SmartphoneIcon />} Sync Bill</button>
                         <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><UploadIcon /> {isUploading ? <Spinner /> : 'Import Document'}</button>
+                        <button
+                            type="button"
+                            onClick={() => setIsLinkModalOpen(true)}
+                            disabled={!items.some(item => (item.name || '').trim() && item.matchStatus !== 'matched')}
+                            className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Reconcile Again
+                        </button>
                         <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*,application/pdf" />
                     </div>
+
+                    {(importWorkflowStage !== 'idle' || importWorkflowError) && (
+                        <div className="mx-2 mt-2 border border-amber-300 bg-amber-50 px-3 py-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase">
+                            {importWorkflowStage !== 'idle' && (
+                                <>
+                                    <Spinner />
+                                    <span className="text-amber-900">{getImportWorkflowLabel(importWorkflowStage)}</span>
+                                </>
+                            )}
+                            {importWorkflowError && <span className="text-red-700 normal-case">{importWorkflowError}</span>}
+                        </div>
+                    )}
 
                     {!!mobileSyncSessionId && (
                         <div className="mx-2 mt-2 border border-primary/20 bg-primary/5 px-3 py-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase">
