@@ -1,6 +1,5 @@
 import { supabase } from './supabaseClient';
 import type { Supplier, RegisteredPharmacy } from '../types';
-import { parseNetworkAndApiError } from '../utils/error';
 import { generateUUID } from './storageService';
 
 export type SupplierSaveStatus = 'created' | 'updated' | 'duplicate';
@@ -10,6 +9,18 @@ export interface SupplierQuickResult {
     supplier: Supplier;
     message: string;
 }
+
+export const formatSupplierApiError = (error: any): string => {
+    if (!error) return 'Unknown supplier API error';
+    if (typeof error === 'string') return error;
+
+    const parts = [error.message, error.details, error.hint]
+        .filter((part) => typeof part === 'string' && part.trim().length > 0)
+        .map((part) => part.trim());
+
+    if (parts.length > 0) return parts.join(' | ');
+    return String(error);
+};
 
 type SupplierPayload = Partial<Supplier> & { id?: string; name: string };
 
@@ -70,9 +81,7 @@ export const createSupplierQuick = async (
         .select('*')
         .single();
 
-    if (error) {
-        throw new Error(parseNetworkAndApiError(error));
-    }
+    if (error) throw new Error(formatSupplierApiError(error));
 
     const saved = data as Supplier;
     return {

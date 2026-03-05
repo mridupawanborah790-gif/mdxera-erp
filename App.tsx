@@ -55,7 +55,7 @@ import { navigation } from './constants';
 import { generateNewInvoiceId } from './utils/invoice';
 import { getInventoryPolicy } from './utils/materialType';
 import { resolveUnitsPerStrip } from './utils/pack';
-import { createSupplierQuick, SupplierQuickResult } from './services/supplierService';
+import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
@@ -682,7 +682,7 @@ const App: React.FC = () => {
             addNotification(result.message, result.status === 'duplicate' ? 'warning' : 'success');
             return result;
         } catch (e) {
-            const message = parseNetworkAndApiError(e);
+            const message = formatSupplierApiError(e);
             addNotification(message, 'error');
             throw new Error(message);
         }
@@ -727,7 +727,7 @@ const App: React.FC = () => {
             await loadData(currentUser, 'background');
             addNotification(result.message, result.status === 'duplicate' ? 'warning' : 'success');
         } catch (e) {
-            addNotification(parseNetworkAndApiError(e), 'error');
+            addNotification(formatSupplierApiError(e), 'error');
         }
     };
 
