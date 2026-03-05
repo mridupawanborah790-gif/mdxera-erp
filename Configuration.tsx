@@ -17,6 +17,7 @@ import SalesBillImportPreviewModal from './components/SalesBillImportPreviewModa
 import Modal from './components/Modal';
 import { fuzzyMatch } from './utils/search';
 import { deleteData } from './services/storageService';
+import { supabase } from './services/supabaseClient';
 
 const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: boolean) => void; description?: string }> = ({ label, enabled, setEnabled, description }) => (
     <div className="py-3 border-b border-gray-100 last:border-0 flex items-center justify-between group">
@@ -36,13 +37,8 @@ const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: 
 
 type ConfigSection = 'general' | 'posConfig' | 'purchaseConfig' | 'invoiceNumbering' | 'dashboardShortcuts' | 'displayOptions' | 'discountMaster' | 'moduleVisibility' | 'dataManagement';
 
-type DemoBusinessType = 'RETAIL' | 'DISTRIBUTOR';
-
-type PharmacyDemoMaterial = {
+type MigrationDemoMaterial = {
     id: string;
-    industry: 'PHARMACY';
-    is_demo: boolean;
-    business_type: DemoBusinessType;
     material_name: string;
     item_code: string;
     sku: string;
@@ -62,29 +58,20 @@ type DemoMigrationAction = 'inserted' | 'skipped' | 'updated';
 
 type DemoMigrationJob = {
     job_id: string;
-    job_type: 'DEMO_PHARMACY_MATERIAL_MASTER';
+    job_type: 'DEMO_MATERIAL_MASTER';
     source_table: 'material_master_all';
     target_table: 'material_master';
     target_org_id: string;
-    business_type: DemoBusinessType;
     created_by: string;
     created_at: string;
+    total_count: number;
     inserted_count: number;
     skipped_count: number;
-    updated_count: number;
+    failed_count: number;
     status: 'COMPLETED' | 'ROLLED_BACK';
     row_mappings: Array<{ source_row_id: string; target_material_id?: string; action: DemoMigrationAction }>;
     inserted_rows: string[];
 };
-
-const DEFAULT_PHARMACY_DEMO_MATERIALS: PharmacyDemoMaterial[] = [
-    { id: 'DEMO-MAT-001', industry: 'PHARMACY', is_demo: true, business_type: 'RETAIL', material_name: 'Paracetamol 650 Tablet', item_code: 'PCM650-TAB', sku: 'PCM650-TAB', barcode: '8908001000011', pack: "10'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'ANALGESIC', manufacturer: 'MediCare Labs', mrp: 32, purchase_rate: 24, sale_rate: 30 },
-    { id: 'DEMO-MAT-002', industry: 'PHARMACY', is_demo: true, business_type: 'RETAIL', material_name: 'Azithromycin 500 Tablet', item_code: 'AZI500-TAB', sku: 'AZI500-TAB', barcode: '8908001000028', pack: "3'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'ANTIBIOTIC', manufacturer: 'Healix Pharma', mrp: 98, purchase_rate: 80, sale_rate: 92 },
-    { id: 'DEMO-MAT-003', industry: 'PHARMACY', is_demo: true, business_type: 'RETAIL', material_name: 'ORS Powder Orange', item_code: 'ORS-POW-01', sku: 'ORS-POW-01', barcode: '8908001000035', pack: "21G", uom: 'SACHET', hsn: '3004', gst_rate: 5, category: 'ELECTROLYTE', manufacturer: 'NutriSalts', mrp: 20, purchase_rate: 15, sale_rate: 18 },
-    { id: 'DEMO-MAT-004', industry: 'PHARMACY', is_demo: true, business_type: 'DISTRIBUTOR', material_name: 'Amoxicillin 500 Capsule', item_code: 'AMX500-CAP', sku: 'AMX500-CAP', barcode: '8908001000042', pack: "10'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'ANTIBIOTIC', manufacturer: 'BioCure Pharma', mrp: 85, purchase_rate: 68, sale_rate: 79 },
-    { id: 'DEMO-MAT-005', industry: 'PHARMACY', is_demo: true, business_type: 'DISTRIBUTOR', material_name: 'Pantoprazole 40 Tablet', item_code: 'PAN40-TAB', sku: 'PAN40-TAB', barcode: '8908001000059', pack: "15'S", uom: 'STRIP', hsn: '3004', gst_rate: 12, category: 'GASTRO', manufacturer: 'AcidRelief Health', mrp: 120, purchase_rate: 92, sale_rate: 108 },
-    { id: 'DEMO-MAT-006', industry: 'PHARMACY', is_demo: true, business_type: 'DISTRIBUTOR', material_name: 'Cough Syrup DX', item_code: 'COUGH-DX-100', sku: 'COUGH-DX-100', barcode: '8908001000066', pack: '100ML', uom: 'BOTTLE', hsn: '3004', gst_rate: 12, category: 'RESPIRATORY', manufacturer: 'Respira Therapeutics', mrp: 115, purchase_rate: 88, sale_rate: 106 }
-];
 
 interface ConfigurationPageProps {
     configurations: AppConfigurations;
@@ -122,42 +109,34 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [demoTargetOrg, setDemoTargetOrg] = useState(currentUser?.organization_id || 'MDXERA');
-    const [demoBusinessType, setDemoBusinessType] = useState<DemoBusinessType>('RETAIL');
-    const [demoPreviewRows, setDemoPreviewRows] = useState<PharmacyDemoMaterial[]>([]);
+    const [demoPreviewRows, setDemoPreviewRows] = useState<MigrationDemoMaterial[]>([]);
     const [demoMigrationJobs, setDemoMigrationJobs] = useState<DemoMigrationJob[]>([]);
     const [rollbackJobId, setRollbackJobId] = useState('');
     const [rollbackConfirmText, setRollbackConfirmText] = useState('');
 
-    const fetchDemoMaterials = (businessType: DemoBusinessType) => DEFAULT_PHARMACY_DEMO_MATERIALS.filter(
-        row => row.industry === 'PHARMACY' && row.is_demo && ['RETAIL', 'DISTRIBUTOR'].includes(row.business_type) && row.business_type === businessType
-    );
-
-    const duplicateMatcher = (row: PharmacyDemoMaterial, mat: Medicine) => {
-        const rowBarcode = (row.barcode || '').trim();
-        const rowCode = (row.item_code || row.sku || '').trim().toLowerCase();
-        const matBarcode = (mat.barcode || '').trim();
-        const matCode = (mat.materialCode || '').trim().toLowerCase();
-        if (rowBarcode && matBarcode && rowBarcode === matBarcode) return true;
-        if (rowCode && matCode && rowCode === matCode) return true;
-        const namePackUomA = `${(row.material_name || '').trim().toLowerCase()}|${(row.pack || '').trim().toLowerCase()}|${(row.uom || '').trim().toLowerCase()}`;
-        const namePackUomB = `${(mat.name || '').trim().toLowerCase()}|${(mat.pack || '').trim().toLowerCase()}|${((mat as any).uom || '').trim().toLowerCase()}`;
-        return namePackUomA === namePackUomB;
+    const duplicateMatcher = (row: MigrationDemoMaterial, mat: Medicine) => {
+        const nameA = (row.material_name || '').trim().toLowerCase();
+        const nameB = (mat.name || '').trim().toLowerCase();
+        const packA = (row.pack || '').trim().toLowerCase();
+        const packB = (mat.pack || '').trim().toLowerCase();
+        const hsnA = (row.hsn || '').trim().toLowerCase();
+        const hsnB = (mat.hsnCode || '').trim().toLowerCase();
+        return nameA === nameB && packA === packB && hsnA === hsnB;
     };
 
     const scopedTargetMaterials = useMemo(() => medicines.filter(m => m.organization_id === demoTargetOrg), [medicines, demoTargetOrg]);
-    const scopedDemoRows = useMemo(() => fetchDemoMaterials(demoBusinessType), [demoBusinessType]);
-    const duplicateCount = useMemo(() => scopedDemoRows.filter(row => scopedTargetMaterials.some(mat => duplicateMatcher(row, mat))).length, [scopedDemoRows, scopedTargetMaterials]);
-    const itemsToImport = scopedDemoRows.length - duplicateCount;
+    const duplicateCount = useMemo(() => demoPreviewRows.filter(row => scopedTargetMaterials.some(mat => duplicateMatcher(row, mat))).length, [demoPreviewRows, scopedTargetMaterials]);
+    const itemsToImport = demoPreviewRows.length - duplicateCount;
     const orgOptions = useMemo(() => Array.from(new Set([currentUser?.organization_id || 'MDXERA', ...medicines.map(m => m.organization_id).filter(Boolean)])), [currentUser?.organization_id, medicines]);
 
     const makeDemoJobId = () => `DEMO-MAT-${new Date().getFullYear()}-${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
 
-    const mapDemoToMedicine = (sourceRow: PharmacyDemoMaterial, jobId: string): Medicine => ({
+    const mapDemoToMedicine = (sourceRow: MigrationDemoMaterial, jobId: string): Medicine => ({
         id: crypto.randomUUID(),
         organization_id: demoTargetOrg,
         user_id: currentUser?.user_id,
         name: sourceRow.material_name,
-        materialCode: sourceRow.item_code || sourceRow.sku,
+        materialCode: sourceRow.item_code || sourceRow.sku || sourceRow.id,
         barcode: sourceRow.barcode,
         pack: sourceRow.pack,
         manufacturer: sourceRow.manufacturer,
@@ -175,14 +154,29 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         ...( { data_source: 'DEMO_MIGRATION', migration_job_id: jobId, created_by: currentUser?.full_name || 'System', created_by_id: currentUser?.id, source_uom: sourceRow.uom } as any )
     });
 
-    const previewDemoMigration = () => {
-        const rows = fetchDemoMaterials(demoBusinessType);
+    const previewDemoMigration = async () => {
+        const { data, error } = await supabase
+            .from('material_master_all')
+            .select('id, material_name, item_code, sku, barcode, pack, uom, hsn, gst_rate, category, manufacturer, mrp, purchase_rate, sale_rate')
+            .order('material_name', { ascending: true });
+
+        if (error) {
+            addNotification(`Failed to load demo data: ${error.message}`, 'error');
+            return;
+        }
+
+        const rows = (data || []) as MigrationDemoMaterial[];
         setDemoPreviewRows(rows);
-        addNotification(`Preview ready: ${rows.length} demo rows loaded from material_master_all filters.`, 'success');
+        addNotification(`Preview ready: ${rows.length} rows loaded from material_master_all.`, 'success');
     };
 
     const importDemoMigration = () => {
-        const rows = fetchDemoMaterials(demoBusinessType);
+        const rows = demoPreviewRows;
+        if (rows.length === 0) {
+            addNotification('Run Preview first to load source data from material_master_all.', 'warning');
+            return;
+        }
+
         const jobId = makeDemoJobId();
         const mappedRows: Medicine[] = [];
         const rowMappings: DemoMigrationJob['row_mappings'] = [];
@@ -202,22 +196,22 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
         const job: DemoMigrationJob = {
             job_id: jobId,
-            job_type: 'DEMO_PHARMACY_MATERIAL_MASTER',
+            job_type: 'DEMO_MATERIAL_MASTER',
             source_table: 'material_master_all',
             target_table: 'material_master',
             target_org_id: demoTargetOrg,
-            business_type: demoBusinessType,
             created_by: currentUser?.full_name || 'System',
             created_at: new Date().toISOString(),
+            total_count: rows.length,
             inserted_count: mappedRows.length,
             skipped_count: rowMappings.filter(r => r.action === 'skipped').length,
-            updated_count: 0,
+            failed_count: 0,
             status: 'COMPLETED',
             row_mappings: rowMappings,
             inserted_rows: mappedRows.map(m => m.id)
         };
         setDemoMigrationJobs(prev => [job, ...prev]);
-        addNotification(`Imported ${job.inserted_count} items to material_master. Skipped ${job.skipped_count} duplicates.`, 'success');
+        addNotification(`Migration complete. Total ${job.total_count} | Inserted ${job.inserted_count} | Skipped ${job.skipped_count} | Failed ${job.failed_count}.`, 'success');
     };
 
     const rollbackDemoMigration = async () => {
@@ -235,16 +229,6 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
     useEffect(() => {
         setDemoTargetOrg(currentUser?.organization_id || 'MDXERA');
-    }, [currentUser?.organization_id]);
-
-    useEffect(() => {
-        if (!currentUser?.organization_id) return;
-        const key = `demo-material-prompt-${currentUser.organization_id}`;
-        if (localStorage.getItem(key)) return;
-        const accepted = window.confirm('Load Default Pharmacy Material Master Demo Data?');
-        localStorage.setItem(key, 'shown');
-        if (accepted) importDemoMigration();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentUser?.organization_id]);
 
     useEffect(() => { if (configurations) setLocalConfigs(configurations); }, [configurations]);
@@ -574,7 +558,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                             <div className="space-y-6 animate-in fade-in duration-300">
                                 <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter border-b-2 border-primary pb-2 mb-6">Central Data Migration Center</h2>
                                 <div className="p-4 border-2 border-primary/20 bg-primary/5 space-y-4">
-                                    <h3 className="text-sm font-black uppercase tracking-widest">Default Demo Migration – Pharmacy Material Master</h3>
+                                    <h3 className="text-sm font-black uppercase tracking-widest">Default Migration – Material Master (Demo)</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-[10px] font-black uppercase">Target Organization</label>
@@ -583,21 +567,18 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-black uppercase">Business Type</label>
-                                            <select className="w-full tally-input" value={demoBusinessType} onChange={e => setDemoBusinessType(e.target.value as DemoBusinessType)}>
-                                                <option value="RETAIL">Pharmacy Retail</option>
-                                                <option value="DISTRIBUTOR">Medicine Distributor</option>
-                                            </select>
+                                            <label className="text-[10px] font-black uppercase">Source Dataset</label>
+                                            <div className="w-full tally-input bg-gray-50">material_master_all (migration/demo dataset)</div>
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[10px] font-black uppercase">
-                                        <div>Total demo items in material_master_all: {scopedDemoRows.length}</div>
-                                        <div>Items to import: {itemsToImport}</div>
-                                        <div>Duplicates detected (will skip): {duplicateCount}</div>
+                                        <div>Total preview rows: {demoPreviewRows.length}</div>
+                                        <div>Inserted candidate rows: {itemsToImport}</div>
+                                        <div>Duplicates detected (org + name + pack + hsn): {duplicateCount}</div>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         <button onClick={previewDemoMigration} className="px-3 py-2 border text-[10px] font-black uppercase">Preview</button>
-                                        <button onClick={importDemoMigration} className="px-3 py-2 bg-green-700 text-white text-[10px] font-black uppercase">Import & Save to Material Master</button>
+                                        <button onClick={importDemoMigration} className="px-3 py-2 bg-green-700 text-white text-[10px] font-black uppercase">Default Migration – Material Master (Demo)</button>
                                         <button onClick={rollbackDemoMigration} className="px-3 py-2 bg-red-700 text-white text-[10px] font-black uppercase">Rollback (Undo Last Demo Import)</button>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -607,17 +588,17 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                                 <thead className="bg-gray-100 uppercase font-black"><tr><th className="p-1 text-left">Name</th><th className="p-1 text-left">Code</th><th className="p-1 text-left">Pack</th><th className="p-1 text-left">UOM</th></tr></thead>
                                                 <tbody>
                                                     {demoPreviewRows.slice(0, 10).map(r => <tr key={r.id} className="border-t"><td className="p-1">{r.material_name}</td><td className="p-1">{r.item_code || r.sku}</td><td className="p-1">{r.pack || '—'}</td><td className="p-1">{r.uom || '—'}</td></tr>)}
-                                                    {demoPreviewRows.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={4}>Run preview to list source rows.</td></tr>}
+                                                    {demoPreviewRows.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={4}>Run preview to fetch source rows from material_master_all.</td></tr>}
                                                 </tbody>
                                             </table>
                                         </div>
                                         <div className="border bg-white p-2 max-h-48 overflow-auto">
                                             <div className="text-[10px] font-black uppercase mb-1">Demo Migration Job Logs</div>
                                             <table className="w-full text-[10px]">
-                                                <thead className="bg-gray-100 uppercase font-black"><tr><th className="p-1 text-left">Job</th><th className="p-1 text-left">Org</th><th className="p-1 text-right">Inserted</th><th className="p-1 text-right">Skipped</th><th className="p-1 text-left">Status</th></tr></thead>
+                                                <thead className="bg-gray-100 uppercase font-black"><tr><th className="p-1 text-left">Job</th><th className="p-1 text-left">Org</th><th className="p-1 text-right">Total</th><th className="p-1 text-right">Inserted</th><th className="p-1 text-right">Skipped</th><th className="p-1 text-right">Failed</th><th className="p-1 text-left">Status</th></tr></thead>
                                                 <tbody>
-                                                    {demoMigrationJobs.map(j => <tr key={j.job_id} className="border-t"><td className="p-1">{j.job_id}</td><td className="p-1">{j.target_org_id}</td><td className="p-1 text-right">{j.inserted_count}</td><td className="p-1 text-right">{j.skipped_count}</td><td className="p-1">{j.status}</td></tr>)}
-                                                    {demoMigrationJobs.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={5}>No demo job executed yet.</td></tr>}
+                                                    {demoMigrationJobs.map(j => <tr key={j.job_id} className="border-t"><td className="p-1">{j.job_id}</td><td className="p-1">{j.target_org_id}</td><td className="p-1 text-right">{j.total_count}</td><td className="p-1 text-right">{j.inserted_count}</td><td className="p-1 text-right">{j.skipped_count}</td><td className="p-1 text-right">{j.failed_count}</td><td className="p-1">{j.status}</td></tr>)}
+                                                    {demoMigrationJobs.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={7}>No demo job executed yet.</td></tr>}
                                                 </tbody>
                                             </table>
                                         </div>
