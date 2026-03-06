@@ -1257,7 +1257,7 @@ export const postManualSalesVoucher = async (args: ManualSalesPostingInput, user
         .eq('id', postingContext.setOfBooksId)
         .single();
 
-    const receivableGl = books?.default_customer_gl_id || args.customerControlGlId;
+    const receivableGl = args.customerControlGlId || books?.default_customer_gl_id;
     if (!receivableGl) {
         throw new Error('Customer/Receivable GL is not configured for default set of books.');
     }

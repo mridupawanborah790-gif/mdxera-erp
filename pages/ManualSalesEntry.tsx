@@ -64,6 +64,7 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
   const [salesGlId, setSalesGlId] = useState('');
   const [discountGlId, setDiscountGlId] = useState('');
   const [taxGlId, setTaxGlId] = useState('');
+  const [defaultCustomerControlGlId, setDefaultCustomerControlGlId] = useState('');
   const [customerControlGlId, setCustomerControlGlId] = useState('');
   const [salesOptions, setSalesOptions] = useState<GlOption[]>([]);
   const [taxOptions, setTaxOptions] = useState<GlOption[]>([]);
@@ -120,7 +121,9 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
       setSalesGlId(sales[0]?.id || '');
       setDiscountGlId(expenses.find((g) => /discount/i.test(g.label))?.id || expenses[0]?.id || '');
       setTaxGlId(taxs.find((g) => /output|gst/i.test(g.label))?.id || taxs[0]?.id || '');
-      setCustomerControlGlId(String((books as any)?.default_customer_gl_id || ''));
+      const defaultGl = String((books as any)?.default_customer_gl_id || '');
+      setDefaultCustomerControlGlId(defaultGl);
+      setCustomerControlGlId(defaultGl);
 
     };
 
@@ -130,7 +133,8 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
   useEffect(() => {
     const selectedCustomer = customers.find((c) => c.id === customerId);
     if (selectedCustomer?.phone) setPhone(selectedCustomer.phone);
-  }, [customerId, customers]);
+    setCustomerControlGlId(selectedCustomer?.controlGlId || defaultCustomerControlGlId);
+  }, [customerId, customers, defaultCustomerControlGlId]);
 
   useEffect(() => {
     const timer = setTimeout(() => dateInputRef.current?.focus(), 120);
