@@ -1165,30 +1165,127 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         persist({ ...store, glMasters: normalizedGlMasters });
       }
 
+      let assignmentSyncWarning = '';
       if (store.glAssignments.length > 0) {
-        const { error: assignmentErr } = await supabase.from('gl_assignments').upsert(store.glAssignments.map(a => ({
-          id: a.id,
-          organization_id: organizationId,
-          set_of_books_id: a.setOfBooksId,
-          assignment_scope: a.assignmentScope || 'MATERIAL',
-          material_master_type: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? a.materialMasterType : null,
-          party_type: (a.assignmentScope || 'MATERIAL') === 'PARTY_GROUP' ? a.partyType : null,
-          party_group: (a.assignmentScope || 'MATERIAL') === 'PARTY_GROUP' ? (a.partyGroup || null) : null,
-          control_gl_id: (a.assignmentScope || 'MATERIAL') === 'PARTY_GROUP' ? (a.controlGL || null) : null,
-          inventory_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.inventoryGL || null) : null,
-          purchase_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.purchaseGL || null) : null,
-          cogs_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.cogsGL || null) : null,
-          sales_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.salesGL || null) : null,
-          discount_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.discountGL || null) : null,
-          tax_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.taxGL || null) : null,
-          seeded_by_system: !!a.seeded_by_system,
-          template_version: a.template_version || DEFAULT_TEMPLATE_VERSION,
-          created_by: a.created_by || userName,
-          created_at: a.created_at,
-          updated_by: userName,
-          updated_at: now(),
-        })), { onConflict: 'id' });
-        if (assignmentErr) throw assignmentErr;
+        const glMap = new Map(normalizedGlMasters.map((g) => [g.id, g]));
+        const invalidMaterialRows: string[] = [];
+
+        const materialRows = store.glAssignments.filter((a) => (a.assignmentScope || 'MATERIAL') === 'MATERIAL');
+        const partyRows = store.glAssignments.filter((a) => (a.assignmentScope || 'MATERIAL') === 'PARTY_GROUP');
+
+        const validMaterialRows = materialRows.filter((a) => {
+          const purchaseType = a.purchaseGL ? glMap.get(a.purchaseGL)?.glType : undefined;
+          const cogsType = a.cogsGL ? glMap.get(a.cogsGL)?.glType : undefined;
+          const discountType = a.discountGL ? glMap.get(a.discountGL)?.glType : undefined;
+          const taxType = a.taxGL ? glMap.get(a.taxGL)?.glType : undefined;
+          const inventoryType = a.inventoryGL ? glMap.get(a.inventoryGL)?.glType : undefined;
+          const salesType = a.salesGL ? glMap.get(a.salesGL)?.glType : undefined;
+
+          const isValid = (
+            purchaseType === 'Expense'
+            && cogsType === 'Expense'
+            && discountType === 'Expense'
+            && taxType === 'Liability'
+            && (!a.inventoryGL || inventoryType === 'Asset')
+            && (!a.salesGL || salesType === 'Income')
+          );
+
+          if (!isValid) {
+            invalidMaterialRows.push(`${a.materialMasterType || 'Unknown'}@${a.setOfBooksId}`);
+          }
+          return isValid;
+        });
+
+        if (invalidMaterialRows.length > 0) {
+          assignmentSyncWarning += ` Skipped ${invalidMaterialRows.length} invalid MATERIAL assignment(s) (GL type mismatch).`;
+        }
+
+        const scopedPayload = [
+          ...validMaterialRows.map(a => ({
+            id: a.id,
+            organization_id: organizationId,
+            set_of_books_id: a.setOfBooksId,
+            assignment_scope: 'MATERIAL',
+            material_master_type: a.materialMasterType,
+            party_type: null,
+            party_group: null,
+            control_gl_id: null,
+            inventory_gl: a.inventoryGL || null,
+            purchase_gl: a.purchaseGL || null,
+            cogs_gl: a.cogsGL || null,
+            sales_gl: a.salesGL || null,
+            discount_gl: a.discountGL || null,
+            tax_gl: a.taxGL || null,
+            seeded_by_system: !!a.seeded_by_system,
+            template_version: a.template_version || DEFAULT_TEMPLATE_VERSION,
+            created_by: a.created_by || userName,
+            created_at: a.created_at,
+            updated_by: userName,
+            updated_at: now(),
+          })),
+          ...partyRows.map(a => ({
+            id: a.id,
+            organization_id: organizationId,
+            set_of_books_id: a.setOfBooksId,
+            assignment_scope: 'PARTY_GROUP',
+            material_master_type: null,
+            party_type: a.partyType || null,
+            party_group: a.partyGroup || null,
+            control_gl_id: a.controlGL || null,
+            inventory_gl: null,
+            purchase_gl: null,
+            cogs_gl: null,
+            sales_gl: null,
+            discount_gl: null,
+            tax_gl: null,
+            seeded_by_system: !!a.seeded_by_system,
+            template_version: a.template_version || DEFAULT_TEMPLATE_VERSION,
+            created_by: a.created_by || userName,
+            created_at: a.created_at,
+            updated_by: userName,
+            updated_at: now(),
+          })),
+        ];
+
+        if (scopedPayload.length > 0) {
+          const { error: assignmentErr } = await supabase
+            .from('gl_assignments')
+            .upsert(scopedPayload, { onConflict: 'id' });
+
+          if (assignmentErr) {
+            const msg = String((assignmentErr as any)?.message || '').toLowerCase();
+            const missingScopeColumn = msg.includes('assignment_scope') && (msg.includes('schema cache') || msg.includes('column'));
+            if (!missingScopeColumn) throw assignmentErr;
+
+            const legacyPayload = validMaterialRows.map(a => ({
+              id: a.id,
+              organization_id: organizationId,
+              set_of_books_id: a.setOfBooksId,
+              material_master_type: a.materialMasterType,
+              inventory_gl: a.inventoryGL || null,
+              purchase_gl: a.purchaseGL || null,
+              cogs_gl: a.cogsGL || null,
+              sales_gl: a.salesGL || null,
+              discount_gl: a.discountGL || null,
+              tax_gl: a.taxGL || null,
+              seeded_by_system: !!a.seeded_by_system,
+              template_version: a.template_version || DEFAULT_TEMPLATE_VERSION,
+              created_by: a.created_by || userName,
+              created_at: a.created_at,
+              updated_by: userName,
+              updated_at: now(),
+            }));
+
+            if (legacyPayload.length > 0) {
+              const { error: legacyErr } = await supabase
+                .from('gl_assignments')
+                .upsert(legacyPayload, { onConflict: 'id' });
+              if (legacyErr) throw legacyErr;
+            }
+
+            assignmentSyncWarning += ' PARTYGROUP mappings are saved locally; apply latest DB migration and retry sync.';
+          }
+        }
       }
 
       if (store.setupLogs.length > 0) {
@@ -1241,7 +1338,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         })), { onConflict: 'id' });
       }
 
-      setSuccess('Company Configuration saved locally and synced to database tables.');
+      setSuccess(`Company Configuration saved locally and synced to database tables.${assignmentSyncWarning}`);
     } catch (e: any) {
       setError(`Saved locally but database sync failed. ${e?.message || 'Please check your connection and retry.'}`);
     }
