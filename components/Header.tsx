@@ -23,7 +23,7 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
     { id: 'data', label: '<u>K</u>: Company', children: [{id: 'settings', label: 'Alter Profile'}, {id: 'team', label: 'User Roles'}] },
     { id: 'data_mgt', label: '<u>Y</u>: Data', children: [{id: 'configuration', label: 'Settings'}, {id: 'inventory', label: 'Import Items'}] },
     { id: 'exchange', label: '<u>Z</u>: Exchange', children: [{id: 'gst', label: 'E-Way Bill'}] },
-    { id: 'go_to', label: '<u>G</u>: Go To', children: [{id: 'pos', label: 'Sale Entry'}, {id: 'manualPurchaseEntry', label: 'Purchase Entry'}, {id: 'reports', label: 'Management Reports'}] }
+    { id: 'go_to', label: '<u>G</u>: Go To', children: [{id: 'pos', label: 'Sale Entry'}, {id: 'manualSupplierInvoice', label: 'Manual Supplier Invoice'}, {id: 'reports', label: 'Management Reports'}] }
   ];
 
   useEffect(() => {

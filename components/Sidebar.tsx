@@ -208,7 +208,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
                 <div className="flex justify-between text-[10px] font-black text-gray-500 uppercase tracking-tighter">
                     <button onClick={() => onNavigate('pos')} className="hover:text-accent transition-colors outline-none focus:text-accent">F2 Sale</button>
                     <button onClick={() => onNavigate('inventory')} className="hover:text-accent transition-colors outline-none focus:text-accent">F4 Stock</button>
-                    <button onClick={() => onNavigate('manualPurchaseEntry')} className="hover:text-accent transition-colors outline-none focus:text-accent">F8 Purc</button>
+                    <button onClick={() => onNavigate('manualSupplierInvoice')} className="hover:text-accent transition-colors outline-none focus:text-accent">F8 Purc</button>
                 </div>
               </div>
           ) : (
