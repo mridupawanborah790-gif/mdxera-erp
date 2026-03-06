@@ -126,6 +126,7 @@ const POS = forwardRef<any, POSProps>(({
     const [cartItems, setCartItems] = useState<BillItem[]>([]);
     const [prescriptions, setPrescriptions] = useState<UploadedFile[]>([]);
     const [isSaving, setIsSaving] = useState(false);
+    const [reservedVoucherNumber, setReservedVoucherNumber] = useState<string | null>(null);
     const [nextVoucherNumberHint, setNextVoucherNumberHint] = useState<number | null>(null);
     const [isProcessingRx, setIsProcessingRx] = useState(false);
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
@@ -224,6 +225,7 @@ const POS = forwardRef<any, POSProps>(({
 
     const currentInvoiceNo = useMemo(() => {
         if (transactionToEdit) return transactionToEdit.id;
+        if (reservedVoucherNumber) return reservedVoucherNumber;
         const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
         const typeKey = isNonGst ? 'non-gst' : 'regular';
         const activeConfig = {
@@ -232,9 +234,34 @@ const POS = forwardRef<any, POSProps>(({
         };
         const { id } = generateNewInvoiceId(activeConfig, typeKey);
         return id;
-    }, [transactionToEdit, isNonGst, configurations, billMode, nextVoucherNumberHint]);
+    }, [transactionToEdit, isNonGst, configurations, billMode, nextVoucherNumberHint, reservedVoucherNumber]);
+
+    const reserveNextVoucherNumber = useCallback(async (): Promise<{ documentNumber: string; nextNumber: number } | null> => {
+        if (transactionToEdit || !currentUser) return null;
+
+        try {
+            const reservation = await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser);
+            setReservedVoucherNumber(reservation.documentNumber);
+            setNextVoucherNumberHint(reservation.nextNumber);
+            return { documentNumber: reservation.documentNumber, nextNumber: reservation.nextNumber };
+        } catch (reservationError) {
+            const errorMessage = reservationError instanceof Error ? reservationError.message : 'Voucher reservation failed';
+            addNotification(`Unable to reserve voucher number. ${errorMessage}`, 'error');
+            return null;
+        }
+    }, [transactionToEdit, currentUser, isNonGst, addNotification]);
 
     useEffect(() => {
+        if (transactionToEdit) {
+            setReservedVoucherNumber(null);
+            return;
+        }
+        if (!currentUser || reservedVoucherNumber) return;
+        reserveNextVoucherNumber();
+    }, [transactionToEdit, currentUser, reservedVoucherNumber, reserveNextVoucherNumber]);
+
+    useEffect(() => {
+        setReservedVoucherNumber(null);
         setNextVoucherNumberHint(null);
     }, [isNonGst]);
 
@@ -269,21 +296,23 @@ const POS = forwardRef<any, POSProps>(({
 
         setIsSaving(true);
 
-        let generatedId = transactionToEdit?.id;
+        let generatedId = transactionToEdit?.id || reservedVoucherNumber;
+        let reservedNextNumber = nextVoucherNumberHint;
 
-        let reservedNextNumber: number | null = null;
-
-        if (!generatedId) {
-            try {
-                const reservation = await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!);
-                generatedId = reservation.documentNumber;
-                reservedNextNumber = reservation.nextNumber;
-            } catch (reservationError) {
-                const errorMessage = reservationError instanceof Error ? reservationError.message : 'Voucher reservation failed';
-                addNotification(`Unable to reserve voucher number. ${errorMessage}`, 'error');
+        if (!generatedId && !transactionToEdit) {
+            const reservation = await reserveNextVoucherNumber();
+            if (!reservation) {
                 setIsSaving(false);
                 return;
             }
+            generatedId = reservation.documentNumber;
+            reservedNextNumber = reservation.nextNumber;
+        }
+
+        if (!generatedId) {
+            addNotification('Unable to determine voucher number for save.', 'error');
+            setIsSaving(false);
+            return;
         }
 
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
@@ -320,14 +349,19 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch('');
             setLumpsumDiscount(0);
             setReferredBy('');
-            if (reservedNextNumber) setNextVoucherNumberHint(reservedNextNumber);
+            setReservedVoucherNumber(null);
+            if (!transactionToEdit) {
+                await reserveNextVoucherNumber();
+            } else if (reservedNextNumber) {
+                setNextVoucherNumberHint(reservedNextNumber);
+            }
             addNotification("Bill Saved Successfully", "success");
         } catch (e: any) {
             addNotification("Failed to save: " + e.message, "error");
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
