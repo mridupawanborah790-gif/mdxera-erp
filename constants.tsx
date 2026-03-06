@@ -221,7 +221,7 @@ export const navigation: NavItem[] = [
     roles: ['owner', 'admin', 'manager', 'purchase'],
     children: [
       { id: 'automatedPurchaseEntry', name: 'Automated Purchase Entry', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase'] }, 
-      { id: 'manualPurchaseEntry', name: 'Manual Purchase Entry', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase'] }, 
+      { id: 'manualSupplierInvoice', name: 'Manual Supplier Invoice', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase'] }, 
       { id: 'deliveryChallans', name: 'Purchase Challan', href: '#', icon: ChallanIcon, roles: ['owner', 'admin', 'manager', 'purchase'] },
       { id: 'purchaseOrders', name: 'Purchase Orders', href: '#', icon: PurchaseIcon, roles: ['owner', 'admin', 'manager', 'purchase'] },
       { id: 'purchaseHistory', name: 'Purchase History', href: '#', icon: SalesHistoryIcon, roles: ['owner', 'admin', 'manager', 'purchase'] },
