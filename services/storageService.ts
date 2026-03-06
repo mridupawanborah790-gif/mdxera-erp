@@ -336,6 +336,39 @@ export const getData = async (tableName: string, defaultValue: any[] = [], user:
     return cached.length > 0 ? cached : defaultValue;
 };
 
+export const getDataById = async <T = any>(tableName: string, id: string, user: RegisteredPharmacy | null): Promise<T | null> => {
+    if (!user || !id) return null;
+
+    const storeKey = tableName.toUpperCase() as keyof typeof STORES;
+    const cached = await idb.get(STORES[storeKey], id);
+    if (cached) {
+        return cached as T;
+    }
+
+    if (!navigator.onLine) {
+        return null;
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('organization_id', user.organization_id)
+            .eq('id', id)
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return null;
+
+        const normalized = toCamel(data);
+        await idb.put(STORES[storeKey], normalized);
+        return normalized as T;
+    } catch (e) {
+        console.error(`Failed to fetch ${tableName} record by id:`, e);
+        return null;
+    }
+};
+
 
 const ensurePostingContext = async (
     payload: { companyCodeId?: string; setOfBooksId?: string },
