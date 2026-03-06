@@ -26,6 +26,19 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
     { id: 'go_to', label: '<u>G</u>: Go To', children: [{id: 'pos', label: 'Sale Entry'}, {id: 'manualSupplierInvoice', label: 'Manual Supplier Invoice'}, {id: 'reports', label: 'Management Reports'}] }
   ];
 
+  const utilitiesSetupMenu = {
+    id: 'utilities_setup',
+    label: 'Utilities & Setup',
+    children: [
+      { id: 'configuration', label: 'Global ERP Configuration (Control Room)' },
+      { id: 'companyConfiguration', label: 'Company Configuration' },
+      { id: 'businessRoles', label: 'Business Roles' },
+      { id: 'businessUsers', label: 'Business Users' },
+      { id: 'classification', label: 'Classification' },
+      { id: 'settings', label: 'System Settings' },
+    ]
+  };
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -88,6 +101,27 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                 ) : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
                 <span><u>R</u>eload</span>
             </button>
+            <div className="relative h-full">
+                <button
+                    onClick={() => setActiveMenu(activeMenu === utilitiesSetupMenu.id ? null : utilitiesSetupMenu.id)}
+                    className={`h-full px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 ${activeMenu === utilitiesSetupMenu.id ? 'bg-white/20' : ''}`}
+                >
+                    {utilitiesSetupMenu.label}
+                </button>
+                {activeMenu === utilitiesSetupMenu.id && (
+                    <div className="absolute top-full left-0 w-72 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl z-[100] py-1">
+                        {utilitiesSetupMenu.children.map(child => (
+                            <button
+                                key={child.id}
+                                onClick={() => { onNavigate(child.id); setActiveMenu(null); }}
+                                className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[12px] font-bold"
+                            >
+                                {child.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
         </div>
         
         <div className="ml-auto flex items-center gap-3 h-full">

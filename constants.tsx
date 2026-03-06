@@ -262,30 +262,6 @@ export const navigation: NavItem[] = [
     ],
   },
   { id: 'gst', name: 'GST Center', href: '#', icon: GstIcon, roles: ['owner', 'admin', 'manager'] },
-  {
-    id: 'utilitiesSetupMaster',
-    name: 'Utilities & Setup',
-    href: '#',
-    icon: ConfigIcon,
-    roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'],
-    children: [
-      { 
-        id: 'businessUserManagement', 
-        name: 'Business User Management', 
-        href: '#', 
-        icon: TeamIcon, 
-        roles: ['owner', 'admin'],
-        children: [
-          { id: 'businessUsers', name: 'Business Users', href: '#', icon: TeamIcon, roles: ['owner', 'admin'] },
-          { id: 'businessRoles', name: 'Business Roles', href: '#', icon: RoleIcon, roles: ['owner', 'admin'] },
-        ]
-      },
-      { id: 'configuration', name: 'Configuration', href: '#', icon: ConfigIcon, roles: ['owner', 'admin'] },
-      { id: 'companyConfiguration', name: 'Company Configuration', href: '#', icon: ConfigIcon, roles: ['owner', 'admin', 'manager'] },
-      { id: 'classification', name: 'Classification', href: '#', icon: CategoryIcon, roles: ['owner', 'admin', 'manager'] }, 
-      { id: 'settings', name: 'Settings', href: '#', icon: SettingsIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
-    ]
-  }
 ];
 
 export const settingsNavigation: NavItem[] = [];
