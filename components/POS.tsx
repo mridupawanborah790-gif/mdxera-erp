@@ -236,7 +236,19 @@ const POS = forwardRef<any, POSProps>(({
 
     useEffect(() => {
         setNextVoucherNumberHint(null);
-    }, [isNonGst, configurations.invoiceConfig, configurations.nonGstInvoiceConfig]);
+    }, [isNonGst]);
+
+    useEffect(() => {
+        if (transactionToEdit || nextVoucherNumberHint === null) return;
+
+        const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
+        const configCurrentNumber = Number((configurations[configKey] as any)?.currentNumber || 0);
+
+        // Clear the local hint only after app configuration catches up to or moves beyond it.
+        if (configCurrentNumber >= nextVoucherNumberHint) {
+            setNextVoucherNumberHint(null);
+        }
+    }, [transactionToEdit, nextVoucherNumberHint, isNonGst, configurations]);
 
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
