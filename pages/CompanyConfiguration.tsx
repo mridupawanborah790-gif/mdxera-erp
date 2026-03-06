@@ -715,16 +715,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         setOfBooks: [...store.setOfBooks, newBook],
       };
       
-      persist(nextStore);
-      
-      const seed = window.confirm('Create Default GL & Assignments?');
-      if (seed) {
-        setTimeout(() => {
-          seedDefaultsForBooks(newBooksId, 'create', nextStore);
-        }, 10);
-      } else {
-        setSuccess('Set of Books created without defaults.');
-      }
+      seedDefaultsForBooks(newBooksId, 'create', nextStore);
     }
 
     setBooksForm({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', defaultCustomerGLId: '', defaultSupplierGLId: '', defaultDemoBankGLId: '', defaultBankGLId: '', activeStatus: 'Active', postingCount: 0 });
@@ -1418,7 +1409,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               <select className="tally-input" value={booksForm.defaultBankGLId} onChange={e => setBooksForm({ ...booksForm, defaultBankGLId: e.target.value })}><option value="">Default Bank GL Selection</option>{bankGlOptionsForBooksForm.map(g => <option key={g.id} value={g.id}>{g.glCode} - {g.glName}</option>)}</select>
               <button className="bg-primary text-white text-xs font-black uppercase px-3 disabled:opacity-50 disabled:cursor-not-allowed" onClick={onSaveBooks} disabled={!booksForm.companyCodeId || !isUuid(booksForm.companyCodeId) || !store.companies.some(c => c.id === booksForm.companyCodeId)}>{editingBooksId ? 'Update' : 'Add'}</button>
             </div>
-            <div className="text-[11px] text-gray-500 font-bold uppercase p-2 border border-blue-200 bg-blue-50">On create, system asks: “Create Default GL & Assignments” (Yes/No).</div>
+            <div className="text-[11px] text-gray-500 font-bold uppercase p-2 border border-blue-200 bg-blue-50">On create, system auto-creates default GLs and assignments, including customer-group receivable control GLs.</div>
             <button className="text-xs font-bold text-primary" onClick={() => exportCsv('set-of-books.csv', ['Company', 'Books ID', 'Description', 'Posting Count'], filteredBooks.map(b => [store.companies.find(c => c.id === b.companyCodeId)?.code || '', b.setOfBooksId, b.description, b.postingCount]))}>Export CSV</button>
             <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Company</th><th className="p-2 text-left">Books ID</th><th className="p-2 text-left">Posting Count</th><th className="p-2 text-left">Audit</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredBooks.map(b => <tr key={b.id} className="border-t"><td className="p-2">{store.companies.find(c => c.id === b.companyCodeId)?.code}</td><td className="p-2">{b.setOfBooksId}</td><td className="p-2">{b.postingCount}</td><td className="p-2">{b.updated_by}<br />{new Date(b.updated_at).toLocaleString()}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setBooksForm({ companyCodeId: b.companyCodeId, setOfBooksId: b.setOfBooksId, description: b.description, defaultCurrency: b.defaultCurrency, defaultCustomerGLId: b.defaultCustomerGLId || '', defaultSupplierGLId: b.defaultSupplierGLId || '', defaultDemoBankGLId: b.defaultDemoBankGLId || '', defaultBankGLId: b.defaultBankGLId || '', activeStatus: b.activeStatus, postingCount: b.postingCount }); setEditingBooksId(b.id); }}>Edit</button><button className="ml-3 text-emerald-700 font-bold" onClick={() => runResetDefaults(b.id)}>Reset to Default</button></td></tr>)}</tbody></table></div>
           </div>
