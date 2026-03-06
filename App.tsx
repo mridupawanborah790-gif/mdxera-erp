@@ -32,6 +32,7 @@ import Returns from './pages/Returns';
 import DeliveryChallans from './pages/DeliveryChallans';
 import SalesChallans from './pages/SalesChallans';
 import ManualSalesEntry from './pages/ManualSalesEntry';
+import ManualPurchase from './pages/ManualPurchase';
 import PurchaseOrders from './pages/PurchaseOrders';
 import Classification from './pages/Classification';
 import PrintBillModal from './components/PrintBillModal';
@@ -250,7 +251,7 @@ const App: React.FC = () => {
 
                 // Entry screens that require save/discard confirmation
                 const entryScreens = [
-                    'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualSupplierInvoice',
+                    'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
                     'physicalInventory', 'deliveryChallans', 'salesChallans'
                 ];
 
@@ -272,7 +273,7 @@ const App: React.FC = () => {
         try {
             if (currentPage === 'pos' || currentPage === 'nonGstPos') {
                 if (posRef.current) await posRef.current.handleSave();
-            } else if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
+            } else if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
                 if (purchaseFormRef.current) await purchaseFormRef.current.handleSubmit();
             }
             // Navigate after successful save
@@ -285,7 +286,7 @@ const App: React.FC = () => {
     const handleEscDiscard = () => {
         setShowEscSavePrompt(false);
         // Clear any specific component states if needed
-        if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
+        if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
             setEditingPurchase(null);
             setSourceChallansForPurchase(null);
         }
@@ -370,7 +371,7 @@ const App: React.FC = () => {
 
     const handleNavigate = useCallback((pageId: string) => {
         setCurrentPage(pageId);
-        if (pageId !== 'manualSupplierInvoice' && pageId !== 'automatedPurchaseEntry') {
+        if (pageId !== 'manualSupplierInvoice' && pageId !== 'manualPurchaseEntry' && pageId !== 'automatedPurchaseEntry') {
             setEditingPurchase(null);
         }
         if (pageId !== 'dashboard') {
@@ -893,6 +894,19 @@ const App: React.FC = () => {
                     configurations={configurations}
                     mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
                     organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
+                />;
+
+            case 'manualSupplierInvoice':
+                return <ManualPurchase
+                    currentUser={currentUser}
+                    suppliers={suppliers}
+                    inventory={inventory}
+                    medicines={medicines}
+                    purchases={purchases}
+                    addNotification={addNotification}
+                    onAddPurchase={handleAddPurchase}
+                    onSaved={() => loadData(currentUser!, 'background')}
+                    onAddMedicineMaster={handleAddMedicineMaster}
                 />;
             case 'purchaseHistory':
                 return <PurchaseHistory
