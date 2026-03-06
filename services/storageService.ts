@@ -775,6 +775,165 @@ export const addLedgerEntry = async (entry: TransactionLedgerItem, owner: { type
     return await saveData(type === 'customer' ? 'customers' : 'suppliers', entity, user);
 };
 
+
+
+export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<{ id: string; bankName: string; accountName: string; accountNumber: string; linkedBankGlId?: string; defaultBank?: boolean; activeStatus?: string }>> => {
+    if (!navigator.onLine) return [];
+    const { data, error } = await supabase
+        .from('bank_master')
+        .select('*')
+        .eq('organization_id', user.organization_id)
+        .order('created_at', { ascending: true });
+    if (error) throw error;
+
+    return (data || [])
+        .filter((b) => b.activeStatus === 'Active' || b.active_status === 'Active' || b.activeStatus === undefined)
+        .map((b) => ({
+            id: String(b.id),
+            bankName: String(b.bankName || b.bank_name || ''),
+            accountName: String(b.accountName || b.account_name || ''),
+            accountNumber: String(b.accountNumber || b.account_number || ''),
+            linkedBankGlId: b.linkedBankGlId || b.linked_bank_gl_id || undefined,
+            defaultBank: !!(b.defaultBank || b.default_bank),
+            activeStatus: b.activeStatus || b.active_status,
+        }));
+};
+
+export const recordCustomerPaymentWithAccounting = async (
+    args: {
+        customerId: string;
+        amount: number;
+        date: string;
+        description: string;
+        paymentMode: string;
+        bankAccountId: string;
+        referenceInvoiceId?: string;
+        referenceInvoiceNumber?: string;
+    },
+    user: RegisteredPharmacy
+): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
+    const customer = await idb.get(STORES.CUSTOMERS, args.customerId) as Customer | undefined;
+    if (!customer) throw new Error('Customer not found');
+
+    if (!navigator.onLine) throw new Error('Payment posting with accounting requires online mode.');
+    const { data: bank, error: bankErr } = await supabase
+        .from('bank_master')
+        .select('*')
+        .eq('organization_id', user.organization_id)
+        .eq('id', args.bankAccountId)
+        .maybeSingle();
+    if (bankErr) throw bankErr;
+    if (!bank) throw new Error('Selected bank / cash account not found');
+
+    const postingContext = await loadDefaultPostingContext(user.organization_id);
+    const companyCodeId = postingContext.companyCodeId;
+    const setOfBooksId = postingContext.setOfBooksId;
+
+    let journalEntryId: string | undefined;
+    let journalEntryNumber: string | undefined;
+
+    if (navigator.onLine) {
+        const { data: books, error: bookErr } = await supabase
+            .from('set_of_books')
+            .select('default_customer_gl_id')
+            .eq('organization_id', user.organization_id)
+            .eq('id', setOfBooksId)
+            .single();
+        if (bookErr) throw bookErr;
+        const customerControlGlId = books?.default_customer_gl_id;
+        const bankGlId = bank.linkedBankGlId || bank.linked_bank_gl_id;
+        if (!customerControlGlId) throw new Error('Customer/Receivable GL is not configured for default set of books.');
+        if (!bankGlId) throw new Error('Selected bank has no linked bank GL. Configure in Bank Master.');
+
+        const { data: glRows, error: glErr } = await supabase
+            .from('gl_master')
+            .select('id, gl_code, gl_name')
+            .eq('organization_id', user.organization_id)
+            .eq('set_of_books_id', setOfBooksId)
+            .in('id', [customerControlGlId, bankGlId]);
+        if (glErr) throw glErr;
+
+        const glById = new Map((glRows || []).map((g: any) => [String(g.id), g]));
+        const bankGl = glById.get(String(bankGlId));
+        const receivableGl = glById.get(String(customerControlGlId));
+        if (!bankGl || !receivableGl) throw new Error('GL Assignment missing for selected bank/customer control in active Set of Books.');
+
+        const { data: header, error: headerError } = await supabase
+            .from('journal_entry_header')
+            .insert({
+                organization_id: user.organization_id,
+                journal_entry_number: `RCPT-${Date.now()}`,
+                posting_date: args.date,
+                status: 'Posted',
+                reference_type: 'CUSTOMER_PAYMENT',
+                reference_id: args.referenceInvoiceId || args.customerId,
+                reference_document_id: args.referenceInvoiceId || args.customerId,
+                document_type: 'RECEIPT',
+                document_reference: args.referenceInvoiceNumber || args.customerId,
+                company: companyCodeId,
+                company_code_id: companyCodeId,
+                set_of_books: setOfBooksId,
+                set_of_books_id: setOfBooksId,
+                total_debit: Number(args.amount.toFixed(2)),
+                total_credit: Number(args.amount.toFixed(2)),
+            })
+            .select('id, journal_entry_number')
+            .single();
+        if (headerError) throw headerError;
+
+        journalEntryId = header?.id;
+        journalEntryNumber = header?.journal_entry_number;
+
+        const { error: lineError } = await supabase
+            .from('journal_entry_lines')
+            .insert([
+                {
+                    organization_id: user.organization_id,
+                    journal_entry_id: header.id,
+                    reference_document_id: args.referenceInvoiceId || args.customerId,
+                    document_type: 'RECEIPT',
+                    line_number: 1,
+                    gl_code: String(bankGl.gl_code),
+                    gl_name: String(bankGl.gl_name),
+                    debit: Number(args.amount.toFixed(2)),
+                    credit: 0,
+                    line_memo: 'Payment received in bank/cash',
+                },
+                {
+                    organization_id: user.organization_id,
+                    journal_entry_id: header.id,
+                    reference_document_id: args.referenceInvoiceId || args.customerId,
+                    document_type: 'RECEIPT',
+                    line_number: 2,
+                    gl_code: String(receivableGl.gl_code),
+                    gl_name: String(receivableGl.gl_name),
+                    debit: 0,
+                    credit: Number(args.amount.toFixed(2)),
+                    line_memo: 'Customer receivable adjusted',
+                },
+            ]);
+        if (lineError) throw lineError;
+    }
+
+    await addLedgerEntry({
+        id: generateUUID(),
+        date: args.date,
+        type: 'payment',
+        description: args.description,
+        debit: 0,
+        credit: Number(args.amount),
+        balance: 0,
+        paymentMode: args.paymentMode,
+        bankAccountId: args.bankAccountId,
+        bankName: bank.bankName || bank.bank_name,
+        referenceInvoiceId: args.referenceInvoiceId,
+        referenceInvoiceNumber: args.referenceInvoiceNumber,
+        journalEntryId,
+        journalEntryNumber,
+    }, { type: 'customer', id: args.customerId }, user);
+
+    return { journalEntryId, journalEntryNumber };
+};
 const AUTO_LEDGER_PREFIX = '[AUTO_LEDGER]';
 
 const sortLedgerEntries = (entries: TransactionLedgerItem[]) => {
