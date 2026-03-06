@@ -4,9 +4,7 @@ import Card from '../components/Card';
 import type { Supplier, RegisteredPharmacy } from '../types';
 import type { SupplierQuickResult } from '../services/supplierService';
 import { AddSupplierModal, EditSupplierModal } from '../components/AddSupplierModal';
-import PrintLedgerModal from '../components/PrintLedgerModal';
 import ExportSuppliersModal from '../components/ExportSuppliersModal';
-import { getOutstandingBalance } from '../utils/helpers';
 import { getDataById } from '../services/storageService';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
@@ -36,7 +34,6 @@ interface SuppliersProps {
 const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkAddSuppliers, onRecordPayment, onUpdateSupplier, config, currentUser, defaultSupplierControlGlId }) => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
     const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
@@ -137,9 +134,6 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
 
     const selectedSupplierSafe = selectedSupplier as (Supplier & Record<string, unknown>) | null;
     const paymentDetails = (selectedSupplierSafe?.payment_details || {}) as Record<string, unknown>;
-    const ledgerEntries: Record<string, unknown>[] = Array.isArray(selectedSupplierSafe?.ledger)
-        ? (selectedSupplierSafe.ledger as unknown[]).filter((item) => Boolean(item && typeof item === 'object')) as Record<string, unknown>[]
-        : [];
     const openingDate =
         selectedSupplierSafe?.created_at ||
         selectedSupplierSafe?.updated_at ||
@@ -167,7 +161,6 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
             { label: 'IFSC Code', value: toDisplay(paymentDetails.ifsc_code) },
             { label: 'Opening Amount', value: `₹${toAmount(selectedSupplierSafe.opening_balance).toFixed(2)}` },
             { label: 'Opening Date', value: toDisplay(openingDate) },
-            { label: 'Ledger / Current Balance', value: `₹${toAmount(getOutstandingBalance(selectedSupplierSafe as Supplier)).toFixed(2)}` },
         ]
         : [];
 
@@ -196,9 +189,6 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                             <div key={s.id} onClick={() => handleSelectSupplier(s.id)} className={`p-4 cursor-pointer transition-all border-l-[8px] ${selectedSupplierId === s.id ? 'bg-accent text-black' : 'border-transparent hover:bg-gray-100'}`}>
                                 <div className="flex justify-between items-center">
                                     <p className={`${uniformTextStyle} truncate pr-2`}>{s.name}</p>
-                                    <p className={`${uniformTextStyle} whitespace-nowrap ${getOutstandingBalance(s) > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                                        ₹{(getOutstandingBalance(s) || 0).toFixed(2)}
-                                    </p>
                                 </div>
                             </div>
                         ))}
@@ -242,9 +232,6 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
-                                    <button onClick={() => setIsPrintModalOpen(true)} className="px-6 py-2 tally-border bg-white font-black text-[10px] uppercase flex items-center gap-2 shadow-sm">
-                                        Print
-                                    </button>
                                     <button onClick={() => setIsEditModalOpen(true)} className="px-6 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Alter</button>
                                 </div>
                             </div>
@@ -258,38 +245,14 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                         </div>
                                     ))}
                                 </div>
-                                <table className="min-w-full border-collapse">
-                                    <thead className="bg-gray-50 sticky top-0 border-b border-gray-400 z-10">
-                                        <tr className={`${uniformTextStyle} text-gray-600`}>
-                                            <th className="p-4 border-r border-gray-400 text-left">Date</th>
-                                            <th className="p-4 border-r border-gray-400 text-left">Description</th>
-                                            <th className="p-4 border-r border-gray-400 text-right">Debit (-)</th>
-                                            <th className="p-4 border-r border-gray-400 text-right">Credit (+)</th>
-                                            <th className="p-4 text-right">Balance</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100 tally-font-data-mono">
-                                        {ledgerEntries.map((item, index) => (
-                                            <tr key={String(item.id || `${selectedSupplier.id}-${index}`)} className="hover:bg-gray-50 transition-colors">
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100`}>{toDisplay(item.date)}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-gray-700`}>{toDisplay(item.description)}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-right text-emerald-700`}>{toAmount(item.debit) > 0 ? toAmount(item.debit).toFixed(2) : ''}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-200 text-right text-red-700`}>{toAmount(item.credit) > 0 ? toAmount(item.credit).toFixed(2) : ''}</td>
-                                                <td className={`${uniformTextStyle} p-4 text-right ${toAmount(item.balance) > 0 ? 'text-red-700' : 'text-emerald-700'} bg-slate-50/30`}>₹{toAmount(item.balance).toFixed(2)}</td>
-                                            </tr>
-                                        ))}
-                                        {ledgerEntries.length === 0 && (
-                                            <tr>
-                                                <td className="p-4 text-center text-sm font-bold text-gray-500" colSpan={5}>No ledger entries found for this supplier.</td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                <div className="p-4 text-sm font-bold text-gray-500 uppercase tracking-widest">
+                                    Master directory view only. Ledger and accounting entries are available in Sundry Creditors (Payable).
+                                </div>
                             </div>
                         </div>
                     ) : (
                         <div className="h-full flex items-center justify-center text-gray-300">
-                            <p className="text-xl font-black uppercase tracking-[0.2em]">Select Supplier Ledger</p>
+                            <p className="text-xl font-black uppercase tracking-[0.2em]">Select Supplier</p>
                         </div>
                     )}
                 </Card>
@@ -313,12 +276,6 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                         onClose={() => setIsEditModalOpen(false)} 
                         onSave={handleEditSubmit} 
                         supplier={selectedSupplier} 
-                    />
-                    <PrintLedgerModal 
-                        isOpen={isPrintModalOpen}
-                        onClose={() => setIsPrintModalOpen(false)}
-                        distributor={selectedSupplier as any}
-                        pharmacy={currentUser}
                     />
                 </>
             )}
