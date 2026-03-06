@@ -215,6 +215,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                     onClose={() => setIsEditModalOpen(false)}
                     onSave={onUpdateSupplier}
                     supplier={selectedSupplier}
+                    defaultControlGlId={defaultSupplierControlGlId}
                 />
             )}
 
