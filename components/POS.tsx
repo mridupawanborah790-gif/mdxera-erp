@@ -56,6 +56,22 @@ const calculateRateExcludingGst = (mrp: number, gstPercent: number): number => {
     return parseFloat((safeMrp / (1 + (safeGst / 100))).toFixed(2));
 };
 
+const resolveCustomerTierRate = (item: Pick<InventoryItem, 'rateA' | 'rateB' | 'rateC'>, customerTier?: Customer['defaultRateTier']): number | null => {
+    if (customerTier === 'rateA' && Number(item.rateA) > 0) return Number(item.rateA);
+    if (customerTier === 'rateB' && Number(item.rateB) > 0) return Number(item.rateB);
+    if (customerTier === 'rateC' && Number(item.rateC) > 0) return Number(item.rateC);
+    return null;
+};
+
+const resolveSalesRate = (
+    item: Pick<InventoryItem, 'mrp' | 'gstPercent' | 'rateA' | 'rateB' | 'rateC'>,
+    customerTier?: Customer['defaultRateTier']
+): number => {
+    const tierRate = resolveCustomerTierRate(item, customerTier);
+    if (tierRate !== null) return tierRate;
+    return calculateRateExcludingGst(item.mrp, item.gstPercent);
+};
+
 const normalizePackConversion = (item: BillItem): BillItem => {
     const parsedLoose = Math.max(0, Math.floor(Number(item.looseQuantity || 0)));
     const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
@@ -406,9 +422,7 @@ const POS = forwardRef<any, POSProps>(({
                             batch: match.batch,
                             expiry: match.expiry,
                             taxBasis: match.taxBasis,
-                            rate: isGstInclusiveMrp(match.taxBasis)
-                                ? calculateRateExcludingGst(match.mrp, match.gstPercent)
-                                : match.mrp,
+                            rate: resolveSalesRate(match, selectedCustomer?.defaultRateTier),
                             unitsPerPack,
                             packType: match.packType
                         });
@@ -670,14 +684,7 @@ const POS = forwardRef<any, POSProps>(({
             return;
         }
 
-        let rateValue = batch.mrp;
-        const globalDefaultRateTier = configurations?.displayOptions?.defaultRateTier || 'mrp';
-        let rateTierToUse = selectedCustomer?.defaultRateTier !== 'none' ? selectedCustomer?.defaultRateTier : globalDefaultRateTier;
-
-        if (rateTierToUse === 'rateA' && batch.rateA) rateValue = batch.rateA;
-        else if (rateTierToUse === 'rateB' && batch.rateB) rateValue = batch.rateB;
-        else if (rateTierToUse === 'rateC' && batch.rateC) rateValue = batch.rateC;
-        else if (rateTierToUse === 'ptr' && batch.ptr) rateValue = batch.ptr;
+        const rateValue = resolveSalesRate(batch, selectedCustomer?.defaultRateTier);
 
         const newItemId = crypto.randomUUID();
         const selectedItem: BillItem = {
@@ -696,9 +703,7 @@ const POS = forwardRef<any, POSProps>(({
             taxBasis: batch.taxBasis,
             batch: ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (batch.batch || ''),
             expiry: formatExpiryForInput(batch.expiry ? String(batch.expiry) : ''),
-            rate: isGstInclusiveMrp(batch.taxBasis) && rateTierToUse === 'mrp'
-                ? calculateRateExcludingGst(batch.mrp, batch.gstPercent)
-                : rateValue,
+            rate: rateValue,
             unitsPerPack: resolveUnitsPerStrip(batch.unitsPerPack, batch.packType),
             packType: batch.packType
         };
