@@ -72,19 +72,24 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
         setSelectedSupplierId(supplierId);
         setIsLoadingDetails(true);
         setDetailsError(null);
-        setSelectedSupplier(null);
 
-        const supplier = await getDataById<Supplier>('suppliers', supplierId, currentUser);
+        try {
+            const supplier = await getDataById<Supplier>('suppliers', supplierId, currentUser, { forceRefresh: true });
 
-        if (!supplier) {
+            if (!supplier) {
+                setSelectedSupplier(null);
+                setDetailsError('Supplier details not found');
+                return;
+            }
+
+            setSelectedSupplier(supplier);
+        } catch (error) {
+            console.error('Failed to load supplier details:', error);
             setSelectedSupplier(null);
-            setDetailsError('Supplier details not found');
+            setDetailsError('Unable to load supplier details');
+        } finally {
             setIsLoadingDetails(false);
-            return;
         }
-
-        setSelectedSupplier(supplier);
-        setIsLoadingDetails(false);
     }, [currentUser]);
 
 
