@@ -656,7 +656,7 @@ const App: React.FC = () => {
     ): Promise<string | undefined> => {
         const trimmedGroup = (partyGroup || '').trim();
         if (!trimmedGroup) {
-            return resolveControlGlByCode(organizationId, fallbackGlCode);
+            throw new Error('Default GL not assigned for this Customer/Supplier Group. Please configure GL Assignment.');
         }
 
         const { data: bookRows, error: bookErr } = await supabase
@@ -679,15 +679,16 @@ const App: React.FC = () => {
             .eq('organization_id', organizationId)
             .eq('set_of_books_id', activeBookId)
             .eq('assignment_scope', 'PARTY_GROUP')
-.eq('party_type', partyType === 'customer' ? 'Customer' : 'Supplier')
+            .eq('party_type', partyType === 'customer' ? 'Customer' : 'Supplier')
             .eq('party_group', trimmedGroup)
+            .eq('active_status', 'Active')
             .limit(1);
 
         if (assignmentErr) throw assignmentErr;
         const mappedGlId = assignmentRows?.[0]?.control_gl_id as string | undefined;
         if (mappedGlId) return mappedGlId;
 
-        return resolveControlGlByCode(organizationId, fallbackGlCode);
+        throw new Error('Default GL not assigned for this Customer/Supplier Group. Please configure GL Assignment.');
     }, [resolveControlGlByCode]);
 
     const refreshDefaultControlGls = useCallback(async () => {
