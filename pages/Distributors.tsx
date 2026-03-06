@@ -75,6 +75,11 @@ const DistributorsPage: React.FC<DistributorsProps> = ({ distributors, onAddDist
         setIsEditModalOpen(false);
     };
 
+    const toAmount = (value: unknown): number => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
@@ -123,7 +128,7 @@ const DistributorsPage: React.FC<DistributorsProps> = ({ distributors, onAddDist
                                         {/* Fix: Rename selectedDistributor.gstNumber to selectedDistributor.gst_number */}
                                         <span>GSTIN: <span className="text-gray-900 tally-font-data-mono">{selectedDistributor.gst_number || 'N/A'}</span></span>
                                         <span>PH: <span className="text-gray-900 tally-font-data-mono">{selectedDistributor.phone || 'N/A'}</span></span>
-                                        <span>Opening: <span className="text-gray-900 tally-font-data-mono">₹{(selectedDistributor.opening_balance || 0).toFixed(2)}</span></span>
+                                        <span>Opening: <span className="text-gray-900 tally-font-data-mono">₹{toAmount(selectedDistributor.opening_balance).toFixed(2)}</span></span>
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
@@ -151,9 +156,9 @@ const DistributorsPage: React.FC<DistributorsProps> = ({ distributors, onAddDist
                                             <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                                                 <td className={`${uniformTextStyle} p-4 border-r border-gray-100`}>{item.date}</td>
                                                 <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-gray-700`}>{item.description}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-right text-emerald-700`}>{item.debit > 0 ? (item.debit || 0).toFixed(2) : ''}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-200 text-right text-red-700`}>{item.credit > 0 ? (item.credit || 0).toFixed(2) : ''}</td>
-                                                <td className={`${uniformTextStyle} p-4 text-right ${(item.balance || 0) > 0 ? 'text-red-700' : 'text-emerald-700'} bg-slate-50/30`}>₹{(item.balance || 0).toFixed(2)}</td>
+                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-right text-emerald-700`}>{toAmount(item.debit) > 0 ? toAmount(item.debit).toFixed(2) : ''}</td>
+                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-200 text-right text-red-700`}>{toAmount(item.credit) > 0 ? toAmount(item.credit).toFixed(2) : ''}</td>
+                                                <td className={`${uniformTextStyle} p-4 text-right ${toAmount(item.balance) > 0 ? 'text-red-700' : 'text-emerald-700'} bg-slate-50/30`}>₹{toAmount(item.balance).toFixed(2)}</td>
                                             </tr>
                                         ))}
                                     </tbody>
