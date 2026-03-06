@@ -221,7 +221,7 @@ export const reserveVoucherNumber = async (docType: VoucherDocumentType, user: R
     const existing = (config[configKey] as any) || {};
     const updated = {
         ...existing,
-        currentNumber: payload.used_number,
+        currentNumber: payload.next_number,
         fy: payload.fy,
         resetRule: 'financial-year'
     };
