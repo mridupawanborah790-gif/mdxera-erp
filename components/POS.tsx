@@ -12,7 +12,6 @@ import ProductInsightsPanel from './ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
-import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber } from '../utils/helpers';
@@ -226,15 +225,8 @@ const POS = forwardRef<any, POSProps>(({
     const currentInvoiceNo = useMemo(() => {
         if (transactionToEdit) return transactionToEdit.id;
         if (reservedVoucherNumber) return reservedVoucherNumber;
-        const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-        const typeKey = isNonGst ? 'non-gst' : 'regular';
-        const activeConfig = {
-            ...(configurations[configKey] || {}),
-            ...(nextVoucherNumberHint ? { currentNumber: nextVoucherNumberHint } : {})
-        };
-        const { id } = generateNewInvoiceId(activeConfig, typeKey);
-        return id;
-    }, [transactionToEdit, isNonGst, configurations, billMode, nextVoucherNumberHint, reservedVoucherNumber]);
+        return 'Reserving...';
+    }, [transactionToEdit, reservedVoucherNumber]);
 
     const reserveNextVoucherNumber = useCallback(async (): Promise<{ documentNumber: string; nextNumber: number } | null> => {
         if (transactionToEdit || !currentUser) return null;
