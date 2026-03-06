@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
 import { Distributor, Purchase, RegisteredPharmacy, TransactionLedgerItem } from '../types';
 import { getOutstandingBalance } from '../utils/helpers';
 import { fuzzyMatch } from '../utils/search';
 import { handleEnterToNextField } from '../utils/navigation';
 import { numberToWords } from '../utils/numberToWords';
+import { supabase } from '../services/supabaseClient';
 
 const uniformTextStyle = 'text-2xl font-normal tracking-tight uppercase leading-tight';
 
@@ -28,6 +29,12 @@ interface PayableInvoiceRow {
     bankName: string;
     voucherRef: string;
     latestPaymentEntry?: TransactionLedgerItem;
+}
+
+interface LedgerVoucherMeta {
+    journalEntryId?: string;
+    journalEntryNumber?: string;
+    referenceInvoiceNumber?: string;
 }
 
 interface AccountPayableProps {
@@ -61,6 +68,12 @@ const formatDisplayDate = (value?: string): string => {
     return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
+const getPaymentAmount = (entry: TransactionLedgerItem): number => {
+    const creditAmount = Number(entry.credit || 0);
+    if (creditAmount > 0) return creditAmount;
+    return Number(entry.debit || 0);
+};
+
 const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases, bankOptions, onRecordPayment, currentUser }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedDistributor, setSelectedDistributor] = useState<Distributor | null>(null);
@@ -72,6 +85,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const [bankAccountId, setBankAccountId] = useState('');
     const [showPaymentForm, setShowPaymentForm] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [ledgerVoucherMap, setLedgerVoucherMap] = useState<Record<string, LedgerVoucherMeta>>({});
 
     const defaultBank = useMemo(() => bankOptions.find(b => b.isDefault), [bankOptions]);
 
@@ -81,6 +95,79 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             .filter(d => fuzzyMatch(d.name, searchTerm) || fuzzyMatch(d.gst_number, searchTerm))
             .sort((a, b) => getOutstandingBalance(b) - getOutstandingBalance(a));
     }, [distributors, searchTerm]);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const hydrateLedgerVoucherDetails = async () => {
+            if (!selectedDistributor || !currentUser || !navigator.onLine) {
+                if (isMounted) setLedgerVoucherMap({});
+                return;
+            }
+
+            const paymentEntries = (selectedDistributor.ledger || []).filter((entry) => entry.type === 'payment' && getPaymentAmount(entry) > 0);
+            if (paymentEntries.length === 0) {
+                if (isMounted) setLedgerVoucherMap({});
+                return;
+            }
+
+            const referenceIds = Array.from(new Set([
+                selectedDistributor.id,
+                ...paymentEntries.map((entry) => entry.referenceInvoiceId || '').filter(Boolean),
+            ]));
+
+            const { data, error } = await supabase
+                .from('journal_entry_header')
+                .select('id, journal_entry_number, reference_id, reference_document_id, document_reference, posting_date, total_debit, total_credit')
+                .eq('organization_id', currentUser.organization_id)
+                .eq('reference_type', 'SUPPLIER_PAYMENT')
+                .in('reference_id', referenceIds)
+                .order('posting_date', { ascending: false });
+
+            if (error || !isMounted) return;
+
+            const rows = data || [];
+            const byId = new Map(rows.map((row: any) => [String(row.id), row]));
+            const byReferenceDocumentId = new Map<string, any[]>();
+            for (const row of rows) {
+                const key = String(row.reference_document_id || row.reference_id || '');
+                if (!key) continue;
+                const existing = byReferenceDocumentId.get(key) || [];
+                existing.push(row);
+                byReferenceDocumentId.set(key, existing);
+            }
+
+            const resolved: Record<string, LedgerVoucherMeta> = {};
+            for (const entry of paymentEntries) {
+                const amount = getPaymentAmount(entry);
+                const entryDate = String(entry.date || '').split('T')[0];
+                const byJournalId = entry.journalEntryId ? byId.get(String(entry.journalEntryId)) : undefined;
+                const candidatePool = byJournalId
+                    ? [byJournalId]
+                    : (byReferenceDocumentId.get(String(entry.referenceInvoiceId || selectedDistributor.id)) || []).concat(byReferenceDocumentId.get(selectedDistributor.id) || []);
+
+                const exactMatch = candidatePool.find((row: any) => {
+                    const postingDate = String(row.posting_date || '').split('T')[0];
+                    const rowAmount = Number(row.total_credit || row.total_debit || 0);
+                    return postingDate === entryDate && Math.abs(rowAmount - amount) < 0.01;
+                }) || candidatePool[0];
+
+                if (!exactMatch) continue;
+                resolved[entry.id] = {
+                    journalEntryId: String(exactMatch.id),
+                    journalEntryNumber: String(exactMatch.journal_entry_number || ''),
+                    referenceInvoiceNumber: String(exactMatch.document_reference || entry.referenceInvoiceNumber || ''),
+                };
+            }
+
+            setLedgerVoucherMap(resolved);
+        };
+
+        hydrateLedgerVoucherDetails();
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedDistributor, currentUser]);
 
     const invoiceRows = useMemo(() => {
         if (!selectedDistributor) return [] as PayableInvoiceRow[];
@@ -110,24 +197,42 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (!target) continue;
 
-            target.paid += Number(entry.credit || 0);
+            const resolvedMeta = ledgerVoucherMap[entry.id];
+            const normalizedEntry = {
+                ...entry,
+                journalEntryId: entry.journalEntryId || resolvedMeta?.journalEntryId,
+                journalEntryNumber: entry.journalEntryNumber || resolvedMeta?.journalEntryNumber,
+                referenceInvoiceNumber: entry.referenceInvoiceNumber || resolvedMeta?.referenceInvoiceNumber,
+            };
+
+            target.paid += getPaymentAmount(normalizedEntry);
             target.balance = Number((target.invoiceAmount - target.paid).toFixed(2));
-            target.paymentDate = entry.date || target.paymentDate;
-            target.paymentMode = entry.paymentMode || target.paymentMode;
-            target.bankName = entry.bankName || target.bankName;
-            target.voucherRef = entry.journalEntryNumber || entry.journalEntryId || target.voucherRef;
-            target.latestPaymentEntry = entry;
+            target.paymentDate = normalizedEntry.date || target.paymentDate;
+            target.paymentMode = normalizedEntry.paymentMode || target.paymentMode;
+            target.bankName = normalizedEntry.bankName || target.bankName;
+            target.voucherRef = normalizedEntry.journalEntryNumber || normalizedEntry.journalEntryId || target.voucherRef;
+            target.latestPaymentEntry = normalizedEntry;
         }
 
         return Array.from(mapByInvoice.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [selectedDistributor, purchases]);
+    }, [selectedDistributor, purchases, ledgerVoucherMap]);
 
     const ledgerRows = useMemo(() => {
         if (!selectedDistributor) return [];
-        return [...(selectedDistributor.ledger || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [selectedDistributor]);
+        return [...(selectedDistributor.ledger || [])]
+            .map((entry) => {
+                const resolvedMeta = ledgerVoucherMap[entry.id];
+                return {
+                    ...entry,
+                    journalEntryId: entry.journalEntryId || resolvedMeta?.journalEntryId,
+                    journalEntryNumber: entry.journalEntryNumber || resolvedMeta?.journalEntryNumber,
+                    referenceInvoiceNumber: entry.referenceInvoiceNumber || resolvedMeta?.referenceInvoiceNumber,
+                };
+            })
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [selectedDistributor, ledgerVoucherMap]);
 
-    const paymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && Number(item.credit || 0) > 0), [ledgerRows]);
+    const paymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && getPaymentAmount(item) > 0), [ledgerRows]);
 
     const printVoucher = (entry: TransactionLedgerItem) => {
         if (!selectedDistributor) return;
@@ -138,7 +243,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         const voucherDate = formatDisplayDate(entry.date);
         const paymentModeText = entry.paymentMode || 'Bank';
         const bankAccount = entry.bankName || bankOptions.find(option => option.id === entry.bankAccountId)?.bankName || 'N/A';
-        const amountPaid = Number(entry.credit || 0);
+        const amountPaid = getPaymentAmount(entry);
         const narration = entry.description || 'Supplier payment posted';
         const paymentAgainstInvoice = entry.referenceInvoiceNumber || entry.referenceInvoiceId || '-';
 
@@ -393,7 +498,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                                     <td className="p-2">{item.paymentMode || '-'}</td>
                                                     <td className="p-2">{item.bankName || '-'}</td>
                                                     <td className="p-2">{item.description}</td>
-                                                    <td className="p-2 font-bold">₹{Number(item.credit || 0).toFixed(2)}</td>
+                                                    <td className="p-2 font-bold">₹{getPaymentAmount(item).toFixed(2)}</td>
                                                     <td className="p-2">{item.journalEntryNumber || item.journalEntryId || '-'}</td>
                                                     <td className="p-2"><button type="button" onClick={() => printVoucher(item)} className="px-2 py-1 border border-gray-300 font-bold uppercase text-[10px] hover:bg-gray-100">Print</button></td>
                                                 </tr>
