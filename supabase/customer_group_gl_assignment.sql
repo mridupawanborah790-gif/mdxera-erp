@@ -12,6 +12,7 @@ alter table if exists public.gl_assignments
 
 -- Relax material-only columns so PARTY_GROUP rows can remain empty in those fields.
 alter table if exists public.gl_assignments
+  alter column material_master_type drop not null,
   alter column purchase_gl drop not null,
   alter column cogs_gl drop not null,
   alter column discount_gl drop not null,
