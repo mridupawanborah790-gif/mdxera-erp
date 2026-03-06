@@ -504,9 +504,11 @@ export interface Supplier {
     address_line1?: string;
     address_line2?: string;
     area?: string;
+    city?: string;
     pincode?: string;
     district?: string;
     state?: string;
+    country?: string;
     gst_number?: string;
     pan_number?: string;
     drug_license?: string;
@@ -540,10 +542,14 @@ export interface Customer {
     phone?: string;
     email?: string;
     address?: string;
+    address_line1?: string;
+    address_line2?: string;
     area?: string;
+    city?: string;
     pincode?: string;
     district?: string;
     state?: string;
+    country?: string;
     gstNumber?: string;
     drugLicense?: string;
     panNumber?: string;

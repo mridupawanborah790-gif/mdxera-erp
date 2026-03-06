@@ -242,6 +242,18 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                         <span>PH: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.mobile || selectedSupplier.phone || 'N/A'}</span></span>
                                         <span>Opening: <span className="text-gray-900 tally-font-data-mono">₹{(selectedSupplier.opening_balance || 0).toFixed(2)}</span></span>
                                     </div>
+
+                                    <div className="w-full mt-5 p-4 bg-white border border-gray-300 rounded">
+                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-3">Address Details</p>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                            {addressFields.map(({ label, key }) => (
+                                                <div key={key} className="min-w-0">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{label}</p>
+                                                    <p className={`${uniformTextStyle} !text-base text-gray-900 break-words`}>{selectedSupplier[key] || '—'}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="flex gap-2">
                                     <button onClick={() => setIsPrintModalOpen(true)} className="px-6 py-2 tally-border bg-white font-black text-[10px] uppercase flex items-center gap-2 shadow-sm">
