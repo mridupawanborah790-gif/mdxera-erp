@@ -32,7 +32,7 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
 );
 
 const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
-    const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(-1);
+    const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(0);
     const [expiryFilter, setExpiryFilter] = useState<'expired' | 'nearExpiry'>('expired');
     const promoImageUrl = 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
 
@@ -166,10 +166,10 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '')) return;
             if (document.querySelector('[role="dialog"]')) return;
 
-            if (e.key === 'ArrowRight') {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
                 e.preventDefault();
                 setFocusedShortcutIndex(prev => (prev < activeShortcuts.length - 1 ? prev + 1 : 0));
-            } else if (e.key === 'ArrowLeft') {
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
                 e.preventDefault();
                 setFocusedShortcutIndex(prev => (prev > 0 ? prev - 1 : activeShortcuts.length - 1));
             } else if (e.key === 'Enter' && focusedShortcutIndex >= 0) {
@@ -202,82 +202,19 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    {/* Left Panel: Main View Content */}
-                    <div className="lg:col-span-8 space-y-6">
-                        <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white">
-                            <img
-                                src={promoImageUrl}
-                                alt="Dashboard promotion"
-                                className="w-full h-44 md:h-52 lg:h-56 object-contain bg-white"
-                                loading="lazy"
-                            />
-                        </Card>
-
-                        {isVisible('recentVouchers') && (
-                            <Card className="p-0 tally-border !rounded-none overflow-hidden h-[340px] flex flex-col bg-white">
-                                <div className="bg-gray-100 p-3 border-b border-gray-300 font-bold text-[12px] uppercase tracking-wide flex justify-between items-center">
-                                    <span>Recent Vouchers</span>
-                                    <button onClick={onReload} disabled={isReloading} className={`p-1.5 rounded-full hover:bg-gray-200 transition-colors ${isReloading ? 'animate-spin opacity-50' : ''}`} title="Refresh Records">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                                    </button>
-                                </div>
-                                <div className="flex-1 overflow-auto bg-white">
-                                    <table className="w-full text-[13px] border-collapse">
-                                        <tbody className="divide-y divide-gray-100">
-                                            {transactions.slice(0, 15).map(tx => (
-                                                <tr key={tx.id} className="hover:bg-accent transition-colors cursor-pointer group">
-                                                    <td className="p-3 font-bold font-mono text-primary group-hover:text-black">{tx.id}</td>
-                                                    <td className="p-3 truncate font-medium group-hover:text-black uppercase">{tx.customerName}</td>
-                                                    <td className="p-3 text-right font-black group-hover:text-black">₹{tx.total}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </Card>
-                        )}
-                    </div>
-
-                    {/* Right Panel: Gateway Menu Style */}
-                    <div className="lg:col-span-4 space-y-6">
-                        <Card className="p-0 tally-border !rounded-none bg-white dark:bg-zinc-800 shadow-xl overflow-hidden">
-                            <div className="bg-primary p-3 text-white text-[12px] font-bold text-center uppercase tracking-[0.2em]">MDXERA ENTERPRISE ERP</div>
-                            <div className="p-4 space-y-1.5">
-                                {activeShortcuts.map((shortcut, idx) => (
-                                    <button 
-                                        key={shortcut.id}
-                                        onClick={() => onKpiClick(shortcut.id)}
-                                        onMouseEnter={() => setFocusedShortcutIndex(idx)}
-                                        className={`w-full flex justify-between items-center p-2.5 group transition-colors text-[15px] font-bold outline-none border-2 border-transparent ${
-                                            focusedShortcutIndex === idx 
-                                            ? 'bg-accent text-black border-primary' 
-                                            : 'text-gray-700 dark:text-gray-300 hover:bg-accent hover:text-black'
-                                        }`}
-                                    >
-                                        <span><span className={`font-black ${focusedShortcutIndex === idx ? 'text-black' : 'text-red-700 group-hover:text-black'}`}>{shortcut.label.charAt(0)}</span>{shortcut.label.substring(1)}</span>
-                                        <span className={`text-[11px] uppercase ${focusedShortcutIndex === idx ? 'opacity-100' : 'opacity-30 group-hover:opacity-100'}`}>Go To</span>
-                                    </button>
-                                ))}
-                                
-                                {/* Always show Configuration if shortcuts are limited */}
-                                {activeShortcuts.every(s => s.id !== 'configuration') && (
-                                     <button 
-                                        onClick={() => onKpiClick('configuration')}
-                                        onMouseEnter={() => setFocusedShortcutIndex(activeShortcuts.length)}
-                                        className={`w-full flex justify-between items-center p-2.5 group transition-colors text-[15px] font-bold border-t border-gray-100 mt-2 pt-2 outline-none border-x-2 border-b-2 ${
-                                            focusedShortcutIndex === activeShortcuts.length 
-                                            ? 'bg-accent text-black border-primary' 
-                                            : 'text-gray-700 dark:text-gray-300 hover:bg-accent hover:text-black'
-                                        }`}
-                                    >
-                                        <span><span className={`font-black ${focusedShortcutIndex === activeShortcuts.length ? 'text-black' : 'text-red-700 group-hover:text-black'}`}>F</span>ull Configuration</span>
-                                        <span className={`text-[11px] uppercase underline ${focusedShortcutIndex === activeShortcuts.length ? 'opacity-100' : 'opacity-30 group-hover:opacity-100'}`}>F10</span>
-                                    </button>
-                                )}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    <div className="lg:col-span-9 space-y-6">
+                        <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white min-h-[520px] flex flex-col">
+                            <div className="bg-gray-100 border-b border-gray-300 px-4 py-2 text-[12px] font-bold uppercase tracking-[0.2em] text-gray-600">
+                                Central Dashboard Display
                             </div>
-                            <div className="p-3 bg-gray-100 dark:bg-zinc-900 border-t border-gray-300 text-center">
-                                <span className="text-11px font-bold text-gray-400 uppercase tracking-tighter">Use Arrow keys to navigate & Enter to select</span>
+                            <div className="flex-1 grid place-items-center bg-gradient-to-b from-white to-gray-50">
+                                <img
+                                    src={promoImageUrl}
+                                    alt="Dashboard promotion"
+                                    className="w-full max-w-3xl h-[280px] md:h-[360px] object-contain bg-transparent px-4"
+                                    loading="lazy"
+                                />
                             </div>
                         </Card>
 
@@ -287,6 +224,47 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                             {isVisible('statPurchases') && <KpiBox label="Purchases" value={purchases.length} color="border-emerald-600" onClick={() => onKpiClick('purchaseHistory')}/>}
                             {isVisible('kpiReturns') && <KpiBox label="Returns" value={0} color="border-orange-600" onClick={() => onKpiClick('returns')}/>}
                         </div>
+                    </div>
+
+                    <div className="lg:col-span-3">
+                        <Card className="p-0 tally-border !rounded-none bg-gray-100 dark:bg-zinc-800 shadow-xl overflow-hidden">
+                            <div className="bg-primary px-3 py-2 text-white text-[12px] font-bold text-center uppercase tracking-[0.2em] border-b-2 border-gray-700">
+                                MDXERA ENTERPRISE ERP
+                            </div>
+                            <div className="p-2 space-y-1">
+                                {activeShortcuts.map((shortcut, idx) => (
+                                    <button
+                                        key={shortcut.id}
+                                        onClick={() => onKpiClick(shortcut.id)}
+                                        onMouseEnter={() => setFocusedShortcutIndex(idx)}
+                                        className={`w-full text-center py-2 px-2 leading-tight transition-colors text-[15px] font-semibold border border-gray-400 outline-none ${
+                                            focusedShortcutIndex === idx
+                                                ? 'bg-accent text-black border-primary'
+                                                : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
+                                        }`}
+                                    >
+                                        {shortcut.label}
+                                    </button>
+                                ))}
+
+                                {activeShortcuts.every(s => s.id !== 'configuration') && (
+                                    <button
+                                        onClick={() => onKpiClick('configuration')}
+                                        onMouseEnter={() => setFocusedShortcutIndex(activeShortcuts.length)}
+                                        className={`w-full text-center py-2 px-2 leading-tight transition-colors text-[15px] font-semibold border border-gray-400 outline-none ${
+                                            focusedShortcutIndex === activeShortcuts.length
+                                                ? 'bg-accent text-black border-primary'
+                                                : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
+                                        }`}
+                                    >
+                                        Full Configuration
+                                    </button>
+                                )}
+                            </div>
+                            <div className="px-2 py-2 bg-gray-200 border-t border-gray-400 text-center">
+                                <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wide">Use ↑ ↓ + Enter</span>
+                            </div>
+                        </Card>
                     </div>
                 </div>
 
