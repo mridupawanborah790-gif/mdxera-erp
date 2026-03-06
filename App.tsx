@@ -32,6 +32,7 @@ import Returns from './pages/Returns';
 import DeliveryChallans from './pages/DeliveryChallans';
 import SalesChallans from './pages/SalesChallans';
 import ManualSalesEntry from './pages/ManualSalesEntry';
+import ManualPurchase from './pages/ManualPurchase';
 import PurchaseOrders from './pages/PurchaseOrders';
 import Classification from './pages/Classification';
 import PrintBillModal from './components/PrintBillModal';
@@ -860,7 +861,6 @@ const App: React.FC = () => {
                     onSaved={() => loadData(currentUser!, 'background')}
                 />;
             case 'automatedPurchaseEntry':
-            case 'manualPurchaseEntry':
                 return <PurchaseForm
                     ref={purchaseFormRef}
                     onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
@@ -872,11 +872,23 @@ const App: React.FC = () => {
                     currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
                     onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                     setIsDirty={() => { }} addNotification={addNotification}
-                    title={currentPage === 'automatedPurchaseEntry' ? "AI-Powered Automated Purchase" : "Manual Purchase Bill Entry"}
-                    isManualEntry={currentPage === 'manualPurchaseEntry'}
+                    title="AI-Powered Automated Purchase"
+                    isManualEntry={false}
                     configurations={configurations}
                     mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
                     organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
+                />;
+            case 'manualPurchaseEntry':
+                return <ManualPurchase
+                    currentUser={currentUser}
+                    suppliers={suppliers}
+                    inventory={inventory}
+                    medicines={medicines}
+                    purchases={purchases}
+                    addNotification={addNotification}
+                    onAddPurchase={handleAddPurchase}
+                    onSaved={() => loadData(currentUser!, 'background')}
+                    onAddMedicineMaster={handleAddMedicineMaster}
                 />;
             case 'purchaseHistory':
                 return <PurchaseHistory
