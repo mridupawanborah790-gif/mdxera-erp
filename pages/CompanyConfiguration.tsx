@@ -62,6 +62,7 @@ type GLMaster = AuditFields & {
 type BankMaster = AuditFields & {
   id: string;
   companyCodeId: string;
+  linkedBankGlId?: string;
   bankName: string;
   accountName: string;
   accountNumber: string;
@@ -225,7 +226,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const [glForm, setGlForm] = useState({ setOfBooksId: '', glCode: '', glName: '', alias: '', glType: 'Asset' as GLType, accountGroup: '', subgroup: '', mappingStructure: '', postingAllowed: true, controlAccount: false, activeStatus: 'Active' as Status, postingCount: 0 });
   const [assignmentForm, setAssignmentForm] = useState({ setOfBooksId: '', materialMasterType: 'Trading Goods' as MaterialType, inventoryGL: '', purchaseGL: '', cogsGL: '', salesGL: '', discountGL: '', taxGL: '' });
 
-  const [bankForm, setBankForm] = useState({ companyCodeId: '', bankName: '', accountName: '', accountNumber: '', ifscCode: '', branchName: '', accountType: 'Savings' as AccountType, openingBalance: 0, openingDate: '', defaultBank: false, activeStatus: 'Active' as Status });
+  const [bankForm, setBankForm] = useState({ companyCodeId: '', linkedBankGlId: '', bankName: '', accountName: '', accountNumber: '', ifscCode: '', branchName: '', accountType: 'Savings' as AccountType, openingBalance: 0, openingDate: '', defaultBank: false, activeStatus: 'Active' as Status });
 
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [editingBooksId, setEditingBooksId] = useState<string | null>(null);
@@ -371,6 +372,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           bankMasters: (bankRes.data || []).map((b: any) => ({
             id: b.id,
             companyCodeId: b.company_code_id,
+            linkedBankGlId: b.linked_bank_gl_id || undefined,
             bankName: b.bank_name || '',
             accountName: b.account_name || '',
             accountNumber: b.account_number || '',
@@ -424,6 +426,16 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     return store.glMasters.filter(g => g.setOfBooksId === booksFormRecord.id && g.glType === 'Bank' && g.activeStatus === 'Active');
   }, [store.glMasters, booksFormRecord?.id]);
 
+
+  const bankGlOptionsForBankForm = useMemo(() => {
+    if (!bankForm.companyCodeId) return [] as GLMaster[];
+    const activeBooksIds = new Set(
+      store.setOfBooks
+        .filter((b) => b.companyCodeId === bankForm.companyCodeId && b.activeStatus === 'Active')
+        .map((b) => b.id)
+    );
+    return store.glMasters.filter((g) => activeBooksIds.has(g.setOfBooksId) && g.glType === 'Bank' && g.activeStatus === 'Active');
+  }, [store.glMasters, store.setOfBooks, bankForm.companyCodeId]);
 
   const seedDefaultsForBooks = (setOfBooksId: string, mode: 'create' | 'append', currentStore?: Store) => {
     const activeStore = currentStore || store;
@@ -660,6 +672,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     if (!bankForm.bankName.trim()) return setError('Bank Name is required.');
     if (!bankForm.accountName.trim()) return setError('Account Name is required.');
     if (!bankForm.accountNumber.trim()) return setError('Account Number is required.');
+    if (!bankForm.linkedBankGlId) return setError('Linked Bank GL is required.');
 
     const duplicate = store.bankMasters.some(b => b.companyCodeId === bankForm.companyCodeId && b.accountNumber.trim() === bankForm.accountNumber.trim() && b.id !== editingBankId);
     if (duplicate) return setError('Account Number must be unique per Company Code.');
@@ -674,6 +687,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       nextBanks = nextBanks.map(b => b.id === editingBankId ? {
         ...b,
         ...bankForm,
+        linkedBankGlId: bankForm.linkedBankGlId || undefined,
         bankName: bankForm.bankName.trim(),
         accountName: bankForm.accountName.trim(),
         accountNumber: bankForm.accountNumber.trim(),
@@ -687,6 +701,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       nextBanks = [...nextBanks, {
         id: getId(),
         ...bankForm,
+        linkedBankGlId: bankForm.linkedBankGlId || undefined,
         bankName: bankForm.bankName.trim(),
         accountName: bankForm.accountName.trim(),
         accountNumber: bankForm.accountNumber.trim(),
@@ -701,7 +716,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     }
 
     persist({ ...store, bankMasters: nextBanks });
-    setBankForm({ companyCodeId: '', bankName: '', accountName: '', accountNumber: '', ifscCode: '', branchName: '', accountType: 'Savings', openingBalance: 0, openingDate: '', defaultBank: false, activeStatus: 'Active' });
+    setBankForm({ companyCodeId: '', linkedBankGlId: '', bankName: '', accountName: '', accountNumber: '', ifscCode: '', branchName: '', accountType: 'Savings', openingBalance: 0, openingDate: '', defaultBank: false, activeStatus: 'Active' });
     setEditingBankId(null);
   };
 
@@ -1049,6 +1064,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           organization_id: organizationId,
           company_code_id: b.companyCodeId,
           bank_name: b.bankName,
+          linked_bank_gl_id: b.linkedBankGlId || null,
           account_name: b.accountName,
           account_number: b.accountNumber,
           ifsc_code: b.ifscCode || null,
@@ -1177,6 +1193,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               <select className="tally-input" value={bankForm.companyCodeId} onChange={e => setBankForm({ ...bankForm, companyCodeId: e.target.value })}><option value="">Company Code*</option>{activeCompanies.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}</select>
               <input className="tally-input" placeholder="Bank Name*" value={bankForm.bankName} onChange={e => setBankForm({ ...bankForm, bankName: e.target.value })} />
               <input className="tally-input" placeholder="Account Name*" value={bankForm.accountName} onChange={e => setBankForm({ ...bankForm, accountName: e.target.value })} />
+              <select className="tally-input" value={bankForm.linkedBankGlId} onChange={e => setBankForm({ ...bankForm, linkedBankGlId: e.target.value })}><option value="">Linked Bank GL*</option>{bankGlOptionsForBankForm.map(g => <option key={g.id} value={g.id}>{g.glCode} - {g.glName}</option>)}</select>
               <input className="tally-input" placeholder="Account Number*" value={bankForm.accountNumber} onChange={e => setBankForm({ ...bankForm, accountNumber: e.target.value })} />
               <input className="tally-input" placeholder="IFSC Code" value={bankForm.ifscCode} onChange={e => setBankForm({ ...bankForm, ifscCode: e.target.value })} />
               <input className="tally-input" placeholder="Branch Name" value={bankForm.branchName} onChange={e => setBankForm({ ...bankForm, branchName: e.target.value })} />
@@ -1187,7 +1204,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               <label className="flex items-center gap-2 text-xs font-black uppercase border border-gray-300 px-2"><input type="checkbox" checked={bankForm.defaultBank} onChange={e => setBankForm({ ...bankForm, defaultBank: e.target.checked })} />Default Bank</label>
               <button className="bg-primary text-white text-xs font-black uppercase px-3" onClick={onSaveBank}>{editingBankId ? 'Update' : 'Add'}</button>
             </div>
-            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Company</th><th className="p-2 text-left">Bank</th><th className="p-2 text-left">Account</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Opening</th><th className="p-2 text-left">Flags</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredBanks.map(b => <tr key={b.id} className="border-t"><td className="p-2">{store.companies.find(c => c.id === b.companyCodeId)?.code || '-'}</td><td className="p-2">{b.bankName}<br />{b.branchName || '-'}</td><td className="p-2">{b.accountName}<br />{b.accountNumber}<br />{b.ifscCode || '-'}</td><td className="p-2">{b.accountType}</td><td className="p-2">{b.openingBalance} on {b.openingDate || '-'}</td><td className="p-2">Default:{b.defaultBank ? 'Yes' : 'No'}<br />Status:{b.activeStatus}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setBankForm({ companyCodeId: b.companyCodeId, bankName: b.bankName, accountName: b.accountName, accountNumber: b.accountNumber, ifscCode: b.ifscCode, branchName: b.branchName, accountType: b.accountType, openingBalance: b.openingBalance, openingDate: b.openingDate, defaultBank: b.defaultBank, activeStatus: b.activeStatus }); setEditingBankId(b.id); }}>Edit</button></td></tr>)}</tbody></table></div>
+            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Company</th><th className="p-2 text-left">Bank</th><th className="p-2 text-left">Account</th><th className="p-2 text-left">Linked GL</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Opening</th><th className="p-2 text-left">Flags</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredBanks.map(b => <tr key={b.id} className="border-t"><td className="p-2">{store.companies.find(c => c.id === b.companyCodeId)?.code || '-'}</td><td className="p-2">{b.bankName}<br />{b.branchName || '-'}</td><td className="p-2">{b.accountName}<br />{b.accountNumber}<br />{b.ifscCode || '-'}</td><td className="p-2">{store.glMasters.find(g => g.id === b.linkedBankGlId)?.glCode || '-'}<br />{store.glMasters.find(g => g.id === b.linkedBankGlId)?.glName || '-'}</td><td className="p-2">{b.accountType}</td><td className="p-2">{b.openingBalance} on {b.openingDate || '-'}</td><td className="p-2">Default:{b.defaultBank ? 'Yes' : 'No'}<br />Status:{b.activeStatus}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setBankForm({ companyCodeId: b.companyCodeId, linkedBankGlId: b.linkedBankGlId || '', bankName: b.bankName, accountName: b.accountName, accountNumber: b.accountNumber, ifscCode: b.ifscCode, branchName: b.branchName, accountType: b.accountType, openingBalance: b.openingBalance, openingDate: b.openingDate, defaultBank: b.defaultBank, activeStatus: b.activeStatus }); setEditingBankId(b.id); }}>Edit</button></td></tr>)}</tbody></table></div>
           </div>
         )}
 

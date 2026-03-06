@@ -833,6 +833,27 @@ const mapMaterialType = (value?: string): string => {
 
 const buildJournalNumber = (prefix: 'SAL' | 'PUR') => `${prefix}-${Date.now()}`;
 
+
+const resolveLinkedBankGlId = async (
+    user: RegisteredPharmacy,
+    companyCodeId: string
+): Promise<string | null> => {
+    if (!navigator.onLine) return null;
+
+    const { data, error } = await supabase
+        .from('bank_master')
+        .select('linked_bank_gl_id')
+        .eq('organization_id', user.organization_id)
+        .eq('company_code_id', companyCodeId)
+        .eq('default_bank', true)
+        .eq('active_status', 'Active')
+        .not('linked_bank_gl_id', 'is', null)
+        .limit(1);
+
+    if (error) throw error;
+    return data?.[0]?.linked_bank_gl_id ? String(data[0].linked_bank_gl_id) : null;
+};
+
 const postJournal = async (
     user: RegisteredPharmacy,
     args: {
@@ -1008,10 +1029,12 @@ export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy)
         lineAcc.set(glId, cur);
     };
 
-    const isCashSale = (tx.paymentMode || '').toLowerCase() === 'cash';
-    const cashOrBankGl = glByCode.get('100001');
-    const debitControlGl = isCashSale && cashOrBankGl ? cashOrBankGl : customerControlGl;
-    addLine(String(debitControlGl), Number(tx.total || 0), 0, isCashSale ? 'Cash / bank receipt' : 'Customer control');
+    const paymentMode = String(tx.paymentMode || '').toLowerCase();
+    const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(paymentMode);
+    const mappedBankGl = isImmediatePayment ? await resolveLinkedBankGlId(user, tx.companyCodeId) : null;
+    const cashOrBankGl = mappedBankGl || glByCode.get('100001');
+    const debitControlGl = isImmediatePayment && cashOrBankGl ? cashOrBankGl : customerControlGl;
+    addLine(String(debitControlGl), Number(tx.total || 0), 0, isImmediatePayment ? 'Cash / bank receipt' : 'Customer control');
 
     let inferredTaxableValue = 0;
     let cgstTotal = 0;
@@ -1248,8 +1271,9 @@ export const postManualSalesVoucher = async (args: ManualSalesPostingInput, user
         .limit(1);
     if (cashGlError) throw cashGlError;
 
-    const isImmediatePayment = ['cash', 'card', 'upi'].includes(String(args.paymentMode || '').toLowerCase());
-    const debitGlId = isImmediatePayment && cashGlRows?.[0]?.id ? String(cashGlRows[0].id) : String(receivableGl);
+    const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(String(args.paymentMode || '').toLowerCase());
+    const linkedBankGlId = isImmediatePayment ? await resolveLinkedBankGlId(user, postingContext.companyCodeId) : null;
+    const debitGlId = isImmediatePayment ? String(linkedBankGlId || cashGlRows?.[0]?.id || receivableGl) : String(receivableGl);
 
     const lineAcc = new Map<string, { debit: number; credit: number; memo: string }>();
     const addLine = (glId: string, debit: number, credit: number, memo: string) => {
