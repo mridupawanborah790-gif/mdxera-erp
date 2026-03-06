@@ -1,16 +1,40 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Card from '../components/Card';
-import Modal from '../components/Modal';
 import type { Supplier, RegisteredPharmacy } from '../types';
 import type { SupplierQuickResult } from '../services/supplierService';
-import { AddSupplierModal, EditSupplierModal, RecordPaymentModal } from '../components/AddSupplierModal';
+import { AddSupplierModal, EditSupplierModal } from '../components/AddSupplierModal';
 import PrintLedgerModal from '../components/PrintLedgerModal';
 import ExportSuppliersModal from '../components/ExportSuppliersModal';
 import { getOutstandingBalance } from '../utils/helpers';
 import { getDataById } from '../services/storageService';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
+
+
+const normalizeSupplier = (supplier: Supplier): Supplier => {
+    const fallbackName = typeof supplier.name === 'string' && supplier.name.trim() ? supplier.name : 'Unnamed Supplier';
+    const safeLedger = Array.isArray(supplier.ledger)
+        ? supplier.ledger.filter((item): item is Supplier['ledger'][number] => Boolean(item && typeof item === 'object')).map((item, index) => ({
+            id: typeof item.id === 'string' && item.id.trim() ? item.id : `${supplier.id || 'supplier'}-entry-${index}`,
+            date: typeof item.date === 'string' && item.date.trim() ? item.date : '-',
+            type: item.type || 'purchase',
+            description: typeof item.description === 'string' ? item.description : '',
+            debit: Number.isFinite(Number(item.debit)) ? Number(item.debit) : 0,
+            credit: Number.isFinite(Number(item.credit)) ? Number(item.credit) : 0,
+            balance: Number.isFinite(Number(item.balance)) ? Number(item.balance) : 0,
+        }))
+        : [];
+
+    return {
+        ...supplier,
+        name: fallbackName,
+        ledger: safeLedger,
+        payment_details: (supplier.payment_details && typeof supplier.payment_details === 'object')
+            ? supplier.payment_details
+            : {},
+    };
+};
 
 interface SuppliersProps {
     suppliers: Supplier[];
@@ -69,6 +93,13 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
     };
 
     const handleSelectSupplier = useCallback(async (supplierId: string) => {
+        if (!supplierId) {
+            setSelectedSupplier(null);
+            setSelectedSupplierId(null);
+            setDetailsError('Supplier details not found');
+            return;
+        }
+
         setSelectedSupplierId(supplierId);
         setIsLoadingDetails(true);
         setDetailsError(null);
@@ -82,7 +113,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                 return;
             }
 
-            setSelectedSupplier(supplier);
+            setSelectedSupplier(normalizeSupplier(supplier));
         } catch (error) {
             console.error('Failed to load supplier details:', error);
             setSelectedSupplier(null);
@@ -94,15 +125,65 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
 
 
     const handleDuplicateSupplier = (supplier: Supplier) => {
-        setSelectedSupplier(supplier);
+        setSelectedSupplier(normalizeSupplier(supplier));
         setIsEditModalOpen(true);
     };
     const handleEditSubmit = (updated: Supplier) => {
         onUpdateSupplier(updated);
-        setSelectedSupplier(updated);
+        setSelectedSupplier(normalizeSupplier(updated));
         setSelectedSupplierId(updated.id);
         setIsEditModalOpen(false);
     };
+
+    const toAmount = (value: unknown): number => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const toDisplay = (value: unknown): string => {
+        if (value === null || value === undefined) return 'N/A';
+        if (typeof value === 'string') {
+            const text = value.trim();
+            return text.length > 0 ? text : 'N/A';
+        }
+        return String(value);
+    };
+
+    const selectedSupplierSafe = selectedSupplier as (Supplier & Record<string, unknown>) | null;
+    const paymentDetails = (selectedSupplierSafe?.payment_details || {}) as Record<string, unknown>;
+    const ledgerEntries: Record<string, unknown>[] = Array.isArray(selectedSupplierSafe?.ledger)
+        ? (selectedSupplierSafe.ledger as unknown[]).filter((item) => Boolean(item && typeof item === 'object')) as Record<string, unknown>[]
+        : [];
+    const openingDate =
+        selectedSupplierSafe?.created_at ||
+        selectedSupplierSafe?.updated_at ||
+        selectedSupplierSafe?.opening_date;
+    const detailRows: { label: string; value: string }[] = selectedSupplierSafe
+        ? [
+            { label: 'Supplier Name / Trade Name', value: toDisplay(selectedSupplierSafe.name || selectedSupplierSafe.trade_name) },
+            { label: 'Contact Person', value: toDisplay(selectedSupplierSafe.contact_person) },
+            { label: 'Supplier Category', value: toDisplay(selectedSupplierSafe.category) },
+            { label: 'Supplier Group', value: toDisplay(selectedSupplierSafe.supplier_group) },
+            { label: 'Supplier Control GL', value: toDisplay(selectedSupplierSafe.control_gl_id) },
+            { label: 'Office Phone', value: toDisplay(selectedSupplierSafe.phone) },
+            { label: 'Mobile No.', value: toDisplay(selectedSupplierSafe.mobile) },
+            { label: 'Email ID', value: toDisplay(selectedSupplierSafe.email) },
+            { label: 'GSTIN', value: toDisplay(selectedSupplierSafe.gst_number) },
+            { label: 'Address Line 1', value: toDisplay(selectedSupplierSafe.address_line1 || selectedSupplierSafe.address) },
+            { label: 'Address Line 2', value: toDisplay(selectedSupplierSafe.address_line2) },
+            { label: 'Area / Locality', value: toDisplay(selectedSupplierSafe.area) },
+            { label: 'Pincode', value: toDisplay(selectedSupplierSafe.pincode) },
+            { label: 'District', value: toDisplay(selectedSupplierSafe.district) },
+            { label: 'State', value: toDisplay(selectedSupplierSafe.state) },
+            { label: 'UPI ID', value: toDisplay(paymentDetails.upi_id) },
+            { label: 'Bank Name', value: toDisplay(paymentDetails.bank_name) },
+            { label: 'A/C Number', value: toDisplay(paymentDetails.account_number) },
+            { label: 'IFSC Code', value: toDisplay(paymentDetails.ifsc_code) },
+            { label: 'Opening Amount', value: `₹${toAmount(selectedSupplierSafe.opening_balance).toFixed(2)}` },
+            { label: 'Opening Date', value: toDisplay(openingDate) },
+            { label: 'Ledger / Current Balance', value: `₹${toAmount(getOutstandingBalance(selectedSupplierSafe as Supplier)).toFixed(2)}` },
+        ]
+        : [];
 
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
@@ -171,6 +252,14 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                             </div>
                             
                             <div className="flex-1 overflow-auto">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-b border-gray-300">
+                                    {detailRows.map((row) => (
+                                        <div key={row.label} className="p-3 border-t border-r border-gray-200 even:border-r-0">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">{row.label}</p>
+                                            <p className="text-sm font-bold text-gray-900 break-words">{row.value}</p>
+                                        </div>
+                                    ))}
+                                </div>
                                 <table className="min-w-full border-collapse">
                                     <thead className="bg-gray-50 sticky top-0 border-b border-gray-400 z-10">
                                         <tr className={`${uniformTextStyle} text-gray-600`}>
@@ -182,15 +271,20 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 tally-font-data-mono">
-                                        {(selectedSupplier.ledger || []).filter(Boolean).map((item, index) => (
-                                            <tr key={item.id || `${selectedSupplier.id}-${index}`} className="hover:bg-gray-50 transition-colors">
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100`}>{item.date}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-gray-700`}>{item.description}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-right text-emerald-700`}>{item.debit > 0 ? (item.debit || 0).toFixed(2) : ''}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-200 text-right text-red-700`}>{item.credit > 0 ? (item.credit || 0).toFixed(2) : ''}</td>
-                                                <td className={`${uniformTextStyle} p-4 text-right ${(item.balance || 0) > 0 ? 'text-red-700' : 'text-emerald-700'} bg-slate-50/30`}>₹{(item.balance || 0).toFixed(2)}</td>
+                                        {ledgerEntries.map((item, index) => (
+                                            <tr key={String(item.id || `${selectedSupplier.id}-${index}`)} className="hover:bg-gray-50 transition-colors">
+                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100`}>{toDisplay(item.date)}</td>
+                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-gray-700`}>{toDisplay(item.description)}</td>
+                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-right text-emerald-700`}>{toAmount(item.debit) > 0 ? toAmount(item.debit).toFixed(2) : ''}</td>
+                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-200 text-right text-red-700`}>{toAmount(item.credit) > 0 ? toAmount(item.credit).toFixed(2) : ''}</td>
+                                                <td className={`${uniformTextStyle} p-4 text-right ${toAmount(item.balance) > 0 ? 'text-red-700' : 'text-emerald-700'} bg-slate-50/30`}>₹{toAmount(item.balance).toFixed(2)}</td>
                                             </tr>
                                         ))}
+                                        {ledgerEntries.length === 0 && (
+                                            <tr>
+                                                <td className="p-4 text-center text-sm font-bold text-gray-500" colSpan={5}>No ledger entries found for this supplier.</td>
+                                            </tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
