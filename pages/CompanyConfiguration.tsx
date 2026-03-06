@@ -481,7 +481,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       const baseCode = String(tpl.code);
       const found = glExisting.find(g =>
         (g.glName.toLowerCase() === tpl.glName.toLowerCase() && g.glType === tpl.glType)
-        || g.glCode === baseCode
+        || (g.glCode === baseCode && g.glType === tpl.glType)
       );
       if (found) {
         keyToGlId.set(tpl.key, found.id);
@@ -521,7 +521,10 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
     defaultCustomerGroupConfig.forEach((cfg) => {
       const code = String(cfg.glCode);
-      const found = glExisting.find(g => g.glCode === code || g.glName.toLowerCase() === cfg.glName.toLowerCase());
+      const found = glExisting.find(g =>
+        (g.glCode === code && g.glType === 'Asset')
+        || (g.glName.toLowerCase() === cfg.glName.toLowerCase() && g.glType === 'Asset')
+      );
       if (found) {
         keyToGlId.set(`customerGroup:${cfg.group}`, found.id);
         codeExists.add(found.glCode);
