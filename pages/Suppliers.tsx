@@ -1,13 +1,12 @@
-
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
 import type { Supplier, RegisteredPharmacy } from '../types';
 import type { SupplierQuickResult } from '../services/supplierService';
 import { AddSupplierModal, EditSupplierModal } from '../components/AddSupplierModal';
 import ExportSuppliersModal from '../components/ExportSuppliersModal';
-import { getDataById } from '../services/storageService';
+import { fuzzyMatch } from '../utils/search';
 
-const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
+const uniformTextStyle = 'text-2xl font-normal tracking-tight uppercase leading-tight';
 
 const addressFields: Array<{ label: string; key: 'address_line1' | 'address_line2' | 'area' | 'city' | 'district' | 'state' | 'pincode' | 'country' }> = [
     { label: 'Address Line 1', key: 'address_line1' },
@@ -36,21 +35,17 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
-    const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
-    const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-    const [detailsError, setDetailsError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
 
     const filteredSuppliers = useMemo(() => {
-        const lowercasedFilter = searchTerm.toLowerCase();
         return suppliers
-            .filter(d => {
-                if (statusFilter === 'active') return d.is_active !== false;
-                if (statusFilter === 'blocked') return d.is_active === false;
+            .filter(s => {
+                if (statusFilter === 'active') return s.is_active !== false;
+                if (statusFilter === 'blocked') return s.is_active === false;
                 return true;
             })
-            .filter(d => (d.name || '').toLowerCase().includes(lowercasedFilter))
+            .filter(s => fuzzyMatch(s.name, searchTerm) || fuzzyMatch(s.phone, searchTerm) || fuzzyMatch(s.mobile, searchTerm))
             .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }, [suppliers, searchTerm, statusFilter]);
 
@@ -75,94 +70,12 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
         setIsExportModalOpen(true);
     };
 
-    const handleSelectSupplier = useCallback(async (supplierId: string) => {
-        if (!supplierId) {
-            setSelectedSupplier(null);
-            setSelectedSupplierId(null);
-            setDetailsError('Supplier details not found');
-            return;
-        }
-
-        setSelectedSupplierId(supplierId);
-        setIsLoadingDetails(true);
-        setDetailsError(null);
-
-        try {
-            const supplier = await getDataById<Supplier>('suppliers', supplierId, currentUser, { forceRefresh: true });
-
-            if (!supplier) {
-                setSelectedSupplier(null);
-                setDetailsError('Supplier details not found');
-                return;
-            }
-
-            setSelectedSupplier(supplier);
-        } catch (error) {
-            console.error('Failed to load supplier details:', error);
-            setSelectedSupplier(null);
-            setDetailsError('Unable to load supplier details');
-        } finally {
-            setIsLoadingDetails(false);
-        }
-    }, [currentUser]);
-
-
     const handleDuplicateSupplier = (supplier: Supplier) => {
         setSelectedSupplier(supplier);
         setIsEditModalOpen(true);
     };
-    const handleEditSubmit = (updated: Supplier) => {
-        onUpdateSupplier(updated);
-        setSelectedSupplier(updated);
-        setSelectedSupplierId(updated.id);
-        setIsEditModalOpen(false);
-    };
 
-    const toAmount = (value: unknown): number => {
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed : 0;
-    };
-
-    const toDisplay = (value: unknown): string => {
-        if (value === null || value === undefined) return 'N/A';
-        if (typeof value === 'string') {
-            const text = value.trim();
-            return text.length > 0 ? text : 'N/A';
-        }
-        return String(value);
-    };
-
-    const selectedSupplierSafe = selectedSupplier as (Supplier & Record<string, unknown>) | null;
-    const paymentDetails = (selectedSupplierSafe?.payment_details || {}) as Record<string, unknown>;
-    const openingDate =
-        selectedSupplierSafe?.created_at ||
-        selectedSupplierSafe?.updated_at ||
-        selectedSupplierSafe?.opening_date;
-    const detailRows: { label: string; value: string }[] = selectedSupplierSafe
-        ? [
-            { label: 'Supplier Name / Trade Name', value: toDisplay(selectedSupplierSafe.name || selectedSupplierSafe.trade_name) },
-            { label: 'Contact Person', value: toDisplay(selectedSupplierSafe.contact_person) },
-            { label: 'Supplier Category', value: toDisplay(selectedSupplierSafe.category) },
-            { label: 'Supplier Group', value: toDisplay(selectedSupplierSafe.supplier_group) },
-            { label: 'Supplier Control GL', value: toDisplay(selectedSupplierSafe.control_gl_id) },
-            { label: 'Office Phone', value: toDisplay(selectedSupplierSafe.phone) },
-            { label: 'Mobile No.', value: toDisplay(selectedSupplierSafe.mobile) },
-            { label: 'Email ID', value: toDisplay(selectedSupplierSafe.email) },
-            { label: 'GSTIN', value: toDisplay(selectedSupplierSafe.gst_number) },
-            { label: 'Address Line 1', value: toDisplay(selectedSupplierSafe.address_line1 || selectedSupplierSafe.address) },
-            { label: 'Address Line 2', value: toDisplay(selectedSupplierSafe.address_line2) },
-            { label: 'Area / Locality', value: toDisplay(selectedSupplierSafe.area) },
-            { label: 'Pincode', value: toDisplay(selectedSupplierSafe.pincode) },
-            { label: 'District', value: toDisplay(selectedSupplierSafe.district) },
-            { label: 'State', value: toDisplay(selectedSupplierSafe.state) },
-            { label: 'UPI ID', value: toDisplay(paymentDetails.upi_id) },
-            { label: 'Bank Name', value: toDisplay(paymentDetails.bank_name) },
-            { label: 'A/C Number', value: toDisplay(paymentDetails.account_number) },
-            { label: 'IFSC Code', value: toDisplay(paymentDetails.ifsc_code) },
-            { label: 'Opening Amount', value: `₹${toAmount(selectedSupplierSafe.opening_balance).toFixed(2)}` },
-            { label: 'Opening Date', value: toDisplay(openingDate) },
-        ]
-        : [];
+    const selectedSupplierExtra = selectedSupplier as (Supplier & Record<string, unknown>) | null;
 
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
@@ -173,12 +86,11 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
 
             <div className="p-4 flex-1 flex gap-4 min-h-0 overflow-hidden">
                 <Card className="w-1/3 flex flex-col p-0 tally-border overflow-hidden bg-white">
-                    <div className="p-3 border-b border-gray-400 flex flex-col gap-2 bg-gray-50 flex-shrink-0">
-                        <input type="text" placeholder="Filter List..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold focus:bg-yellow-50 outline-none shadow-sm" />
-                        <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-gray-500 uppercase">Status:</span>
-                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} className="text-[10px] font-black border-none bg-transparent outline-none uppercase text-primary">
-                                <option value="all">All</option>
+                    <div className="p-3 border-b border-gray-400 bg-gray-50 flex flex-col gap-2 flex-shrink-0">
+                        <input type="text" placeholder="Find Supplier..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold focus:bg-yellow-50 outline-none shadow-sm" />
+                        <div className="flex justify-between items-center">
+                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} className="text-[10px] font-black uppercase text-primary border-none bg-transparent outline-none">
+                                <option value="all">All Status</option>
                                 <option value="active">Active</option>
                                 <option value="blocked">Blocked</option>
                             </select>
@@ -186,11 +98,10 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                     </div>
                     <div className="flex-1 overflow-y-auto divide-y divide-gray-200">
                         {filteredSuppliers.map(s => (
-                            <div key={s.id} onClick={() => handleSelectSupplier(s.id)} className={`p-4 cursor-pointer transition-all border-l-[8px] ${selectedSupplierId === s.id ? 'bg-accent text-black' : 'border-transparent hover:bg-gray-100'}`}>
-                                <div className="flex justify-between items-center">
-                                    <p className={`${uniformTextStyle} truncate pr-2`}>{s.name}</p>
-                                </div>
-                            </div>
+                            <button key={s.id} type="button" onClick={() => setSelectedSupplier(s)} className={`w-full text-left p-3 transition-all border-l-[6px] ${selectedSupplier?.id === s.id ? 'bg-accent text-black border-primary' : 'border-transparent hover:bg-gray-100'}`}>
+                                <p className={`${uniformTextStyle} !text-xl truncate`}>{s.name}</p>
+                                <p className="text-xs font-bold uppercase text-gray-500 truncate">GST: {s.gst_number || 'N/A'}</p>
+                            </button>
                         ))}
                     </div>
                     <div className="p-3 border-t border-gray-400 bg-gray-50 flex gap-2 flex-shrink-0">
@@ -200,15 +111,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                 </Card>
 
                 <Card className="flex-1 p-0 tally-border bg-white overflow-hidden flex flex-col shadow-inner">
-                    {isLoadingDetails ? (
-                        <div className="h-full flex items-center justify-center text-gray-400">
-                            <p className="text-xl font-black uppercase tracking-[0.2em]">Loading Supplier Details...</p>
-                        </div>
-                    ) : detailsError ? (
-                        <div className="h-full flex items-center justify-center text-gray-400">
-                            <p className="text-xl font-black uppercase tracking-[0.2em]">{detailsError}</p>
-                        </div>
-                    ) : selectedSupplier ? (
+                    {selectedSupplier ? (
                         <div className="flex flex-col h-full overflow-hidden">
                             <div className="p-6 bg-gray-100 border-b border-gray-400 flex justify-between items-start flex-shrink-0">
                                 <div className="flex-1">
@@ -216,37 +119,58 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                     <div className="flex flex-wrap gap-x-8 gap-y-2 mt-3 text-sm font-bold text-gray-500 uppercase">
                                         <span>GSTIN: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.gst_number || 'N/A'}</span></span>
                                         <span>PH: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.mobile || selectedSupplier.phone || 'N/A'}</span></span>
-                                        <span>Opening: <span className="text-gray-900 tally-font-data-mono">₹{(selectedSupplier.opening_balance || 0).toFixed(2)}</span></span>
-                                    </div>
-
-                                    <div className="w-full mt-5 p-4 bg-white border border-gray-300 rounded">
-                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-3">Address Details</p>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-                                            {addressFields.map(({ label, key }) => (
-                                                <div key={key} className="min-w-0">
-                                                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{label}</p>
-                                                    <p className={`${uniformTextStyle} !text-base text-gray-900 break-words`}>{selectedSupplier[key] || '—'}</p>
-                                                </div>
-                                            ))}
-                                        </div>
+                                        <span>Opening: <span className="text-gray-900 tally-font-data-mono">₹{Number(selectedSupplier.opening_balance || 0).toFixed(2)}</span></span>
                                     </div>
                                 </div>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setIsEditModalOpen(true)} className="px-6 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Alter</button>
-                                </div>
+                                <button onClick={() => setIsEditModalOpen(true)} className="px-6 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Alter</button>
                             </div>
-                            
-                            <div className="flex-1 overflow-auto">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-b border-gray-300">
-                                    {detailRows.map((row) => (
-                                        <div key={row.label} className="p-3 border-t border-r border-gray-200 even:border-r-0">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">{row.label}</p>
-                                            <p className="text-sm font-bold text-gray-900 break-words">{row.value}</p>
+
+                            <div className="p-4 border-b border-gray-300 bg-white">
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-3">Address Details</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                    {addressFields.map(({ label, key }) => (
+                                        <div key={key} className="min-w-0 border border-gray-200 p-3">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">{label}</p>
+                                            <p className="text-sm font-bold text-gray-900 break-words">{selectedSupplier[key] || 'N/A'}</p>
                                         </div>
                                     ))}
                                 </div>
-                                <div className="p-4 text-sm font-bold text-gray-500 uppercase tracking-widest">
-                                    Master directory view only. Ledger and accounting entries are available in Sundry Creditors (Payable).
+                            </div>
+
+                            <div className="flex-1 overflow-auto p-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Group</p>
+                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.supplier_group || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Category</p>
+                                        <p className="text-sm font-bold text-gray-900">{String(selectedSupplierExtra?.category || 'N/A')}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Control GL</p>
+                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.control_gl_id || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Email</p>
+                                        <p className="text-sm font-bold text-gray-900 break-all">{selectedSupplier.email || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">GSTIN</p>
+                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.gst_number || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Opening Balance</p>
+                                        <p className="text-sm font-bold text-gray-900">₹{Number(selectedSupplier.opening_balance || 0).toFixed(2)}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">PAN</p>
+                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.pan_number || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Drug License</p>
+                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.drug_license || 'N/A'}</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -259,25 +183,23 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
             </div>
 
             {isAddModalOpen && (
-                <AddSupplierModal 
-                    isOpen={isAddModalOpen} 
-                    onClose={() => setIsAddModalOpen(false)} 
-                    onAdd={onAddSupplier} 
+                <AddSupplierModal
+                    isOpen={isAddModalOpen}
+                    onClose={() => setIsAddModalOpen(false)}
+                    onAdd={onAddSupplier}
                     onDuplicate={handleDuplicateSupplier}
                     defaultControlGlId={defaultSupplierControlGlId}
-                    organizationId={currentUser?.organization_id || ''} 
+                    organizationId={currentUser?.organization_id || ''}
                 />
             )}
 
             {selectedSupplier && (
-                <>
-                    <EditSupplierModal 
-                        isOpen={isEditModalOpen} 
-                        onClose={() => setIsEditModalOpen(false)} 
-                        onSave={handleEditSubmit} 
-                        supplier={selectedSupplier} 
-                    />
-                </>
+                <EditSupplierModal
+                    isOpen={isEditModalOpen}
+                    onClose={() => setIsEditModalOpen(false)}
+                    onSave={onUpdateSupplier}
+                    supplier={selectedSupplier}
+                />
             )}
 
             {isExportModalOpen && (
