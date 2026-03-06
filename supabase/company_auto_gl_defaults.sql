@@ -102,36 +102,76 @@ begin
   end if;
 
   if new.inventory_gl is not null then
-    select gl_type into inv_type from public.gl_master where id = new.inventory_gl;
-    if inv_type is distinct from 'Asset' then
+    select gl_type into inv_type
+    from public.gl_master
+    where id = new.inventory_gl
+      and set_of_books_id = new.set_of_books_id;
+
+    if inv_type is null then
+      raise exception 'Inventory GL is invalid for selected Set of Books';
+    end if;
+
+    if lower(btrim(inv_type)) <> 'asset' then
       raise exception 'Inventory GL must be Asset';
     end if;
   end if;
 
-  select gl_type into pur_type from public.gl_master where id = new.purchase_gl;
-  if pur_type is distinct from 'Expense' then
+  select gl_type into pur_type
+  from public.gl_master
+  where id = new.purchase_gl
+    and set_of_books_id = new.set_of_books_id;
+  if pur_type is null then
+    raise exception 'Purchase GL is invalid for selected Set of Books';
+  end if;
+  if lower(btrim(pur_type)) <> 'expense' then
     raise exception 'Purchase GL must be Expense';
   end if;
 
-  select gl_type into cogs_type from public.gl_master where id = new.cogs_gl;
-  if cogs_type is distinct from 'Expense' then
+  select gl_type into cogs_type
+  from public.gl_master
+  where id = new.cogs_gl
+    and set_of_books_id = new.set_of_books_id;
+  if cogs_type is null then
+    raise exception 'COGS GL is invalid for selected Set of Books';
+  end if;
+  if lower(btrim(cogs_type)) <> 'expense' then
     raise exception 'COGS GL must be Expense';
   end if;
 
   if new.sales_gl is not null then
-    select gl_type into sales_type from public.gl_master where id = new.sales_gl;
-    if sales_type is distinct from 'Income' then
+    select gl_type into sales_type
+    from public.gl_master
+    where id = new.sales_gl
+      and set_of_books_id = new.set_of_books_id;
+
+    if sales_type is null then
+      raise exception 'Sales GL is invalid for selected Set of Books';
+    end if;
+
+    if lower(btrim(sales_type)) <> 'income' then
       raise exception 'Sales GL must be Income';
     end if;
   end if;
 
-  select gl_type into dis_type from public.gl_master where id = new.discount_gl;
-  if dis_type is distinct from 'Expense' then
+  select gl_type into dis_type
+  from public.gl_master
+  where id = new.discount_gl
+    and set_of_books_id = new.set_of_books_id;
+  if dis_type is null then
+    raise exception 'Discount GL is invalid for selected Set of Books';
+  end if;
+  if lower(btrim(dis_type)) <> 'expense' then
     raise exception 'Discount GL must be Expense';
   end if;
 
-  select gl_type into tax_type from public.gl_master where id = new.tax_gl;
-  if tax_type is distinct from 'Liability' then
+  select gl_type into tax_type
+  from public.gl_master
+  where id = new.tax_gl
+    and set_of_books_id = new.set_of_books_id;
+  if tax_type is null then
+    raise exception 'Tax GL is invalid for selected Set of Books';
+  end if;
+  if lower(btrim(tax_type)) <> 'liability' then
     raise exception 'Tax GL must be Liability';
   end if;
 
