@@ -1165,8 +1165,9 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         persist({ ...store, glMasters: normalizedGlMasters });
       }
 
+      let assignmentSyncWarning = '';
       if (store.glAssignments.length > 0) {
-        const { error: assignmentErr } = await supabase.from('gl_assignments').upsert(store.glAssignments.map(a => ({
+        const scopedPayload = store.glAssignments.map(a => ({
           id: a.id,
           organization_id: organizationId,
           set_of_books_id: a.setOfBooksId,
@@ -1187,8 +1188,47 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           created_at: a.created_at,
           updated_by: userName,
           updated_at: now(),
-        })), { onConflict: 'id' });
-        if (assignmentErr) throw assignmentErr;
+        }));
+
+        const { error: assignmentErr } = await supabase
+          .from('gl_assignments')
+          .upsert(scopedPayload, { onConflict: 'id' });
+
+        if (assignmentErr) {
+          const msg = String((assignmentErr as any)?.message || '').toLowerCase();
+          const missingScopeColumn = msg.includes("assignment_scope") && (msg.includes('schema cache') || msg.includes('column'));
+          if (!missingScopeColumn) throw assignmentErr;
+
+          const legacyPayload = store.glAssignments
+            .filter(a => (a.assignmentScope || 'MATERIAL') === 'MATERIAL')
+            .map(a => ({
+              id: a.id,
+              organization_id: organizationId,
+              set_of_books_id: a.setOfBooksId,
+              material_master_type: a.materialMasterType,
+              inventory_gl: a.inventoryGL || null,
+              purchase_gl: a.purchaseGL || null,
+              cogs_gl: a.cogsGL || null,
+              sales_gl: a.salesGL || null,
+              discount_gl: a.discountGL || null,
+              tax_gl: a.taxGL || null,
+              seeded_by_system: !!a.seeded_by_system,
+              template_version: a.template_version || DEFAULT_TEMPLATE_VERSION,
+              created_by: a.created_by || userName,
+              created_at: a.created_at,
+              updated_by: userName,
+              updated_at: now(),
+            }));
+
+          if (legacyPayload.length > 0) {
+            const { error: legacyErr } = await supabase
+              .from('gl_assignments')
+              .upsert(legacyPayload, { onConflict: 'id' });
+            if (legacyErr) throw legacyErr;
+          }
+
+          assignmentSyncWarning = ' PARTYGROUP mappings are saved locally; apply latest DB migration and retry sync.';
+        }
       }
 
       if (store.setupLogs.length > 0) {
@@ -1241,7 +1281,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         })), { onConflict: 'id' });
       }
 
-      setSuccess('Company Configuration saved locally and synced to database tables.');
+      setSuccess(`Company Configuration saved locally and synced to database tables.${assignmentSyncWarning}`);
     } catch (e: any) {
       setError(`Saved locally but database sync failed. ${e?.message || 'Please check your connection and retry.'}`);
     }
