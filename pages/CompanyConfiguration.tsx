@@ -435,12 +435,24 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
     defaultGlTemplate.forEach((tpl) => {
       const baseCode = String(tpl.code);
-      const generatedCode = codeExists.has(baseCode) ? `${baseCode}-${Date.now().toString().slice(-4)}` : baseCode;
-      const found = glExisting.find(g => g.glName.toLowerCase() === tpl.glName.toLowerCase() && g.glType === tpl.glType);
+      const found = glExisting.find(g =>
+        (g.glName.toLowerCase() === tpl.glName.toLowerCase() && g.glType === tpl.glType)
+        || g.glCode === baseCode
+      );
       if (found) {
         keyToGlId.set(tpl.key, found.id);
+        codeExists.add(found.glCode);
         return;
       }
+
+      let generatedCode = baseCode;
+      let suffix = 1;
+      while (codeExists.has(generatedCode)) {
+        generatedCode = `${baseCode}-${String(suffix).padStart(2, '0')}`;
+        suffix += 1;
+      }
+      codeExists.add(generatedCode);
+
       const glId = getId();
       const isControl = tpl.key === 'customerControl' || tpl.key === 'supplierControl';
       createdGL.push({
