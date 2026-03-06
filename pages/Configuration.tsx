@@ -224,6 +224,8 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const [importType, setImportType] = useState<string | null>(null);
     const [previewData, setPreviewData] = useState<any[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const pharmacyLogoInputRef = useRef<HTMLInputElement>(null);
+    const dashboardLogoInputRef = useRef<HTMLInputElement>(null);
 
     const [demoBusinessType, setDemoBusinessType] = useState<DemoBusinessType>('RETAIL');
     const [duplicateHandlingMode, setDuplicateHandlingMode] = useState<DuplicateHandlingMode>('SKIP');
@@ -425,6 +427,40 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     };
 
 
+
+
+    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'pharmacyLogoUrl' | 'dashboardLogoUrl') => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const allowedTypes = ['image/png', 'image/jpg', 'image/jpeg'];
+        if (!allowedTypes.includes(file.type.toLowerCase())) {
+            addNotification('Invalid file format. Please upload PNG, JPG, or JPEG image only.', 'error');
+            e.target.value = '';
+            return;
+        }
+
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(new Error('Unable to read selected image.'));
+            reader.readAsDataURL(file);
+        }).catch((error: Error) => {
+            addNotification(error.message || 'Unable to upload image.', 'error');
+            return '';
+        });
+
+        if (!dataUrl) return;
+
+        handleConfigChange('displayOptions', target, dataUrl);
+        addNotification(`${target === 'pharmacyLogoUrl' ? 'Pharmacy logo' : 'Dashboard logo'} uploaded successfully.`, 'success');
+        e.target.value = '';
+    };
+
+    const handleLogoRemove = (target: 'pharmacyLogoUrl' | 'dashboardLogoUrl') => {
+        handleConfigChange('displayOptions', target, undefined);
+        addNotification(`${target === 'pharmacyLogoUrl' ? 'Pharmacy logo' : 'Dashboard logo'} removed.`, 'success');
+    };
     const validateVoucherSchemes = (): string | null => {
         const targets: Array<[keyof AppConfigurations, string]> = [
             ['invoiceConfig', 'Sales Bill (GST)'],
@@ -768,6 +804,61 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest max-w-xl">
                                     Print layout and output presets remain available in this section.
                                 </p>
+
+                                <input
+                                    ref={pharmacyLogoInputRef}
+                                    type="file"
+                                    accept=".png,.jpg,.jpeg,image/png,image/jpg,image/jpeg"
+                                    className="hidden"
+                                    onChange={e => handleLogoUpload(e, 'pharmacyLogoUrl')}
+                                />
+                                <input
+                                    ref={dashboardLogoInputRef}
+                                    type="file"
+                                    accept=".png,.jpg,.jpeg,image/png,image/jpg,image/jpeg"
+                                    className="hidden"
+                                    onChange={e => handleLogoUpload(e, 'dashboardLogoUrl')}
+                                />
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <div className="border border-gray-200 bg-gray-50 p-4 space-y-3">
+                                        <h3 className="text-xs font-black text-primary uppercase tracking-widest">Pharmacy Logo Upload</h3>
+                                        <p className="text-[10px] font-bold text-gray-500 uppercase">Used automatically in invoice / bill print templates.</p>
+                                        <div className="h-28 border bg-white grid place-items-center overflow-hidden">
+                                            {localConfigs.displayOptions?.pharmacyLogoUrl ? (
+                                                <img src={localConfigs.displayOptions.pharmacyLogoUrl} alt="Pharmacy logo preview" className="h-full w-full object-contain" />
+                                            ) : (
+                                                <span className="text-[10px] font-black text-gray-400 uppercase">No logo uploaded</span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => pharmacyLogoInputRef.current?.click()} className="px-4 py-2 tally-button-primary text-[10px]">Upload Image</button>
+                                            {!!localConfigs.displayOptions?.pharmacyLogoUrl && (
+                                                <button onClick={() => handleLogoRemove('pharmacyLogoUrl')} className="px-4 py-2 border border-red-300 text-red-600 text-[10px] font-black uppercase">Remove</button>
+                                            )}
+                                        </div>
+                                        <p className="text-[9px] font-bold text-gray-400 uppercase">Allowed formats: PNG / JPG / JPEG</p>
+                                    </div>
+
+                                    <div className="border border-gray-200 bg-gray-50 p-4 space-y-3">
+                                        <h3 className="text-xs font-black text-primary uppercase tracking-widest">Dashboard Logo Upload</h3>
+                                        <p className="text-[10px] font-bold text-gray-500 uppercase">Used in Central Dashboard Display with full-screen cover mode.</p>
+                                        <div className="h-28 border bg-white grid place-items-center overflow-hidden">
+                                            {localConfigs.displayOptions?.dashboardLogoUrl ? (
+                                                <img src={localConfigs.displayOptions.dashboardLogoUrl} alt="Dashboard logo preview" className="h-full w-full object-cover" />
+                                            ) : (
+                                                <span className="text-[10px] font-black text-gray-400 uppercase">No logo uploaded</span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => dashboardLogoInputRef.current?.click()} className="px-4 py-2 tally-button-primary text-[10px]">Upload Image</button>
+                                            {!!localConfigs.displayOptions?.dashboardLogoUrl && (
+                                                <button onClick={() => handleLogoRemove('dashboardLogoUrl')} className="px-4 py-2 border border-red-300 text-red-600 text-[10px] font-black uppercase">Remove</button>
+                                            )}
+                                        </div>
+                                        <p className="text-[9px] font-bold text-gray-400 uppercase">Allowed formats: PNG / JPG / JPEG</p>
+                                    </div>
+                                </div>
                             </div>
                         )}
 

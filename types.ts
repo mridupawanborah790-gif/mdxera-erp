@@ -162,6 +162,8 @@ export interface AppConfigurations {
         printCopies?: number;
         schemeDiscountCalculationBase?: SchemeDiscountCalculationBase;
         taxCalculationBase?: TaxCalculationBaseOption;
+        pharmacyLogoUrl?: string;
+        dashboardLogoUrl?: string;
     };
     modules?: { [key: string]: ModuleConfig };
     discountRules?: DiscountRule[];

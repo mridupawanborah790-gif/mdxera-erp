@@ -34,7 +34,7 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
 const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
     const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(0);
     const [expiryFilter, setExpiryFilter] = useState<'expired' | 'nearExpiry'>('expired');
-    const promoImageUrl = 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
+    const promoImageUrl = configurations.displayOptions?.dashboardLogoUrl || 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
 
     const isVisible = (fieldId: string) => configurations.modules?.dashboard?.fields?.[fieldId] === true;
 
@@ -208,11 +208,11 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                             <div className="bg-gray-100 border-b border-gray-300 px-4 py-2 text-[12px] font-bold uppercase tracking-[0.2em] text-gray-600">
                                 Central Dashboard Display
                             </div>
-                            <div className="flex-1 grid place-items-center bg-gradient-to-b from-white to-gray-50">
+                            <div className="flex-1 grid place-items-center bg-gradient-to-b from-white to-gray-50 overflow-hidden">
                                 <img
                                     src={promoImageUrl}
                                     alt="Dashboard promotion"
-                                    className="w-full max-w-3xl h-[280px] md:h-[360px] object-contain bg-transparent px-4"
+                                    className="w-full h-full min-h-[280px] md:min-h-[360px] object-cover bg-transparent"
                                     loading="lazy"
                                 />
                             </div>
