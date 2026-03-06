@@ -220,8 +220,8 @@ export const navigation: NavItem[] = [
     icon: PurchaseIcon,
     roles: ['owner', 'admin', 'manager', 'purchase'],
     children: [
-      { id: 'automatedPurchaseEntry', name: 'Automated Purchase Bill Entry', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase'] }, 
-      { id: 'manualPurchaseEntry', name: 'Manual Purchase Bill Entry', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase'] }, 
+      { id: 'automatedPurchaseEntry', name: 'Automated Purchase Entry', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase'] }, 
+      { id: 'manualPurchaseEntry', name: 'Manual Purchase Entry', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase'] }, 
       { id: 'deliveryChallans', name: 'Purchase Challan', href: '#', icon: ChallanIcon, roles: ['owner', 'admin', 'manager', 'purchase'] },
       { id: 'purchaseOrders', name: 'Purchase Orders', href: '#', icon: PurchaseIcon, roles: ['owner', 'admin', 'manager', 'purchase'] },
       { id: 'purchaseHistory', name: 'Purchase History', href: '#', icon: SalesHistoryIcon, roles: ['owner', 'admin', 'manager', 'purchase'] },
@@ -292,7 +292,7 @@ export const settingsNavigation: NavItem[] = [];
 export const MASTER_SHORTCUT_OPTIONS = [
     { id: 'pos', label: 'Sale Entry (POS Sales)', color: 'text-green-600', icon: <POSIcon /> },
     { id: 'salesChallans', label: 'Sale Delivery Note', color: 'text-blue-600', icon: <ChallanIcon /> },
-    { id: 'automatedPurchaseEntry', label: 'Automated Purchase Bill Entry', color: 'text-indigo-600', icon: <PurchaseIcon /> }, 
+    { id: 'automatedPurchaseEntry', label: 'Automated Purchase Entry', color: 'text-indigo-600', icon: <PurchaseIcon /> }, 
     { id: 'inventory', label: 'Current Inventory', color: 'text-orange-600', icon: <InventoryIcon /> },
     { id: 'accountPayable', label: 'Accounts Payable', color: 'text-red-600', icon: <PaymentIcon /> },
     { id: 'accountReceivable', label: 'Accounts Receivable', color: 'text-blue-600', icon: <PaymentIcon /> },
