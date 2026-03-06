@@ -52,7 +52,6 @@ import {
     PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig
 } from './types';
 import { navigation } from './constants';
-import { generateNewInvoiceId } from './utils/invoice';
 import { getInventoryPolicy } from './utils/materialType';
 import { resolveUnitsPerStrip } from './utils/pack';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
@@ -517,6 +516,7 @@ const App: React.FC = () => {
             const cancelledPurchase = { ...purchase, status: 'cancelled' as const };
             await storage.saveData('purchases', cancelledPurchase, currentUser);
             await storage.syncPurchaseLedger(cancelledPurchase, currentUser);
+            await storage.markVoucherCancelled('purchase-entry', currentUser, cancelledPurchase.purchaseSerialId, cancelledPurchase.id);
 
             // 2. Reverse inventory (decrement stock that was added by this purchase)
             for (const item of purchase.items) {
@@ -768,6 +768,7 @@ const App: React.FC = () => {
             const cancelledTx = { ...tx, status: 'cancelled' as const };
             await storage.saveData('sales_bill', cancelledTx, currentUser);
             await storage.syncSalesLedger(cancelledTx, currentUser);
+            await storage.markVoucherCancelled(cancelledTx.billType === 'non-gst' ? 'sales-non-gst' : 'sales-gst', currentUser, cancelledTx.id, cancelledTx.id);
             for (const item of tx.items) {
                 const inv = inventory.find(i => i.id === item.inventoryItemId);
                 if (inv) {
@@ -887,9 +888,9 @@ const App: React.FC = () => {
                             return;
                         }
 
-                        const { id, nextExternalNumber } = generateNewInvoiceId(configurations.physicalInventoryConfig, 'physical-inventory');
+                        const reserved = await storage.reserveVoucherNumber('physical-inventory', currentUser);
                         const session: PhysicalInventorySession = {
-                            id,
+                            id: reserved.documentNumber,
                             organization_id: currentUser.organization_id,
                             status: PhysicalInventoryStatus.IN_PROGRESS,
                             startDate: new Date().toISOString(),
@@ -900,15 +901,6 @@ const App: React.FC = () => {
                             performedByName: currentUser.full_name,
                         };
 
-                        const updatedConfig = {
-                            ...configurations,
-                            physicalInventoryConfig: {
-                                ...configurations.physicalInventoryConfig,
-                                currentNumber: nextExternalNumber,
-                            },
-                        };
-
-                        await storage.saveData('configurations', updatedConfig, currentUser);
                         await storage.saveData('physical_inventory', session, currentUser);
                         await loadData(currentUser, 'background');
                     }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
@@ -919,7 +911,9 @@ const App: React.FC = () => {
                             status: PhysicalInventoryStatus.CANCELLED,
                             endDate: new Date().toISOString(),
                         };
-                        return storage.saveData('physical_inventory', cancelledSession, currentUser).then(() => loadData(currentUser!, 'background'));
+                        return storage.saveData('physical_inventory', cancelledSession, currentUser)
+                            .then(() => storage.markVoucherCancelled('physical-inventory', currentUser!, cancelledSession.id, cancelledSession.id))
+                            .then(() => loadData(currentUser!, 'background'));
                     }}
                 />;
             case 'suppliers':

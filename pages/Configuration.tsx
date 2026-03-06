@@ -430,7 +430,10 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
             ['invoiceConfig', 'Sales Bill (GST)'],
             ['nonGstInvoiceConfig', 'Sales Bill (Non-GST)'],
             ['purchaseConfig', 'Purchase Entry / Supplier Invoice'],
-            ['purchaseOrderConfig', 'Purchase Order']
+            ['purchaseOrderConfig', 'Purchase Order'],
+            ['salesChallanConfig', 'Sales Challan'],
+            ['deliveryChallanConfig', 'Delivery Challan'],
+            ['physicalInventoryConfig', 'Physical Inventory']
         ];
 
         const seen = new Set<string>();
@@ -914,6 +917,9 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                 {renderVoucherSeriesInput('Sales Bill (Non-GST)', 'nonGstInvoiceConfig', localConfigs, handleConfigChange)}
                                 {renderVoucherSeriesInput('Purchase Entry / Supplier Invoice', 'purchaseConfig', localConfigs, handleConfigChange)}
                                 {renderVoucherSeriesInput('Purchase Order', 'purchaseOrderConfig', localConfigs, handleConfigChange)}
+                                {renderVoucherSeriesInput('Sales Challan', 'salesChallanConfig', localConfigs, handleConfigChange)}
+                                {renderVoucherSeriesInput('Delivery Challan', 'deliveryChallanConfig', localConfigs, handleConfigChange)}
+                                {renderVoucherSeriesInput('Physical Inventory', 'physicalInventoryConfig', localConfigs, handleConfigChange)}
                             </div>
                         )}
 
@@ -949,7 +955,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                 }
 
                                 const systemFy = getFinancialYearLabel();
-                                const voucherConfigKeys: Array<keyof AppConfigurations> = ['invoiceConfig', 'nonGstInvoiceConfig', 'purchaseConfig', 'purchaseOrderConfig'];
+                                const voucherConfigKeys: Array<keyof AppConfigurations> = ['invoiceConfig', 'nonGstInvoiceConfig', 'purchaseConfig', 'purchaseOrderConfig', 'salesChallanConfig', 'deliveryChallanConfig', 'physicalInventoryConfig'];
                                 const normalizedConfigs = voucherConfigKeys.reduce((acc, configKey) => {
                                     const existing = ((localConfigs[configKey] as InvoiceNumberConfig) || getVoucherSchemeDefaults());
                                     const safeCurrent = Math.max(Number(existing.currentNumber || existing.startingNumber || 1), Number(existing.startingNumber || 1));

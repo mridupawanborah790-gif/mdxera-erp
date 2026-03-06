@@ -4,9 +4,8 @@ import Card from '../components/Card';
 import POS from '../components/POS';
 import Modal from '../components/Modal';
 import { SalesChallan, BillItem, InventoryItem, Customer, RegisteredPharmacy, AppConfigurations, SalesChallanStatus, Medicine, Purchase } from '../types';
-import { generateNewInvoiceId } from '../utils/invoice';
 // Fix: Verified storage service exports include updateSalesChallanStatus and updateChallanStatus
-import { saveData, updateSalesChallanStatus, updateChallanStatus } from '../services/storageService';
+import { reserveVoucherNumber, updateSalesChallanStatus, updateChallanStatus } from '../services/storageService';
 
 interface SalesChallansProps {
     salesChallans: SalesChallan[];
@@ -71,7 +70,12 @@ const SalesChallans: React.FC<SalesChallansProps> = ({
     };
 
     const handleChallanSave = async (tx: any) => {
-        const { id: serialId, nextExternalNumber } = generateNewInvoiceId(configurations.salesChallanConfig, 'sales-challan');
+        if (!currentUser) {
+            addNotification('User context missing for voucher number generation.', 'error');
+            return;
+        }
+        const reserved = await reserveVoucherNumber('sales-challan', currentUser);
+        const serialId = reserved.documentNumber;
         const challan: SalesChallan = {
             id: crypto.randomUUID(),
             organization_id: currentUser?.organization_id || '',
@@ -88,12 +92,6 @@ const SalesChallans: React.FC<SalesChallansProps> = ({
         };
 
         await onAddChallan(challan);
-        const latestConfig = { ...configurations };
-        latestConfig.salesChallanConfig = {
-            ...(configurations.salesChallanConfig || { prefix: 'SC-', startingNumber: 1, paddingLength: 6, currentNumber: 1, useFiscalYear: false }),
-            currentNumber: nextExternalNumber
-        };
-        await saveData('configurations', latestConfig, currentUser);
         addNotification(`Sales Challan ${serialId} recorded.`, "success");
         setActiveTab('list');
     };

@@ -175,7 +175,14 @@ export const fetchPhysicalInventory = (user: RegisteredPharmacy) => getData('phy
 // Added missing fetchEWayBills function
 export const fetchEWayBills = (user: RegisteredPharmacy) => getData('ewaybills', [], user);
 
-export type VoucherDocumentType = 'sales-gst' | 'sales-non-gst' | 'purchase-entry' | 'purchase-order';
+export type VoucherDocumentType =
+    | 'sales-gst'
+    | 'sales-non-gst'
+    | 'purchase-entry'
+    | 'purchase-order'
+    | 'sales-challan'
+    | 'delivery-challan'
+    | 'physical-inventory';
 
 interface VoucherReservationResult {
     documentNumber: string;
@@ -194,6 +201,12 @@ const getVoucherConfigKey = (docType: VoucherDocumentType): keyof AppConfigurati
             return 'purchaseConfig';
         case 'purchase-order':
             return 'purchaseOrderConfig';
+        case 'sales-challan':
+            return 'salesChallanConfig';
+        case 'delivery-challan':
+            return 'deliveryChallanConfig';
+        case 'physical-inventory':
+            return 'physicalInventoryConfig';
         default:
             return 'invoiceConfig';
     }
@@ -233,6 +246,25 @@ export const reserveVoucherNumber = async (docType: VoucherDocumentType, user: R
         nextNumber: payload.next_number,
         remainingCount: payload.remaining_count ?? null
     };
+};
+
+export const markVoucherCancelled = async (
+    docType: VoucherDocumentType,
+    user: RegisteredPharmacy,
+    documentNumber: string,
+    referenceId?: string
+): Promise<void> => {
+    const { error } = await supabase.rpc('log_voucher_number_event', {
+        p_organization_id: user.organization_id,
+        p_document_type: docType,
+        p_event_type: 'cancelled',
+        p_document_number: documentNumber,
+        p_reference_id: referenceId || null,
+    });
+
+    if (error) {
+        throw new Error(parseNetworkAndApiError(error));
+    }
 };
 
 /**
