@@ -237,10 +237,10 @@ const POS = forwardRef<any, POSProps>(({
             try {
                 generatedId = (await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!)).documentNumber;
             } catch (reservationError) {
-                // Keep sales flow resilient when RPC-based voucher reservation is temporarily unavailable.
-                generatedId = currentInvoiceNo;
                 const errorMessage = reservationError instanceof Error ? reservationError.message : 'Voucher reservation failed';
-                console.warn('Voucher reservation failed, falling back to local invoice number:', errorMessage);
+                addNotification(`Unable to reserve voucher number. ${errorMessage}`, 'error');
+                setIsSaving(false);
+                return;
             }
         }
 

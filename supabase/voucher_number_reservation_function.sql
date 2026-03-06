@@ -49,7 +49,20 @@ BEGIN
     END IF;
 
     cfg := COALESCE(to_jsonb(cfg_row)->cfg_key, '{}'::jsonb);
-    v_fy := COALESCE(cfg->>'fy', CONCAT(EXTRACT(YEAR FROM CURRENT_DATE)::int, '-', LPAD(((EXTRACT(YEAR FROM CURRENT_DATE)::int + 1) % 100)::text, 2, '0')));
+    -- FY is system-controlled and always derived from current date/company FY cycle (Apr-Mar).
+    v_fy := CONCAT(
+        CASE WHEN EXTRACT(MONTH FROM CURRENT_DATE)::int >= 4
+            THEN EXTRACT(YEAR FROM CURRENT_DATE)::int
+            ELSE EXTRACT(YEAR FROM CURRENT_DATE)::int - 1
+        END,
+        '-',
+        LPAD((
+            CASE WHEN EXTRACT(MONTH FROM CURRENT_DATE)::int >= 4
+                THEN (EXTRACT(YEAR FROM CURRENT_DATE)::int + 1) % 100
+                ELSE EXTRACT(YEAR FROM CURRENT_DATE)::int % 100
+            END
+        )::text, 2, '0')
+    );
     v_prefix := COALESCE(cfg->>'prefix', 'INV');
     v_start := GREATEST(1, COALESCE((cfg->>'startingNumber')::integer, 1));
     v_end := NULLIF(cfg->>'endNumber', '')::integer;

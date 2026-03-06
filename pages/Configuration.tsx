@@ -103,27 +103,28 @@ const buildNumberPreview = (cfg: Partial<InvoiceNumberConfig>, number: number) =
 
 function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, configs: AppConfigurations, onChange: (section: keyof AppConfigurations, field: string, value: any) => void) {
     const merged = { ...getVoucherSchemeDefaults(), ...(configs[key] as InvoiceNumberConfig || {}) };
-    const currentUsedNumber = Math.max(Number(merged.currentNumber || merged.startingNumber || 1), Number(merged.startingNumber || 1));
-    const nextNumber = currentUsedNumber + 1;
-    const remainingCount = merged.endNumber ? Math.max(0, Number(merged.endNumber) - currentUsedNumber) : null;
+    const systemFy = getFinancialYearLabel();
+    const currentRunningNumber = Math.max(Number(merged.currentNumber || merged.startingNumber || 1), Number(merged.startingNumber || 1));
+    const lastUsedNumber = Math.max(Number(merged.startingNumber || 1), currentRunningNumber - 1);
+    const remainingCount = merged.endNumber ? Math.max(0, Number(merged.endNumber) - currentRunningNumber + 1) : null;
 
     return (
         <div className="p-4 border border-gray-200 bg-gray-50 mb-4">
             <h3 className="text-xs font-black text-primary uppercase tracking-widest mb-3">{label}</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div><label className="text-[9px] font-black text-gray-400 uppercase">FY</label><input type="text" value={merged.fy || ''} onChange={e => onChange(key, 'fy', e.target.value)} className="w-full tally-input uppercase" placeholder="2025-26"/></div>
+                <div><label className="text-[9px] font-black text-gray-400 uppercase">FY</label><input type="text" value={systemFy} readOnly className="w-full tally-input uppercase bg-gray-100" placeholder="2025-26"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">Prefix</label><input type="text" value={merged.prefix} onChange={e => onChange(key, 'prefix', e.target.value)} className="w-full tally-input uppercase"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">Start No</label><input type="number" min={1} value={merged.startingNumber} onChange={e => onChange(key, 'startingNumber', parseInt(e.target.value || '1', 10))} className="w-full tally-input"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">End No (Optional)</label><input type="number" min={1} value={merged.endNumber ?? ''} onChange={e => onChange(key, 'endNumber', e.target.value ? parseInt(e.target.value, 10) : undefined)} className="w-full tally-input"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">Padding</label><input type="number" min={1} value={merged.paddingLength} onChange={e => onChange(key, 'paddingLength', parseInt(e.target.value || '1', 10))} className="w-full tally-input"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">Reset Rule</label><input type="text" value="FY-wise" disabled className="w-full tally-input bg-gray-100"/></div>
-                <div><label className="text-[9px] font-black text-gray-400 uppercase">Current Running No</label><input type="number" min={1} value={merged.currentNumber} onChange={e => onChange(key, 'currentNumber', parseInt(e.target.value || '1', 10))} className="w-full tally-input"/></div>
+                <div><label className="text-[9px] font-black text-gray-400 uppercase">Current Running No</label><input type="number" min={1} value={currentRunningNumber} readOnly className="w-full tally-input bg-gray-100"/></div>
                 <div className="pt-4"><Toggle label="Use FY in Number" enabled={merged.useFiscalYear} setEnabled={v => onChange(key, 'useFiscalYear', v)} /></div>
             </div>
             <div className="mt-4 p-3 border border-dashed border-gray-300 bg-white text-[10px] uppercase font-black tracking-wide grid grid-cols-1 md:grid-cols-4 gap-2">
-                <div><span className="text-gray-500">Current Used:</span> {buildNumberPreview(merged, currentUsedNumber)}</div>
-                <div><span className="text-gray-500">Next Number:</span> {buildNumberPreview(merged, nextNumber)}</div>
-                <div><span className="text-gray-500">Preview:</span> {buildNumberPreview(merged, nextNumber)}</div>
+                <div><span className="text-gray-500">Last Used:</span> {buildNumberPreview({ ...merged, fy: systemFy }, lastUsedNumber)}</div>
+                <div><span className="text-gray-500">Current Running:</span> {buildNumberPreview({ ...merged, fy: systemFy }, currentRunningNumber)}</div>
+                <div><span className="text-gray-500">Preview:</span> {buildNumberPreview({ ...merged, fy: systemFy }, currentRunningNumber)}</div>
                 <div><span className="text-gray-500">Remaining:</span> {remainingCount === null ? 'Unlimited' : remainingCount}</div>
             </div>
         </div>
@@ -433,12 +434,13 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         ];
 
         const seen = new Set<string>();
+        const systemFy = getFinancialYearLabel();
         for (const [key, label] of targets) {
             const cfg = { ...getVoucherSchemeDefaults(), ...(localConfigs[key] as InvoiceNumberConfig || {}) };
             if (cfg.endNumber && cfg.endNumber < cfg.startingNumber) return `${label}: End No cannot be less than Start No.`;
             if (cfg.currentNumber < cfg.startingNumber) return `${label}: Current Running No cannot be less than Start No.`;
             if (cfg.endNumber && cfg.currentNumber > cfg.endNumber) return `${label}: Number range exhausted. Increase End No before saving.`;
-            const overlapKey = `${cfg.fy || ''}|${cfg.prefix || ''}`.toUpperCase();
+            const overlapKey = `${systemFy}|${cfg.prefix || ''}`.toUpperCase();
             if (seen.has(overlapKey)) return `${label}: Overlapping configuration detected (same FY + Prefix).`;
             seen.add(overlapKey);
         }
@@ -939,7 +941,32 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
                         <div className="mt-auto pt-10 border-t border-gray-200 flex justify-end gap-4">
                             <button onClick={() => setLocalConfigs(configurations)} className="px-10 py-3 tally-border bg-white text-gray-500 font-black uppercase text-[11px] hover:bg-red-50 transition-colors">Discard</button>
-                            <button onClick={() => { const error = validateVoucherSchemes(); if (error) { addNotification(error, 'error'); return; } onUpdateConfigurations(localConfigs); addNotification('Accepted Changes.', 'success'); }} className="px-16 py-4 tally-button-primary shadow-2xl uppercase text-[11px] font-black tracking-[0.3em] active:scale-95">Accept (Enter)</button>
+                            <button onClick={() => {
+                                const error = validateVoucherSchemes();
+                                if (error) {
+                                    addNotification(error, 'error');
+                                    return;
+                                }
+
+                                const systemFy = getFinancialYearLabel();
+                                const voucherConfigKeys: Array<keyof AppConfigurations> = ['invoiceConfig', 'nonGstInvoiceConfig', 'purchaseConfig', 'purchaseOrderConfig'];
+                                const normalizedConfigs = voucherConfigKeys.reduce((acc, configKey) => {
+                                    const existing = ((localConfigs[configKey] as InvoiceNumberConfig) || getVoucherSchemeDefaults());
+                                    const safeCurrent = Math.max(Number(existing.currentNumber || existing.startingNumber || 1), Number(existing.startingNumber || 1));
+                                    return {
+                                        ...acc,
+                                        [configKey]: {
+                                            ...existing,
+                                            fy: systemFy,
+                                            currentNumber: safeCurrent,
+                                            resetRule: 'financial-year'
+                                        }
+                                    };
+                                }, localConfigs as AppConfigurations);
+
+                                onUpdateConfigurations(normalizedConfigs);
+                                addNotification('Accepted Changes.', 'success');
+                            }} className="px-16 py-4 tally-button-primary shadow-2xl uppercase text-[11px] font-black tracking-[0.3em] active:scale-95">Accept (Enter)</button>
                         </div>
                     </Card>
                 </div>
