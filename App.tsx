@@ -677,7 +677,7 @@ const App: React.FC = () => {
             .eq('organization_id', organizationId)
             .eq('set_of_books_id', activeBookId)
             .eq('assignment_scope', 'PARTY_GROUP')
-            .eq('party_type', partyType)
+.eq('party_type', partyType === 'customer' ? 'Customer' : 'Supplier')
             .eq('party_group', trimmedGroup)
             .limit(1);
 
@@ -750,9 +750,10 @@ const App: React.FC = () => {
     const handleAddCustomer = async (data: Omit<Customer, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
         if (!currentUser) return;
         try {
-            const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '120000');
-            if (!mappedControlGlId) throw new Error('Customer Control GL (120000) not found in active Set of Books.');
-            const customerPayload = { ...data, customerGroup: data.customerGroup || 'Sundry Debtors', controlGlId: mappedControlGlId, opening_balance: balance };
+            const customerGroup = data.customerGroup || 'Sundry Debtors';
+            const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'customer', customerGroup, '120000');
+            if (!mappedControlGlId) throw new Error('Customer Control GL not found for selected Customer Group in active Set of Books.');
+            const customerPayload = { ...data, customerGroup, controlGlId: mappedControlGlId, opening_balance: balance };
             const newCust = await storage.saveData('customers', customerPayload, currentUser);
             if (balance !== 0) {
                 await storage.addLedgerEntry({
@@ -801,10 +802,13 @@ const App: React.FC = () => {
     const handleUpdateCustomer = async (customer: Customer) => {
         if (!currentUser) return;
         try {
+            const customerGroup = customer.customerGroup || 'Sundry Debtors';
+            const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'customer', customerGroup, '120000');
+            if (!mappedControlGlId) throw new Error('Customer Control GL not found for selected Customer Group in active Set of Books.');
             const customerPayload = {
                 ...customer,
-                customerGroup: customer.customerGroup || 'Sundry Debtors',
-                controlGlId: undefined,
+                customerGroup,
+                controlGlId: mappedControlGlId,
             };
             await storage.saveData('customers', customerPayload, currentUser);
             await loadData(currentUser, 'background');
