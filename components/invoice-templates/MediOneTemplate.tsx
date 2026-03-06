@@ -22,7 +22,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
     const items = (bill.items || []).map((item, idx) => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
       
-      const rate = item.rate ?? item.mrp ?? 0;
+      const rate = item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
       const lineAmount = billedQty * rate;

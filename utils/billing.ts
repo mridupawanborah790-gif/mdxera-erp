@@ -33,6 +33,14 @@ const getSchemeDiscountAmount = (item: BillItem, schemeBaseAmount: number): numb
   return Math.max(0, item.schemeDiscountAmount || 0);
 };
 
+const isGstInclusiveMrp = (item: BillItem) => item.taxBasis === 'I-Incl.MRP';
+
+const getDisplayRateForLine = (item: BillItem) => {
+  if (isGstInclusiveMrp(item)) return Number(item.mrp || 0);
+  return Number(item.rate || item.mrp || 0);
+};
+
+
 export const resolveBillingSettings = (configurations?: AppConfigurations) => {
   const schemeBase = (configurations?.displayOptions?.schemeDiscountCalculationBase || 'after_trade_discount') as SchemeDiscountCalculationBase;
   const taxBase = (configurations?.displayOptions?.taxCalculationBase || 'after_all_discounts') as TaxCalculationBaseOption;
@@ -52,8 +60,7 @@ export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = fal
   items.forEach(item => {
     const unitsPerPack = item.unitsPerPack || 1;
     const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-    const rate = item.rate || item.mrp || 0;
-    const itemGross = billedQty * rate;
+    const itemGross = billedQty * getDisplayRateForLine(item);
     const itemTradeDisc = itemGross * ((item.discountPercent || 0) / 100);
     const itemFlatDisc = Math.max(0, item.itemFlatDiscount || 0);
     const lineAfterTrade = Math.max(0, itemGross - itemTradeDisc - itemFlatDisc);
@@ -74,8 +81,12 @@ export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = fal
       return lineAfterAllDiscounts;
     })();
 
-    if (!isNonGst && lineTaxBase > 0) {
-      taxBaseLines.push({ base: lineTaxBase, gstPercent: item.gstPercent || 0 });
+    if (lineTaxBase > 0) {
+      const gstPercent = isNonGst ? 0 : (item.gstPercent || 0);
+      const taxableBase = isGstInclusiveMrp(item) && gstPercent > 0
+        ? lineTaxBase / (1 + (gstPercent / 100))
+        : lineTaxBase;
+      taxBaseLines.push({ base: taxableBase, gstPercent });
     }
   });
 
@@ -89,18 +100,21 @@ export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = fal
   })();
 
   const safeBillDiscount = Math.max(0, billDiscount);
-  const taxableValue = Math.max(0, selectedTaxBaseAmount - safeBillDiscount);
+  const discountedTaxBase = Math.max(0, selectedTaxBaseAmount - safeBillDiscount);
+  const scale = selectedTaxBaseAmount > 0 ? (discountedTaxBase / selectedTaxBaseAmount) : 0;
+  const taxableValue = isNonGst
+    ? discountedTaxBase
+    : taxBaseLines.reduce((sum, line) => sum + (line.base * scale), 0);
 
   let tax = 0;
   if (!isNonGst && selectedTaxBaseAmount > 0) {
-    const scale = taxableValue / selectedTaxBaseAmount;
     tax = taxBaseLines.reduce((sum, line) => {
       const discountedBase = line.base * scale;
       return sum + discountedBase * ((line.gstPercent || 0) / 100);
     }, 0);
   }
 
-  const baseTotal = taxableValue + tax;
+  const baseTotal = isNonGst ? taxableValue : (taxableValue + tax);
   const autoRoundOff = Math.round(baseTotal) - baseTotal;
 
   return {
@@ -123,8 +137,7 @@ export const calculateLineNetAmount = (item: BillItem, configurations?: AppConfi
   const { schemeBase } = resolveBillingSettings(configurations);
   const unitsPerPack = item.unitsPerPack || 1;
   const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-  const rate = item.rate || item.mrp || 0;
-  const gross = billedQty * rate;
+  const gross = billedQty * getDisplayRateForLine(item);
   const trade = gross * ((item.discountPercent || 0) / 100);
   const flat = Math.max(0, item.itemFlatDiscount || 0);
   const afterTrade = Math.max(0, gross - trade - flat);

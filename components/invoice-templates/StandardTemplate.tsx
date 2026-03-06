@@ -13,7 +13,7 @@ const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
 
   const itemsWithCalculations = useMemo(() => {
     return (bill.items || []).map(item => {
-      const rate = Number(item.rate ?? item.mrp ?? 0);
+      const rate = Number(item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0));
       const tradeDiscount = (rate * item.quantity) * ((item.discountPercent || 0) / 100);
       const schemeDiscount = item.schemeDiscountAmount || 0;
       const totalDiscount = tradeDiscount + schemeDiscount;
@@ -103,7 +103,7 @@ const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   <p className="text-[8pt] text-gray-400">Pack: {item.unit}</p>
                 </td>
                 <td className="p-2 text-center">{item.quantity}</td>
-                <td className="p-2 text-right">{(item.rate || item.mrp || 0).toFixed(2)}</td>
+                <td className="p-2 text-right">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)).toFixed(2)}</td>
                 <td className="p-2 text-right">{item.discountPercent || 0}</td>
                 <td className="p-2 text-right font-bold">{(item.amount || 0).toFixed(2)}</td>
               </tr>
