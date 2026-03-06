@@ -336,12 +336,18 @@ export const getData = async (tableName: string, defaultValue: any[] = [], user:
     return cached.length > 0 ? cached : defaultValue;
 };
 
-export const getDataById = async <T = any>(tableName: string, id: string, user: RegisteredPharmacy | null): Promise<T | null> => {
+export const getDataById = async <T = any>(
+    tableName: string,
+    id: string,
+    user: RegisteredPharmacy | null,
+    options: { forceRefresh?: boolean } = {}
+): Promise<T | null> => {
     if (!user || !id) return null;
 
     const storeKey = tableName.toUpperCase() as keyof typeof STORES;
+    const { forceRefresh = false } = options;
     const cached = await idb.get(STORES[storeKey], id);
-    if (cached) {
+    if (cached && !forceRefresh) {
         return cached as T;
     }
 
