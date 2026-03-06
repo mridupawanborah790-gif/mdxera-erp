@@ -12,6 +12,17 @@ import { getDataById } from '../services/storageService';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
+const addressFields: Array<{ label: string; key: 'address_line1' | 'address_line2' | 'area' | 'city' | 'district' | 'state' | 'pincode' | 'country' }> = [
+    { label: 'Address Line 1', key: 'address_line1' },
+    { label: 'Address Line 2', key: 'address_line2' },
+    { label: 'Area / Locality', key: 'area' },
+    { label: 'City', key: 'city' },
+    { label: 'District', key: 'district' },
+    { label: 'State', key: 'state' },
+    { label: 'Pincode', key: 'pincode' },
+    { label: 'Country', key: 'country' },
+] as const;
+
 interface SuppliersProps {
     suppliers: Supplier[];
     onAddSupplier: (data: Omit<Supplier, 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<SupplierQuickResult>;
@@ -160,6 +171,18 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                         <span>GSTIN: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.gst_number || 'N/A'}</span></span>
                                         <span>PH: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.mobile || selectedSupplier.phone || 'N/A'}</span></span>
                                         <span>Opening: <span className="text-gray-900 tally-font-data-mono">₹{(selectedSupplier.opening_balance || 0).toFixed(2)}</span></span>
+                                    </div>
+
+                                    <div className="w-full mt-5 p-4 bg-white border border-gray-300 rounded">
+                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-3">Address Details</p>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                            {addressFields.map(({ label, key }) => (
+                                                <div key={key} className="min-w-0">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{label}</p>
+                                                    <p className={`${uniformTextStyle} !text-base text-gray-900 break-words`}>{selectedSupplier[key] || '—'}</p>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
