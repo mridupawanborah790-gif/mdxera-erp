@@ -78,13 +78,17 @@ type BankMaster = AuditFields & {
 type GLAssignment = AuditFields & {
   id: string;
   setOfBooksId: string;
-  materialMasterType: MaterialType;
+  assignmentScope?: 'MATERIAL' | 'PARTY_GROUP';
+  materialMasterType?: MaterialType;
+  partyType?: 'Customer' | 'Supplier';
+  partyGroup?: string;
+  controlGL?: string;
   inventoryGL?: string;
-  purchaseGL: string;
-  cogsGL: string;
+  purchaseGL?: string;
+  cogsGL?: string;
   salesGL?: string;
-  discountGL: string;
-  taxGL: string;
+  discountGL?: string;
+  taxGL?: string;
   seeded_by_system: boolean;
   template_version: string;
 };
@@ -120,7 +124,7 @@ type Store = {
   bankMasters: BankMaster[];
 };
 
-type TabId = 'company' | 'books' | 'gl' | 'assignment' | 'bank' | 'wizard';
+type TabId = 'company' | 'books' | 'gl' | 'assignment' | 'customerGroupAssignment' | 'bank' | 'wizard';
 
 
 type CompanyConfigurationProps = {
@@ -133,6 +137,7 @@ const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'gl', label: 'GL Master' },
   { id: 'bank', label: 'Bank Master' },
   { id: 'assignment', label: 'GL Assignment' },
+  { id: 'customerGroupAssignment', label: 'Customer Group GL Assignment' },
   { id: 'wizard', label: 'Setup Wizard / Defaults Log' },
 ];
 
@@ -166,6 +171,18 @@ const getId = () => {
   });
 };
 
+
+const normalizeScope = (value: unknown): 'MATERIAL' | 'PARTY_GROUP' => {
+  return String(value || '').toUpperCase() === 'PARTY_GROUP' ? 'PARTY_GROUP' : 'MATERIAL';
+};
+
+const normalizePartyType = (value: unknown): 'Customer' | 'Supplier' | undefined => {
+  const v = String(value || '').trim().toLowerCase();
+  if (v === 'customer') return 'Customer';
+  if (v === 'supplier') return 'Supplier';
+  return undefined;
+};
+
 const defaultGlTemplate: Array<{ key: string; glName: string; glType: GLType; code: number }> = [
   { key: 'customerControl', glName: 'Accounts Receivable (Trade Debtors)', glType: 'Asset', code: 120000 },
   { key: 'defaultDemoBank', glName: 'Default Bank A/c', glType: 'Bank', code: 100900 },
@@ -191,6 +208,14 @@ const CONTROL_GL_CODES = {
   customer: '120000',
   supplier: '210000',
 } as const;
+
+const defaultCustomerGroupConfig: Array<{ group: string; glCode: number; glName: string }> = [
+  { group: 'Sundry Debtors', glCode: 110001, glName: 'Sundry Debtors A/c' },
+  { group: 'Cash Customers', glCode: 110005, glName: 'Cash Customer Receivable A/c' },
+  { group: 'Corporate Customers', glCode: 110002, glName: 'Corporate Customer Receivable A/c' },
+  { group: 'Retail Customers', glCode: 110003, glName: 'Retail Customer Receivable A/c' },
+  { group: 'Government Customers', glCode: 110004, glName: 'Government Customer Receivable A/c' },
+];
 
 const requiredFieldRules: Record<MaterialType, { inventoryRequired: boolean; salesRequired: boolean }> = {
   'Trading Goods': { inventoryRequired: true, salesRequired: true },
@@ -225,6 +250,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const [booksForm, setBooksForm] = useState({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', defaultCustomerGLId: '', defaultSupplierGLId: '', defaultDemoBankGLId: '', defaultBankGLId: '', activeStatus: 'Active' as Status, postingCount: 0 });
   const [glForm, setGlForm] = useState({ setOfBooksId: '', glCode: '', glName: '', alias: '', glType: 'Asset' as GLType, accountGroup: '', subgroup: '', mappingStructure: '', postingAllowed: true, controlAccount: false, activeStatus: 'Active' as Status, postingCount: 0 });
   const [assignmentForm, setAssignmentForm] = useState({ setOfBooksId: '', materialMasterType: 'Trading Goods' as MaterialType, inventoryGL: '', purchaseGL: '', cogsGL: '', salesGL: '', discountGL: '', taxGL: '' });
+  const [customerGroupAssignmentForm, setCustomerGroupAssignmentForm] = useState({ setOfBooksId: '', customerGroup: 'Sundry Debtors', controlGL: '' });
 
   const [bankForm, setBankForm] = useState({ companyCodeId: '', linkedBankGlId: '', bankName: '', accountName: '', accountNumber: '', ifscCode: '', branchName: '', accountType: 'Savings' as AccountType, openingBalance: 0, openingDate: '', defaultBank: false, activeStatus: 'Active' as Status });
 
@@ -232,6 +258,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const [editingBooksId, setEditingBooksId] = useState<string | null>(null);
   const [editingGlId, setEditingGlId] = useState<string | null>(null);
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
+  const [editingCustomerGroupAssignmentId, setEditingCustomerGroupAssignmentId] = useState<string | null>(null);
   const [editingBankId, setEditingBankId] = useState<string | null>(null);
 
   const persist = (next: Store) => {
@@ -336,13 +363,17 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           glAssignments: (assignmentRes.data || []).map((a: any) => ({
             id: a.id,
             setOfBooksId: a.set_of_books_id,
-            materialMasterType: a.material_master_type,
+            assignmentScope: normalizeScope(a.assignment_scope),
+            materialMasterType: normalizeScope(a.assignment_scope) === 'MATERIAL' ? a.material_master_type : undefined,
+            partyType: normalizePartyType(a.party_type),
+            partyGroup: a.party_group || '',
+            controlGL: a.control_gl_id || '',
             inventoryGL: a.inventory_gl || '',
-            purchaseGL: a.purchase_gl,
-            cogsGL: a.cogs_gl,
+            purchaseGL: a.purchase_gl || '',
+            cogsGL: a.cogs_gl || '',
             salesGL: a.sales_gl || '',
-            discountGL: a.discount_gl,
-            taxGL: a.tax_gl,
+            discountGL: a.discount_gl || '',
+            taxGL: a.tax_gl || '',
             seeded_by_system: !!a.seeded_by_system,
             template_version: a.template_version || DEFAULT_TEMPLATE_VERSION,
             created_by: a.created_by || SYSTEM_USER,
@@ -404,6 +435,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const booksById = useMemo(() => new Map(store.setOfBooks.map(s => [s.id, s])), [store.setOfBooks]);
   const glById = useMemo(() => new Map(store.glMasters.map(g => [g.id, g])), [store.glMasters]);
   const glForSelectedBooks = useMemo(() => store.glMasters.filter(g => g.setOfBooksId === assignmentForm.setOfBooksId && g.activeStatus === 'Active'), [store.glMasters, assignmentForm.setOfBooksId]);
+  const customerGroupGlOptions = useMemo(() => store.glMasters.filter(g => g.setOfBooksId === customerGroupAssignmentForm.setOfBooksId && g.activeStatus === 'Active' && g.glType === 'Asset'), [store.glMasters, customerGroupAssignmentForm.setOfBooksId]);
   const booksForCompanyForm = useMemo(() => {
     if (!editingCompanyId) return [];
     return store.setOfBooks.filter(b => b.companyCodeId === editingCompanyId && b.activeStatus === 'Active');
@@ -473,7 +505,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         glCode: generatedCode,
         glName: tpl.glName,
         glType: tpl.glType,
-        postingAllowed: true,
+        postingAllowed: !isControl,
         controlAccount: isControl,
         activeStatus: 'Active',
         seeded_by_system: true,
@@ -487,17 +519,71 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       keyToGlId.set(tpl.key, glId);
     });
 
+    defaultCustomerGroupConfig.forEach((cfg) => {
+      const code = String(cfg.glCode);
+      const found = glExisting.find(g => g.glCode === code || g.glName.toLowerCase() === cfg.glName.toLowerCase());
+      if (found) {
+        keyToGlId.set(`customerGroup:${cfg.group}`, found.id);
+        codeExists.add(found.glCode);
+        return;
+      }
+
+      let generatedCode = code;
+      let suffix = 1;
+      while (codeExists.has(generatedCode)) {
+        generatedCode = `${code}-${String(suffix).padStart(2, '0')}`;
+        suffix += 1;
+      }
+      codeExists.add(generatedCode);
+
+      const glId = getId();
+      createdGL.push({
+        id: glId,
+        setOfBooksId,
+        glCode: generatedCode,
+        glName: cfg.glName,
+        glType: 'Asset',
+        accountGroup: 'Current Assets',
+        subgroup: 'Trade Receivables',
+        postingAllowed: false,
+        controlAccount: true,
+        activeStatus: 'Active',
+        seeded_by_system: true,
+        template_version: DEFAULT_TEMPLATE_VERSION,
+        postingCount: 0,
+        created_at: stamp,
+        updated_at: stamp,
+        created_by: SYSTEM_USER,
+        updated_by: SYSTEM_USER,
+      });
+      keyToGlId.set(`customerGroup:${cfg.group}`, glId);
+    });
+
     const assignmentSeed: Array<Omit<GLAssignment, keyof AuditFields | 'id'>> = [
-      { setOfBooksId, materialMasterType: 'Trading Goods', inventoryGL: keyToGlId.get('invTrading') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
-      { setOfBooksId, materialMasterType: 'Finished Goods', inventoryGL: keyToGlId.get('invFinished') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
-      { setOfBooksId, materialMasterType: 'Consumables', inventoryGL: keyToGlId.get('invConsumable') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
-      { setOfBooksId, materialMasterType: 'Service Material', inventoryGL: '', purchaseGL: keyToGlId.get('serviceCost') || keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('serviceCost') || keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
-      { setOfBooksId, materialMasterType: 'Packaging', inventoryGL: keyToGlId.get('invPackaging') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { assignmentScope: 'MATERIAL', setOfBooksId, materialMasterType: 'Trading Goods', inventoryGL: keyToGlId.get('invTrading') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { assignmentScope: 'MATERIAL', setOfBooksId, materialMasterType: 'Finished Goods', inventoryGL: keyToGlId.get('invFinished') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { assignmentScope: 'MATERIAL', setOfBooksId, materialMasterType: 'Consumables', inventoryGL: keyToGlId.get('invConsumable') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { assignmentScope: 'MATERIAL', setOfBooksId, materialMasterType: 'Service Material', inventoryGL: '', purchaseGL: keyToGlId.get('serviceCost') || keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('serviceCost') || keyToGlId.get('cogs') || '', salesGL: keyToGlId.get('sales') || '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      { assignmentScope: 'MATERIAL', setOfBooksId, materialMasterType: 'Packaging', inventoryGL: keyToGlId.get('invPackaging') || '', purchaseGL: keyToGlId.get('purchase') || '', cogsGL: keyToGlId.get('cogs') || '', salesGL: '', discountGL: keyToGlId.get('discount') || '', taxGL: keyToGlId.get('outputCgst') || keyToGlId.get('payables') || '', seeded_by_system: true, template_version: DEFAULT_TEMPLATE_VERSION },
+      ...defaultCustomerGroupConfig.map((cfg) => ({
+        assignmentScope: 'PARTY_GROUP' as const,
+        setOfBooksId,
+        partyType: 'Customer' as const,
+        partyGroup: cfg.group,
+        controlGL: keyToGlId.get(`customerGroup:${cfg.group}`) || '',
+        seeded_by_system: true,
+        template_version: DEFAULT_TEMPLATE_VERSION,
+      })),
     ];
 
     const existingAssignments = activeStore.glAssignments.filter(a => a.setOfBooksId === setOfBooksId);
     const createdAssignments = assignmentSeed
-      .filter(a => !existingAssignments.some(e => e.materialMasterType === a.materialMasterType))
+      .filter((a) => {
+        if (a.assignmentScope === 'PARTY_GROUP') {
+          return !existingAssignments.some(e => (e.assignmentScope || 'MATERIAL') === 'PARTY_GROUP' && e.partyType === a.partyType && e.partyGroup === a.partyGroup);
+        }
+        return !existingAssignments.some(e => (e.assignmentScope || 'MATERIAL') === 'MATERIAL' && e.materialMasterType === a.materialMasterType);
+      })
       .map(a => ({ id: getId(), ...a, created_at: stamp, updated_at: stamp, created_by: SYSTEM_USER, updated_by: SYSTEM_USER }));
 
     const next: Store = {
@@ -506,7 +592,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         if (book.id !== setOfBooksId) return book;
         return {
           ...book,
-          defaultCustomerGLId: keyToGlId.get('customerControl') || book.defaultCustomerGLId,
+          defaultCustomerGLId: keyToGlId.get('customerControl') || keyToGlId.get('customerGroup:Sundry Debtors') || book.defaultCustomerGLId,
           defaultSupplierGLId: keyToGlId.get('supplierControl') || book.defaultSupplierGLId,
           defaultDemoBankGLId: keyToGlId.get('defaultDemoBank') || book.defaultDemoBankGLId,
           defaultBankGLId: keyToGlId.get('defaultDemoBank') || book.defaultBankGLId,
@@ -521,8 +607,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         setOfBooksId,
         action: mode === 'create' ? 'DEFAULT_CREATED' : 'RESET_DEFAULT',
         message: mode === 'create'
-          ? 'Default GL, customer/supplier control GLs, default demo bank GL, and assignments seeded.'
-          : 'Reset to default (append mode) with customer/supplier control GL assignment.',
+          ? 'Default GL, customer/supplier control GLs, customer-group GLs, and assignments seeded.'
+          : 'Reset to default (append mode) with customer/supplier and customer-group control GL assignment.',
         created_at: stamp,
         created_by: SYSTEM_USER,
       }],
@@ -558,7 +644,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const filteredCompanies = store.companies.filter(c => [c.code, c.description, c.status, c.isDefault ? 'default' : ''].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredBooks = store.setOfBooks.filter(b => [b.setOfBooksId, b.description, b.defaultCurrency].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredGL = store.glMasters.filter(g => [g.glCode, g.glName, g.glType].join(' ').toLowerCase().includes(search.toLowerCase()));
-  const filteredAssignments = store.glAssignments.filter(a => [a.materialMasterType, booksById.get(a.setOfBooksId)?.setOfBooksId || ''].join(' ').toLowerCase().includes(search.toLowerCase()));
+  const filteredAssignments = store.glAssignments.filter(a => (a.assignmentScope || 'MATERIAL') === 'MATERIAL' && [a.materialMasterType, booksById.get(a.setOfBooksId)?.setOfBooksId || ''].join(' ').toLowerCase().includes(search.toLowerCase()));
+  const filteredCustomerGroupAssignments = store.glAssignments.filter(a => (a.assignmentScope || 'MATERIAL') === 'PARTY_GROUP' && a.partyType === 'Customer' && [a.partyGroup, booksById.get(a.setOfBooksId)?.setOfBooksId || ''].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredBanks = store.bankMasters.filter(b => [b.bankName, b.accountName, b.accountNumber, b.ifscCode, b.branchName].join(' ').toLowerCase().includes(search.toLowerCase()));
 
   const onSaveCompany = () => {
@@ -790,7 +877,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     setSuccess('');
     if (!assignmentForm.setOfBooksId) return setError('Set of Books is required.');
 
-    const duplicate = store.glAssignments.some(a => a.setOfBooksId === assignmentForm.setOfBooksId && a.materialMasterType === assignmentForm.materialMasterType && a.id !== editingAssignmentId);
+    const duplicate = store.glAssignments.some(a => (a.assignmentScope || 'MATERIAL') === 'MATERIAL' && a.setOfBooksId === assignmentForm.setOfBooksId && a.materialMasterType === assignmentForm.materialMasterType && a.id !== editingAssignmentId);
     if (duplicate) return setError('Unique mapping rule violated for Set of Books + Material Type.');
 
     const validationError = validateAssignment(assignmentForm);
@@ -804,7 +891,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           id: getId(),
           assignmentId: editingAssignmentId,
           setOfBooksId: current.setOfBooksId,
-          materialMasterType: current.materialMasterType,
+          materialMasterType: current.materialMasterType || 'Trading Goods',
           changed_at: stamp,
           changed_by: SYSTEM_USER,
           effective_from: stamp,
@@ -812,15 +899,84 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           next: assignmentForm,
         });
       }
-      persist({ ...store, glAssignments: store.glAssignments.map(a => a.id === editingAssignmentId ? { ...a, ...assignmentForm, updated_at: stamp, updated_by: SYSTEM_USER } : a) });
+      persist({ ...store, glAssignments: store.glAssignments.map(a => a.id === editingAssignmentId ? { ...a, assignmentScope: 'MATERIAL', ...assignmentForm, updated_at: stamp, updated_by: SYSTEM_USER } : a) });
       setSuccess('Assignment updated. If postings exist, this applies only to future postings.');
     } else {
-      persist({ ...store, glAssignments: [...store.glAssignments, { id: getId(), ...assignmentForm, seeded_by_system: false, template_version: DEFAULT_TEMPLATE_VERSION, created_at: stamp, updated_at: stamp, created_by: SYSTEM_USER, updated_by: SYSTEM_USER }] });
+      persist({ ...store, glAssignments: [...store.glAssignments, { id: getId(), assignmentScope: 'MATERIAL', ...assignmentForm, seeded_by_system: false, template_version: DEFAULT_TEMPLATE_VERSION, created_at: stamp, updated_at: stamp, created_by: SYSTEM_USER, updated_by: SYSTEM_USER }] });
       setSuccess('Assignment created.');
     }
 
     setAssignmentForm({ setOfBooksId: '', materialMasterType: 'Trading Goods', inventoryGL: '', purchaseGL: '', cogsGL: '', salesGL: '', discountGL: '', taxGL: '' });
     setEditingAssignmentId(null);
+  };
+
+
+  const onSaveCustomerGroupAssignment = () => {
+    setError('');
+    setSuccess('');
+    if (!customerGroupAssignmentForm.setOfBooksId) return setError('Set of Books is required.');
+    if (!customerGroupAssignmentForm.customerGroup.trim()) return setError('Customer Group is required.');
+    if (!customerGroupAssignmentForm.controlGL) return setError('Default GL Code is required.');
+
+    const selectedGl = glById.get(customerGroupAssignmentForm.controlGL);
+    if (!selectedGl) return setError('Selected GL is invalid.');
+    if (selectedGl.setOfBooksId !== customerGroupAssignmentForm.setOfBooksId) return setError('Selected GL must belong to selected Set of Books.');
+    if (selectedGl.glType !== 'Asset') return setError('Customer Group GL must be Asset type.');
+
+    const duplicate = store.glAssignments.some(a =>
+      (a.assignmentScope || 'MATERIAL') === 'PARTY_GROUP'
+      && a.partyType === 'Customer'
+      && a.setOfBooksId === customerGroupAssignmentForm.setOfBooksId
+      && (a.partyGroup || '').toLowerCase() === customerGroupAssignmentForm.customerGroup.trim().toLowerCase()
+      && a.id !== editingCustomerGroupAssignmentId
+    );
+    if (duplicate) return setError('One Customer Group can be linked with only one GL.');
+
+    const stamp = now();
+    if (editingCustomerGroupAssignmentId) {
+      persist({ ...store, glAssignments: store.glAssignments.map(a => a.id === editingCustomerGroupAssignmentId ? {
+        ...a,
+        assignmentScope: 'PARTY_GROUP',
+        partyType: 'Customer',
+        partyGroup: customerGroupAssignmentForm.customerGroup.trim(),
+        controlGL: customerGroupAssignmentForm.controlGL,
+        materialMasterType: undefined,
+        inventoryGL: '',
+        purchaseGL: '',
+        cogsGL: '',
+        salesGL: '',
+        discountGL: '',
+        taxGL: '',
+        updated_at: stamp,
+        updated_by: SYSTEM_USER,
+      } : a) });
+      setSuccess('Customer Group GL assignment updated.');
+    } else {
+      persist({ ...store, glAssignments: [...store.glAssignments, {
+        id: getId(),
+        setOfBooksId: customerGroupAssignmentForm.setOfBooksId,
+        assignmentScope: 'PARTY_GROUP',
+        partyType: 'Customer',
+        partyGroup: customerGroupAssignmentForm.customerGroup.trim(),
+        controlGL: customerGroupAssignmentForm.controlGL,
+        inventoryGL: '',
+        purchaseGL: '',
+        cogsGL: '',
+        salesGL: '',
+        discountGL: '',
+        taxGL: '',
+        seeded_by_system: false,
+        template_version: DEFAULT_TEMPLATE_VERSION,
+        created_at: stamp,
+        updated_at: stamp,
+        created_by: SYSTEM_USER,
+        updated_by: SYSTEM_USER,
+      }] });
+      setSuccess('Customer Group GL assignment created.');
+    }
+
+    setCustomerGroupAssignmentForm({ setOfBooksId: '', customerGroup: 'Sundry Debtors', controlGL: '' });
+    setEditingCustomerGroupAssignmentId(null);
   };
 
   const runResetDefaults = (setOfBooksId: string) => {
@@ -1014,13 +1170,17 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           id: a.id,
           organization_id: organizationId,
           set_of_books_id: a.setOfBooksId,
-          material_master_type: a.materialMasterType,
-          inventory_gl: a.inventoryGL || null,
-          purchase_gl: a.purchaseGL,
-          cogs_gl: a.cogsGL,
-          sales_gl: a.salesGL || null,
-          discount_gl: a.discountGL,
-          tax_gl: a.taxGL,
+          assignment_scope: a.assignmentScope || 'MATERIAL',
+          material_master_type: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? a.materialMasterType : null,
+          party_type: (a.assignmentScope || 'MATERIAL') === 'PARTY_GROUP' ? a.partyType : null,
+          party_group: (a.assignmentScope || 'MATERIAL') === 'PARTY_GROUP' ? (a.partyGroup || null) : null,
+          control_gl_id: (a.assignmentScope || 'MATERIAL') === 'PARTY_GROUP' ? (a.controlGL || null) : null,
+          inventory_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.inventoryGL || null) : null,
+          purchase_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.purchaseGL || null) : null,
+          cogs_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.cogsGL || null) : null,
+          sales_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.salesGL || null) : null,
+          discount_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.discountGL || null) : null,
+          tax_gl: (a.assignmentScope || 'MATERIAL') === 'MATERIAL' ? (a.taxGL || null) : null,
           seeded_by_system: !!a.seeded_by_system,
           template_version: a.template_version || DEFAULT_TEMPLATE_VERSION,
           created_by: a.created_by || userName,
@@ -1187,6 +1347,23 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           </div>
         )}
 
+
+        {activeTab === 'customerGroupAssignment' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <select className="tally-input" value={customerGroupAssignmentForm.setOfBooksId} onChange={e => setCustomerGroupAssignmentForm({ ...customerGroupAssignmentForm, setOfBooksId: e.target.value, controlGL: '' })}><option value="">Set of Books*</option>{store.setOfBooks.map(b => <option key={b.id} value={b.id}>{b.setOfBooksId}</option>)}</select>
+              <select className="tally-input" value={customerGroupAssignmentForm.customerGroup} onChange={e => setCustomerGroupAssignmentForm({ ...customerGroupAssignmentForm, customerGroup: e.target.value })}>{defaultCustomerGroupConfig.map(cfg => <option key={cfg.group} value={cfg.group}>{cfg.group}</option>)}</select>
+              <select className="tally-input" value={customerGroupAssignmentForm.controlGL} onChange={e => setCustomerGroupAssignmentForm({ ...customerGroupAssignmentForm, controlGL: e.target.value })}><option value="">Default GL Code*</option>{customerGroupGlOptions.map(gl => <option key={gl.id} value={gl.id}>{gl.glCode} - {gl.glName}</option>)}</select>
+              <button className="bg-primary text-white text-xs font-black uppercase px-3" onClick={onSaveCustomerGroupAssignment}>{editingCustomerGroupAssignmentId ? 'Update' : 'Add'}</button>
+            </div>
+
+            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Customer Group</th><th className="p-2 text-left">Default GL Code</th><th className="p-2 text-left">Default GL Name</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredCustomerGroupAssignments.map(a => {
+              const mappedGl = glById.get(a.controlGL || '');
+              return <tr key={a.id} className="border-t"><td className="p-2">{a.partyGroup}</td><td className="p-2">{mappedGl?.glCode || '-'}</td><td className="p-2">{mappedGl?.glName || '-'}</td><td className="p-2">{mappedGl?.activeStatus || 'Active'}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setCustomerGroupAssignmentForm({ setOfBooksId: a.setOfBooksId, customerGroup: a.partyGroup || 'Sundry Debtors', controlGL: a.controlGL || '' }); setEditingCustomerGroupAssignmentId(a.id); }}>Edit</button></td></tr>;
+            })}</tbody></table></div>
+          </div>
+        )}
+
         {activeTab === 'bank' && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
@@ -1222,8 +1399,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               <button className="bg-primary text-white text-xs font-black uppercase px-3" onClick={onSaveAssignment}>{editingAssignmentId ? 'Update' : 'Add'}</button>
             </div>
             <div className="text-[11px] text-gray-500 font-bold uppercase p-2 border border-yellow-200 bg-yellow-50">Posting behavior: if mapping missing for selected Set of Books + Material Type, block posting with message: “GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.”</div>
-            <button className="text-xs font-bold text-primary" onClick={() => exportCsv('gl-assignments.csv', ['Books', 'Material Type', 'Inventory', 'Purchase', 'COGS', 'Sales', 'Discount', 'Tax'], filteredAssignments.map(a => [booksById.get(a.setOfBooksId)?.setOfBooksId || '', a.materialMasterType, glById.get(a.inventoryGL || '')?.glCode || '', glById.get(a.purchaseGL)?.glCode || '', glById.get(a.cogsGL)?.glCode || '', glById.get(a.salesGL || '')?.glCode || '', glById.get(a.discountGL)?.glCode || '', glById.get(a.taxGL)?.glCode || '']))}>Export CSV</button>
-            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Books</th><th className="p-2 text-left">Material</th><th className="p-2 text-left">GL Summary</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredAssignments.map(a => <tr key={a.id} className="border-t"><td className="p-2">{booksById.get(a.setOfBooksId)?.setOfBooksId}</td><td className="p-2">{a.materialMasterType}</td><td className="p-2">Inv:{glById.get(a.inventoryGL || '')?.glCode || '-'} | Pur:{glById.get(a.purchaseGL)?.glCode} | COGS:{glById.get(a.cogsGL)?.glCode} | Sales:{glById.get(a.salesGL || '')?.glCode || '-'} | Tax:{glById.get(a.taxGL)?.glCode}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setAssignmentForm({ setOfBooksId: a.setOfBooksId, materialMasterType: a.materialMasterType, inventoryGL: a.inventoryGL || '', purchaseGL: a.purchaseGL, cogsGL: a.cogsGL, salesGL: a.salesGL || '', discountGL: a.discountGL, taxGL: a.taxGL }); setEditingAssignmentId(a.id); }}>Edit</button></td></tr>)}</tbody></table></div>
+            <button className="text-xs font-bold text-primary" onClick={() => exportCsv('gl-assignments.csv', ['Books', 'Material Type', 'Inventory', 'Purchase', 'COGS', 'Sales', 'Discount', 'Tax'], filteredAssignments.map(a => [booksById.get(a.setOfBooksId)?.setOfBooksId || '', a.materialMasterType, glById.get(a.inventoryGL || '')?.glCode || '', glById.get(a.purchaseGL || '')?.glCode || '', glById.get(a.cogsGL || '')?.glCode || '', glById.get(a.salesGL || '')?.glCode || '', glById.get(a.discountGL || '')?.glCode || '', glById.get(a.taxGL || '')?.glCode || '']))}>Export CSV</button>
+            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Books</th><th className="p-2 text-left">Material</th><th className="p-2 text-left">GL Summary</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredAssignments.map(a => <tr key={a.id} className="border-t"><td className="p-2">{booksById.get(a.setOfBooksId)?.setOfBooksId}</td><td className="p-2">{a.materialMasterType}</td><td className="p-2">Inv:{glById.get(a.inventoryGL || '')?.glCode || '-'} | Pur:{glById.get(a.purchaseGL || '')?.glCode} | COGS:{glById.get(a.cogsGL || '')?.glCode} | Sales:{glById.get(a.salesGL || '')?.glCode || '-'} | Tax:{glById.get(a.taxGL || '')?.glCode}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setAssignmentForm({ setOfBooksId: a.setOfBooksId, materialMasterType: (a.materialMasterType || 'Trading Goods') as MaterialType, inventoryGL: a.inventoryGL || '', purchaseGL: a.purchaseGL || '', cogsGL: a.cogsGL || '', salesGL: a.salesGL || '', discountGL: a.discountGL || '', taxGL: a.taxGL || '' }); setEditingAssignmentId(a.id); }}>Edit</button></td></tr>)}</tbody></table></div>
           </div>
         )}
 
