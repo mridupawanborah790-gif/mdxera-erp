@@ -311,7 +311,7 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
   return (
     <div className="flex flex-col h-full bg-app-bg overflow-hidden" onKeyDown={handleEnterToNextField}>
       <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
-        <span className="text-[10px] font-black uppercase tracking-widest">Accounting Voucher Creation (Purchase) – Manual Purchase Entry</span>
+        <span className="text-[10px] font-black uppercase tracking-widest">Accounting Voucher Creation (Purchase) – Manual Supplier Invoice</span>
         <span className="text-[10px] font-black uppercase text-accent">No. {purchaseNo}</span>
       </div>
 

@@ -250,7 +250,7 @@ const App: React.FC = () => {
 
                 // Entry screens that require save/discard confirmation
                 const entryScreens = [
-                    'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry',
+                    'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualSupplierInvoice',
                     'physicalInventory', 'deliveryChallans', 'salesChallans'
                 ];
 
@@ -272,7 +272,7 @@ const App: React.FC = () => {
         try {
             if (currentPage === 'pos' || currentPage === 'nonGstPos') {
                 if (posRef.current) await posRef.current.handleSave();
-            } else if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry') {
+            } else if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
                 if (purchaseFormRef.current) await purchaseFormRef.current.handleSubmit();
             }
             // Navigate after successful save
@@ -285,7 +285,7 @@ const App: React.FC = () => {
     const handleEscDiscard = () => {
         setShowEscSavePrompt(false);
         // Clear any specific component states if needed
-        if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry') {
+        if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
             setEditingPurchase(null);
             setSourceChallansForPurchase(null);
         }
@@ -370,7 +370,7 @@ const App: React.FC = () => {
 
     const handleNavigate = useCallback((pageId: string) => {
         setCurrentPage(pageId);
-        if (pageId !== 'manualPurchaseEntry' && pageId !== 'automatedPurchaseEntry') {
+        if (pageId !== 'manualSupplierInvoice' && pageId !== 'automatedPurchaseEntry') {
             setEditingPurchase(null);
         }
         if (pageId !== 'dashboard') {
@@ -799,7 +799,7 @@ const App: React.FC = () => {
 
     const handleConvertToPurchase = (items: PurchaseItem[], supplier: string, ids: string[]) => {
         setSourceChallansForPurchase({ items, supplier, ids });
-        handleNavigate('manualPurchaseEntry');
+        handleNavigate('manualSupplierInvoice');
     };
 
     const handleConvertToInvoice = (items: BillItem[], customer: Customer, ids: string[]) => {
@@ -898,7 +898,7 @@ const App: React.FC = () => {
                 return <PurchaseHistory
                     purchases={purchases} distributors={suppliers} onViewDetails={setViewPurchase}
                     onCancelPurchase={handleCancelPurchase} inventory={inventory} medicines={medicines}
-                    onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualPurchaseEntry'); }}
+                    onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualSupplierInvoice'); }}
                     onAddInventoryItem={handleAddInventoryItem}
                     currentUser={currentUser} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                 />;
