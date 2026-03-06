@@ -7,6 +7,7 @@ import { handleEnterToNextField } from '../utils/navigation';
 import { STATE_DISTRICT_MAP } from '../constants';
 import { getOutstandingBalance } from '../utils/helpers';
 import { generateUUID } from '../services/storageService';
+import { lookupPincode } from '../utils/pincode';
 
 const states = Object.keys(STATE_DISTRICT_MAP).sort();
 const supplierCategories = ["Wholesaler", "Manufacturer", "C&F", "Local Vendor", "Distributor", "Agency"];
@@ -61,6 +62,7 @@ export const AddSupplierModal: React.FC<{
     const [form, setForm] = useState(createInitialState());
     const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
     const [isSaving, setIsSaving] = useState(false);
+    const [isPincodeLoading, setIsPincodeLoading] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -87,7 +89,21 @@ export const AddSupplierModal: React.FC<{
             return;
         }
 
-        if (name === 'state') {
+        if (name === 'pincode') {
+            const cleaned = value.replace(/\D/g, '').slice(0, 6);
+            setForm(prev => ({ ...prev, pincode: cleaned }));
+            if (cleaned.length === 6) {
+                setIsPincodeLoading(true);
+                lookupPincode(cleaned).then(res => {
+                    if (res) {
+                        setForm(prev => ({ ...prev, district: res.district, state: res.state }));
+                    }
+                    setIsPincodeLoading(false);
+                });
+            }
+        } else if (name === 'supplier_group') {
+            setForm(prev => ({ ...prev, supplier_group: value, control_gl_id: '' }));
+        } else if (name === 'state') {
              setForm(prev => ({ ...prev, state: value, district: '' }));
         } else if (name === 'address_line1') {
              setForm(prev => ({ ...prev, address_line1: value, address: value }));
@@ -145,7 +161,7 @@ export const AddSupplierModal: React.FC<{
                         </div>
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Control GL</label>
-                            <input type="text" readOnly value={form.control_gl_id ? `Mapped (${form.control_gl_id})` : 'Auto-map from Set of Books'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
+                            <input type="text" readOnly value={form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
                         </div>
                     </div>
                 </section>
@@ -188,7 +204,9 @@ export const AddSupplierModal: React.FC<{
                             <input type="text" name="area" value={form.area || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Area / Locality" />
                         </div>
                         <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Pincode</label>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1 flex items-center">Pincode
+                                {isPincodeLoading && <svg className="animate-spin ml-2 h-3 w-3 text-primary" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>}
+                            </label>
                             <input type="text" name="pincode" value={form.pincode || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" placeholder="6 digit pincode" />
                         </div>
                         <div>
@@ -257,9 +275,11 @@ export const EditSupplierModal: React.FC<{
     onClose: () => void;
     onSave: (supplier: Supplier) => void;
     supplier: Supplier;
-}> = ({ isOpen, onClose, onSave, supplier }) => {
+    defaultControlGlId?: string;
+}> = ({ isOpen, onClose, onSave, supplier, defaultControlGlId }) => {
     const [form, setForm] = useState(supplier);
     const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
+    const [isPincodeLoading, setIsPincodeLoading] = useState(false);
 
     const resolveOpeningDate = (source: Supplier) => {
         const openingEntry = (source.ledger || []).find((entry) => entry.type === 'openingBalance');
@@ -270,13 +290,14 @@ export const EditSupplierModal: React.FC<{
         if (isOpen) {
             setForm({
                 ...supplier,
+                control_gl_id: supplier.control_gl_id || defaultControlGlId || '',
                 address_line1: supplier.address_line1 || supplier.address || '',
                 address: supplier.address_line1 || supplier.address || '',
                 payment_details: { ...supplier.payment_details }
             });
             setAsOfDate(resolveOpeningDate(supplier));
         }
-    }, [isOpen, supplier]);
+    }, [isOpen, supplier, defaultControlGlId]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value, type } = e.target;
@@ -290,7 +311,21 @@ export const EditSupplierModal: React.FC<{
             return;
         }
 
-        if (name === 'state') {
+        if (name === 'pincode') {
+            const cleaned = value.replace(/\D/g, '').slice(0, 6);
+            setForm(prev => ({ ...prev, pincode: cleaned }));
+            if (cleaned.length === 6) {
+                setIsPincodeLoading(true);
+                lookupPincode(cleaned).then(res => {
+                    if (res) {
+                        setForm(prev => ({ ...prev, district: res.district, state: res.state }));
+                    }
+                    setIsPincodeLoading(false);
+                });
+            }
+        } else if (name === 'supplier_group') {
+            setForm(prev => ({ ...prev, supplier_group: value, control_gl_id: '' }));
+        } else if (name === 'state') {
             setForm(prev => ({ ...prev, state: value, district: '' }));
         } else if (name === 'address_line1') {
             setForm(prev => ({ ...prev, address_line1: value, address: value }));
@@ -340,7 +375,7 @@ export const EditSupplierModal: React.FC<{
                         </div>
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Control GL</label>
-                            <input type="text" readOnly value={form.control_gl_id ? `Mapped (${form.control_gl_id})` : 'Auto-map from Set of Books'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
+                            <input type="text" readOnly value={form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
                         </div>
                     </div>
                 </section>
@@ -383,7 +418,9 @@ export const EditSupplierModal: React.FC<{
                             <input type="text" name="area" value={form.area || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
                         </div>
                         <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Pincode</label>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1 flex items-center">Pincode
+                                {isPincodeLoading && <svg className="animate-spin ml-2 h-3 w-3 text-primary" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>}
+                            </label>
                             <input type="text" name="pincode" value={form.pincode || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
                         </div>
                         <div>

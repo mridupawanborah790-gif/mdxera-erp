@@ -646,6 +646,48 @@ const App: React.FC = () => {
         return glRows?.[0]?.id;
     }, []);
 
+    const resolvePartyControlGlByGroup = useCallback(async (
+        organizationId: string,
+        partyType: 'customer' | 'supplier',
+        partyGroup: string,
+        fallbackGlCode: string,
+    ): Promise<string | undefined> => {
+        const trimmedGroup = (partyGroup || '').trim();
+        if (!trimmedGroup) {
+            return resolveControlGlByCode(organizationId, fallbackGlCode);
+        }
+
+        const { data: bookRows, error: bookErr } = await supabase
+            .from('set_of_books')
+            .select('id')
+            .eq('organization_id', organizationId)
+            .eq('active_status', 'Active')
+            .order('created_at', { ascending: true })
+            .limit(1);
+
+        if (bookErr) throw bookErr;
+        const activeBookId = bookRows?.[0]?.id;
+        if (!activeBookId) {
+            return resolveControlGlByCode(organizationId, fallbackGlCode);
+        }
+
+        const { data: assignmentRows, error: assignmentErr } = await supabase
+            .from('gl_assignments')
+            .select('control_gl_id')
+            .eq('organization_id', organizationId)
+            .eq('set_of_books_id', activeBookId)
+            .eq('assignment_scope', 'PARTY_GROUP')
+            .eq('party_type', partyType)
+            .eq('party_group', trimmedGroup)
+            .limit(1);
+
+        if (assignmentErr) throw assignmentErr;
+        const mappedGlId = assignmentRows?.[0]?.control_gl_id as string | undefined;
+        if (mappedGlId) return mappedGlId;
+
+        return resolveControlGlByCode(organizationId, fallbackGlCode);
+    }, [resolveControlGlByCode]);
+
     const refreshDefaultControlGls = useCallback(async () => {
         if (!currentUser) return;
         try {
@@ -669,12 +711,13 @@ const App: React.FC = () => {
         if (!currentUser) throw new Error("Unauthorized");
         addNotification('Saving…', 'warning');
         try {
-            const mappedControlGlId = await resolveControlGlByCode(currentUser.organization_id, '210000');
+            const supplierGroup = data.supplier_group || 'Sundry Creditors';
+            const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'supplier', supplierGroup, '210000');
             if (!mappedControlGlId) throw new Error('Supplier Control GL (210000) not found in active Set of Books.');
 
             const result = await createSupplierQuick(currentUser.organization_id, {
                 ...data,
-                supplier_group: data.supplier_group || 'Sundry Creditors',
+                supplier_group: supplierGroup,
                 control_gl_id: mappedControlGlId,
             }, {
                 currentUser,
@@ -735,10 +778,18 @@ const App: React.FC = () => {
         if (!currentUser) return;
         addNotification('Saving…', 'warning');
         try {
-            const result = await createSupplierQuick(currentUser.organization_id, supplier, {
+            const supplierGroup = supplier.supplier_group || 'Sundry Creditors';
+            const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'supplier', supplierGroup, '210000');
+            if (!mappedControlGlId) throw new Error('Supplier Control GL (210000) not found in active Set of Books.');
+
+            const result = await createSupplierQuick(currentUser.organization_id, {
+                ...supplier,
+                supplier_group: supplierGroup,
+                control_gl_id: mappedControlGlId,
+            }, {
                 currentUser,
                 existingSuppliers: suppliers,
-                defaultControlGlId: defaultSupplierControlGlId,
+                defaultControlGlId: mappedControlGlId,
             });
             await loadData(currentUser, 'background');
             addNotification(result.message, result.status === 'duplicate' ? 'warning' : 'success');
