@@ -850,6 +850,22 @@ const App: React.FC = () => {
         addNotification('Customer payment posted with accounting entry.', 'success');
     };
 
+    const handleRecordSupplierPaymentWithAccounting = async (args: {
+        supplierId: string;
+        amount: number;
+        date: string;
+        description: string;
+        paymentMode: string;
+        bankAccountId: string;
+        referenceInvoiceId?: string;
+        referenceInvoiceNumber?: string;
+    }) => {
+        if (!currentUser) return;
+        await storage.recordSupplierPaymentWithAccounting(args, currentUser);
+        await loadData(currentUser, 'background');
+        addNotification('Supplier payment posted with accounting entry.', 'success');
+    };
+
     const handleCancelTransaction = async (id: string) => {
         if (!currentUser) return;
         const tx = transactions.find(t => t.id === id);
@@ -1172,7 +1188,7 @@ const App: React.FC = () => {
             case 'accountReceivable':
                 return <AccountReceivable customers={customers} transactions={transactions} bankOptions={bankOptions as any} onRecordPayment={handleRecordCustomerPaymentWithAccounting} currentUser={currentUser} />;
             case 'accountPayable':
-                return <AccountPayable distributors={suppliers} onRecordPayment={(id, amt, dt, d) => handleRecordPayment(id, amt, dt, d, 'supplier')} currentUser={currentUser} />;
+                return <AccountPayable distributors={suppliers} purchases={purchases} bankOptions={bankOptions as any} onRecordPayment={handleRecordSupplierPaymentWithAccounting} currentUser={currentUser} />;
             case 'salesReturns':
             case 'purchaseReturn':
                 return <Returns
