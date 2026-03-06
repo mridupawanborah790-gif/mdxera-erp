@@ -934,6 +934,139 @@ export const recordCustomerPaymentWithAccounting = async (
 
     return { journalEntryId, journalEntryNumber };
 };
+
+export const recordSupplierPaymentWithAccounting = async (
+    args: {
+        supplierId: string;
+        amount: number;
+        date: string;
+        description: string;
+        paymentMode: string;
+        bankAccountId: string;
+        referenceInvoiceId?: string;
+        referenceInvoiceNumber?: string;
+    },
+    user: RegisteredPharmacy
+): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
+    const supplier = await idb.get(STORES.SUPPLIERS, args.supplierId) as Supplier | undefined;
+    if (!supplier) throw new Error('Supplier not found');
+
+    if (!navigator.onLine) throw new Error('Payment posting with accounting requires online mode.');
+    const { data: bank, error: bankErr } = await supabase
+        .from('bank_master')
+        .select('*')
+        .eq('organization_id', user.organization_id)
+        .eq('id', args.bankAccountId)
+        .maybeSingle();
+    if (bankErr) throw bankErr;
+    if (!bank) throw new Error('Selected bank / cash account not found');
+
+    const postingContext = await loadDefaultPostingContext(user.organization_id);
+    const companyCodeId = postingContext.companyCodeId;
+    const setOfBooksId = postingContext.setOfBooksId;
+
+    const { data: books, error: bookErr } = await supabase
+        .from('set_of_books')
+        .select('default_supplier_gl_id')
+        .eq('organization_id', user.organization_id)
+        .eq('id', setOfBooksId)
+        .single();
+    if (bookErr) throw bookErr;
+    const supplierControlGlId = books?.default_supplier_gl_id;
+    const bankGlId = bank.linkedBankGlId || bank.linked_bank_gl_id;
+    if (!supplierControlGlId) throw new Error('Supplier/Payable GL is not configured for default set of books.');
+    if (!bankGlId) throw new Error('Selected bank has no linked bank GL. Configure in Bank Master.');
+
+    const { data: glRows, error: glErr } = await supabase
+        .from('gl_master')
+        .select('id, gl_code, gl_name')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', setOfBooksId)
+        .in('id', [supplierControlGlId, bankGlId]);
+    if (glErr) throw glErr;
+
+    const glById = new Map((glRows || []).map((g: any) => [String(g.id), g]));
+    const bankGl = glById.get(String(bankGlId));
+    const payableGl = glById.get(String(supplierControlGlId));
+    if (!bankGl || !payableGl) throw new Error('GL Assignment missing for selected bank/supplier control in active Set of Books.');
+
+    const reservedVoucher = await reserveVoucherNumber('purchase-entry', user);
+
+    const { data: header, error: headerError } = await supabase
+        .from('journal_entry_header')
+        .insert({
+            organization_id: user.organization_id,
+            journal_entry_number: reservedVoucher.documentNumber,
+            posting_date: args.date,
+            status: 'Posted',
+            reference_type: 'SUPPLIER_PAYMENT',
+            reference_id: args.referenceInvoiceId || args.supplierId,
+            reference_document_id: args.referenceInvoiceId || args.supplierId,
+            document_type: 'PAYMENT',
+            document_reference: args.referenceInvoiceNumber || args.supplierId,
+            company: companyCodeId,
+            company_code_id: companyCodeId,
+            set_of_books: setOfBooksId,
+            set_of_books_id: setOfBooksId,
+            total_debit: Number(args.amount.toFixed(2)),
+            total_credit: Number(args.amount.toFixed(2)),
+        })
+        .select('id, journal_entry_number')
+        .single();
+    if (headerError) throw headerError;
+
+    const { error: lineError } = await supabase
+        .from('journal_entry_lines')
+        .insert([
+            {
+                organization_id: user.organization_id,
+                journal_entry_id: header.id,
+                reference_document_id: args.referenceInvoiceId || args.supplierId,
+                document_type: 'PAYMENT',
+                line_number: 1,
+                gl_code: String(payableGl.gl_code),
+                gl_name: String(payableGl.gl_name),
+                debit: Number(args.amount.toFixed(2)),
+                credit: 0,
+                line_memo: 'Supplier payable adjusted',
+            },
+            {
+                organization_id: user.organization_id,
+                journal_entry_id: header.id,
+                reference_document_id: args.referenceInvoiceId || args.supplierId,
+                document_type: 'PAYMENT',
+                line_number: 2,
+                gl_code: String(bankGl.gl_code),
+                gl_name: String(bankGl.gl_name),
+                debit: 0,
+                credit: Number(args.amount.toFixed(2)),
+                line_memo: 'Payment made from bank/cash',
+            },
+        ]);
+    if (lineError) throw lineError;
+
+    await addLedgerEntry({
+        id: generateUUID(),
+        date: args.date,
+        type: 'payment',
+        description: args.description,
+        debit: 0,
+        credit: Number(args.amount),
+        balance: 0,
+        paymentMode: args.paymentMode,
+        bankAccountId: args.bankAccountId,
+        bankName: bank.bankName || bank.bank_name,
+        referenceInvoiceId: args.referenceInvoiceId,
+        referenceInvoiceNumber: args.referenceInvoiceNumber,
+        journalEntryId: header.id,
+        journalEntryNumber: header.journal_entry_number,
+    }, { type: 'supplier', id: args.supplierId }, user);
+
+    return {
+        journalEntryId: header.id,
+        journalEntryNumber: header.journal_entry_number,
+    };
+};
 const AUTO_LEDGER_PREFIX = '[AUTO_LEDGER]';
 
 const sortLedgerEntries = (entries: TransactionLedgerItem[]) => {
