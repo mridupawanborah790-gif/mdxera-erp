@@ -462,6 +462,21 @@ const App: React.FC = () => {
         try {
             const savedTx = await storage.addTransaction(tx, currentUser);
 
+            if (!isUpdate && typeof nextCounter === 'number' && Number.isFinite(nextCounter) && nextCounter > 0) {
+                const configKey = tx.billType === 'non-gst' ? 'nonGstInvoiceConfig' : 'invoiceConfig';
+                const existingConfig = (configurations[configKey] || {}) as any;
+                const startingNumber = Number(existingConfig.startingNumber || 1);
+                const safeNextNumber = Math.max(nextCounter, startingNumber);
+
+                setConfigurations(prev => ({
+                    ...prev,
+                    [configKey]: {
+                        ...(prev[configKey] || {}),
+                        currentNumber: safeNextNumber,
+                    }
+                }));
+            }
+
             // Immediate local state update to ensure data shows in history without waiting for background reload.
             if (isUpdate) {
                 setTransactions(prev => prev.map(t => t.id === savedTx.id ? savedTx : t));
