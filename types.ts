@@ -501,6 +501,7 @@ export interface Supplier {
     email?: string;
     website?: string;
     address?: string;
+    address_line1?: string;
     address_line2?: string;
     area?: string;
     pincode?: string;

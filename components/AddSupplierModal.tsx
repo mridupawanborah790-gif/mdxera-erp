@@ -23,6 +23,7 @@ const createInitialState = (): Omit<Supplier, 'ledger' | 'organization_id'> => (
     email: '',
     website: '',
     address: '',
+    address_line1: '',
     address_line2: '',
     area: '',
     pincode: '',
@@ -67,6 +68,8 @@ export const AddSupplierModal: React.FC<{
                 ...createInitialState(),
                 control_gl_id: defaultControlGlId || '',
                 ...prefillData,
+                address_line1: prefillData?.address_line1 || prefillData?.address || '',
+                address: prefillData?.address_line1 || prefillData?.address || '',
             });
             setAsOfDate(new Date().toISOString().split('T')[0]);
         }
@@ -86,6 +89,8 @@ export const AddSupplierModal: React.FC<{
 
         if (name === 'state') {
              setForm(prev => ({ ...prev, state: value, district: '' }));
+        } else if (name === 'address_line1') {
+             setForm(prev => ({ ...prev, address_line1: value, address: value }));
         } else {
              setForm(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) || 0 : value } as any));
         }
@@ -168,6 +173,42 @@ export const AddSupplierModal: React.FC<{
                 </section>
 
                 <section className="space-y-4">
+                    <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Address Information</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="md:col-span-2">
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Address Line 1</label>
+                            <input type="text" name="address_line1" value={form.address_line1 || form.address || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Building / Street / Landmark" />
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Address Line 2</label>
+                            <input type="text" name="address_line2" value={form.address_line2 || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Additional address details" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Area / Locality</label>
+                            <input type="text" name="area" value={form.area || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Area / Locality" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Pincode</label>
+                            <input type="text" name="pincode" value={form.pincode || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" placeholder="6 digit pincode" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">District</label>
+                            <select name="district" value={form.district || ''} onChange={handleChange} disabled={!form.state} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none disabled:bg-gray-100">
+                                <option value="">Select District</option>
+                                {form.state && STATE_DISTRICT_MAP[form.state]?.map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">State</label>
+                            <select name="state" value={form.state || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
+                                <option value="">Select State</option>
+                                {states.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                <section className="space-y-4">
                     <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Banking & Settlements</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
@@ -223,6 +264,8 @@ export const EditSupplierModal: React.FC<{
         if (isOpen) {
             setForm({
                 ...supplier,
+                address_line1: supplier.address_line1 || supplier.address || '',
+                address: supplier.address_line1 || supplier.address || '',
                 payment_details: { ...supplier.payment_details }
             });
         }
@@ -242,6 +285,8 @@ export const EditSupplierModal: React.FC<{
 
         if (name === 'state') {
             setForm(prev => ({ ...prev, state: value, district: '' }));
+        } else if (name === 'address_line1') {
+            setForm(prev => ({ ...prev, address_line1: value, address: value }));
         } else {
             setForm(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) || 0 : value } as any));
         }
@@ -270,6 +315,36 @@ export const EditSupplierModal: React.FC<{
                 <div>
                     <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Mobile No.</label>
                     <input type="text" name="mobile" value={form.mobile || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                </div>
+                <div className="md:col-span-2">
+                    <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Address Line 1</label>
+                    <input type="text" name="address_line1" value={form.address_line1 || form.address || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                </div>
+                <div className="md:col-span-2">
+                    <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Address Line 2</label>
+                    <input type="text" name="address_line2" value={form.address_line2 || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                </div>
+                <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Area / Locality</label>
+                    <input type="text" name="area" value={form.area || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                </div>
+                <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Pincode</label>
+                    <input type="text" name="pincode" value={form.pincode || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                </div>
+                <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">District</label>
+                    <select name="district" value={form.district || ''} onChange={handleChange} disabled={!form.state} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none disabled:bg-gray-100">
+                        <option value="">Select District</option>
+                        {form.state && STATE_DISTRICT_MAP[form.state]?.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">State</label>
+                    <select name="state" value={form.state || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
+                        <option value="">Select State</option>
+                        {states.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
                 </div>
             </div>
             <div className="flex justify-end p-5 bg-gray-100 border-t border-gray-300 gap-3">
