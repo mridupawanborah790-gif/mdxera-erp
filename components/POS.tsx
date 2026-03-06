@@ -47,6 +47,16 @@ interface UploadedFile {
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
+const isGstInclusiveMrp = (taxBasis?: string) => taxBasis === 'I-Incl.MRP';
+
+const calculateRateExcludingGst = (mrp: number, gstPercent: number): number => {
+    const safeMrp = Number(mrp) || 0;
+    const safeGst = Number(gstPercent) || 0;
+    if (safeMrp <= 0) return 0;
+    if (safeGst <= 0) return safeMrp;
+    return parseFloat((safeMrp / (1 + (safeGst / 100))).toFixed(2));
+};
+
 const normalizePackConversion = (item: BillItem): BillItem => {
     const parsedLoose = Math.max(0, Math.floor(Number(item.looseQuantity || 0)));
     const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
@@ -192,7 +202,14 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerPhone(transactionToEdit.customerPhone || '');
             setReferredBy(transactionToEdit.referredBy || '');
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
-            setCartItems((transactionToEdit.items || []).map(normalizePackConversion));
+            setCartItems((transactionToEdit.items || []).map(item => {
+                const normalizedItem = normalizePackConversion(item);
+                if (!isGstInclusiveMrp(normalizedItem.taxBasis)) return normalizedItem;
+                return {
+                    ...normalizedItem,
+                    rate: calculateRateExcludingGst(normalizedItem.mrp, normalizedItem.gstPercent),
+                };
+            }));
             setLumpsumDiscount(transactionToEdit.schemeDiscount || 0);
             setRoundOff(transactionToEdit.roundOff || 0);
             setIsRoundOffManuallyEdited(true);
@@ -336,7 +353,10 @@ const POS = forwardRef<any, POSProps>(({
                             itemFlatDiscount: 0,
                             batch: match.batch,
                             expiry: match.expiry,
-                            rate: match.mrp,
+                            taxBasis: match.taxBasis,
+                            rate: isGstInclusiveMrp(match.taxBasis)
+                                ? calculateRateExcludingGst(match.mrp, match.gstPercent)
+                                : match.mrp,
                             unitsPerPack,
                             packType: match.packType
                         });
@@ -621,9 +641,12 @@ const POS = forwardRef<any, POSProps>(({
             gstPercent: batch.gstPercent,
             discountPercent: selectedCustomer?.defaultDiscount || 0,
             itemFlatDiscount: 0,
+            taxBasis: batch.taxBasis,
             batch: ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (batch.batch || ''),
             expiry: formatExpiryForInput(batch.expiry ? String(batch.expiry) : ''),
-            rate: rateValue,
+            rate: isGstInclusiveMrp(batch.taxBasis) && rateTierToUse === 'mrp'
+                ? calculateRateExcludingGst(batch.mrp, batch.gstPercent)
+                : rateValue,
             unitsPerPack: resolveUnitsPerStrip(batch.unitsPerPack, batch.packType),
             packType: batch.packType
         };
@@ -671,6 +694,10 @@ const POS = forwardRef<any, POSProps>(({
                 }
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
                     (updated as any)[field] = value === '' ? 0 : (parseFloat(value) || 0);
+                }
+
+                if ((field === 'mrp' || field === 'gstPercent') && isGstInclusiveMrp(updated.taxBasis)) {
+                    updated.rate = calculateRateExcludingGst(updated.mrp, updated.gstPercent);
                 }
 
                 if (field === 'looseQuantity' || field === 'packType' || field === 'unitsPerPack') {
