@@ -8,13 +8,11 @@ import PriceListManagementModal from '../components/PriceListManagementModal';
 import PriceListImportModal from '../components/PriceListImportModal';
 import AddCustomerModal from '../components/AddCustomerModal'; 
 import { EditCustomerModal } from '../components/EditCustomerModal'; 
-import PrintCustomerLedgerModal from '../components/PrintCustomerLedgerModal';
 import ExportCustomersModal from '../components/ExportCustomersModal';
 import type { Customer, RegisteredPharmacy, ModuleConfig, InventoryItem, CustomerPriceListEntry, OrganizationMember } from '../types';
 import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fetchCustomerPriceList, saveCustomerPriceList, fetchInventory } from '../services/storageService';
-import { getOutstandingBalance } from '../utils/helpers';
 import { fuzzyMatch } from '../utils/search';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
@@ -46,7 +44,6 @@ interface CustomersProps {
 const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], onAddCustomer, onBulkAddCustomers, onRecordPayment, onUpdateCustomer, currentUser, config, inventory, defaultCustomerControlGlId }) => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -85,6 +82,8 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
         setIsExportModalOpen(true);
     };
 
+    const selectedCustomerExtra = selectedCustomer as (Customer & Record<string, unknown>) | null;
+
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
@@ -112,9 +111,6 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                                         <p className={`${uniformTextStyle} truncate`}>{cust.name}</p>
                                         <p className={`${uniformTextStyle} !text-base mt-1 ${selectedCustomer?.id === cust.id ? 'opacity-60' : 'text-gray-500'}`}>{cust.phone || 'N/A'}</p>
                                     </div>
-                                    <p className={`${uniformTextStyle} whitespace-nowrap ${(getOutstandingBalance(cust) || 0) > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                                        ₹{(getOutstandingBalance(cust) || 0).toFixed(2)}
-                                    </p>
                                 </div>
                             </div>
                         ))}
@@ -145,42 +141,51 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                                     </div>
                                 </div>
                                 <div className="flex gap-2 ml-4">
-                                    <button onClick={() => setIsPrintModalOpen(true)} className="px-4 py-2 tally-border bg-white font-black text-[10px] uppercase flex items-center gap-2 shadow-sm">
-                                        Print
-                                    </button>
                                     <button onClick={() => setIsPriceListModalOpen(true)} className="px-4 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Price List</button>
                                     <button onClick={() => setIsEditModalOpen(true)} className="px-4 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Alter</button>
                                 </div>
                             </div>
                             
-                            <div className="flex-1 overflow-auto">
-                                <table className="min-w-full border-collapse">
-                                    <thead className="bg-gray-50 sticky top-0 border-b border-gray-400 z-10">
-                                        <tr className={`${uniformTextStyle} text-gray-600`}>
-                                            <th className="p-4 border-r border-gray-400 text-left">Date</th>
-                                            <th className="p-4 border-r border-gray-400 text-left">Description</th>
-                                            <th className="p-4 border-r border-gray-400 text-right">Debit (+)</th>
-                                            <th className="p-4 border-r border-gray-400 text-right">Credit (-)</th>
-                                            <th className="p-4 text-right">Balance</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100 tally-font-data-mono">
-                                        {(selectedCustomer.ledger || []).map(item => (
-                                            <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100`}>{new Date(item.date).toLocaleDateString('en-IN')}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-gray-700`}>{item.description}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-red-700`}>{(item.debit || 0) > 0 ? (item.debit || 0).toFixed(2) : ''}</td>
-                                                <td className={`${uniformTextStyle} p-4 border-r border-gray-200 text-emerald-700`}>{(item.credit || 0) > 0 ? (item.credit || 0).toFixed(2) : ''}</td>
-                                                <td className={`${uniformTextStyle} p-4 text-right ${(item.balance || 0) > 0 ? 'text-red-700' : 'text-emerald-700'} bg-slate-50/30`}>₹{(item.balance || 0).toFixed(2)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                            <div className="flex-1 overflow-auto p-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Customer Group</p>
+                                        <p className="text-sm font-bold text-gray-900">{selectedCustomer.customerGroup || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Customer Category</p>
+                                        <p className="text-sm font-bold text-gray-900">{String(selectedCustomerExtra?.category || 'N/A')}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Customer Control GL</p>
+                                        <p className="text-sm font-bold text-gray-900">{selectedCustomer.controlGlId || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Email</p>
+                                        <p className="text-sm font-bold text-gray-900 break-all">{selectedCustomer.email || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">GSTIN</p>
+                                        <p className="text-sm font-bold text-gray-900">{selectedCustomer.gstNumber || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Opening Balance</p>
+                                        <p className="text-sm font-bold text-gray-900">₹{Number(selectedCustomer.opening_balance || 0).toFixed(2)}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Credit Limit</p>
+                                        <p className="text-sm font-bold text-gray-900">₹{Number(selectedCustomerExtra?.credit_limit || 0).toFixed(2)}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Credit Days</p>
+                                        <p className="text-sm font-bold text-gray-900">{String(selectedCustomerExtra?.credit_days || 'N/A')}</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     ) : (
                         <div className="h-full flex items-center justify-center text-gray-300">
-                            <p className="text-xl font-black uppercase tracking-[0.2em]">Select Customer Ledger</p>
+                            <p className="text-xl font-black uppercase tracking-[0.2em]">Select Customer</p>
                         </div>
                     )}
                 </Card>
@@ -207,12 +212,6 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                         config={config}
                         teamMembers={teamMembers}
                         defaultControlGlId={defaultCustomerControlGlId}
-                    />
-                    <PrintCustomerLedgerModal 
-                        isOpen={isPrintModalOpen}
-                        onClose={() => setIsPrintModalOpen(false)}
-                        customer={selectedCustomer}
-                        pharmacy={currentUser}
                     />
                     <PriceListManagementModal 
                         isOpen={isPriceListModalOpen}
