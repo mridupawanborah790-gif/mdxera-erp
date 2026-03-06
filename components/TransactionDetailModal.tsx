@@ -177,13 +177,13 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen,
                                       </td>
                                       <td className="p-2 text-center text-base text-gray-900">{item.quantity}</td>
                                       <td className="p-2 text-center text-base text-gray-500">{item.looseQuantity || 0}</td>
-                                      <td className="p-2 text-right text-gray-600 text-base">₹{(item.rate || item.mrp || 0).toFixed(2)}</td>
+                                      <td className="p-2 text-right text-gray-600 text-base">₹{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)).toFixed(2)}</td>
                                       <td className="p-2 text-center text-blue-600 text-sm">{(item.discountPercent || 0)}%</td>
                                       <td className="p-6 text-right text-lg text-gray-950">
                                         ₹{(() => {
                                             const uPP = item.unitsPerPack || 1;
                                             const tU = (item.quantity * uPP) + (item.looseQuantity || 0);
-                                            const uR = (item.rate || item.mrp || 0) / uPP;
+                                            const uR = (item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)) / uPP;
                                             return (uR * tU * (1 - (item.discountPercent || 0) / 100));
                                         })().toFixed(2)}
                                       </td>

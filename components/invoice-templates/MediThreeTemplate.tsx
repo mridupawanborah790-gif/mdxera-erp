@@ -25,7 +25,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-      const rate = item.rate ?? item.mrp ?? 0;
+      const rate = item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const gross = billedQty * rate;
       const tradeDiscount = gross * ((item.discountPercent || 0) / 100);
       const flatDiscount = item.itemFlatDiscount || 0;
@@ -337,7 +337,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                       <td className="center">{item.batch}</td>
                       <td className="center">{item.qtyText}</td>
                       <td className="right num">{(item.mrp || 0).toFixed(2)}</td>
-                      <td className="right num">{(item.rate || item.mrp || 0).toFixed(2)}</td>
+                      <td className="right num">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)).toFixed(2)}</td>
                       <td className="center">{item.expiry}</td>
                       <td className="center">{(item.discountPercent || 0).toFixed(2)}</td>
                       <td className="center num">{item.sgstRate.toFixed(2)}%</td>

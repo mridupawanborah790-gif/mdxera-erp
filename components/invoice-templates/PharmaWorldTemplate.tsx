@@ -126,7 +126,7 @@ const PharmaWorldTemplate: React.FC<TemplateProps> = ({ bill }) => {
               <td className="p-0.5">{item.batch}</td>
               <td className="p-0.5 text-center">{item.expiry}</td>
               <td className="p-0.5 text-right">{(item.mrp || 0).toFixed(2)}</td>
-              <td className="p-0.5 text-right">{(item.rate || 0).toFixed(2)}</td>
+              <td className="p-0.5 text-right">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || 0)).toFixed(2)}</td>
               <td className="p-0.5 text-right">{(item.discountPercent || 0).toFixed(2)}</td>
               <td className="p-0.5 text-right">{!isNonGst ? ((item.gstPercent || 0) / 2).toFixed(2) : '-'}</td>
               <td className="p-0.5 text-right">{!isNonGst ? ((item.gstPercent || 0) / 2).toFixed(2) : '-'}</td>

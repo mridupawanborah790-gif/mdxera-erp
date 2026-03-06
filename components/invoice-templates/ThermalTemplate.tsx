@@ -17,7 +17,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
     let totalDiscountValue = 0;
 
     const items = (bill.items || []).map((item) => {
-      const rate = item.rate ?? item.mrp ?? 0;
+      const rate = item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const grossAmount = rate * (item.quantity || 0);
       const tradeDiscountAmount = grossAmount * ((item.discountPercent || 0) / 100);
       const schemeDiscountAmount = item.schemeDiscountAmount || 0;
@@ -99,7 +99,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 </div>
               </td>
               <td className="py-0.5 text-center">{item.quantity}</td>
-              <td className="py-0.5 text-right">{item.rate.toFixed(2)}</td>
+              <td className="py-0.5 text-right">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || 0)).toFixed(2)}</td>
               <td className="py-0.5 text-right font-semibold">{item.finalPrice.toFixed(2)}</td>
             </tr>
           ))}
