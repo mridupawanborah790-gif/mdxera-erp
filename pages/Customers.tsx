@@ -19,6 +19,17 @@ import { fuzzyMatch } from '../utils/search';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
+const addressFields: Array<{ label: string; key: 'address_line1' | 'address_line2' | 'area' | 'city' | 'district' | 'state' | 'pincode' | 'country' }> = [
+    { label: 'Address Line 1', key: 'address_line1' },
+    { label: 'Address Line 2', key: 'address_line2' },
+    { label: 'Area / Locality', key: 'area' },
+    { label: 'City', key: 'city' },
+    { label: 'District', key: 'district' },
+    { label: 'State', key: 'state' },
+    { label: 'Pincode', key: 'pincode' },
+    { label: 'Country', key: 'country' },
+] as const;
+
 interface CustomersProps {
     customers: Customer[];
     teamMembers?: OrganizationMember[]; 
@@ -121,6 +132,17 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                                 <div className="flex-1 min-w-0">
                                     <h3 className={`${uniformTextStyle} !text-4xl text-primary truncate`}>{selectedCustomer.name}</h3>
                                     <p className="text-sm font-bold text-gray-500 uppercase mt-3">Contact: {selectedCustomer.phone || 'N/A'} | Area: {selectedCustomer.area || 'N/A'}</p>
+                                </div>
+                                <div className="w-full mt-5 p-4 bg-white border border-gray-300 rounded">
+                                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-3">Address Details</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                        {addressFields.map(({ label, key }) => (
+                                            <div key={key} className="min-w-0">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{label}</p>
+                                                <p className={`${uniformTextStyle} !text-base text-gray-900 break-words`}>{selectedCustomer[key] || '—'}</p>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                                 <div className="flex gap-2 ml-4">
                                     <button onClick={() => setIsPrintModalOpen(true)} className="px-4 py-2 tally-border bg-white font-black text-[10px] uppercase flex items-center gap-2 shadow-sm">
