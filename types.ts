@@ -489,6 +489,13 @@ export interface TransactionLedgerItem {
     debit: number;
     credit: number;
     balance: number;
+    paymentMode?: string;
+    bankAccountId?: string;
+    bankName?: string;
+    referenceInvoiceId?: string;
+    referenceInvoiceNumber?: string;
+    journalEntryId?: string;
+    journalEntryNumber?: string;
 }
 
 export interface Supplier {
