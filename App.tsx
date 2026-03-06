@@ -854,6 +854,8 @@ const App: React.FC = () => {
                 return <ManualSalesEntry
                     currentUser={currentUser}
                     customers={customers}
+                    inventory={inventory}
+                    configurations={configurations}
                     addNotification={addNotification}
                     onSaved={() => loadData(currentUser!, 'background')}
                 />;
