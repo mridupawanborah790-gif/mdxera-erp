@@ -39,6 +39,14 @@ const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClo
     }, [customers, searchTerm]);
 
     useEffect(() => {
+        if (selectedIndex >= filtered.length) {
+            setSelectedIndex(0);
+        }
+    }, [filtered.length, selectedIndex]);
+
+    const selectedCustomer = filtered[selectedIndex] || filtered[0] || null;
+
+    useEffect(() => {
         if (resultsContainerRef.current) {
             const activeRow = resultsContainerRef.current.querySelector(`[data-index="${selectedIndex}"]`);
             if (activeRow) {
@@ -132,6 +140,23 @@ const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClo
                         </div>
                     )}
                 </div>
+
+                {selectedCustomer && (
+                    <div className="p-4 border-t border-primary/20 bg-[#fffef5]">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-3">Customer Details</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                            <p><span className="font-black uppercase text-gray-500 mr-2">Name:</span>{selectedCustomer.name}</p>
+                            <p><span className="font-black uppercase text-gray-500 mr-2">Phone:</span>{selectedCustomer.phone || '—'}</p>
+                            <p className="md:col-span-2"><span className="font-black uppercase text-gray-500 mr-2">Address Line 1:</span>{selectedCustomer.address_line1 || selectedCustomer.address || '—'}</p>
+                            <p className="md:col-span-2"><span className="font-black uppercase text-gray-500 mr-2">Address Line 2:</span>{selectedCustomer.address_line2 || '—'}</p>
+                            <p><span className="font-black uppercase text-gray-500 mr-2">Area / Locality:</span>{selectedCustomer.area || '—'}</p>
+                            <p><span className="font-black uppercase text-gray-500 mr-2">City / District:</span>{selectedCustomer.city || selectedCustomer.district || '—'}</p>
+                            <p><span className="font-black uppercase text-gray-500 mr-2">State:</span>{selectedCustomer.state || '—'}</p>
+                            <p><span className="font-black uppercase text-gray-500 mr-2">Pincode:</span>{selectedCustomer.pincode || '—'}</p>
+                            <p className="md:col-span-2"><span className="font-black uppercase text-gray-500 mr-2">Balance:</span>₹{getOutstandingBalance(selectedCustomer).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                        </div>
+                    </div>
+                )}
 
                 <div className="p-4 bg-slate-100 border-t border-app-border flex justify-end gap-3 flex-shrink-0">
                      <button onClick={onClose} className="px-8 py-3 text-[11px] font-black uppercase tracking-widest text-gray-500 hover:text-black">Cancel (Esc)</button>
