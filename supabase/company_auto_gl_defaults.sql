@@ -162,17 +162,27 @@ begin
     (p_organization_id, p_set_of_books_id, '610001', 'Service Expense Account', 'Expense', true, false, 'Active', true, 'v2.0', 'system', 'system'),
 
     -- Customer side
-    (p_organization_id, p_set_of_books_id, '110001', 'Sundry Debtors – Trade Receivables', 'Asset', false, true, 'Active', true, 'v2.0', 'system', 'system'),
-    (p_organization_id, p_set_of_books_id, '110002', 'Corporate Trade Receivables', 'Asset', false, true, 'Active', true, 'v2.0', 'system', 'system'),
-    (p_organization_id, p_set_of_books_id, '110003', 'Retail Trade Receivables', 'Asset', false, true, 'Active', true, 'v2.0', 'system', 'system'),
-    (p_organization_id, p_set_of_books_id, '110004', 'Government Receivables', 'Asset', false, true, 'Active', true, 'v2.0', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '110001', 'Sundry Debtors A/c', 'Asset', false, true, 'Active', true, 'v2.1', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '110002', 'Corporate Customer Receivable A/c', 'Asset', false, true, 'Active', true, 'v2.1', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '110003', 'Retail Customer Receivable A/c', 'Asset', false, true, 'Active', true, 'v2.1', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '110004', 'Government Customer Receivable A/c', 'Asset', false, true, 'Active', true, 'v2.1', 'system', 'system'),
+    (p_organization_id, p_set_of_books_id, '110005', 'Cash Customer Receivable A/c', 'Asset', false, true, 'Active', true, 'v2.1', 'system', 'system'),
     (p_organization_id, p_set_of_books_id, '100001', 'Cash on Hand / POS Cash Account', 'Asset', true, false, 'Active', true, 'v2.0', 'system', 'system'),
     (p_organization_id, p_set_of_books_id, '400100', 'Sales Account', 'Income', true, false, 'Active', true, 'v2.0', 'system', 'system'),
     (p_organization_id, p_set_of_books_id, '210110', 'Output CGST', 'Liability', true, false, 'Active', true, 'v2.0', 'system', 'system'),
     (p_organization_id, p_set_of_books_id, '210120', 'Output SGST', 'Liability', true, false, 'Active', true, 'v2.0', 'system', 'system'),
     (p_organization_id, p_set_of_books_id, '210130', 'Output IGST', 'Liability', true, false, 'Active', true, 'v2.0', 'system', 'system'),
     (p_organization_id, p_set_of_books_id, '510000', 'Round Off Account', 'Expense', true, false, 'Active', true, 'v2.0', 'system', 'system')
-  on conflict (organization_id, set_of_books_id, gl_code) do nothing;
+  on conflict (organization_id, set_of_books_id, gl_code) do update
+  set gl_name = excluded.gl_name,
+      gl_type = excluded.gl_type,
+      posting_allowed = excluded.posting_allowed,
+      control_account = excluded.control_account,
+      active_status = 'Active',
+      seeded_by_system = true,
+      template_version = excluded.template_version,
+      updated_at = now(),
+      updated_by = 'system';
 
   -- Mapping helper macro-style block
   -- Supplier mappings
@@ -204,32 +214,57 @@ begin
   select id into v_gl_id from public.gl_master where organization_id = p_organization_id and set_of_books_id = p_set_of_books_id and gl_code = '110001';
   if v_gl_id is null then raise exception 'Configuration error: Missing GL 110001'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
-  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Sundry Debtors', v_gl_id, true, 'v2.0', 'system', 'system')
-  on conflict do nothing;
+  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Sundry Debtors', v_gl_id, true, 'v2.1', 'system', 'system')
+  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  set control_gl_id = excluded.control_gl_id,
+      seeded_by_system = true,
+      template_version = excluded.template_version,
+      updated_at = now(),
+      updated_by = 'system';
 
-  select id into v_gl_id from public.gl_master where organization_id = p_organization_id and set_of_books_id = p_set_of_books_id and gl_code = '100001';
-  if v_gl_id is null then raise exception 'Configuration error: Missing GL 100001'; end if;
+  select id into v_gl_id from public.gl_master where organization_id = p_organization_id and set_of_books_id = p_set_of_books_id and gl_code = '110005';
+  if v_gl_id is null then raise exception 'Configuration error: Missing GL 110005'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
-  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Cash Customers', v_gl_id, true, 'v2.0', 'system', 'system')
-  on conflict do nothing;
+  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Cash Customers', v_gl_id, true, 'v2.1', 'system', 'system')
+  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  set control_gl_id = excluded.control_gl_id,
+      seeded_by_system = true,
+      template_version = excluded.template_version,
+      updated_at = now(),
+      updated_by = 'system';
 
   select id into v_gl_id from public.gl_master where organization_id = p_organization_id and set_of_books_id = p_set_of_books_id and gl_code = '110002';
   if v_gl_id is null then raise exception 'Configuration error: Missing GL 110002'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
-  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Corporate Customers', v_gl_id, true, 'v2.0', 'system', 'system')
-  on conflict do nothing;
+  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Corporate Customers', v_gl_id, true, 'v2.1', 'system', 'system')
+  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  set control_gl_id = excluded.control_gl_id,
+      seeded_by_system = true,
+      template_version = excluded.template_version,
+      updated_at = now(),
+      updated_by = 'system';
 
   select id into v_gl_id from public.gl_master where organization_id = p_organization_id and set_of_books_id = p_set_of_books_id and gl_code = '110003';
   if v_gl_id is null then raise exception 'Configuration error: Missing GL 110003'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
-  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Retail Customers', v_gl_id, true, 'v2.0', 'system', 'system')
-  on conflict do nothing;
+  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Retail Customers', v_gl_id, true, 'v2.1', 'system', 'system')
+  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  set control_gl_id = excluded.control_gl_id,
+      seeded_by_system = true,
+      template_version = excluded.template_version,
+      updated_at = now(),
+      updated_by = 'system';
 
   select id into v_gl_id from public.gl_master where organization_id = p_organization_id and set_of_books_id = p_set_of_books_id and gl_code = '110004';
   if v_gl_id is null then raise exception 'Configuration error: Missing GL 110004'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
-  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Government Customers', v_gl_id, true, 'v2.0', 'system', 'system')
-  on conflict do nothing;
+  values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Government Customers', v_gl_id, true, 'v2.1', 'system', 'system')
+  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  set control_gl_id = excluded.control_gl_id,
+      seeded_by_system = true,
+      template_version = excluded.template_version,
+      updated_at = now(),
+      updated_by = 'system';
 
   -- Keep default control GL pointers in set_of_books aligned.
   update public.set_of_books b
