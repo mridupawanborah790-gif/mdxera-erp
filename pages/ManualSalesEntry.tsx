@@ -1,11 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Customer, RegisteredPharmacy, Transaction } from '../types';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Card from '../components/Card';
+import { Customer, InventoryItem, RegisteredPharmacy, Transaction, AppConfigurations } from '../types';
 import { supabase } from '../services/supabaseClient';
 import * as storage from '../services/storageService';
+import { fuzzyMatch } from '../utils/search';
+import { handleEnterToNextField } from '../utils/navigation';
 
 interface ManualSalesEntryProps {
   currentUser: RegisteredPharmacy | null;
   customers: Customer[];
+  inventory: InventoryItem[];
+  configurations: AppConfigurations;
   addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
   onSaved: () => Promise<void>;
 }
@@ -22,6 +27,8 @@ type ManualLine = {
   taxPercent: number;
   taxAmount: number;
   lineTotal: number;
+  itemCode?: string;
+  inventoryItemId?: string;
 };
 
 const round2 = (n: number) => Number((n || 0).toFixed(2));
@@ -46,7 +53,7 @@ const recalcLine = (line: ManualLine): ManualLine => {
   return { ...line, amount, discount, taxAmount, lineTotal: round2(taxable + taxAmount) };
 };
 
-const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, customers, addNotification, onSaved }) => {
+const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, customers, inventory, configurations, addNotification, onSaved }) => {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [customerId, setCustomerId] = useState('');
   const [phone, setPhone] = useState('');
@@ -61,6 +68,23 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
   const [salesOptions, setSalesOptions] = useState<GlOption[]>([]);
   const [taxOptions, setTaxOptions] = useState<GlOption[]>([]);
   const [expenseOptions, setExpenseOptions] = useState<GlOption[]>([]);
+  const [searchText, setSearchText] = useState('');
+
+  const dateInputRef = useRef<HTMLInputElement>(null);
+  const customerInputRef = useRef<HTMLSelectElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
+  const productSearchInputRef = useRef<HTMLInputElement>(null);
+
+  const canEditRate = configurations.modules?.manualSalesEntry?.fields?.allowRateEdit !== false;
+  const defaultRateTier = configurations.displayOptions?.defaultRateTier || 'mrp';
+
+  const matchingItems = useMemo(() => {
+    const term = searchText.trim();
+    if (!term) return [] as InventoryItem[];
+    return inventory
+      .filter((item) => fuzzyMatch(item.name, term) || fuzzyMatch(item.code || '', term) || fuzzyMatch(item.barcode || '', term))
+      .slice(0, 12);
+  }, [inventory, searchText]);
 
   const metrics = useMemo(() => {
     const subTotal = round2(lines.reduce((s, l) => s + l.amount, 0));
@@ -103,6 +127,16 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
     loadSetup().catch((e) => addNotification(e?.message || 'Unable to load GL setup', 'error'));
   }, [addNotification, currentUser]);
 
+  useEffect(() => {
+    const selectedCustomer = customers.find((c) => c.id === customerId);
+    if (selectedCustomer?.phone) setPhone(selectedCustomer.phone);
+  }, [customerId, customers]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => dateInputRef.current?.focus(), 120);
+    return () => clearTimeout(timer);
+  }, []);
+
   const updateLine = (id: string, patch: Partial<ManualLine>) => {
     setLines((prev) => prev.map((line) => (line.id === id ? recalcLine({ ...line, ...patch }) : line)));
   };
@@ -114,6 +148,85 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
     const reservation = await storage.reserveVoucherNumber('sales-gst', currentUser);
     setVoucherNo(reservation.documentNumber);
     return reservation.documentNumber;
+  };
+
+  const getRateByTier = (item: InventoryItem): number => {
+    if (defaultRateTier === 'rateA') return Number(item.rateA || item.mrp || 0);
+    if (defaultRateTier === 'rateB') return Number(item.rateB || item.mrp || 0);
+    if (defaultRateTier === 'rateC') return Number(item.rateC || item.mrp || 0);
+    if (defaultRateTier === 'ptr') return Number(item.ptr || item.mrp || 0);
+    return Number(item.mrp || 0);
+  };
+
+  const addItemLine = (item: InventoryItem) => {
+    const targetLine = lines.find((line) => !line.description.trim());
+    const basePatch: Partial<ManualLine> = {
+      description: item.name,
+      itemCode: item.code,
+      inventoryItemId: item.id,
+      qty: 1,
+      rate: getRateByTier(item),
+      taxPercent: Number(item.gstPercent || 0),
+    };
+
+    if (targetLine) {
+      updateLine(targetLine.id, basePatch);
+    } else {
+      setLines((prev) => [...prev, recalcLine({ ...newLine(), ...basePatch })]);
+    }
+    setSearchText('');
+
+    setTimeout(() => {
+      const nextId = (targetLine?.id || lines[lines.length - 1]?.id);
+      if (nextId) {
+        const el = document.getElementById(`qty-${nextId}`);
+        el?.focus();
+        if (el instanceof HTMLInputElement) el.select();
+      }
+    }, 0);
+  };
+
+  const handleRowNavigation = (e: React.KeyboardEvent<HTMLInputElement>, id: string) => {
+    const fieldOrder = ['qty', 'rate', 'discount', 'tax'];
+    const fieldId = e.currentTarget.id;
+    const fieldIndex = fieldOrder.findIndex((f) => fieldId.startsWith(`${f}-`));
+    if (fieldIndex === -1) return;
+    if (!['Enter', 'Tab', 'ArrowRight', 'ArrowLeft'].includes(e.key)) return;
+
+    const isPrev = e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey);
+    const lineIndex = lines.findIndex((line) => line.id === id);
+    if (lineIndex === -1) return;
+
+    e.preventDefault();
+    const targetFieldIndex = isPrev ? fieldIndex - 1 : fieldIndex + 1;
+    if (targetFieldIndex >= 0 && targetFieldIndex < fieldOrder.length) {
+      const target = document.getElementById(`${fieldOrder[targetFieldIndex]}-${id}`);
+      target?.focus();
+      if (target instanceof HTMLInputElement) target.select();
+      return;
+    }
+
+    const targetLineIndex = isPrev ? lineIndex - 1 : lineIndex + 1;
+    if (targetLineIndex < 0) {
+      productSearchInputRef.current?.focus();
+      return;
+    }
+
+    if (targetLineIndex >= lines.length) {
+      setLines((prev) => [...prev, newLine()]);
+      setTimeout(() => {
+        const lastId = lines[lines.length - 1]?.id;
+        const target = lastId ? document.getElementById(`qty-${lastId}`) : null;
+        target?.focus();
+      }, 0);
+      return;
+    }
+
+    const targetLineId = lines[targetLineIndex].id;
+    const targetField = isPrev ? fieldOrder[fieldOrder.length - 1] : fieldOrder[0];
+    const target = document.getElementById(`${targetField}-${targetLineId}`);
+    target?.focus();
+    if (target instanceof HTMLInputElement) target.select();
   };
 
   const validate = async (): Promise<string | null> => {
@@ -217,70 +330,142 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
   };
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="bg-white border border-gray-200 p-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-        <input className="border p-2" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <select className="border p-2" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-          <option value="">Walking Customer</option>
-          {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <input className="border p-2" placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
-        <input className="border p-2 bg-gray-100" value={voucherNo || 'Auto (generated on save/post)'} readOnly />
-        <select className="border p-2" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
-          {['Cash', 'Card', 'UPI', 'Credit'].map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <input className="border p-2" placeholder="Narration / Remarks" value={narration} onChange={(e) => setNarration(e.target.value)} />
+    <div className="flex flex-col h-full bg-app-bg overflow-hidden" onKeyDown={handleEnterToNextField}>
+      <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
+        <span className="text-[10px] font-black uppercase tracking-widest">Accounting Voucher Creation (Sales)</span>
+        <span className="text-[10px] font-black uppercase text-accent">No. {voucherNo || 'AUTO'}</span>
       </div>
 
-      <div className="bg-white border border-gray-200 p-4 overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead><tr className="text-left border-b"><th>Sl</th><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th><th>Discount</th><th>Tax %</th><th>Tax Amt</th><th>Line Total</th></tr></thead>
-          <tbody>
-            {lines.map((line, i) => (
-              <tr key={line.id} className="border-b">
-                <td>{i + 1}</td>
-                <td><input className="border p-1 w-64" value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })} /></td>
-                <td><input className="border p-1 w-20" type="number" min={0} value={line.qty} onChange={(e) => updateLine(line.id, { qty: Number(e.target.value) })} /></td>
-                <td><input className="border p-1 w-24" type="number" min={0} value={line.rate} onChange={(e) => updateLine(line.id, { rate: Number(e.target.value) })} /></td>
-                <td>{line.amount.toFixed(2)}</td>
-                <td><input className="border p-1 w-24" type="number" min={0} value={line.discount} onChange={(e) => updateLine(line.id, { discount: Number(e.target.value) })} /></td>
-                <td><input className="border p-1 w-20" type="number" min={0} value={line.taxPercent} onChange={(e) => updateLine(line.id, { taxPercent: Number(e.target.value) })} /></td>
-                <td>{line.taxAmount.toFixed(2)}</td>
-                <td>{line.lineTotal.toFixed(2)}</td>
+      <div className="p-2 flex-1 flex flex-col gap-2 overflow-hidden">
+        <Card className="p-1.5 bg-white border border-app-border rounded-none grid grid-cols-1 md:grid-cols-5 gap-2 items-end flex-shrink-0">
+          <div>
+            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Date</label>
+            <input ref={dateInputRef} className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50" type="date" value={date} onChange={(e) => setDate(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && customerInputRef.current?.focus()} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Particulars (Customer Name)</label>
+            <select ref={customerInputRef} className="w-full h-8 border border-gray-400 p-1 text-xs font-bold uppercase outline-none focus:bg-yellow-50" value={customerId} onChange={(e) => setCustomerId(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && phoneInputRef.current?.focus()}>
+              <option value="">Walking Customer</option>
+              {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Phone Number</label>
+            <input ref={phoneInputRef} className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50" placeholder="Customer Phone" value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && productSearchInputRef.current?.focus()} />
+          </div>
+          <div>
+            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Payment Mode</label>
+            <select className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
+              {['Cash', 'Card', 'UPI', 'Credit'].map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+        </Card>
+
+        <Card className="p-1.5 bg-white border border-app-border rounded-none flex-shrink-0">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div className="md:col-span-2 relative">
+              <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Item Search (Name / Code)</label>
+              <input
+                ref={productSearchInputRef}
+                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold uppercase outline-none focus:bg-yellow-50"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && matchingItems.length > 0) {
+                    e.preventDefault();
+                    addItemLine(matchingItems[0]);
+                  }
+                }}
+                placeholder="Search item by name/code and press Enter"
+              />
+              {searchText && matchingItems.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full max-h-44 overflow-y-auto bg-white border border-gray-300 shadow">
+                  {matchingItems.map((item) => (
+                    <button key={item.id} type="button" className="w-full text-left px-2 py-1 text-xs hover:bg-yellow-50 border-b border-gray-100" onClick={() => addItemLine(item)}>
+                      {item.name} {item.code ? `(${item.code})` : ''} - ₹{getRateByTier(item).toFixed(2)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Narration / Remarks</label>
+              <input className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50" value={narration} onChange={(e) => setNarration(e.target.value)} />
+            </div>
+          </div>
+        </Card>
+
+        <div className="bg-white border border-app-border overflow-auto flex-1">
+          <table className="min-w-full border-collapse text-sm">
+            <thead className="sticky top-0 bg-gray-100 border-b border-gray-400 z-10">
+              <tr className="text-[10px] font-black uppercase text-gray-700 tracking-wide">
+                <th className="p-2 border-r border-gray-300 w-10 text-center">#</th>
+                <th className="p-2 border-r border-gray-300 text-left">Description</th>
+                <th className="p-2 border-r border-gray-300 w-20 text-center">Qty</th>
+                <th className="p-2 border-r border-gray-300 w-28 text-right">Rate</th>
+                <th className="p-2 border-r border-gray-300 w-28 text-right">Amount</th>
+                <th className="p-2 border-r border-gray-300 w-28 text-right">Discount</th>
+                <th className="p-2 border-r border-gray-300 w-20 text-center">Tax %</th>
+                <th className="p-2 border-r border-gray-300 w-28 text-right">Tax Amt</th>
+                <th className="p-2 w-32 text-right">Line Total</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <button className="mt-3 px-3 py-1 border" onClick={() => setLines((prev) => [...prev, newLine()])}>+ Add Line</button>
-      </div>
+            </thead>
+            <tbody>
+              {lines.map((line, i) => (
+                <tr key={line.id} className="border-b border-gray-200 h-10 text-xs font-bold uppercase">
+                  <td className="p-2 border-r border-gray-200 text-center text-gray-500">{i + 1}</td>
+                  <td className="p-2 border-r border-gray-200">
+                    <input className="w-full bg-transparent outline-none" value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })} placeholder="Item description" />
+                  </td>
+                  <td className="p-2 border-r border-gray-200">
+                    <input id={`qty-${line.id}`} className="w-full text-center bg-transparent outline-none" type="number" min={0} value={line.qty || ''} onChange={(e) => updateLine(line.id, { qty: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                  </td>
+                  <td className="p-2 border-r border-gray-200">
+                    <input id={`rate-${line.id}`} className="w-full text-right bg-transparent outline-none" type="number" min={0} value={line.rate || ''} onChange={(e) => updateLine(line.id, { rate: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} disabled={!canEditRate} />
+                  </td>
+                  <td className="p-2 border-r border-gray-200 text-right text-gray-700">{line.amount.toFixed(2)}</td>
+                  <td className="p-2 border-r border-gray-200">
+                    <input id={`discount-${line.id}`} className="w-full text-right bg-transparent outline-none" type="number" min={0} value={line.discount || ''} onChange={(e) => updateLine(line.id, { discount: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                  </td>
+                  <td className="p-2 border-r border-gray-200">
+                    <input id={`tax-${line.id}`} className="w-full text-center bg-transparent outline-none" type="number" min={0} value={line.taxPercent || ''} onChange={(e) => updateLine(line.id, { taxPercent: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                  </td>
+                  <td className="p-2 border-r border-gray-200 text-right text-gray-700">{line.taxAmount.toFixed(2)}</td>
+                  <td className="p-2 text-right font-black text-gray-800">{line.lineTotal.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-      <div className="bg-white border border-gray-200 p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-        <select className="border p-2" value={salesGlId} onChange={(e) => setSalesGlId(e.target.value)}>
-          <option value="">Select Sales GL *</option>
-          {salesOptions.map((gl) => <option key={gl.id} value={gl.id}>{gl.label}</option>)}
-        </select>
-        <select className="border p-2" value={discountGlId} onChange={(e) => setDiscountGlId(e.target.value)}>
-          <option value="">Discount GL (optional)</option>
-          {expenseOptions.map((gl) => <option key={gl.id} value={gl.id}>{gl.label}</option>)}
-        </select>
-        <select className="border p-2" value={taxGlId} onChange={(e) => setTaxGlId(e.target.value)}>
-          <option value="">Tax Output GL (optional)</option>
-          {taxOptions.map((gl) => <option key={gl.id} value={gl.id}>{gl.label}</option>)}
-        </select>
-        <input className="border p-2 bg-gray-100" value={customerControlGlId} readOnly placeholder="Customer/Receivable GL" />
-      </div>
+        <div className="bg-white border border-app-border p-1.5 grid grid-cols-1 md:grid-cols-2 gap-2 flex-shrink-0">
+          <select className="h-8 border border-gray-400 p-1 text-xs font-bold" value={salesGlId} onChange={(e) => setSalesGlId(e.target.value)}>
+            <option value="">Select Sales GL *</option>
+            {salesOptions.map((gl) => <option key={gl.id} value={gl.id}>{gl.label}</option>)}
+          </select>
+          <select className="h-8 border border-gray-400 p-1 text-xs font-bold" value={discountGlId} onChange={(e) => setDiscountGlId(e.target.value)}>
+            <option value="">Discount GL (optional)</option>
+            {expenseOptions.map((gl) => <option key={gl.id} value={gl.id}>{gl.label}</option>)}
+          </select>
+          <select className="h-8 border border-gray-400 p-1 text-xs font-bold" value={taxGlId} onChange={(e) => setTaxGlId(e.target.value)}>
+            <option value="">Tax Output GL (optional)</option>
+            {taxOptions.map((gl) => <option key={gl.id} value={gl.id}>{gl.label}</option>)}
+          </select>
+          <input className="h-8 border border-gray-300 p-1 text-xs font-bold bg-gray-100" value={customerControlGlId} readOnly placeholder="Customer/Receivable GL" />
+        </div>
 
-      <div className="bg-gray-50 border p-4 text-sm flex flex-wrap gap-6">
-        <div>Sub Total: <b>{metrics.subTotal.toFixed(2)}</b></div>
-        <div>Total Discount: <b>{metrics.totalDiscount.toFixed(2)}</b></div>
-        <div>Taxable Value: <b>{metrics.taxableValue.toFixed(2)}</b></div>
-        <div>Tax: <b>{metrics.tax.toFixed(2)}</b></div>
-        <div>Grand Total: <b>{metrics.grandTotal.toFixed(2)}</b></div>
-      </div>
+        <div className="bg-gray-100 border border-gray-300 px-3 py-2 text-xs font-bold flex flex-wrap gap-4 justify-end flex-shrink-0">
+          <div>Sub Total: <span className="text-gray-800">{metrics.subTotal.toFixed(2)}</span></div>
+          <div>Total Discount: <span className="text-gray-800">{metrics.totalDiscount.toFixed(2)}</span></div>
+          <div>Taxable Value: <span className="text-gray-800">{metrics.taxableValue.toFixed(2)}</span></div>
+          <div>Tax: <span className="text-gray-800">{metrics.tax.toFixed(2)}</span></div>
+          <div className="text-primary">Grand Total: {metrics.grandTotal.toFixed(2)}</div>
+        </div>
 
-      <div className="flex gap-3">
-        <button className="px-4 py-2 border" onClick={onSaveDraft}>Save Draft</button>
-        <button className="px-4 py-2 bg-emerald-600 text-white" onClick={onPost}>Post</button>
+        <div className="flex gap-2 justify-end flex-shrink-0">
+          <button className="px-4 h-9 border border-gray-400 bg-white text-xs font-bold uppercase" onClick={onSaveDraft}>Save Draft</button>
+          <button className="px-4 h-9 bg-emerald-600 text-white text-xs font-bold uppercase" onClick={onPost}>Post Voucher</button>
+        </div>
       </div>
     </div>
   );
