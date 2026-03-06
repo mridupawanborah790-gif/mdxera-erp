@@ -6,7 +6,8 @@ import { RegisteredPharmacy } from '../types';
 const STORAGE_KEY = 'mdxera_company_configuration_v2';
 
 type Status = 'Active' | 'Inactive';
-type GLType = 'Asset' | 'Expense' | 'Income' | 'Liability' | 'Equity';
+type GLType = 'Asset' | 'Expense' | 'Income' | 'Liability' | 'Equity' | 'Bank';
+type AccountType = 'Savings' | 'Current' | 'OD' | 'Cash Credit' | 'Other';
 type MaterialType = 'Trading Goods' | 'Finished Goods' | 'Consumables' | 'Service Material' | 'Packaging';
 
 type AuditFields = {
@@ -34,6 +35,8 @@ type SetOfBooks = AuditFields & {
   defaultCurrency: string;
   defaultCustomerGLId?: string;
   defaultSupplierGLId?: string;
+  defaultDemoBankGLId?: string;
+  defaultBankGLId?: string;
   activeStatus: Status;
   postingCount: number;
 };
@@ -44,12 +47,31 @@ type GLMaster = AuditFields & {
   glCode: string;
   glName: string;
   glType: GLType;
+  accountGroup?: string;
+  subgroup?: string;
+  alias?: string;
+  mappingStructure?: string;
   postingAllowed: boolean;
   controlAccount: boolean;
   activeStatus: Status;
   seeded_by_system: boolean;
   template_version: string;
   postingCount: number;
+};
+
+type BankMaster = AuditFields & {
+  id: string;
+  companyCodeId: string;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  ifscCode: string;
+  branchName: string;
+  accountType: AccountType;
+  openingBalance: number;
+  openingDate: string;
+  defaultBank: boolean;
+  activeStatus: Status;
 };
 
 type GLAssignment = AuditFields & {
@@ -94,9 +116,10 @@ type Store = {
   glAssignments: GLAssignment[];
   assignmentHistory: AssignmentHistory[];
   setupLogs: SetupLog[];
+  bankMasters: BankMaster[];
 };
 
-type TabId = 'company' | 'books' | 'gl' | 'assignment' | 'wizard';
+type TabId = 'company' | 'books' | 'gl' | 'assignment' | 'bank' | 'wizard';
 
 
 type CompanyConfigurationProps = {
@@ -107,12 +130,14 @@ const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'company', label: 'Company Code' },
   { id: 'books', label: 'Set of Books' },
   { id: 'gl', label: 'GL Master' },
+  { id: 'bank', label: 'Bank Master' },
   { id: 'assignment', label: 'GL Assignment' },
   { id: 'wizard', label: 'Setup Wizard / Defaults Log' },
 ];
 
 const materialTypes: MaterialType[] = ['Trading Goods', 'Finished Goods', 'Consumables', 'Service Material', 'Packaging'];
-const glTypes: GLType[] = ['Asset', 'Expense', 'Income', 'Liability', 'Equity'];
+const glTypes: GLType[] = ['Asset', 'Expense', 'Income', 'Liability', 'Equity', 'Bank'];
+const accountTypes: AccountType[] = ['Savings', 'Current', 'OD', 'Cash Credit', 'Other'];
 
 const defaultStore: Store = {
   companies: [],
@@ -121,6 +146,7 @@ const defaultStore: Store = {
   glAssignments: [],
   assignmentHistory: [],
   setupLogs: [],
+  bankMasters: [],
 };
 
 const DEFAULT_TEMPLATE_VERSION = 'v1.0';
@@ -141,6 +167,7 @@ const getId = () => {
 
 const defaultGlTemplate: Array<{ key: string; glName: string; glType: GLType; code: number }> = [
   { key: 'customerControl', glName: 'Accounts Receivable (Trade Debtors)', glType: 'Asset', code: 120000 },
+  { key: 'defaultDemoBank', glName: 'Default Bank A/c', glType: 'Bank', code: 100900 },
   { key: 'invTrading', glName: 'Inventory - Trading Goods', glType: 'Asset', code: 140000 },
   { key: 'invFinished', glName: 'Inventory - Finished Goods', glType: 'Asset', code: 140100 },
   { key: 'invConsumable', glName: 'Inventory - Consumables', glType: 'Asset', code: 140200 },
@@ -194,14 +221,17 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   }, [currentUser?.organization_id]);
 
   const [companyForm, setCompanyForm] = useState({ code: '', description: '', status: 'Active' as Status, isDefault: false, defaultSetOfBooksId: '' });
-  const [booksForm, setBooksForm] = useState({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', activeStatus: 'Active' as Status, postingCount: 0 });
-  const [glForm, setGlForm] = useState({ setOfBooksId: '', glCode: '', glName: '', glType: 'Asset' as GLType, postingAllowed: true, controlAccount: false, activeStatus: 'Active' as Status, postingCount: 0 });
+  const [booksForm, setBooksForm] = useState({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', defaultCustomerGLId: '', defaultSupplierGLId: '', defaultDemoBankGLId: '', defaultBankGLId: '', activeStatus: 'Active' as Status, postingCount: 0 });
+  const [glForm, setGlForm] = useState({ setOfBooksId: '', glCode: '', glName: '', alias: '', glType: 'Asset' as GLType, accountGroup: '', subgroup: '', mappingStructure: '', postingAllowed: true, controlAccount: false, activeStatus: 'Active' as Status, postingCount: 0 });
   const [assignmentForm, setAssignmentForm] = useState({ setOfBooksId: '', materialMasterType: 'Trading Goods' as MaterialType, inventoryGL: '', purchaseGL: '', cogsGL: '', salesGL: '', discountGL: '', taxGL: '' });
+
+  const [bankForm, setBankForm] = useState({ companyCodeId: '', bankName: '', accountName: '', accountNumber: '', ifscCode: '', branchName: '', accountType: 'Savings' as AccountType, openingBalance: 0, openingDate: '', defaultBank: false, activeStatus: 'Active' as Status });
 
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [editingBooksId, setEditingBooksId] = useState<string | null>(null);
   const [editingGlId, setEditingGlId] = useState<string | null>(null);
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
+  const [editingBankId, setEditingBankId] = useState<string | null>(null);
 
   const persist = (next: Store) => {
     setStore(next);
@@ -221,16 +251,17 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       
       try {
         const organizationId = currentUser.organization_id;
-        const [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes] = await Promise.all([
+        const [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes, bankRes] = await Promise.all([
           supabase.from('company_codes').select('*').eq('organization_id', organizationId).order('created_at', { ascending: true }),
           supabase.from('set_of_books').select('*').eq('organization_id', organizationId).order('created_at', { ascending: true }),
           supabase.from('gl_master').select('*').eq('organization_id', organizationId).order('created_at', { ascending: true }),
           supabase.from('gl_assignments').select('*').eq('organization_id', organizationId).order('created_at', { ascending: true }),
           supabase.from('setup_wizard_defaults_log').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
           supabase.from('gl_assignment_history').select('*').eq('organization_id', organizationId).order('changed_at', { ascending: false }),
+          supabase.from('bank_master').select('*').eq('organization_id', organizationId).order('created_at', { ascending: true }),
         ]);
 
-        const hasSchemaError = [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes].some(r => r.error);
+        const hasSchemaError = [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes, bankRes].some(r => r.error);
         if (hasSchemaError) return;
 
         const booksForOrg: SetOfBooks[] = (booksRes.data || []).map((b: any) => ({
@@ -241,6 +272,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           defaultCurrency: b.default_currency || 'INR',
           defaultCustomerGLId: b.default_customer_gl_id || undefined,
           defaultSupplierGLId: b.default_supplier_gl_id || undefined,
+          defaultDemoBankGLId: b.default_demo_bank_gl_id || undefined,
+          defaultBankGLId: b.default_bank_gl_id || undefined,
           activeStatus: b.active_status || 'Active',
           postingCount: b.posting_count || 0,
           created_by: b.created_by || SYSTEM_USER,
@@ -284,6 +317,10 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
             glCode: g.gl_code,
             glName: g.gl_name,
             glType: g.gl_type,
+            accountGroup: g.account_group || '',
+            subgroup: g.subgroup || '',
+            alias: g.alias || '',
+            mappingStructure: g.mapping_structure || '',
             postingAllowed: !!g.posting_allowed,
             controlAccount: !!g.control_account,
             activeStatus: g.active_status || 'Active',
@@ -331,9 +368,27 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
             previous: h.previous_payload || {},
             next: h.next_payload || {},
           })),
+          bankMasters: (bankRes.data || []).map((b: any) => ({
+            id: b.id,
+            companyCodeId: b.company_code_id,
+            bankName: b.bank_name || '',
+            accountName: b.account_name || '',
+            accountNumber: b.account_number || '',
+            ifscCode: b.ifsc_code || '',
+            branchName: b.branch_name || '',
+            accountType: b.account_type || 'Savings',
+            openingBalance: Number(b.opening_balance || 0),
+            openingDate: b.opening_date || '',
+            defaultBank: !!b.default_bank,
+            activeStatus: b.active_status || 'Active',
+            created_by: b.created_by || SYSTEM_USER,
+            created_at: b.created_at || now(),
+            updated_by: b.updated_by || SYSTEM_USER,
+            updated_at: b.updated_at || now(),
+          })),
         };
 
-        if (dbStore.companies.length || dbStore.setOfBooks.length || dbStore.glMasters.length || dbStore.glAssignments.length) {
+        if (dbStore.companies.length || dbStore.setOfBooks.length || dbStore.glMasters.length || dbStore.glAssignments.length || dbStore.bankMasters.length) {
           persist(dbStore);
         }
       } catch (err) {
@@ -363,6 +418,11 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
     return store.setOfBooks.filter(b => matchingCompanyIds.includes(b.companyCodeId) && b.activeStatus === 'Active');
   }, [store.setOfBooks, store.companies, editingCompanyId, companyForm.code]);
   const activeCompanies = useMemo(() => store.companies.filter(c => c.status === 'Active'), [store.companies]);
+  const booksFormRecord = useMemo(() => store.setOfBooks.find(b => b.setOfBooksId === booksForm.setOfBooksId && b.companyCodeId === booksForm.companyCodeId), [store.setOfBooks, booksForm.setOfBooksId, booksForm.companyCodeId]);
+  const bankGlOptionsForBooksForm = useMemo(() => {
+    if (!booksFormRecord?.id) return [] as GLMaster[];
+    return store.glMasters.filter(g => g.setOfBooksId === booksFormRecord.id && g.glType === 'Bank' && g.activeStatus === 'Active');
+  }, [store.glMasters, booksFormRecord?.id]);
 
 
   const seedDefaultsForBooks = (setOfBooksId: string, mode: 'create' | 'append', currentStore?: Store) => {
@@ -424,6 +484,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           ...book,
           defaultCustomerGLId: keyToGlId.get('customerControl') || book.defaultCustomerGLId,
           defaultSupplierGLId: keyToGlId.get('supplierControl') || book.defaultSupplierGLId,
+          defaultDemoBankGLId: keyToGlId.get('defaultDemoBank') || book.defaultDemoBankGLId,
+          defaultBankGLId: keyToGlId.get('defaultDemoBank') || book.defaultBankGLId,
           updated_at: stamp,
           updated_by: SYSTEM_USER,
         };
@@ -435,7 +497,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         setOfBooksId,
         action: mode === 'create' ? 'DEFAULT_CREATED' : 'RESET_DEFAULT',
         message: mode === 'create'
-          ? 'Default GL, customer/supplier control GLs, and assignments seeded.'
+          ? 'Default GL, customer/supplier control GLs, default demo bank GL, and assignments seeded.'
           : 'Reset to default (append mode) with customer/supplier control GL assignment.',
         created_at: stamp,
         created_by: SYSTEM_USER,
@@ -473,6 +535,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
   const filteredBooks = store.setOfBooks.filter(b => [b.setOfBooksId, b.description, b.defaultCurrency].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredGL = store.glMasters.filter(g => [g.glCode, g.glName, g.glType].join(' ').toLowerCase().includes(search.toLowerCase()));
   const filteredAssignments = store.glAssignments.filter(a => [a.materialMasterType, booksById.get(a.setOfBooksId)?.setOfBooksId || ''].join(' ').toLowerCase().includes(search.toLowerCase()));
+  const filteredBanks = store.bankMasters.filter(b => [b.bankName, b.accountName, b.accountNumber, b.ifscCode, b.branchName].join(' ').toLowerCase().includes(search.toLowerCase()));
 
   const onSaveCompany = () => {
     setError('');
@@ -553,8 +616,81 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       }
     }
 
-    setBooksForm({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', activeStatus: 'Active', postingCount: 0 });
+    setBooksForm({ companyCodeId: '', setOfBooksId: '', description: '', defaultCurrency: 'INR', defaultCustomerGLId: '', defaultSupplierGLId: '', defaultDemoBankGLId: '', defaultBankGLId: '', activeStatus: 'Active', postingCount: 0 });
     setEditingBooksId(null);
+  };
+
+
+  const onCopyGL = (source: GLMaster) => {
+    setGlForm({
+      setOfBooksId: source.setOfBooksId,
+      glCode: '',
+      glName: `${source.glName} Copy`,
+      alias: source.alias || '',
+      glType: source.glType,
+      accountGroup: source.accountGroup || '',
+      subgroup: source.subgroup || '',
+      mappingStructure: source.mappingStructure || '',
+      postingAllowed: source.postingAllowed,
+      controlAccount: false,
+      activeStatus: source.activeStatus,
+      postingCount: 0,
+    });
+    setEditingGlId(null);
+    setSuccess('GL copied. Update GL Code / GL Name and save.');
+    setError('');
+  };
+
+  const onSaveBank = () => {
+    setError('');
+    setSuccess('');
+    if (!bankForm.companyCodeId) return setError('Company Code is required for Bank Master.');
+    if (!bankForm.bankName.trim()) return setError('Bank Name is required.');
+    if (!bankForm.accountName.trim()) return setError('Account Name is required.');
+    if (!bankForm.accountNumber.trim()) return setError('Account Number is required.');
+
+    const duplicate = store.bankMasters.some(b => b.companyCodeId === bankForm.companyCodeId && b.accountNumber.trim() === bankForm.accountNumber.trim() && b.id !== editingBankId);
+    if (duplicate) return setError('Account Number must be unique per Company Code.');
+
+    const stamp = now();
+    let nextBanks = store.bankMasters;
+    if (bankForm.defaultBank) {
+      nextBanks = nextBanks.map(b => b.companyCodeId === bankForm.companyCodeId ? { ...b, defaultBank: false, updated_at: stamp, updated_by: SYSTEM_USER } : b);
+    }
+
+    if (editingBankId) {
+      nextBanks = nextBanks.map(b => b.id === editingBankId ? {
+        ...b,
+        ...bankForm,
+        bankName: bankForm.bankName.trim(),
+        accountName: bankForm.accountName.trim(),
+        accountNumber: bankForm.accountNumber.trim(),
+        ifscCode: bankForm.ifscCode.trim(),
+        branchName: bankForm.branchName.trim(),
+        updated_at: stamp,
+        updated_by: SYSTEM_USER,
+      } : b);
+      setSuccess('Bank Master updated.');
+    } else {
+      nextBanks = [...nextBanks, {
+        id: getId(),
+        ...bankForm,
+        bankName: bankForm.bankName.trim(),
+        accountName: bankForm.accountName.trim(),
+        accountNumber: bankForm.accountNumber.trim(),
+        ifscCode: bankForm.ifscCode.trim(),
+        branchName: bankForm.branchName.trim(),
+        created_at: stamp,
+        updated_at: stamp,
+        created_by: SYSTEM_USER,
+        updated_by: SYSTEM_USER,
+      }];
+      setSuccess('Bank Master created.');
+    }
+
+    persist({ ...store, bankMasters: nextBanks });
+    setBankForm({ companyCodeId: '', bankName: '', accountName: '', accountNumber: '', ifscCode: '', branchName: '', accountType: 'Savings', openingBalance: 0, openingDate: '', defaultBank: false, activeStatus: 'Active' });
+    setEditingBankId(null);
   };
 
   const onSaveGL = () => {
@@ -577,6 +713,10 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           current.glName !== glForm.glName.trim()
           && current.glCode === glForm.glCode.trim()
           && current.glType === glForm.glType
+          && (current.accountGroup || '') === (glForm.accountGroup || '')
+          && (current.subgroup || '') === (glForm.subgroup || '')
+          && (current.alias || '') === (glForm.alias || '')
+          && (current.mappingStructure || '') === (glForm.mappingStructure || '')
           && current.postingAllowed === glForm.postingAllowed
           && current.activeStatus === glForm.activeStatus;
         if (!onlyNameChanged) {
@@ -614,7 +754,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       setSuccess('GL Master created.');
     }
 
-    setGlForm({ setOfBooksId: '', glCode: '', glName: '', glType: 'Asset', postingAllowed: true, controlAccount: false, activeStatus: 'Active', postingCount: 0 });
+    setGlForm({ setOfBooksId: '', glCode: '', glName: '', alias: '', glType: 'Asset', accountGroup: '', subgroup: '', mappingStructure: '', postingAllowed: true, controlAccount: false, activeStatus: 'Active', postingCount: 0 });
     setEditingGlId(null);
   };
 
@@ -757,6 +897,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
             // Save without defaults first so GL type corrections can be synced safely.
             default_customer_gl_id: null,
             default_supplier_gl_id: null,
+            default_demo_bank_gl_id: null,
+            default_bank_gl_id: null,
             active_status: b.activeStatus,
             posting_count: b.postingCount || 0,
             created_by: b.created_by || userName,
@@ -795,6 +937,10 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           gl_code: g.glCode,
           gl_name: g.glName,
           gl_type: g.glType,
+          account_group: g.accountGroup || null,
+          subgroup: g.subgroup || null,
+          alias: g.alias || null,
+          mapping_structure: g.mappingStructure || null,
           posting_allowed: g.postingAllowed,
           control_account: !!g.controlAccount,
           active_status: g.activeStatus,
@@ -820,6 +966,8 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           default_currency: b.defaultCurrency,
           default_customer_gl_id: b.defaultCustomerGLId || null,
           default_supplier_gl_id: b.defaultSupplierGLId || null,
+          default_demo_bank_gl_id: b.defaultDemoBankGLId || null,
+          default_bank_gl_id: b.defaultBankGLId || null,
           active_status: b.activeStatus,
           posting_count: b.postingCount || 0,
           created_by: b.created_by || userName,
@@ -883,6 +1031,28 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         })), { onConflict: 'id' });
       }
 
+      if (store.bankMasters.length > 0) {
+        await supabase.from('bank_master').upsert(store.bankMasters.map(b => ({
+          id: b.id,
+          organization_id: organizationId,
+          company_code_id: b.companyCodeId,
+          bank_name: b.bankName,
+          account_name: b.accountName,
+          account_number: b.accountNumber,
+          ifsc_code: b.ifscCode || null,
+          branch_name: b.branchName || null,
+          account_type: b.accountType,
+          opening_balance: b.openingBalance || 0,
+          opening_date: b.openingDate || null,
+          default_bank: !!b.defaultBank,
+          active_status: b.activeStatus,
+          created_by: b.created_by || userName,
+          created_at: b.created_at,
+          updated_by: userName,
+          updated_at: now(),
+        })), { onConflict: 'id' });
+      }
+
       setSuccess('Company Configuration saved locally and synced to database tables.');
     } catch (e: any) {
       setError(`Saved locally but database sync failed. ${e?.message || 'Please check your connection and retry.'}`);
@@ -905,7 +1075,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <input className="tally-input" placeholder="Search / filter" value={search} onChange={e => setSearch(e.target.value)} />
-          <div className="text-[11px] text-gray-500 font-bold uppercase p-2 border border-gray-200 bg-gray-50">Flow: Company Code → Set of Books → GL Master → GL Assignment</div>
+          <div className="text-[11px] text-gray-500 font-bold uppercase p-2 border border-gray-200 bg-gray-50">Flow: Company Code → Set of Books → GL Master / Bank Master → GL Assignment</div>
           <button className="bg-primary text-white text-xs font-black uppercase px-3 py-2" onClick={onSaveConfiguration}>Save Configuration</button>
         </div>
 
@@ -959,28 +1129,53 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
               <input className="tally-input" placeholder="Currency" value={booksForm.defaultCurrency} onChange={e => setBooksForm({ ...booksForm, defaultCurrency: e.target.value })} />
               <input className="tally-input" type="number" placeholder="Posting Count" value={booksForm.postingCount} onChange={e => setBooksForm({ ...booksForm, postingCount: Number(e.target.value) || 0 })} />
               <select className="tally-input" value={booksForm.activeStatus} onChange={e => setBooksForm({ ...booksForm, activeStatus: e.target.value as Status })}><option>Active</option><option>Inactive</option></select>
+              <select className="tally-input" value={booksForm.defaultDemoBankGLId} onChange={e => setBooksForm({ ...booksForm, defaultDemoBankGLId: e.target.value })}><option value="">Default Demo Bank GL</option>{bankGlOptionsForBooksForm.map(g => <option key={g.id} value={g.id}>{g.glCode} - {g.glName}</option>)}</select>
+              <select className="tally-input" value={booksForm.defaultBankGLId} onChange={e => setBooksForm({ ...booksForm, defaultBankGLId: e.target.value })}><option value="">Default Bank GL Selection</option>{bankGlOptionsForBooksForm.map(g => <option key={g.id} value={g.id}>{g.glCode} - {g.glName}</option>)}</select>
               <button className="bg-primary text-white text-xs font-black uppercase px-3 disabled:opacity-50 disabled:cursor-not-allowed" onClick={onSaveBooks} disabled={!booksForm.companyCodeId || !isUuid(booksForm.companyCodeId) || !store.companies.some(c => c.id === booksForm.companyCodeId)}>{editingBooksId ? 'Update' : 'Add'}</button>
             </div>
             <div className="text-[11px] text-gray-500 font-bold uppercase p-2 border border-blue-200 bg-blue-50">On create, system asks: “Create Default GL & Assignments” (Yes/No).</div>
             <button className="text-xs font-bold text-primary" onClick={() => exportCsv('set-of-books.csv', ['Company', 'Books ID', 'Description', 'Posting Count'], filteredBooks.map(b => [store.companies.find(c => c.id === b.companyCodeId)?.code || '', b.setOfBooksId, b.description, b.postingCount]))}>Export CSV</button>
-            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Company</th><th className="p-2 text-left">Books ID</th><th className="p-2 text-left">Posting Count</th><th className="p-2 text-left">Audit</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredBooks.map(b => <tr key={b.id} className="border-t"><td className="p-2">{store.companies.find(c => c.id === b.companyCodeId)?.code}</td><td className="p-2">{b.setOfBooksId}</td><td className="p-2">{b.postingCount}</td><td className="p-2">{b.updated_by}<br />{new Date(b.updated_at).toLocaleString()}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setBooksForm({ companyCodeId: b.companyCodeId, setOfBooksId: b.setOfBooksId, description: b.description, defaultCurrency: b.defaultCurrency, activeStatus: b.activeStatus, postingCount: b.postingCount }); setEditingBooksId(b.id); }}>Edit</button><button className="ml-3 text-emerald-700 font-bold" onClick={() => runResetDefaults(b.id)}>Reset to Default</button></td></tr>)}</tbody></table></div>
+            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Company</th><th className="p-2 text-left">Books ID</th><th className="p-2 text-left">Posting Count</th><th className="p-2 text-left">Audit</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredBooks.map(b => <tr key={b.id} className="border-t"><td className="p-2">{store.companies.find(c => c.id === b.companyCodeId)?.code}</td><td className="p-2">{b.setOfBooksId}</td><td className="p-2">{b.postingCount}</td><td className="p-2">{b.updated_by}<br />{new Date(b.updated_at).toLocaleString()}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setBooksForm({ companyCodeId: b.companyCodeId, setOfBooksId: b.setOfBooksId, description: b.description, defaultCurrency: b.defaultCurrency, defaultCustomerGLId: b.defaultCustomerGLId || '', defaultSupplierGLId: b.defaultSupplierGLId || '', defaultDemoBankGLId: b.defaultDemoBankGLId || '', defaultBankGLId: b.defaultBankGLId || '', activeStatus: b.activeStatus, postingCount: b.postingCount }); setEditingBooksId(b.id); }}>Edit</button><button className="ml-3 text-emerald-700 font-bold" onClick={() => runResetDefaults(b.id)}>Reset to Default</button></td></tr>)}</tbody></table></div>
           </div>
         )}
 
         {activeTab === 'gl' && (
           <div className="space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
               <select className="tally-input" value={glForm.setOfBooksId} onChange={e => setGlForm({ ...glForm, setOfBooksId: e.target.value })}><option value="">Set of Books*</option>{store.setOfBooks.map(b => <option key={b.id} value={b.id}>{b.setOfBooksId}</option>)}</select>
               <input className="tally-input" placeholder="GL Code*" value={glForm.glCode} onChange={e => setGlForm({ ...glForm, glCode: e.target.value })} />
               <input className="tally-input" placeholder="GL Name*" value={glForm.glName} onChange={e => setGlForm({ ...glForm, glName: e.target.value })} />
+              <input className="tally-input" placeholder="Alias / Short Name" value={glForm.alias} onChange={e => setGlForm({ ...glForm, alias: e.target.value })} />
               <select className="tally-input" value={glForm.glType} onChange={e => setGlForm({ ...glForm, glType: e.target.value as GLType })}>{glTypes.map(t => <option key={t}>{t}</option>)}</select>
+              <input className="tally-input" placeholder="Account Group" value={glForm.accountGroup} onChange={e => setGlForm({ ...glForm, accountGroup: e.target.value })} />
+              <input className="tally-input" placeholder="Subgroup" value={glForm.subgroup} onChange={e => setGlForm({ ...glForm, subgroup: e.target.value })} />
+              <input className="tally-input" placeholder="Mapping Structure" value={glForm.mappingStructure} onChange={e => setGlForm({ ...glForm, mappingStructure: e.target.value })} />
               <select className="tally-input" value={String(glForm.postingAllowed)} onChange={e => setGlForm({ ...glForm, postingAllowed: e.target.value === 'true' })}><option value="true">Posting Allowed: Yes</option><option value="false">Posting Allowed: No</option></select>
-              <input className="tally-input" type="number" placeholder="Posting Count" value={glForm.postingCount} onChange={e => setGlForm({ ...glForm, postingCount: Number(e.target.value) || 0 })} />
               <select className="tally-input" value={glForm.activeStatus} onChange={e => setGlForm({ ...glForm, activeStatus: e.target.value as Status })}><option>Active</option><option>Inactive</option></select>
               <button className="bg-primary text-white text-xs font-black uppercase px-3" onClick={onSaveGL}>{editingGlId ? 'Update' : 'Add'}</button>
             </div>
-            <button className="text-xs font-bold text-primary" onClick={() => exportCsv('gl-master.csv', ['Books', 'GL Code', 'GL Name', 'Type', 'Seeded'], filteredGL.map(g => [booksById.get(g.setOfBooksId)?.setOfBooksId || '', g.glCode, g.glName, g.glType, g.seeded_by_system]))}>Export CSV</button>
-            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Books</th><th className="p-2 text-left">GL</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Flags</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredGL.map(g => <tr key={g.id} className="border-t"><td className="p-2">{booksById.get(g.setOfBooksId)?.setOfBooksId}</td><td className="p-2">{g.glCode} - {g.glName}</td><td className="p-2">{g.glType}</td><td className="p-2">Posting:{g.postingAllowed ? 'Yes' : 'No'}<br />Control:{g.controlAccount ? 'Yes' : 'No'}<br />Seeded:{g.seeded_by_system ? 'Yes' : 'No'}<br />Template:{g.template_version}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setGlForm({ setOfBooksId: g.setOfBooksId, glCode: g.glCode, glName: g.glName, glType: g.glType, postingAllowed: g.postingAllowed, controlAccount: g.controlAccount, activeStatus: g.activeStatus, postingCount: g.postingCount }); setEditingGlId(g.id); }}>Edit</button></td></tr>)}</tbody></table></div>
+            <button className="text-xs font-bold text-primary" onClick={() => exportCsv('gl-master.csv', ['Books', 'GL Code', 'GL Name', 'Alias', 'Type', 'Group', 'Subgroup', 'Seeded'], filteredGL.map(g => [booksById.get(g.setOfBooksId)?.setOfBooksId || '', g.glCode, g.glName, g.alias || '', g.glType, g.accountGroup || '', g.subgroup || '', g.seeded_by_system]))}>Export CSV</button>
+            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Books</th><th className="p-2 text-left">GL</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Group Mapping</th><th className="p-2 text-left">Flags</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredGL.map(g => <tr key={g.id} className="border-t"><td className="p-2">{booksById.get(g.setOfBooksId)?.setOfBooksId}</td><td className="p-2">{g.glCode} - {g.glName}<br />{g.alias ? <span className="text-gray-500">Alias: {g.alias}</span> : null}</td><td className="p-2">{g.glType}</td><td className="p-2">{g.accountGroup || '-'} / {g.subgroup || '-'}<br />Map: {g.mappingStructure || '-'}</td><td className="p-2">Posting:{g.postingAllowed ? 'Yes' : 'No'}<br />Control:{g.controlAccount ? 'Yes' : 'No'}<br />Seeded:{g.seeded_by_system ? 'Yes' : 'No'}<br />Template:{g.template_version}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setGlForm({ setOfBooksId: g.setOfBooksId, glCode: g.glCode, glName: g.glName, alias: g.alias || '', glType: g.glType, accountGroup: g.accountGroup || '', subgroup: g.subgroup || '', mappingStructure: g.mappingStructure || '', postingAllowed: g.postingAllowed, controlAccount: g.controlAccount, activeStatus: g.activeStatus, postingCount: g.postingCount }); setEditingGlId(g.id); }}>Edit</button><button className="ml-3 text-emerald-700 font-bold" onClick={() => onCopyGL(g)}>Copy GL</button></td></tr>)}</tbody></table></div>
+          </div>
+        )}
+
+        {activeTab === 'bank' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+              <select className="tally-input" value={bankForm.companyCodeId} onChange={e => setBankForm({ ...bankForm, companyCodeId: e.target.value })}><option value="">Company Code*</option>{activeCompanies.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}</select>
+              <input className="tally-input" placeholder="Bank Name*" value={bankForm.bankName} onChange={e => setBankForm({ ...bankForm, bankName: e.target.value })} />
+              <input className="tally-input" placeholder="Account Name*" value={bankForm.accountName} onChange={e => setBankForm({ ...bankForm, accountName: e.target.value })} />
+              <input className="tally-input" placeholder="Account Number*" value={bankForm.accountNumber} onChange={e => setBankForm({ ...bankForm, accountNumber: e.target.value })} />
+              <input className="tally-input" placeholder="IFSC Code" value={bankForm.ifscCode} onChange={e => setBankForm({ ...bankForm, ifscCode: e.target.value })} />
+              <input className="tally-input" placeholder="Branch Name" value={bankForm.branchName} onChange={e => setBankForm({ ...bankForm, branchName: e.target.value })} />
+              <select className="tally-input" value={bankForm.accountType} onChange={e => setBankForm({ ...bankForm, accountType: e.target.value as AccountType })}>{accountTypes.map(a => <option key={a}>{a}</option>)}</select>
+              <input className="tally-input" type="number" placeholder="Opening Balance" value={bankForm.openingBalance} onChange={e => setBankForm({ ...bankForm, openingBalance: Number(e.target.value) || 0 })} />
+              <input className="tally-input" type="date" value={bankForm.openingDate} onChange={e => setBankForm({ ...bankForm, openingDate: e.target.value })} />
+              <select className="tally-input" value={bankForm.activeStatus} onChange={e => setBankForm({ ...bankForm, activeStatus: e.target.value as Status })}><option>Active</option><option>Inactive</option></select>
+              <label className="flex items-center gap-2 text-xs font-black uppercase border border-gray-300 px-2"><input type="checkbox" checked={bankForm.defaultBank} onChange={e => setBankForm({ ...bankForm, defaultBank: e.target.checked })} />Default Bank</label>
+              <button className="bg-primary text-white text-xs font-black uppercase px-3" onClick={onSaveBank}>{editingBankId ? 'Update' : 'Add'}</button>
+            </div>
+            <div className="overflow-auto border border-gray-200"><table className="min-w-full text-xs"><thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Company</th><th className="p-2 text-left">Bank</th><th className="p-2 text-left">Account</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Opening</th><th className="p-2 text-left">Flags</th><th className="p-2 text-left">Actions</th></tr></thead><tbody>{filteredBanks.map(b => <tr key={b.id} className="border-t"><td className="p-2">{store.companies.find(c => c.id === b.companyCodeId)?.code || '-'}</td><td className="p-2">{b.bankName}<br />{b.branchName || '-'}</td><td className="p-2">{b.accountName}<br />{b.accountNumber}<br />{b.ifscCode || '-'}</td><td className="p-2">{b.accountType}</td><td className="p-2">{b.openingBalance} on {b.openingDate || '-'}</td><td className="p-2">Default:{b.defaultBank ? 'Yes' : 'No'}<br />Status:{b.activeStatus}</td><td className="p-2"><button className="text-primary font-bold" onClick={() => { setBankForm({ companyCodeId: b.companyCodeId, bankName: b.bankName, accountName: b.accountName, accountNumber: b.accountNumber, ifscCode: b.ifscCode, branchName: b.branchName, accountType: b.accountType, openingBalance: b.openingBalance, openingDate: b.openingDate, defaultBank: b.defaultBank, activeStatus: b.activeStatus }); setEditingBankId(b.id); }}>Edit</button></td></tr>)}</tbody></table></div>
           </div>
         )}
 
