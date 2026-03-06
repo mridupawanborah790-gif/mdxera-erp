@@ -1,4 +1,50 @@
--- Atomic voucher number reservation with row-level lock
+-- Atomic voucher number reservation with row-level lock and audit trail
+
+CREATE TABLE IF NOT EXISTS public.voucher_number_audit (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id text NOT NULL,
+    document_type text NOT NULL,
+    event_type text NOT NULL CHECK (event_type IN ('generated', 'used', 'cancelled')),
+    document_number text NOT NULL,
+    used_number integer,
+    next_number integer,
+    fy text,
+    reference_id text,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_voucher_number_audit_org_doc
+    ON public.voucher_number_audit (organization_id, document_type, created_at DESC);
+
+CREATE OR REPLACE FUNCTION public.log_voucher_number_event(
+    p_organization_id text,
+    p_document_type text,
+    p_event_type text,
+    p_document_number text,
+    p_reference_id text DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO public.voucher_number_audit (
+        organization_id,
+        document_type,
+        event_type,
+        document_number,
+        reference_id
+    )
+    VALUES (
+        p_organization_id,
+        p_document_type,
+        p_event_type,
+        p_document_number,
+        p_reference_id
+    );
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.reserve_voucher_number(
     p_organization_id text,
     p_document_type text
@@ -33,6 +79,9 @@ BEGIN
         WHEN 'sales-non-gst' THEN cfg_key := 'non_gst_invoice_config';
         WHEN 'purchase-entry' THEN cfg_key := 'purchase_config';
         WHEN 'purchase-order' THEN cfg_key := 'purchase_order_config';
+        WHEN 'sales-challan' THEN cfg_key := 'sales_challan_config';
+        WHEN 'delivery-challan' THEN cfg_key := 'delivery_challan_config';
+        WHEN 'physical-inventory' THEN cfg_key := 'physical_inventory_config';
         ELSE
             RETURN QUERY SELECT false, 'Invalid document type', NULL::text, NULL::integer, NULL::integer, NULL::integer, NULL::text;
             RETURN;
@@ -87,8 +136,30 @@ BEGIN
         non_gst_invoice_config = CASE WHEN cfg_key = 'non_gst_invoice_config' THEN cfg ELSE non_gst_invoice_config END,
         purchase_config = CASE WHEN cfg_key = 'purchase_config' THEN cfg ELSE purchase_config END,
         purchase_order_config = CASE WHEN cfg_key = 'purchase_order_config' THEN cfg ELSE purchase_order_config END,
+        sales_challan_config = CASE WHEN cfg_key = 'sales_challan_config' THEN cfg ELSE sales_challan_config END,
+        delivery_challan_config = CASE WHEN cfg_key = 'delivery_challan_config' THEN cfg ELSE delivery_challan_config END,
+        physical_inventory_config = CASE WHEN cfg_key = 'physical_inventory_config' THEN cfg ELSE physical_inventory_config END,
         updated_at = now()
     WHERE id = cfg_row.id;
+
+    INSERT INTO public.voucher_number_audit (
+        organization_id,
+        document_type,
+        event_type,
+        document_number,
+        used_number,
+        next_number,
+        fy
+    )
+    VALUES (
+        p_organization_id,
+        p_document_type,
+        'generated',
+        v_doc,
+        v_current,
+        v_current + 1,
+        v_fy
+    );
 
     RETURN QUERY SELECT true, 'Reserved', v_doc, v_current, (v_current + 1), CASE WHEN v_end IS NULL THEN NULL ELSE (v_end - v_current) END, v_fy;
 END;

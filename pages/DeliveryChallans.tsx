@@ -5,9 +5,8 @@ import PurchaseForm from '../components/PurchaseForm';
 import ChallanDetailModal from '../components/ChallanDetailModal';
 import type { DeliveryChallan, PurchaseItem, InventoryItem, Distributor, Medicine, RegisteredPharmacy, AppConfigurations, SupplierProductMap, Purchase } from '../types';
 import { DeliveryChallanStatus } from '../types';
-import { generateNewInvoiceId } from '../utils/invoice';
 // Fixed: Corrected import from services/storageService
-import { saveData } from '../services/storageService';
+import { reserveVoucherNumber } from '../services/storageService';
 import type { SupplierQuickResult } from '../services/supplierService';
 
 interface DeliveryChallansPageProps {
@@ -139,7 +138,12 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
             return;
         }
 
-        const { id: serialId, nextExternalNumber } = generateNewInvoiceId(configurations.deliveryChallanConfig, 'delivery-challan');
+        if (!currentUser) {
+            addNotification('User context missing for voucher number generation.', 'error');
+            return;
+        }
+        const reserved = await reserveVoucherNumber('delivery-challan', currentUser);
+        const serialId = reserved.documentNumber;
         const challan: DeliveryChallan = {
             id: crypto.randomUUID(),
             organization_id: currentUser?.organization_id || '',
@@ -155,12 +159,6 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
         };
 
         await onAddChallan(challan);
-        const latestConfig = { ...configurations };
-        latestConfig.deliveryChallanConfig = {
-            ...(configurations.deliveryChallanConfig || { prefix: 'DC-', startingNumber: 1, paddingLength: 6, currentNumber: 1, useFiscalYear: false }),
-            currentNumber: nextExternalNumber
-        };
-        await saveData('configurations', latestConfig, currentUser);
         addNotification(`Delivery Challan ${serialId} recorded.`, "success");
         setActiveTab('list');
     };

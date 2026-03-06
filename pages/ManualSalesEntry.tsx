@@ -98,8 +98,6 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
       setTaxGlId(taxs.find((g) => /output|gst/i.test(g.label))?.id || taxs[0]?.id || '');
       setCustomerControlGlId(String((books as any)?.default_customer_gl_id || ''));
 
-      const reservation = await storage.reserveVoucherNumber('sales-gst', currentUser);
-      setVoucherNo(reservation.documentNumber);
     };
 
     loadSetup().catch((e) => addNotification(e?.message || 'Unable to load GL setup', 'error'));
@@ -109,6 +107,15 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
     setLines((prev) => prev.map((line) => (line.id === id ? recalcLine({ ...line, ...patch }) : line)));
   };
 
+
+  const ensureVoucherNumber = async (): Promise<string> => {
+    if (voucherNo) return voucherNo;
+    if (!currentUser) throw new Error('User context missing.');
+    const reservation = await storage.reserveVoucherNumber('sales-gst', currentUser);
+    setVoucherNo(reservation.documentNumber);
+    return reservation.documentNumber;
+  };
+
   const validate = async (): Promise<string | null> => {
     if (!currentUser) return 'User context missing.';
     if (!salesGlId) return 'Sales GL is mandatory.';
@@ -116,20 +123,22 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
       if (!line.description.trim()) return `Description is mandatory for line ${idx + 1}.`;
       if (line.qty < 0 || line.rate < 0) return `Qty and Rate must be ≥ 0 (line ${idx + 1}).`;
     }
-    const { data: duplicate } = await supabase
-      .from('sales_bill')
-      .select('id')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('id', voucherNo)
-      .maybeSingle();
-    if (duplicate?.id) return `Voucher number ${voucherNo} already exists.`;
+    if (voucherNo) {
+      const { data: duplicate } = await supabase
+        .from('sales_bill')
+        .select('id')
+        .eq('organization_id', currentUser.organization_id)
+        .eq('id', voucherNo)
+        .maybeSingle();
+      if (duplicate?.id) return `Voucher number ${voucherNo} already exists.`;
+    }
     return null;
   };
 
-  const buildTransaction = (status: 'draft' | 'completed'): Transaction => {
+  const buildTransaction = (status: 'draft' | 'completed', docNumber: string): Transaction => {
     const selectedCustomer = customers.find((c) => c.id === customerId);
     return {
-      id: voucherNo,
+      id: docNumber,
       organization_id: currentUser!.organization_id,
       user_id: currentUser!.user_id,
       date,
@@ -171,7 +180,8 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
   const onSaveDraft = async () => {
     const err = await validate();
     if (err) return addNotification(err, 'error');
-    await storage.saveData('sales_bill', buildTransaction('draft'), currentUser);
+    const docNumber = await ensureVoucherNumber();
+    await storage.saveData('sales_bill', buildTransaction('draft', docNumber), currentUser);
     addNotification('Manual sales voucher saved as draft.', 'success');
     await onSaved();
   };
@@ -180,10 +190,11 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
     const err = await validate();
     if (err) return addNotification(err, 'error');
 
-    await storage.saveData('sales_bill', buildTransaction('draft'), currentUser);
+    const docNumber = await ensureVoucherNumber();
+    await storage.saveData('sales_bill', buildTransaction('draft', docNumber), currentUser);
     try {
       await storage.postManualSalesVoucher({
-        voucherId: voucherNo,
+        voucherId: docNumber,
         voucherDate: date,
         paymentMode,
         grandTotal: metrics.grandTotal,
@@ -212,7 +223,7 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
           {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <input className="border p-2" placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
-        <input className="border p-2 bg-gray-100" value={voucherNo} readOnly />
+        <input className="border p-2 bg-gray-100" value={voucherNo || 'Auto (generated on save/post)'} readOnly />
         <select className="border p-2" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
           {['Cash', 'Card', 'UPI', 'Credit'].map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
