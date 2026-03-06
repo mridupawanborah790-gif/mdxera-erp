@@ -871,6 +871,13 @@ const App: React.FC = () => {
         await storage.saveData('configurations', updated, currentUser);
     }, [configurations, currentUser]);
 
+    const buildBillPharmacy = () => {
+        if (!currentUser) return null;
+        const configuredLogo = configurations.displayOptions?.pharmacyLogoUrl;
+        if (!configuredLogo) return currentUser;
+        return { ...currentUser, pharmacy_logo_url: configuredLogo };
+    };
+
     const renderPage = () => {
         const config: ModuleConfig = { visible: true, fields: configurations.modules?.[currentPage]?.fields || {} };
 
@@ -888,7 +895,7 @@ const App: React.FC = () => {
                     ref={posRef}
                     inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
                     onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
-                    onPrintBill={(tx) => setPrintBill({ ...tx, pharmacy: currentUser!, inventory, configurations } as any)}
+                    onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
                     currentUser={currentUser} config={config} configurations={configurations}
                     billType={currentPage === 'nonGstPos' ? 'non-gst' : 'regular'}
                     addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
@@ -898,7 +905,7 @@ const App: React.FC = () => {
                 return <SalesHistory
                     transactions={transactions} inventory={inventory}
                     onViewDetails={setViewTransaction}
-                    onPrintBill={(tx) => setPrintBill({ ...tx, pharmacy: currentUser!, inventory, configurations } as any)}
+                    onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
                     onCancelTransaction={handleCancelTransaction}
                     currentUser={currentUser} onViewSale={setViewTransaction} onEditSale={() => { }}
                 />;
