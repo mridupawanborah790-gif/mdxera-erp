@@ -3,7 +3,6 @@ import Modal from './Modal';
 import AddMedicineModal from './AddMedicineModal';
 import BatchSelectionModal from './BatchSelectionModal';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine } from '../types';
-import { generateNewInvoiceId } from '../utils/invoice';
 import { fuzzyMatch } from '../utils/search';
 import * as storage from '../services/storageService';
 
@@ -485,10 +484,9 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({ isOpen, onClose, inv
                         </div>
                         <button
                             onClick={async () => {
-                                const { id: templateId } = generateNewInvoiceId(configurations.invoiceConfig, 'regular');
-                                const generatedId = currentUser
-                                    ? await storage.generateNextSalesBillId(templateId, currentUser)
-                                    : templateId;
+                                if (!currentUser) throw new Error('User context missing for voucher generation.');
+                                const reservation = await storage.reserveVoucherNumber('sales-gst', currentUser);
+                                const generatedId = reservation.documentNumber;
                                 const tx: Transaction = {
                                     id: generatedId,
                                     organization_id: currentUser?.organization_id || '',
