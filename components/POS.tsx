@@ -312,7 +312,7 @@ const POS = forwardRef<any, POSProps>(({
         };
 
         try {
-            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit);
+            await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, reservedNextNumber ?? undefined);
             if (onPrintBill) onPrintBill(transaction);
             setCartItems([]);
             setPrescriptions([]);
