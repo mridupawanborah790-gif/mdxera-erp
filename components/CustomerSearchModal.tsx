@@ -102,15 +102,17 @@ const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClo
                         <table className="min-w-full border-collapse">
                             <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-400 shadow-sm">
                                 <tr className="text-[10px] font-black uppercase text-gray-500 tracking-widest h-10">
-                                    <th className="p-2 px-4 text-left border-r border-gray-200">Customer Name / Ledger</th>
-                                    <th className="p-2 px-4 text-center border-r border-gray-200 w-48">Phone</th>
-                                    <th className="p-2 px-4 text-right">Balance</th>
+                                    <th className="p-2 px-4 text-left border-r border-gray-200 w-[32%]">Customer Name / Ledger</th>
+                                    <th className="p-2 px-4 text-left border-r border-gray-200 w-[34%]">Address Line 1</th>
+                                    <th className="p-2 px-4 text-center border-r border-gray-200 w-[18%]">Phone</th>
+                                    <th className="p-2 px-4 text-right w-[16%]">Balance</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filtered.map((cust, idx) => {
                                     const isSelected = idx === selectedIndex;
                                     const balance = getOutstandingBalance(cust);
+                                    const addressLine1 = cust.address_line1 || cust.address || '—';
                                     return (
                                         <tr 
                                             key={cust.id} 
@@ -121,6 +123,9 @@ const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClo
                                         >
                                             <td className="p-2 px-4 border-r border-gray-200">
                                                 <p className={`leading-none ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{cust.name}</p>
+                                            </td>
+                                            <td className={`p-2 px-4 border-r border-gray-200 ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-700'}`}>
+                                                {addressLine1}
                                             </td>
                                             <td className={`p-2 px-4 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-primary'}`}>
                                                 {cust.phone || 'N/A'}
