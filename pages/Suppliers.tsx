@@ -8,6 +8,22 @@ import { fuzzyMatch } from '../utils/search';
 
 const uniformTextStyle = 'text-2xl font-normal tracking-tight uppercase leading-tight';
 
+const displayValue = (value: unknown, fallback = 'N/A'): string => {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed.length ? trimmed : fallback;
+    }
+    if (typeof value === 'number') return Number.isFinite(value) ? String(value) : fallback;
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (Array.isArray(value)) {
+        const normalized = value.map(item => displayValue(item, '')).filter(Boolean).join(', ');
+        return normalized || fallback;
+    }
+
+    return fallback;
+};
+
 const addressFields: Array<{ label: string; key: 'address_line1' | 'address_line2' | 'area' | 'city' | 'district' | 'state' | 'pincode' | 'country' }> = [
     { label: 'Address Line 1', key: 'address_line1' },
     { label: 'Address Line 2', key: 'address_line2' },
@@ -131,7 +147,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                     {addressFields.map(({ label, key }) => (
                                         <div key={key} className="min-w-0 border border-gray-200 p-3">
                                             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">{label}</p>
-                                            <p className="text-sm font-bold text-gray-900 break-words">{selectedSupplier[key] || 'N/A'}</p>
+                                            <p className="text-sm font-bold text-gray-900 break-words">{displayValue(selectedSupplier[key])}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -141,23 +157,23 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Group</p>
-                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.supplier_group || 'N/A'}</p>
+                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.supplier_group)}</p>
                                     </div>
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Category</p>
-                                        <p className="text-sm font-bold text-gray-900">{String(selectedSupplierExtra?.category || 'N/A')}</p>
+                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplierExtra?.category)}</p>
                                     </div>
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Control GL</p>
-                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.control_gl_id || 'N/A'}</p>
+                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.control_gl_id)}</p>
                                     </div>
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Email</p>
-                                        <p className="text-sm font-bold text-gray-900 break-all">{selectedSupplier.email || 'N/A'}</p>
+                                        <p className="text-sm font-bold text-gray-900 break-all">{displayValue(selectedSupplier.email)}</p>
                                     </div>
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">GSTIN</p>
-                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.gst_number || 'N/A'}</p>
+                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.gst_number)}</p>
                                     </div>
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Opening Balance</p>
@@ -165,11 +181,11 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                     </div>
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">PAN</p>
-                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.pan_number || 'N/A'}</p>
+                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.pan_number)}</p>
                                     </div>
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Drug License</p>
-                                        <p className="text-sm font-bold text-gray-900">{selectedSupplier.drug_license || 'N/A'}</p>
+                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.drug_license)}</p>
                                     </div>
                                 </div>
                             </div>
