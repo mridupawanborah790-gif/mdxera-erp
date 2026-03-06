@@ -126,6 +126,7 @@ const POS = forwardRef<any, POSProps>(({
     const [cartItems, setCartItems] = useState<BillItem[]>([]);
     const [prescriptions, setPrescriptions] = useState<UploadedFile[]>([]);
     const [isSaving, setIsSaving] = useState(false);
+    const [nextVoucherNumberHint, setNextVoucherNumberHint] = useState<number | null>(null);
     const [isProcessingRx, setIsProcessingRx] = useState(false);
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
@@ -225,9 +226,29 @@ const POS = forwardRef<any, POSProps>(({
         if (transactionToEdit) return transactionToEdit.id;
         const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
         const typeKey = isNonGst ? 'non-gst' : 'regular';
-        const { id } = generateNewInvoiceId(configurations[configKey], typeKey);
+        const activeConfig = {
+            ...(configurations[configKey] || {}),
+            ...(nextVoucherNumberHint ? { currentNumber: nextVoucherNumberHint } : {})
+        };
+        const { id } = generateNewInvoiceId(activeConfig, typeKey);
         return id;
-    }, [transactionToEdit, isNonGst, configurations, billMode]);
+    }, [transactionToEdit, isNonGst, configurations, billMode, nextVoucherNumberHint]);
+
+    useEffect(() => {
+        setNextVoucherNumberHint(null);
+    }, [isNonGst]);
+
+    useEffect(() => {
+        if (transactionToEdit || nextVoucherNumberHint === null) return;
+
+        const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
+        const configCurrentNumber = Number((configurations[configKey] as any)?.currentNumber || 0);
+
+        // Clear the local hint only after app configuration catches up to or moves beyond it.
+        if (configCurrentNumber >= nextVoucherNumberHint) {
+            setNextVoucherNumberHint(null);
+        }
+    }, [transactionToEdit, nextVoucherNumberHint, isNonGst, configurations]);
 
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
@@ -250,9 +271,13 @@ const POS = forwardRef<any, POSProps>(({
 
         let generatedId = transactionToEdit?.id;
 
+        let reservedNextNumber: number | null = null;
+
         if (!generatedId) {
             try {
-                generatedId = (await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!)).documentNumber;
+                const reservation = await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser!);
+                generatedId = reservation.documentNumber;
+                reservedNextNumber = reservation.nextNumber;
             } catch (reservationError) {
                 const errorMessage = reservationError instanceof Error ? reservationError.message : 'Voucher reservation failed';
                 addNotification(`Unable to reserve voucher number. ${errorMessage}`, 'error');
@@ -295,6 +320,7 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch('');
             setLumpsumDiscount(0);
             setReferredBy('');
+            if (reservedNextNumber) setNextVoucherNumberHint(reservedNextNumber);
             addNotification("Bill Saved Successfully", "success");
         } catch (e: any) {
             addNotification("Failed to save: " + e.message, "error");
