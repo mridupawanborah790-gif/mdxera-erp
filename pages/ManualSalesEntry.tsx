@@ -182,6 +182,7 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
     if (err) return addNotification(err, 'error');
     const docNumber = await ensureVoucherNumber();
     await storage.saveData('sales_bill', buildTransaction('draft', docNumber), currentUser);
+    setVoucherNo('');
     addNotification('Manual sales voucher saved as draft.', 'success');
     await onSaved();
   };
@@ -207,6 +208,7 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
         customerControlGlId,
         narration,
       }, currentUser!);
+      setVoucherNo('');
       addNotification('Manual sales voucher posted successfully.', 'success');
       await onSaved();
     } catch (e: any) {
