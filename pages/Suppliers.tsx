@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
 import type { Supplier, RegisteredPharmacy } from '../types';
@@ -8,6 +8,7 @@ import { AddSupplierModal, EditSupplierModal, RecordPaymentModal } from '../comp
 import PrintLedgerModal from '../components/PrintLedgerModal';
 import ExportSuppliersModal from '../components/ExportSuppliersModal';
 import { getOutstandingBalance } from '../utils/helpers';
+import { getDataById } from '../services/storageService';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
@@ -28,6 +29,9 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+    const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
+    const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+    const [detailsError, setDetailsError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
 
@@ -64,6 +68,25 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
         setIsExportModalOpen(true);
     };
 
+    const handleSelectSupplier = useCallback(async (supplierId: string) => {
+        setSelectedSupplierId(supplierId);
+        setIsLoadingDetails(true);
+        setDetailsError(null);
+        setSelectedSupplier(null);
+
+        const supplier = await getDataById<Supplier>('suppliers', supplierId, currentUser);
+
+        if (!supplier) {
+            setSelectedSupplier(null);
+            setDetailsError('Supplier details not found');
+            setIsLoadingDetails(false);
+            return;
+        }
+
+        setSelectedSupplier(supplier);
+        setIsLoadingDetails(false);
+    }, [currentUser]);
+
 
     const handleDuplicateSupplier = (supplier: Supplier) => {
         setSelectedSupplier(supplier);
@@ -72,6 +95,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
     const handleEditSubmit = (updated: Supplier) => {
         onUpdateSupplier(updated);
         setSelectedSupplier(updated);
+        setSelectedSupplierId(updated.id);
         setIsEditModalOpen(false);
     };
 
@@ -97,7 +121,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                     </div>
                     <div className="flex-1 overflow-y-auto divide-y divide-gray-200">
                         {filteredSuppliers.map(s => (
-                            <div key={s.id} onClick={() => setSelectedSupplier(s)} className={`p-4 cursor-pointer transition-all border-l-[8px] ${selectedSupplier?.id === s.id ? 'bg-accent text-black' : 'border-transparent hover:bg-gray-100'}`}>
+                            <div key={s.id} onClick={() => handleSelectSupplier(s.id)} className={`p-4 cursor-pointer transition-all border-l-[8px] ${selectedSupplierId === s.id ? 'bg-accent text-black' : 'border-transparent hover:bg-gray-100'}`}>
                                 <div className="flex justify-between items-center">
                                     <p className={`${uniformTextStyle} truncate pr-2`}>{s.name}</p>
                                     <p className={`${uniformTextStyle} whitespace-nowrap ${getOutstandingBalance(s) > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
@@ -114,7 +138,15 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                 </Card>
 
                 <Card className="flex-1 p-0 tally-border bg-white overflow-hidden flex flex-col shadow-inner">
-                    {selectedSupplier ? (
+                    {isLoadingDetails ? (
+                        <div className="h-full flex items-center justify-center text-gray-400">
+                            <p className="text-xl font-black uppercase tracking-[0.2em]">Loading Supplier Details...</p>
+                        </div>
+                    ) : detailsError ? (
+                        <div className="h-full flex items-center justify-center text-gray-400">
+                            <p className="text-xl font-black uppercase tracking-[0.2em]">{detailsError}</p>
+                        </div>
+                    ) : selectedSupplier ? (
                         <div className="flex flex-col h-full overflow-hidden">
                             <div className="p-6 bg-gray-100 border-b border-gray-400 flex justify-between items-start flex-shrink-0">
                                 <div className="flex-1">
@@ -145,8 +177,8 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 tally-font-data-mono">
-                                        {(selectedSupplier.ledger || []).map(item => (
-                                            <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                                        {(selectedSupplier.ledger || []).filter(Boolean).map((item, index) => (
+                                            <tr key={item.id || `${selectedSupplier.id}-${index}`} className="hover:bg-gray-50 transition-colors">
                                                 <td className={`${uniformTextStyle} p-4 border-r border-gray-100`}>{item.date}</td>
                                                 <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-gray-700`}>{item.description}</td>
                                                 <td className={`${uniformTextStyle} p-4 border-r border-gray-100 text-right text-emerald-700`}>{item.debit > 0 ? (item.debit || 0).toFixed(2) : ''}</td>
