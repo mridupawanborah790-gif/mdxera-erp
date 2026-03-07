@@ -76,17 +76,18 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
     const defaultBank = useMemo(() => bankOptions.find(b => b.isDefault), [bankOptions]);
 
     const filteredCustomers = useMemo(() => {
+        if (!Array.isArray(customers)) return [];
         return customers
-            .filter(c => c.is_active !== false)
-            .filter(c => fuzzyMatch(c.name, searchTerm) || fuzzyMatch(c.phone, searchTerm))
+            .filter(c => c && c.is_active !== false)
+            .filter(c => fuzzyMatch(c.name || '', searchTerm) || fuzzyMatch(c.phone || '', searchTerm))
             .sort((a, b) => getOutstandingBalance(b) - getOutstandingBalance(a));
     }, [customers, searchTerm]);
 
     const invoiceRows = useMemo(() => {
-        if (!selectedCustomer) return [] as ReceivableInvoiceRow[];
+        if (!selectedCustomer || !Array.isArray(transactions)) return [] as ReceivableInvoiceRow[];
 
         const sales: ReceivableInvoiceRow[] = transactions
-            .filter(t => t.status !== 'cancelled' && (t.customerId === selectedCustomer.id || (t.customerName || '').trim().toLowerCase() === (selectedCustomer.name || '').trim().toLowerCase()))
+            .filter(t => t && t.status !== 'cancelled' && (t.customerId === selectedCustomer.id || (t.customerName || '').trim().toLowerCase() === (selectedCustomer.name || '').trim().toLowerCase()))
             .map(t => ({
                 id: t.id,
                 date: t.date,
@@ -101,9 +102,10 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             }));
 
         const mapByInvoice = new Map(sales.map(s => [s.id, { ...s }]));
+        const ledger = Array.isArray(selectedCustomer.ledger) ? selectedCustomer.ledger : [];
 
-        for (const entry of selectedCustomer.ledger || []) {
-            if (entry.type !== 'payment') continue;
+        for (const entry of ledger) {
+            if (!entry || entry.type !== 'payment') continue;
             const invoiceId = entry.referenceInvoiceId || '';
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (target) {
@@ -117,12 +119,23 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             }
         }
 
-        return Array.from(mapByInvoice.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return Array.from(mapByInvoice.values()).sort((a, b) => {
+            const timeA = new Date(a.date).getTime();
+            const timeB = new Date(b.date).getTime();
+            return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA);
+        });
     }, [selectedCustomer, transactions]);
 
     const ledgerRows = useMemo(() => {
         if (!selectedCustomer) return [];
-        return [...(selectedCustomer.ledger || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const ledger = Array.isArray(selectedCustomer.ledger) ? selectedCustomer.ledger : [];
+        return [...ledger]
+            .filter(Boolean)
+            .sort((a, b) => {
+                const timeA = new Date(a.date).getTime();
+                const timeB = new Date(b.date).getTime();
+                return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA);
+            });
     }, [selectedCustomer]);
 
     const paymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && Number(item.credit || 0) > 0), [ledgerRows]);

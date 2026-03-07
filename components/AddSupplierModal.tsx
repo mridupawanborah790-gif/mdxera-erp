@@ -82,10 +82,13 @@ export const AddSupplierModal: React.FC<{
         
         if (name.startsWith('payment_details.')) {
             const field = name.split('.')[1];
-            setForm(prev => ({
-                ...prev,
-                payment_details: { ...prev.payment_details, [field]: value }
-            }));
+            setForm(prev => {
+                const pd = prev.payment_details || { upi_id: '', bank_name: '', ifsc_code: '', branch_name: '', payment_terms: '30 Days', account_number: '' };
+                return {
+                    ...prev,
+                    payment_details: { ...pd, [field]: value }
+                };
+            });
             return;
         }
 
@@ -231,19 +234,19 @@ export const AddSupplierModal: React.FC<{
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">UPI ID for QR</label>
-                            <input type="text" name="payment_details.upi_id" value={form.payment_details.upi_id || ''} onChange={handleChange} placeholder="e.g. supplier@upi" className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            <input type="text" name="payment_details.upi_id" value={form.payment_details?.upi_id || ''} onChange={handleChange} placeholder="e.g. supplier@upi" className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
                         </div>
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Bank Name</label>
-                            <input type="text" name="payment_details.bank_name" value={form.payment_details.bank_name || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            <input type="text" name="payment_details.bank_name" value={form.payment_details?.bank_name || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
                         </div>
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">A/c Number</label>
-                            <input type="text" name="payment_details.account_number" value={form.payment_details.account_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            <input type="text" name="payment_details.account_number" value={form.payment_details?.account_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
                         </div>
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">IFSC Code</label>
-                            <input type="text" name="payment_details.ifsc_code" value={form.payment_details.ifsc_code || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                            <input type="text" name="payment_details.ifsc_code" value={form.payment_details?.ifsc_code || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
                         </div>
                     </div>
                 </section>
@@ -277,23 +280,44 @@ export const EditSupplierModal: React.FC<{
     supplier: Supplier;
     defaultControlGlId?: string;
 }> = ({ isOpen, onClose, onSave, supplier, defaultControlGlId }) => {
-    const [form, setForm] = useState(supplier);
+    const [form, setForm] = useState<Supplier>(() => ({
+        ...supplier,
+        payment_details: { 
+            upi_id: '', 
+            bank_name: '', 
+            ifsc_code: '', 
+            branch_name: '', 
+            payment_terms: '30 Days', 
+            account_number: '',
+            ...(supplier?.payment_details || {}) 
+        }
+    }));
     const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
     const [isPincodeLoading, setIsPincodeLoading] = useState(false);
 
     const resolveOpeningDate = (source: Supplier) => {
-        const openingEntry = (source.ledger || []).find((entry) => entry.type === 'openingBalance');
+        if (!source) return new Date().toISOString().split('T')[0];
+        const ledger = Array.isArray(source.ledger) ? source.ledger : [];
+        const openingEntry = ledger.find((entry) => entry && entry.type === 'openingBalance');
         return openingEntry?.date || new Date().toISOString().split('T')[0];
     };
 
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && supplier) {
             setForm({
                 ...supplier,
                 control_gl_id: supplier.control_gl_id || defaultControlGlId || '',
                 address_line1: supplier.address_line1 || supplier.address || '',
                 address: supplier.address_line1 || supplier.address || '',
-                payment_details: { ...supplier.payment_details }
+                payment_details: { 
+                    upi_id: '', 
+                    bank_name: '', 
+                    ifsc_code: '', 
+                    branch_name: '', 
+                    payment_terms: '30 Days', 
+                    account_number: '',
+                    ...supplier.payment_details 
+                }
             });
             setAsOfDate(resolveOpeningDate(supplier));
         }
@@ -304,10 +328,13 @@ export const EditSupplierModal: React.FC<{
         
         if (name.startsWith('payment_details.')) {
             const field = name.split('.')[1];
-            setForm(prev => ({
-                ...prev,
-                payment_details: { ...prev.payment_details, [field]: value }
-            }));
+            setForm(prev => {
+                const pd = prev.payment_details || { upi_id: '', bank_name: '', ifsc_code: '', branch_name: '', payment_terms: '30 Days', account_number: '' };
+                return {
+                    ...prev,
+                    payment_details: { ...pd, [field]: value }
+                };
+            });
             return;
         }
 
@@ -445,19 +472,19 @@ export const EditSupplierModal: React.FC<{
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">UPI ID for QR</label>
-                            <input type="text" name="payment_details.upi_id" value={form.payment_details.upi_id || ''} onChange={handleChange} placeholder="e.g. supplier@upi" className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            <input type="text" name="payment_details.upi_id" value={form.payment_details?.upi_id || ''} onChange={handleChange} placeholder="e.g. supplier@upi" className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
                         </div>
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Bank Name</label>
-                            <input type="text" name="payment_details.bank_name" value={form.payment_details.bank_name || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            <input type="text" name="payment_details.bank_name" value={form.payment_details?.bank_name || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
                         </div>
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">A/c Number</label>
-                            <input type="text" name="payment_details.account_number" value={form.payment_details.account_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            <input type="text" name="payment_details.account_number" value={form.payment_details?.account_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
                         </div>
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">IFSC Code</label>
-                            <input type="text" name="payment_details.ifsc_code" value={form.payment_details.ifsc_code || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                            <input type="text" name="payment_details.ifsc_code" value={form.payment_details?.ifsc_code || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
                         </div>
                     </div>
                 </section>

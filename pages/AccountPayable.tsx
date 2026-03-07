@@ -90,9 +90,10 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const defaultBank = useMemo(() => bankOptions.find(b => b.isDefault), [bankOptions]);
 
     const filteredDistributors = useMemo(() => {
+        if (!Array.isArray(distributors)) return [];
         return distributors
-            .filter(d => d.is_active !== false)
-            .filter(d => fuzzyMatch(d.name, searchTerm) || fuzzyMatch(d.gst_number, searchTerm))
+            .filter(d => d && d.is_active !== false)
+            .filter(d => fuzzyMatch(d.name || '', searchTerm) || fuzzyMatch(d.gst_number || '', searchTerm))
             .sort((a, b) => getOutstandingBalance(b) - getOutstandingBalance(a));
     }, [distributors, searchTerm]);
 
@@ -105,7 +106,9 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                 return;
             }
 
-            const paymentEntries = (selectedDistributor.ledger || []).filter((entry) => entry.type === 'payment' && getPaymentAmount(entry) > 0);
+            const ledger = Array.isArray(selectedDistributor.ledger) ? selectedDistributor.ledger : [];
+            const paymentEntries = ledger.filter((entry) => entry && entry.type === 'payment' && getPaymentAmount(entry) > 0);
+            
             if (paymentEntries.length === 0) {
                 if (isMounted) setLedgerVoucherMap({});
                 return;
@@ -114,53 +117,60 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             const referenceIds = Array.from(new Set([
                 selectedDistributor.id,
                 ...paymentEntries.map((entry) => entry.referenceInvoiceId || '').filter(Boolean),
-            ]));
+            ])).filter(Boolean);
 
-            const { data, error } = await supabase
-                .from('journal_entry_header')
-                .select('id, journal_entry_number, reference_id, reference_document_id, document_reference, posting_date, total_debit, total_credit')
-                .eq('organization_id', currentUser.organization_id)
-                .eq('reference_type', 'SUPPLIER_PAYMENT')
-                .in('reference_id', referenceIds)
-                .order('posting_date', { ascending: false });
+            if (referenceIds.length === 0) return;
 
-            if (error || !isMounted) return;
+            try {
+                const { data, error } = await supabase
+                    .from('journal_entry_header')
+                    .select('id, journal_entry_number, reference_id, reference_document_id, document_reference, posting_date, total_debit, total_credit')
+                    .eq('organization_id', currentUser.organization_id)
+                    .eq('reference_type', 'SUPPLIER_PAYMENT')
+                    .in('reference_id', referenceIds)
+                    .order('posting_date', { ascending: false });
 
-            const rows = data || [];
-            const byId = new Map(rows.map((row: any) => [String(row.id), row]));
-            const byReferenceDocumentId = new Map<string, any[]>();
-            for (const row of rows) {
-                const key = String(row.reference_document_id || row.reference_id || '');
-                if (!key) continue;
-                const existing = byReferenceDocumentId.get(key) || [];
-                existing.push(row);
-                byReferenceDocumentId.set(key, existing);
+                if (error || !isMounted) return;
+
+                const rows = data || [];
+                const byId = new Map(rows.map((row: any) => [String(row.id), row]));
+                const byReferenceDocumentId = new Map<string, any[]>();
+                for (const row of rows) {
+                    const key = String(row.reference_document_id || row.reference_id || '');
+                    if (!key) continue;
+                    const existing = byReferenceDocumentId.get(key) || [];
+                    existing.push(row);
+                    byReferenceDocumentId.set(key, existing);
+                }
+
+                const resolved: Record<string, LedgerVoucherMeta> = {};
+                for (const entry of paymentEntries) {
+                    const amount = getPaymentAmount(entry);
+                    const entryDate = String(entry.date || '').split('T')[0];
+                    const byJournalId = entry.journalEntryId ? byId.get(String(entry.journalEntryId)) : undefined;
+                    const candidatePool = (byJournalId
+                        ? [byJournalId]
+                        : (byReferenceDocumentId.get(String(entry.referenceInvoiceId || selectedDistributor.id)) || []).concat(byReferenceDocumentId.get(selectedDistributor.id) || []))
+                        .filter(Boolean);
+
+                    const exactMatch = candidatePool.find((row: any) => {
+                        const postingDate = String(row.posting_date || '').split('T')[0];
+                        const rowAmount = Number(row.total_credit || row.total_debit || 0);
+                        return postingDate === entryDate && Math.abs(rowAmount - amount) < 0.01;
+                    }) || candidatePool[0];
+
+                    if (!exactMatch) continue;
+                    resolved[entry.id] = {
+                        journalEntryId: String(exactMatch.id),
+                        journalEntryNumber: String(exactMatch.journal_entry_number || ''),
+                        referenceInvoiceNumber: String(exactMatch.document_reference || entry.referenceInvoiceNumber || ''),
+                    };
+                }
+
+                if (isMounted) setLedgerVoucherMap(resolved);
+            } catch (err) {
+                console.error('AccountPayable: Hydration error', err);
             }
-
-            const resolved: Record<string, LedgerVoucherMeta> = {};
-            for (const entry of paymentEntries) {
-                const amount = getPaymentAmount(entry);
-                const entryDate = String(entry.date || '').split('T')[0];
-                const byJournalId = entry.journalEntryId ? byId.get(String(entry.journalEntryId)) : undefined;
-                const candidatePool = byJournalId
-                    ? [byJournalId]
-                    : (byReferenceDocumentId.get(String(entry.referenceInvoiceId || selectedDistributor.id)) || []).concat(byReferenceDocumentId.get(selectedDistributor.id) || []);
-
-                const exactMatch = candidatePool.find((row: any) => {
-                    const postingDate = String(row.posting_date || '').split('T')[0];
-                    const rowAmount = Number(row.total_credit || row.total_debit || 0);
-                    return postingDate === entryDate && Math.abs(rowAmount - amount) < 0.01;
-                }) || candidatePool[0];
-
-                if (!exactMatch) continue;
-                resolved[entry.id] = {
-                    journalEntryId: String(exactMatch.id),
-                    journalEntryNumber: String(exactMatch.journal_entry_number || ''),
-                    referenceInvoiceNumber: String(exactMatch.document_reference || entry.referenceInvoiceNumber || ''),
-                };
-            }
-
-            setLedgerVoucherMap(resolved);
         };
 
         hydrateLedgerVoucherDetails();
@@ -170,11 +180,13 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     }, [selectedDistributor, currentUser]);
 
     const invoiceRows = useMemo(() => {
-        if (!selectedDistributor) return [] as PayableInvoiceRow[];
+        if (!selectedDistributor || !Array.isArray(purchases)) return [] as PayableInvoiceRow[];
 
         const supplierName = (selectedDistributor.name || '').trim().toLowerCase();
+        if (!supplierName) return [] as PayableInvoiceRow[];
+
         const supplierPurchases: PayableInvoiceRow[] = purchases
-            .filter(p => p.status !== 'cancelled' && (p.supplier || '').trim().toLowerCase() === supplierName)
+            .filter(p => p && p.status !== 'cancelled' && (p.supplier || '').trim().toLowerCase() === supplierName)
             .map(p => ({
                 id: p.id,
                 date: p.date,
@@ -190,9 +202,10 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             }));
 
         const mapByInvoice = new Map(supplierPurchases.map(item => [item.id, { ...item }]));
+        const ledger = Array.isArray(selectedDistributor.ledger) ? selectedDistributor.ledger : [];
 
-        for (const entry of selectedDistributor.ledger || []) {
-            if (entry.type !== 'payment') continue;
+        for (const entry of ledger) {
+            if (!entry || entry.type !== 'payment') continue;
             const invoiceId = entry.referenceInvoiceId || '';
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (!target) continue;
@@ -214,12 +227,18 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             target.latestPaymentEntry = normalizedEntry;
         }
 
-        return Array.from(mapByInvoice.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return Array.from(mapByInvoice.values()).sort((a, b) => {
+            const dateA = new Date(a.date).getTime();
+            const dateB = new Date(b.date).getTime();
+            return (Number.isNaN(dateB) ? 0 : dateB) - (Number.isNaN(dateA) ? 0 : dateA);
+        });
     }, [selectedDistributor, purchases, ledgerVoucherMap]);
 
     const ledgerRows = useMemo(() => {
         if (!selectedDistributor) return [];
-        return [...(selectedDistributor.ledger || [])]
+        const ledger = Array.isArray(selectedDistributor.ledger) ? selectedDistributor.ledger : [];
+        return [...ledger]
+            .filter(Boolean)
             .map((entry) => {
                 const resolvedMeta = ledgerVoucherMap[entry.id];
                 return {
@@ -229,7 +248,11 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                     referenceInvoiceNumber: entry.referenceInvoiceNumber || resolvedMeta?.referenceInvoiceNumber,
                 };
             })
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            .sort((a, b) => {
+                const dateA = new Date(a.date).getTime();
+                const dateB = new Date(b.date).getTime();
+                return (Number.isNaN(dateB) ? 0 : dateB) - (Number.isNaN(dateA) ? 0 : dateA);
+            });
     }, [selectedDistributor, ledgerVoucherMap]);
 
     const paymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && getPaymentAmount(item) > 0), [ledgerRows]);

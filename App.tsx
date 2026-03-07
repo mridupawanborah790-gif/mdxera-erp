@@ -926,292 +926,311 @@ const App: React.FC = () => {
     const renderPage = () => {
         const config: ModuleConfig = { visible: true, fields: configurations.modules?.[currentPage]?.fields || {} };
 
-        switch (currentPage) {
-            case 'dashboard':
-                return <Dashboard
-                    currentUser={currentUser} configurations={configurations} inventory={inventory}
-                    transactions={transactions} purchases={purchases} medicines={medicines}
-                    customers={customers} distributors={suppliers} onKpiClick={handleNavigate}
-                    brandName="MDXERA" lastRefreshed={lastRefreshed} onReload={handleReload} isReloading={isReloading}
-                />;
-            case 'pos':
-            case 'nonGstPos':
-                return <POS
-                    ref={posRef}
-                    inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
-                    onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
-                    onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
-                    currentUser={currentUser} config={config} configurations={configurations}
-                    billType={currentPage === 'nonGstPos' ? 'non-gst' : 'regular'}
-                    addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
-                    onCancel={() => handleNavigate('dashboard')}
-                />;
-            case 'salesHistory':
-                return <SalesHistory
-                    transactions={transactions} inventory={inventory}
-                    onViewDetails={setViewTransaction}
-                    onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
-                    onCancelTransaction={handleCancelTransaction}
-                    currentUser={currentUser} onViewSale={setViewTransaction} onEditSale={() => { }}
-                />;
-            case 'manualSalesEntry':
-                return <ManualSalesEntry
-                    currentUser={currentUser}
-                    customers={customers}
-                    inventory={inventory}
-                    configurations={configurations}
-                    addNotification={addNotification}
-                    onSaved={() => loadData(currentUser!, 'background')}
-                />;
-            case 'automatedPurchaseEntry':
-                return <PurchaseForm
-                    ref={purchaseFormRef}
-                    onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
-                    inventory={inventory} suppliers={suppliers} medicines={medicines}
-                    mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
-                    draftItems={sourceChallansForPurchase?.items || null}
-                    draftSupplier={sourceChallansForPurchase?.supplier}
-                    onClearDraft={() => setSourceChallansForPurchase(null)}
-                    currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
-                    onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    setIsDirty={() => { }} addNotification={addNotification}
-                    title="AI-Powered Automated Purchase"
-                    isManualEntry={false}
-                    configurations={configurations}
-                    mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
-                    organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
-                />;
-            case 'manualPurchaseEntry':
-                return <PurchaseForm
-                    ref={purchaseFormRef}
-                    onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
-                    inventory={inventory} suppliers={suppliers} medicines={medicines}
-                    mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
-                    draftItems={null}
-                    onClearDraft={() => { }}
-                    currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
-                    onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    setIsDirty={() => { }} addNotification={addNotification}
-                    title="Manual Purchase Entry"
-                    isManualEntry={true}
-                    configurations={configurations}
-                    mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
-                    organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
-                />;
+        try {
+            switch (currentPage) {
+                case 'dashboard':
+                    return <Dashboard
+                        currentUser={currentUser} configurations={configurations} inventory={inventory}
+                        transactions={transactions} purchases={purchases} medicines={medicines}
+                        customers={customers} distributors={suppliers} onKpiClick={handleNavigate}
+                        brandName="MDXERA" lastRefreshed={lastRefreshed} onReload={handleReload} isReloading={isReloading}
+                    />;
+                case 'pos':
+                case 'nonGstPos':
+                    return <POS
+                        ref={posRef}
+                        inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
+                        onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
+                        onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
+                        currentUser={currentUser} config={config} configurations={configurations}
+                        billType={currentPage === 'nonGstPos' ? 'non-gst' : 'regular'}
+                        addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
+                        onCancel={() => handleNavigate('dashboard')}
+                    />;
+                case 'salesHistory':
+                    return <SalesHistory
+                        transactions={transactions} inventory={inventory}
+                        onViewDetails={setViewTransaction}
+                        onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
+                        onCancelTransaction={handleCancelTransaction}
+                        currentUser={currentUser} onViewSale={setViewTransaction} onEditSale={() => { }}
+                    />;
+                case 'manualSalesEntry':
+                    return <ManualSalesEntry
+                        currentUser={currentUser}
+                        customers={customers}
+                        inventory={inventory}
+                        configurations={configurations}
+                        addNotification={addNotification}
+                        onSaved={() => loadData(currentUser!, 'background')}
+                    />;
+                case 'automatedPurchaseEntry':
+                    return <PurchaseForm
+                        ref={purchaseFormRef}
+                        onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
+                        inventory={inventory} suppliers={suppliers} medicines={medicines}
+                        mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
+                        draftItems={sourceChallansForPurchase?.items || null}
+                        draftSupplier={sourceChallansForPurchase?.supplier}
+                        onClearDraft={() => setSourceChallansForPurchase(null)}
+                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
+                        onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        setIsDirty={() => { }} addNotification={addNotification}
+                        title="AI-Powered Automated Purchase"
+                        isManualEntry={false}
+                        configurations={configurations}
+                        mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
+                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
+                    />;
+                case 'manualPurchaseEntry':
+                    return <PurchaseForm
+                        ref={purchaseFormRef}
+                        onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
+                        inventory={inventory} suppliers={suppliers} medicines={medicines}
+                        mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
+                        draftItems={null}
+                        onClearDraft={() => { }}
+                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
+                        onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        setIsDirty={() => { }} addNotification={addNotification}
+                        title="Manual Purchase Entry"
+                        isManualEntry={true}
+                        configurations={configurations}
+                        mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
+                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
+                    />;
 
-            case 'manualSupplierInvoice':
-                return <ManualPurchase
-                    currentUser={currentUser}
-                    suppliers={suppliers}
-                    inventory={inventory}
-                    medicines={medicines}
-                    purchases={purchases}
-                    addNotification={addNotification}
-                    onAddPurchase={handleAddPurchase}
-                    onSaved={() => loadData(currentUser!, 'background')}
-                    onAddMedicineMaster={handleAddMedicineMaster}
-                />;
-            case 'purchaseHistory':
-                return <PurchaseHistory
-                    purchases={purchases} distributors={suppliers} onViewDetails={setViewPurchase}
-                    onCancelPurchase={handleCancelPurchase} inventory={inventory} medicines={medicines}
-                    onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualSupplierInvoice'); }}
-                    onAddInventoryItem={handleAddInventoryItem}
-                    currentUser={currentUser} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
-                />;
-            case 'inventory':
-                return <Inventory
-                    inventory={inventory} medicines={medicines} currentUser={currentUser}
-                    onCreatePurchaseOrder={() => { }} config={config} onUpdateConfig={(newConfig) => handleUpdateModuleConfig('inventory', newConfig)}
-                    onBulkAddInventory={(list) => storage.saveBulkData('inventory', list, currentUser)}
-                    onAddProduct={handleAddInventoryItem} onUpdateProduct={(item) => storage.saveData('inventory', item, currentUser).then(() => loadData(currentUser!, 'background'))}
-                />;
-            case 'physicalInventory':
-                return <PhysicalInventory
-                    inventory={inventory} medicines={medicines} physicalInventorySessions={physicalInventory}
-                    onStartNewCount={async () => {
-                        if (!currentUser) return;
+                case 'manualSupplierInvoice':
+                    return <ManualPurchase
+                        currentUser={currentUser}
+                        suppliers={suppliers}
+                        inventory={inventory}
+                        medicines={medicines}
+                        purchases={purchases}
+                        addNotification={addNotification}
+                        onAddPurchase={handleAddPurchase}
+                        onSaved={() => loadData(currentUser!, 'background')}
+                        onAddMedicineMaster={handleAddMedicineMaster}
+                    />;
+                case 'purchaseHistory':
+                    return <PurchaseHistory
+                        purchases={purchases} distributors={suppliers} onViewDetails={setViewPurchase}
+                        onCancelPurchase={handleCancelPurchase} inventory={inventory} medicines={medicines}
+                        onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualSupplierInvoice'); }}
+                        onAddInventoryItem={handleAddInventoryItem}
+                        currentUser={currentUser} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
+                    />;
+                case 'inventory':
+                    return <Inventory
+                        inventory={inventory} medicines={medicines} currentUser={currentUser}
+                        onCreatePurchaseOrder={() => { }} config={config} onUpdateConfig={(newConfig) => handleUpdateModuleConfig('inventory', newConfig)}
+                        onBulkAddInventory={(list) => storage.saveBulkData('inventory', list, currentUser)}
+                        onAddProduct={handleAddInventoryItem} onUpdateProduct={(item) => storage.saveData('inventory', item, currentUser).then(() => loadData(currentUser!, 'background'))}
+                    />;
+                case 'physicalInventory':
+                    return <PhysicalInventory
+                        inventory={inventory} medicines={medicines} physicalInventorySessions={physicalInventory}
+                        onStartNewCount={async () => {
+                            if (!currentUser) return;
 
-                        const hasOpenSession = physicalInventory.some(s => s.status === PhysicalInventoryStatus.IN_PROGRESS);
-                        if (hasOpenSession) {
-                            addNotification('An audit session is already in progress.', 'warning');
-                            return;
-                        }
+                            const hasOpenSession = physicalInventory.some(s => s.status === PhysicalInventoryStatus.IN_PROGRESS);
+                            if (hasOpenSession) {
+                                addNotification('An audit session is already in progress.', 'warning');
+                                return;
+                            }
 
-                        const reserved = await storage.reserveVoucherNumber('physical-inventory', currentUser);
-                        const session: PhysicalInventorySession = {
-                            id: reserved.documentNumber,
-                            organization_id: currentUser.organization_id,
-                            status: PhysicalInventoryStatus.IN_PROGRESS,
-                            startDate: new Date().toISOString(),
-                            reason: '',
-                            items: [],
-                            totalVarianceValue: 0,
-                            performedById: currentUser.id,
-                            performedByName: currentUser.full_name,
-                        };
+                            const reserved = await storage.reserveVoucherNumber('physical-inventory', currentUser);
+                            const session: PhysicalInventorySession = {
+                                id: reserved.documentNumber,
+                                organization_id: currentUser.organization_id,
+                                status: PhysicalInventoryStatus.IN_PROGRESS,
+                                startDate: new Date().toISOString(),
+                                reason: '',
+                                items: [],
+                                totalVarianceValue: 0,
+                                performedById: currentUser.id,
+                                performedByName: currentUser.full_name,
+                            };
 
-                        await storage.saveData('physical_inventory', session, currentUser);
-                        await loadData(currentUser, 'background');
-                    }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
-                    onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
-                    onCancelCount={(session) => {
-                        const cancelledSession: PhysicalInventorySession = {
-                            ...session,
-                            status: PhysicalInventoryStatus.CANCELLED,
-                            endDate: new Date().toISOString(),
-                        };
-                        return storage.saveData('physical_inventory', cancelledSession, currentUser)
-                            .then(() => storage.markVoucherCancelled('physical-inventory', currentUser!, cancelledSession.id, cancelledSession.id))
-                            .then(() => loadData(currentUser!, 'background'));
-                    }}
-                />;
-            case 'suppliers':
-                return <Suppliers
-                    suppliers={suppliers} onAddSupplier={handleAddDistributor}
-                    onBulkAddSuppliers={(list) => storage.saveBulkData('suppliers', list, currentUser)}
-                    onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'supplier')}
-                    onUpdateSupplier={handleUpdateSupplier}
-                    config={config} currentUser={currentUser} defaultSupplierControlGlId={defaultSupplierControlGlId}
-                />;
-            case 'customers':
-                return <Customers
-                    customers={customers} teamMembers={teamMembers} onAddCustomer={handleAddCustomer}
-                    onBulkAddCustomers={(list) => storage.saveBulkData('customers', list, currentUser)}
-                    onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'customer')}
-                    onUpdateCustomer={handleUpdateCustomer}
-                    currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
-                />;
-            case 'medicineMasterList':
-            case 'vendorNomenclature':
-            case 'bulkUtility':
-                return <MaterialMaster
-                    medicines={medicines} onAddMedicine={handleAddMedicineMaster}
-                    onUpdateMedicine={handleUpdateMedicineMaster} currentUser={currentUser}
-                    suppliers={suppliers} onAddPurchase={handleAddPurchase as any}
-                    onBulkAddMedicines={(list) => storage.saveBulkData('material_master', list, currentUser)}
-                    onSearchMedicines={() => { }} onMassUpdateClick={() => { }}
-                    onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} onDeleteMapping={(id) => storage.deleteData('supplier_product_map', id).then(() => loadData(currentUser!, 'background'))}
-                    mappings={mappings}
-                    initialSubModule={currentPage === 'vendorNomenclature' ? 'sync' : currentPage === 'bulkUtility' ? 'bulk' : 'master'}
-                />;
-            case 'substituteFinder':
-                return <SubstituteFinder inventory={inventory} />;
-            case 'promotions':
-                return <Promotions currentUser={currentUser} addNotification={addNotification} />;
-            case 'reports':
-                return <Reports
-                    inventory={inventory} transactions={transactions} purchases={purchases}
-                    distributors={suppliers} customers={customers} salesReturns={salesReturns}
-                    purchaseReturns={purchaseReturns} onPrintReport={setViewReport} config={config}
-                />;
-            case 'balanceCarryforward':
-                return <BalanceCarryforward />;
-            case 'gst':
-                return <GstCenter
-                    transactions={transactions} purchases={purchases} customers={customers}
-                    currentUser={currentUser} configurations={configurations}
-                    onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
-                />;
-            case 'businessUsers':
-                return <BusinessUserAssignment
-                    currentUser={currentUser!} addNotification={addNotification}
-                    members={teamMembers} onRefresh={() => loadData(currentUser!, 'sync')}
-                />;
-            case 'businessRoles':
-                return <BusinessRoles currentUser={currentUser!} addNotification={addNotification} />;
-            case 'companyConfiguration':
-                return <CompanyConfiguration currentUser={currentUser} />;
-            case 'configuration':
-                return <Configuration
-                    configurations={configurations}
-                    onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
-                    addNotification={addNotification} currentUser={currentUser} inventory={inventory}
-                    transactions={transactions} purchases={purchases} distributors={suppliers} customers={customers} medicines={medicines}
-                    onBulkAddInventory={(l: any) => storage.saveBulkData('inventory', l, currentUser)}
-                    onBulkAddDistributors={(l: any) => storage.saveBulkData('suppliers', l, currentUser)}
-                    onBulkAddCustomers={(l: any) => storage.saveBulkData('customers', l, currentUser)}
-                    onBulkAddPurchases={(l: any) => storage.saveBulkData('purchases', l, currentUser)}
-                    onBulkAddSales={(l: any) => storage.saveBulkData('sales_bill', l, currentUser)}
-                    onBulkAddMedicines={(l: any) => storage.saveBulkData('material_master', l, currentUser)}
-                    onBulkAddMappings={(l: any) => storage.saveBulkData('supplier_product_map', l, currentUser)}
-                    mappings={mappings}
-                />;
-            case 'settings':
-                return <Settings
-                    currentUser={currentUser}
-                    onUpdateProfile={(p) => storage.updateProfile(p).then((updated) => {
-                        setCurrentUser(updated);
-                        loadData(updated, 'background');
-                    })}
-                    addNotification={addNotification}
-                />;
-            case 'classification':
-                return <Classification
-                    categories={categories} subCategories={subCategories}
-                    onAddCategory={(d) => storage.saveData('categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onUpdateCategory={(d) => storage.saveData('categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onDeleteCategory={(id) => storage.deleteData('categories', id).then(() => loadData(currentUser!, 'background'))}
-                    onAddSubCategory={(d) => storage.saveData('sub_categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onUpdateSubCategory={(d) => storage.saveData('sub_categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onDeleteSubCategory={(id) => storage.deleteData('sub_categories', id).then(() => loadData(currentUser!, 'background'))}
-                />;
-            case 'deliveryChallans':
-                return <DeliveryChallans
-                    deliveryChallans={deliveryChallans} inventory={inventory} distributors={suppliers}
-                    medicines={medicines} currentUser={currentUser} configurations={configurations}
-                    onAddChallan={(d) => storage.saveData('delivery_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onUpdateChallan={(d) => storage.saveData('delivery_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onCancelChallan={(id) => storage.updateChallanStatus(id, DeliveryChallanStatus.CANCELLED, currentUser!).then(() => loadData(currentUser!, 'background'))}
-                    onConvertToPurchase={handleConvertToPurchase} onAddInventoryItem={handleAddInventoryItem}
-                    onAddMedicineMaster={handleAddMedicineMaster} onAddDistributor={handleAddDistributor}
-                    onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} addNotification={addNotification} mappings={mappings}
-                />;
-            case 'salesChallans':
-                return <SalesChallans
-                    salesChallans={salesChallans} inventory={inventory} medicines={medicines}
-                    purchases={purchases} customers={customers} currentUser={currentUser} configurations={configurations}
-                    onAddChallan={(d) => storage.saveData('sales_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onUpdateChallan={(d) => storage.saveData('sales_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onCancelChallan={(id) => storage.updateSalesChallanStatus(id, SalesChallanStatus.CANCELLED, currentUser!).then(() => loadData(currentUser!, 'background'))}
-                    onConvertToInvoice={handleConvertToInvoice} addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
-                />;
-            case 'purchaseOrders':
-                return <PurchaseOrders
-                    distributors={suppliers} inventory={inventory} purchaseOrders={purchaseOrders}
-                    onAddPurchaseOrder={async (d) => {
-                        const reserved = await storage.reserveVoucherNumber('purchase-order', currentUser!);
-                        const payload = { ...d, serialId: reserved.documentNumber };
-                        await storage.saveData('purchase_orders', payload, currentUser);
-                        await loadData(currentUser!, 'background');
-                    }}
-                    onUpdatePurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                    onCreatePurchaseEntry={() => { }} onPrintPurchaseOrder={setPrintPO as any}
-                    onCancelPurchaseOrder={(id) => storage.deleteData('purchase_orders', id).then(() => loadData(currentUser!, 'background'))}
-                    draftItems={null} onClearDraft={() => { }} setIsDirty={() => { }}
-                    currentUserPharmacyName={currentUser?.pharmacy_name || ''} currentUserEmail={currentUser?.email || ''}
-                    currentUserOrgId={currentUser?.organization_id}
-                />;
-            case 'accountReceivable':
-                return <AccountReceivable customers={customers} transactions={transactions} bankOptions={bankOptions as any} onRecordPayment={handleRecordCustomerPaymentWithAccounting} currentUser={currentUser} />;
-            case 'accountPayable':
-                return <AccountPayable distributors={suppliers} purchases={purchases} bankOptions={bankOptions as any} onRecordPayment={handleRecordSupplierPaymentWithAccounting} currentUser={currentUser} />;
-            case 'salesReturns':
-            case 'purchaseReturn':
-                return <Returns
-                    currentUser={currentUser} transactions={transactions} inventory={inventory}
-                    salesReturns={salesReturns} purchaseReturns={purchaseReturns} purchases={purchases}
-                    onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(async () => { await storage.syncSalesReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
-                    onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(async () => { await storage.syncPurchaseReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
-                    addNotification={addNotification} defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'} isFixedMode={true}
-                />;
-            default:
-                return <Dashboard
-                    currentUser={currentUser} configurations={configurations} inventory={inventory}
-                    transactions={transactions} purchases={purchases} medicines={medicines}
-                    customers={customers} distributors={suppliers} onKpiClick={handleNavigate}
-                    brandName="MDXERA" lastRefreshed={lastRefreshed} onReload={handleReload} isReloading={isReloading}
-                />;
+                            await storage.saveData('physical_inventory', session, currentUser);
+                            await loadData(currentUser, 'background');
+                        }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
+                        onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
+                        onCancelCount={(session) => {
+                            const cancelledSession: PhysicalInventorySession = {
+                                ...session,
+                                status: PhysicalInventoryStatus.CANCELLED,
+                                endDate: new Date().toISOString(),
+                            };
+                            return storage.saveData('physical_inventory', cancelledSession, currentUser)
+                                .then(() => storage.markVoucherCancelled('physical-inventory', currentUser!, cancelledSession.id, cancelledSession.id))
+                                .then(() => loadData(currentUser!, 'background'));
+                        }}
+                    />;
+                case 'suppliers':
+                    return <Suppliers
+                        suppliers={suppliers} onAddSupplier={handleAddDistributor}
+                        onBulkAddSuppliers={(list) => storage.saveBulkData('suppliers', list, currentUser)}
+                        onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'supplier')}
+                        onUpdateSupplier={handleUpdateSupplier}
+                        config={config} currentUser={currentUser} defaultSupplierControlGlId={defaultSupplierControlGlId}
+                    />;
+                case 'customers':
+                    return <Customers
+                        customers={customers} teamMembers={teamMembers} onAddCustomer={handleAddCustomer}
+                        onBulkAddCustomers={(list) => storage.saveBulkData('customers', list, currentUser)}
+                        onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'customer')}
+                        onUpdateCustomer={handleUpdateCustomer}
+                        currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
+                    />;
+                case 'medicineMasterList':
+                case 'vendorNomenclature':
+                case 'bulkUtility':
+                    return <MaterialMaster
+                        medicines={medicines} onAddMedicine={handleAddMedicineMaster}
+                        onUpdateMedicine={handleUpdateMedicineMaster} currentUser={currentUser}
+                        suppliers={suppliers} onAddPurchase={handleAddPurchase as any}
+                        onBulkAddMedicines={(list) => storage.saveBulkData('material_master', list, currentUser)}
+                        onSearchMedicines={() => { }} onMassUpdateClick={() => { }}
+                        onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} onDeleteMapping={(id) => storage.deleteData('supplier_product_map', id).then(() => loadData(currentUser!, 'background'))}
+                        mappings={mappings}
+                        initialSubModule={currentPage === 'vendorNomenclature' ? 'sync' : currentPage === 'bulkUtility' ? 'bulk' : 'master'}
+                    />;
+                case 'substituteFinder':
+                    return <SubstituteFinder inventory={inventory} />;
+                case 'promotions':
+                    return <Promotions currentUser={currentUser} addNotification={addNotification} />;
+                case 'reports':
+                    return <Reports
+                        inventory={inventory} transactions={transactions} purchases={purchases}
+                        distributors={suppliers} customers={customers} salesReturns={salesReturns}
+                        purchaseReturns={purchaseReturns} onPrintReport={setViewReport} config={config}
+                    />;
+                case 'balanceCarryforward':
+                    return <BalanceCarryforward />;
+                case 'gst':
+                    return <GstCenter
+                        transactions={transactions} purchases={purchases} customers={customers}
+                        currentUser={currentUser} configurations={configurations}
+                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
+                    />;
+                case 'businessUsers':
+                    return <BusinessUserAssignment
+                        currentUser={currentUser!} addNotification={addNotification}
+                        members={teamMembers} onRefresh={() => loadData(currentUser!, 'sync')}
+                    />;
+                case 'businessRoles':
+                    return <BusinessRoles currentUser={currentUser!} addNotification={addNotification} />;
+                case 'companyConfiguration':
+                    return <CompanyConfiguration currentUser={currentUser} />;
+                case 'configuration':
+                    return <Configuration
+                        configurations={configurations}
+                        onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
+                        addNotification={addNotification} currentUser={currentUser} inventory={inventory}
+                        transactions={transactions} purchases={purchases} distributors={suppliers} customers={customers} medicines={medicines}
+                        onBulkAddInventory={(l: any) => storage.saveBulkData('inventory', l, currentUser)}
+                        onBulkAddDistributors={(l: any) => storage.saveBulkData('suppliers', l, currentUser)}
+                        onBulkAddCustomers={(l: any) => storage.saveBulkData('customers', l, currentUser)}
+                        onBulkAddPurchases={(l: any) => storage.saveBulkData('purchases', l, currentUser)}
+                        onBulkAddSales={(l: any) => storage.saveBulkData('sales_bill', l, currentUser)}
+                        onBulkAddMedicines={(l: any) => storage.saveBulkData('material_master', l, currentUser)}
+                        onBulkAddMappings={(l: any) => storage.saveBulkData('supplier_product_map', l, currentUser)}
+                        mappings={mappings}
+                    />;
+                case 'settings':
+                    return <Settings
+                        currentUser={currentUser}
+                        onUpdateProfile={(p) => storage.updateProfile(p).then((updated) => {
+                            setCurrentUser(updated);
+                            loadData(updated, 'background');
+                        })}
+                        addNotification={addNotification}
+                    />;
+                case 'classification':
+                    return <Classification
+                        categories={categories} subCategories={subCategories}
+                        onAddCategory={(d) => storage.saveData('categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onUpdateCategory={(d) => storage.saveData('categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onDeleteCategory={(id) => storage.deleteData('categories', id).then(() => loadData(currentUser!, 'background'))}
+                        onAddSubCategory={(d) => storage.saveData('sub_categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onUpdateSubCategory={(d) => storage.saveData('sub_categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onDeleteSubCategory={(id) => storage.deleteData('sub_categories', id).then(() => loadData(currentUser!, 'background'))}
+                    />;
+                case 'deliveryChallans':
+                    return <DeliveryChallans
+                        deliveryChallans={deliveryChallans} inventory={inventory} distributors={suppliers}
+                        medicines={medicines} currentUser={currentUser} configurations={configurations}
+                        onAddChallan={(d) => storage.saveData('delivery_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onUpdateChallan={(d) => storage.saveData('delivery_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onCancelChallan={(id) => storage.updateChallanStatus(id, DeliveryChallanStatus.CANCELLED, currentUser!).then(() => loadData(currentUser!, 'background'))}
+                        onConvertToPurchase={handleConvertToPurchase} onAddInventoryItem={handleAddInventoryItem}
+                        onAddMedicineMaster={handleAddMedicineMaster} onAddDistributor={handleAddDistributor}
+                        onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} addNotification={addNotification} mappings={mappings}
+                    />;
+                case 'salesChallans':
+                    return <SalesChallans
+                        salesChallans={salesChallans} inventory={inventory} medicines={medicines}
+                        purchases={purchases} customers={customers} currentUser={currentUser} configurations={configurations}
+                        onAddChallan={(d) => storage.saveData('sales_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onUpdateChallan={(d) => storage.saveData('sales_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onCancelChallan={(id) => storage.updateSalesChallanStatus(id, SalesChallanStatus.CANCELLED, currentUser!).then(() => loadData(currentUser!, 'background'))}
+                        onConvertToInvoice={handleConvertToInvoice} addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
+                    />;
+                case 'purchaseOrders':
+                    return <PurchaseOrders
+                        distributors={suppliers} inventory={inventory} purchaseOrders={purchaseOrders}
+                        onAddPurchaseOrder={async (d) => {
+                            const reserved = await storage.reserveVoucherNumber('purchase-order', currentUser!);
+                            const payload = { ...d, serialId: reserved.documentNumber };
+                            await storage.saveData('purchase_orders', payload, currentUser);
+                            await loadData(currentUser!, 'background');
+                        }}
+                        onUpdatePurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onCreatePurchaseEntry={() => { }} onPrintPurchaseOrder={setPrintPO as any}
+                        onCancelPurchaseOrder={(id) => storage.deleteData('purchase_orders', id).then(() => loadData(currentUser!, 'background'))}
+                        draftItems={null} onClearDraft={() => { }} setIsDirty={() => { }}
+                        currentUserPharmacyName={currentUser?.pharmacy_name || ''} currentUserEmail={currentUser?.email || ''}
+                        currentUserOrgId={currentUser?.organization_id}
+                    />;
+                case 'accountReceivable':
+                    return <AccountReceivable customers={customers} transactions={transactions} bankOptions={bankOptions as any} onRecordPayment={handleRecordCustomerPaymentWithAccounting} currentUser={currentUser} />;
+                case 'accountPayable':
+                    return <AccountPayable distributors={suppliers} purchases={purchases} bankOptions={bankOptions as any} onRecordPayment={handleRecordSupplierPaymentWithAccounting} currentUser={currentUser} />;
+                case 'salesReturns':
+                case 'purchaseReturn':
+                    return <Returns
+                        currentUser={currentUser} transactions={transactions} inventory={inventory}
+                        salesReturns={salesReturns} purchaseReturns={purchaseReturns} purchases={purchases}
+                        onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(async () => { await storage.syncSalesReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
+                        onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(async () => { await storage.syncPurchaseReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
+                        addNotification={addNotification} defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'} isFixedMode={true}
+                    />;
+                default:
+                    return <Dashboard
+                        currentUser={currentUser} configurations={configurations} inventory={inventory}
+                        transactions={transactions} purchases={purchases} medicines={medicines}
+                        customers={customers} distributors={suppliers} onKpiClick={handleNavigate}
+                        brandName="MDXERA" lastRefreshed={lastRefreshed} onReload={handleReload} isReloading={isReloading}
+                    />;
+            }
+        } catch (e) {
+            console.error('CRITICAL PAGE RENDER ERROR:', e);
+            return (
+                <div className="flex-1 flex items-center justify-center bg-red-50 p-10">
+                    <div className="max-w-md w-full bg-white border-2 border-red-500 p-8 shadow-2xl">
+                        <h2 className="text-2xl font-black text-red-600 uppercase mb-4 tracking-tight">Application Fault</h2>
+                        <p className="text-sm font-bold text-gray-700 mb-6">The module <span className="text-red-600 uppercase">{currentPage}</span> has encountered a critical failure and could not be rendered.</p>
+                        <div className="bg-red-50 p-4 border border-red-100 rounded mb-6">
+                            <p className="text-[10px] font-black text-red-400 uppercase mb-1">Error Trace</p>
+                            <p className="text-xs font-mono text-red-700 break-words">{String(e)}</p>
+                        </div>
+                        <button onClick={() => window.location.reload()} className="w-full py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest hover:bg-red-700 transition-colors">
+                            Re-initialize System
+                        </button>
+                    </div>
+                </div>
+            );
         }
     };
 

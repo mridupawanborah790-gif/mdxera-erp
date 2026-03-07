@@ -55,13 +55,10 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
 
     const filteredSuppliers = useMemo(() => {
+        if (!Array.isArray(suppliers)) return [];
         return suppliers
-            .filter(s => {
-                if (statusFilter === 'active') return s.is_active !== false;
-                if (statusFilter === 'blocked') return s.is_active === false;
-                return true;
-            })
-            .filter(s => fuzzyMatch(s.name, searchTerm) || fuzzyMatch(s.phone, searchTerm) || fuzzyMatch(s.mobile, searchTerm))
+            .filter(s => s && (statusFilter === 'all' || (statusFilter === 'active' ? s.is_active !== false : s.is_active === false)))
+            .filter(s => fuzzyMatch(s.name || '', searchTerm) || fuzzyMatch(s.phone || '', searchTerm) || fuzzyMatch(s.mobile || '', searchTerm))
             .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }, [suppliers, searchTerm, statusFilter]);
 
@@ -72,7 +69,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                 setIsAddModalOpen(true);
             } else if (e.key === 'F3') {
                 e.preventDefault();
-                if (filteredSuppliers.length > 0) {
+                if (Array.isArray(filteredSuppliers) && filteredSuppliers.length > 0) {
                     setIsExportModalOpen(true);
                 }
             }
@@ -82,16 +79,22 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
     }, [filteredSuppliers]);
 
     const handleExportClick = () => {
-        if (filteredSuppliers.length === 0) return;
+        if (!Array.isArray(filteredSuppliers) || filteredSuppliers.length === 0) return;
         setIsExportModalOpen(true);
     };
 
     const handleDuplicateSupplier = (supplier: Supplier) => {
+        if (!supplier) return;
         setSelectedSupplier(supplier);
         setIsEditModalOpen(true);
     };
 
-    const selectedSupplierExtra = selectedSupplier as (Supplier & Record<string, unknown>) | null;
+    const selectedSupplierExtra = selectedSupplier as (Supplier & Record<string, any>) | null;
+
+    const safeToNumber = (val: any) => {
+        const n = Number(val);
+        return isFinite(n) ? n : 0;
+    };
 
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
@@ -127,74 +130,92 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                 </Card>
 
                 <Card className="flex-1 p-0 tally-border bg-white overflow-hidden flex flex-col shadow-inner">
-                    {selectedSupplier ? (
-                        <div className="flex flex-col h-full overflow-hidden">
-                            <div className="p-6 bg-gray-100 border-b border-gray-400 flex justify-between items-start flex-shrink-0">
-                                <div className="flex-1">
-                                    <h3 className={`${uniformTextStyle} !text-4xl text-primary`}>{selectedSupplier.name}</h3>
-                                    <div className="flex flex-wrap gap-x-8 gap-y-2 mt-3 text-sm font-bold text-gray-500 uppercase">
-                                        <span>GSTIN: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.gst_number || 'N/A'}</span></span>
-                                        <span>PH: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.mobile || selectedSupplier.phone || 'N/A'}</span></span>
-                                        <span>Opening: <span className="text-gray-900 tally-font-data-mono">₹{Number(selectedSupplier.opening_balance || 0).toFixed(2)}</span></span>
-                                    </div>
+                    {(() => {
+                        if (!selectedSupplier) {
+                            return (
+                                <div className="h-full flex items-center justify-center text-gray-300">
+                                    <p className="text-xl font-black uppercase tracking-[0.2em]">Select Supplier</p>
                                 </div>
-                                <button onClick={() => setIsEditModalOpen(true)} className="px-6 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Alter</button>
-                            </div>
+                            );
+                        }
 
-                            <div className="p-4 border-b border-gray-300 bg-white">
-                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-3">Address Details</p>
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-                                    {addressFields.map(({ label, key }) => (
-                                        <div key={key} className="min-w-0 border border-gray-200 p-3">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">{label}</p>
-                                            <p className="text-sm font-bold text-gray-900 break-words">{displayValue(selectedSupplier[key])}</p>
+                        try {
+                            const openingBalance = safeToNumber(selectedSupplier.opening_balance);
+                            
+                            return (
+                                <div className="flex flex-col h-full overflow-hidden">
+                                    <div className="p-6 bg-gray-100 border-b border-gray-400 flex justify-between items-start flex-shrink-0">
+                                        <div className="flex-1">
+                                            <h3 className={`${uniformTextStyle} !text-4xl text-primary`}>{selectedSupplier.name || '—'}</h3>
+                                            <div className="flex flex-wrap gap-x-8 gap-y-2 mt-3 text-sm font-bold text-gray-500 uppercase">
+                                                <span>GSTIN: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.gst_number || 'N/A'}</span></span>
+                                                <span>PH: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.mobile || selectedSupplier.phone || 'N/A'}</span></span>
+                                                <span>Opening: <span className="text-gray-900 tally-font-data-mono">₹{openingBalance.toFixed(2)}</span></span>
+                                            </div>
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
+                                        <button onClick={() => setIsEditModalOpen(true)} className="px-6 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Alter</button>
+                                    </div>
 
-                            <div className="flex-1 overflow-auto p-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                                    <div className="p-3 border border-gray-200">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Group</p>
-                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.supplier_group)}</p>
+                                    <div className="p-4 border-b border-gray-300 bg-white">
+                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-3">Address Details</p>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                            {addressFields.map(({ label, key }) => (
+                                                <div key={key} className="min-w-0 border border-gray-200 p-3">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">{label}</p>
+                                                    <p className="text-sm font-bold text-gray-900 break-words">{displayValue(selectedSupplier[key as keyof Supplier])}</p>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
-                                    <div className="p-3 border border-gray-200">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Category</p>
-                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplierExtra?.category)}</p>
-                                    </div>
-                                    <div className="p-3 border border-gray-200">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Control GL</p>
-                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.control_gl_id)}</p>
-                                    </div>
-                                    <div className="p-3 border border-gray-200">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Email</p>
-                                        <p className="text-sm font-bold text-gray-900 break-all">{displayValue(selectedSupplier.email)}</p>
-                                    </div>
-                                    <div className="p-3 border border-gray-200">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">GSTIN</p>
-                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.gst_number)}</p>
-                                    </div>
-                                    <div className="p-3 border border-gray-200">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Opening Balance</p>
-                                        <p className="text-sm font-bold text-gray-900">₹{Number(selectedSupplier.opening_balance || 0).toFixed(2)}</p>
-                                    </div>
-                                    <div className="p-3 border border-gray-200">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">PAN</p>
-                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.pan_number)}</p>
-                                    </div>
-                                    <div className="p-3 border border-gray-200">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Drug License</p>
-                                        <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.drug_license)}</p>
+
+                                    <div className="flex-1 overflow-auto p-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                            <div className="p-3 border border-gray-200">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Group</p>
+                                                <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.supplier_group)}</p>
+                                            </div>
+                                            <div className="p-3 border border-gray-200">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Category</p>
+                                                <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplierExtra?.category)}</p>
+                                            </div>
+                                            <div className="p-3 border border-gray-200">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Supplier Control GL</p>
+                                                <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.control_gl_id)}</p>
+                                            </div>
+                                            <div className="p-3 border border-gray-200">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Email</p>
+                                                <p className="text-sm font-bold text-gray-900 break-all">{displayValue(selectedSupplier.email)}</p>
+                                            </div>
+                                            <div className="p-3 border border-gray-200">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">GSTIN</p>
+                                                <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.gst_number)}</p>
+                                            </div>
+                                            <div className="p-3 border border-gray-200">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Opening Balance</p>
+                                                <p className="text-sm font-bold text-gray-900">₹{openingBalance.toFixed(2)}</p>
+                                            </div>
+                                            <div className="p-3 border border-gray-200">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">PAN</p>
+                                                <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.pan_number)}</p>
+                                            </div>
+                                            <div className="p-3 border border-gray-200">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Drug License</p>
+                                                <p className="text-sm font-bold text-gray-900">{displayValue(selectedSupplier.drug_license)}</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="h-full flex items-center justify-center text-gray-300">
-                            <p className="text-xl font-black uppercase tracking-[0.2em]">Select Supplier</p>
-                        </div>
-                    )}
+                            );
+                        } catch (e) {
+                            console.error('Render Error in Supplier Detail Pane:', e);
+                            return (
+                                <div className="h-full flex flex-col items-center justify-center text-red-500 p-10 text-center">
+                                    <p className="text-xl font-black uppercase mb-2">Render Error</p>
+                                    <p className="text-sm font-bold opacity-70">The system encountered an error while rendering this supplier's details. Please contact support.</p>
+                                </div>
+                            );
+                        }
+                    })()}
                 </Card>
             </div>
 
