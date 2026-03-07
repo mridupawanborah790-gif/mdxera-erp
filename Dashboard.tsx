@@ -46,12 +46,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
     const todaySales = useMemo(() => todayTransactions.reduce((sum, t) => sum + t.total, 0), [todayTransactions]);
 
-    const todayPurchases = useMemo(() => {
-        return purchases
-            .filter(p => (p.date || '').startsWith(todayStr) && p.status !== 'cancelled')
-            .reduce((sum, p) => sum + (p.totalAmount || 0), 0);
-    }, [purchases, todayStr]);
-
     const todayProfit = useMemo(() => {
         const netSales = todayTransactions.reduce((sum, t) => sum + (t.total - (t.totalGst || 0)), 0);
         const cogs = todayTransactions.reduce((acc, t) => {
@@ -67,8 +61,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
         return Math.round(netSales - cogs);
     }, [todayTransactions, inventory]);
 
-    const lowStockCount = inventory.filter(i => i.stock <= i.minStockLimit).length;
-    
     const inventoryValue = inventory.reduce((sum, i) => {
         const cost = i.cost || (i.purchasePrice / (i.unitsPerPack || 1));
         return sum + (i.stock * cost);
@@ -140,12 +132,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                             <div className="flex flex-col items-end border-l border-white/20 pl-12">
                                 <span className="text-[9px] opacity-60">Daily Profit</span>
                                 <span className="text-accent font-mono">₹{todayProfit.toLocaleString()}</span>
-                            </div>
-                        )}
-                        {isVisible('statPurchases') && (
-                            <div className="flex flex-col items-end border-l border-white/20 pl-12">
-                                <span className="text-[9px] opacity-60">Daily Purchases</span>
-                                <span className="text-accent font-mono">₹{todayPurchases.toLocaleString()}</span>
                             </div>
                         )}
                         {isVisible('statStockValue') && (
@@ -240,12 +226,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                             </div>
                         </Card>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            {isVisible('kpiLowStock') && <KpiBox label="Low Stock" value={lowStockCount} color="border-red-600" onClick={() => onKpiClick('inventory')}/>}
-                            {isVisible('kpiAudits') && <KpiBox label="Audits" value={0} color="border-blue-600" onClick={() => onKpiClick('physicalInventory')}/>}
-                            {isVisible('statPurchases') && <KpiBox label="Purchases" value={purchases.length} color="border-emerald-600" onClick={() => onKpiClick('purchaseHistory')}/>}
-                            {isVisible('kpiReturns') && <KpiBox label="Returns" value={0} color="border-accent" onClick={() => onKpiClick('salesReturns')}/>}
-                        </div>
                     </div>
                 </div>
             </main>
