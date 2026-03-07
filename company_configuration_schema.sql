@@ -90,13 +90,18 @@ create table if not exists public.gl_assignments (
   id uuid primary key default gen_random_uuid(),
   organization_id text not null,
   set_of_books_id uuid not null references public.set_of_books(id) on delete restrict,
-  material_master_type text not null check (material_master_type in ('Trading Goods', 'Finished Goods', 'Consumables', 'Service Material', 'Packaging')),
+  assignment_scope text not null default 'MATERIAL' check (assignment_scope in ('MATERIAL', 'PARTY_GROUP')),
+  material_master_type text check (material_master_type in ('Trading Goods', 'Finished Goods', 'Consumables', 'Service Material', 'Packaging')),
+  party_type text check (party_type in ('Customer', 'Supplier')),
+  party_group text,
+  control_gl_id uuid references public.gl_master(id) on delete restrict,
   inventory_gl uuid references public.gl_master(id) on delete restrict,
-  purchase_gl uuid not null references public.gl_master(id) on delete restrict,
-  cogs_gl uuid not null references public.gl_master(id) on delete restrict,
+  purchase_gl uuid references public.gl_master(id) on delete restrict,
+  cogs_gl uuid references public.gl_master(id) on delete restrict,
   sales_gl uuid references public.gl_master(id) on delete restrict,
-  discount_gl uuid not null references public.gl_master(id) on delete restrict,
-  tax_gl uuid not null references public.gl_master(id) on delete restrict,
+  discount_gl uuid references public.gl_master(id) on delete restrict,
+  tax_gl uuid references public.gl_master(id) on delete restrict,
+  active_status text not null default 'Active' check (active_status in ('Active', 'Inactive')),
   seeded_by_system boolean not null default false,
   template_version text not null default 'v1.0',
   created_by text not null default 'system',
@@ -142,54 +147,86 @@ create index if not exists idx_setup_logs_org on public.setup_wizard_defaults_lo
 create index if not exists idx_gl_assignment_history_org on public.gl_assignment_history(organization_id);
 
 -- GL assignment type validation rules
-create or replace function public.validate_gl_assignment_types()
-returns trigger
-language plpgsql
-as $$
-declare
+CREATE OR REPLACE FUNCTION public.validate_gl_assignment_types()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
   inv_type text;
   pur_type text;
   cogs_type text;
   sales_type text;
   dis_type text;
   tax_type text;
-begin
-  if new.inventory_gl is not null then
-    select gl_type into inv_type from public.gl_master where id = new.inventory_gl;
-    if inv_type is distinct from 'Asset' then
-      raise exception 'Inventory GL must be Asset';
-    end if;
-  end if;
+  v_scope text;
+BEGIN
+  -- 1. Identify scope. Handle cases where assignment_scope column might not exist (legacy).
+  BEGIN
+    v_scope := NEW.assignment_scope;
+  EXCEPTION WHEN undefined_column THEN
+    v_scope := 'MATERIAL';
+  END;
 
-  select gl_type into pur_type from public.gl_master where id = new.purchase_gl;
-  if pur_type is distinct from 'Expense' then
-    raise exception 'Purchase GL must be Expense';
-  end if;
+  -- 2. Skip material validation for PARTY_GROUP assignments.
+  IF v_scope = 'PARTY_GROUP' THEN
+    RETURN NEW;
+  END IF;
 
-  select gl_type into cogs_type from public.gl_master where id = new.cogs_gl;
-  if cogs_type is distinct from 'Expense' then
-    raise exception 'COGS GL must be Expense';
-  end if;
+  -- 3. MATERIAL validation (only if scope is MATERIAL or legacy)
+  -- For MATERIAL assignments, material_master_type is mandatory.
+  IF NEW.material_master_type IS NULL THEN
+    RAISE EXCEPTION 'material_master_type is required for MATERIAL assignment';
+  END IF;
 
-  if new.sales_gl is not null then
-    select gl_type into sales_type from public.gl_master where id = new.sales_gl;
-    if sales_type is distinct from 'Income' then
-      raise exception 'Sales GL must be Income';
-    end if;
-  end if;
+  -- 4. Check for required columns in MATERIAL assignment.
+  -- These columns must not be NULL for MATERIAL rows.
+  IF NEW.purchase_gl IS NULL OR NEW.cogs_gl IS NULL OR NEW.discount_gl IS NULL OR NEW.tax_gl IS NULL THEN
+    RAISE EXCEPTION 'purchase_gl, cogs_gl, discount_gl and tax_gl are required for MATERIAL assignment';
+  END IF;
 
-  select gl_type into dis_type from public.gl_master where id = new.discount_gl;
-  if dis_type is distinct from 'Expense' then
-    raise exception 'Discount GL must be Expense';
-  end if;
+  -- 5. Validate GL types against GL Master.
+  -- Inventory GL (Optional)
+  IF NEW.inventory_gl IS NOT NULL THEN
+    SELECT gl_type INTO inv_type FROM public.gl_master WHERE id = NEW.inventory_gl;
+    IF inv_type IS DISTINCT FROM 'Asset' THEN
+      RAISE EXCEPTION 'Inventory GL must be Asset';
+    END IF;
+  END IF;
 
-  select gl_type into tax_type from public.gl_master where id = new.tax_gl;
-  if tax_type is distinct from 'Liability' then
-    raise exception 'Tax GL must be Liability';
-  end if;
+  -- Purchase GL (Required)
+  SELECT gl_type INTO pur_type FROM public.gl_master WHERE id = NEW.purchase_gl;
+  IF pur_type IS DISTINCT FROM 'Expense' THEN
+    RAISE EXCEPTION 'Purchase GL must be Expense';
+  END IF;
 
-  return new;
-end;
+  -- COGS GL (Required)
+  SELECT gl_type INTO cogs_type FROM public.gl_master WHERE id = NEW.cogs_gl;
+  IF cogs_type IS DISTINCT FROM 'Expense' THEN
+    RAISE EXCEPTION 'COGS GL must be Expense';
+  END IF;
+
+  -- Sales GL (Optional)
+  IF NEW.sales_gl IS NOT NULL THEN
+    SELECT gl_type INTO sales_type FROM public.gl_master WHERE id = NEW.sales_gl;
+    IF sales_type IS DISTINCT FROM 'Income' THEN
+      RAISE EXCEPTION 'Sales GL must be Income';
+    END IF;
+  END IF;
+
+  -- Discount GL (Required)
+  SELECT gl_type INTO dis_type FROM public.gl_master WHERE id = NEW.discount_gl;
+  IF dis_type IS DISTINCT FROM 'Expense' THEN
+    RAISE EXCEPTION 'Discount GL must be Expense';
+  END IF;
+
+  -- Tax GL (Required)
+  SELECT gl_type INTO tax_type FROM public.gl_master WHERE id = NEW.tax_gl;
+  IF tax_type IS DISTINCT FROM 'Liability' THEN
+    RAISE EXCEPTION 'Tax GL must be Liability';
+  END IF;
+
+  RETURN NEW;
+END;
 $$;
 
 drop trigger if exists trg_validate_gl_assignment_types on public.gl_assignments;
