@@ -782,8 +782,29 @@ export const updatePassword = async (newPassword: string) => {
 };
 
 export const getCurrentUser = async (): Promise<RegisteredPharmacy | null> => {
-    const cached = await idb.getAll(STORES.PROFILES);
-    return cached.length > 0 ? cached[0] : null;
+    // 1. Get fresh session from Supabase to verify true authentication state
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) {
+        // Clear stale local profile cache if no auth session exists
+        await idb.clearAllStores();
+        return null;
+    }
+
+    const userId = session.user.id;
+
+    // 2. Try to fetch fresh profile from network first if online
+    if (navigator.onLine) {
+        try {
+            const freshProfile = await fetchProfile(userId);
+            if (freshProfile) return freshProfile;
+        } catch (err) {
+            console.warn('Failed to fetch fresh profile during app initialization:', err);
+        }
+    }
+
+    // 3. Fallback to cached profile specifically for this user
+    const cached = await idb.get(STORES.PROFILES, userId) as RegisteredPharmacy | null;
+    return cached || null;
 };
 
 export const addTeamMember = async (email: string, role: UserRole, name: string, pass: string, organization_id: string) => {

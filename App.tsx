@@ -358,9 +358,18 @@ const App: React.FC = () => {
     }, [currentUser, loadData]);
 
     useEffect(() => {
-        storage.getCurrentUser().then(user => {
+        storage.getCurrentUser().then(async user => {
             if (user) {
+                // Set whatever we have (fresh or cached but verified by session)
                 setCurrentUser(user);
+                
+                // If we are online, try one more time to get the absolute latest from DB
+                // to ensure organization_id hasn't changed in the background.
+                if (navigator.onLine) {
+                    const fresh = await storage.fetchProfile(user.user_id);
+                    if (fresh) setCurrentUser(fresh);
+                }
+                
                 loadData(user, 'initial');
             }
             else setIsAppLoading(false);
