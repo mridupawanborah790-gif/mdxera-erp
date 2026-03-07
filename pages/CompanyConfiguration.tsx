@@ -405,7 +405,7 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
           assignmentHistory: (historyRes.data || []).map((h: any) => ({
             id: h.id,
             assignmentId: h.assignment_id,
-            setOfBooksId: h.setOfBooksId,
+            setOfBooksId: h.set_of_books_id,
             materialMasterType: h.material_master_type,
             changed_at: h.changed_at || now(),
             changed_by: h.changed_by || SYSTEM_USER,
