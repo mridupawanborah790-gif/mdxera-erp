@@ -47,7 +47,8 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.reserve_voucher_number(
     p_organization_id text,
-    p_document_type text
+    p_document_type text,
+    p_is_preview boolean DEFAULT false
 )
 RETURNS TABLE (
     success boolean,
@@ -87,10 +88,16 @@ BEGIN
             RETURN;
     END CASE;
 
-    SELECT * INTO cfg_row
-    FROM public.configurations
-    WHERE organization_id = p_organization_id
-    FOR UPDATE;
+    IF p_is_preview THEN
+        SELECT * INTO cfg_row
+        FROM public.configurations
+        WHERE organization_id = p_organization_id;
+    ELSE
+        SELECT * INTO cfg_row
+        FROM public.configurations
+        WHERE organization_id = p_organization_id
+        FOR UPDATE;
+    END IF;
 
     IF NOT FOUND THEN
         RETURN QUERY SELECT false, 'Configuration not found for organization', NULL::text, NULL::integer, NULL::integer, NULL::integer, NULL::text;
@@ -125,6 +132,11 @@ BEGIN
     END IF;
 
     v_doc := v_prefix || LPAD(v_current::text, v_padding, '0') || CASE WHEN v_use_fy THEN '-' || v_fy ELSE '' END;
+
+    IF p_is_preview THEN
+        RETURN QUERY SELECT true, 'Preview mode', v_doc, v_current, (v_current + 1), CASE WHEN v_end IS NULL THEN NULL ELSE (v_end - v_current) END, v_fy;
+        RETURN;
+    END IF;
 
     cfg := jsonb_set(cfg, '{fy}', to_jsonb(v_fy), true);
     cfg := jsonb_set(cfg, '{resetRule}', '"financial-year"'::jsonb, true);

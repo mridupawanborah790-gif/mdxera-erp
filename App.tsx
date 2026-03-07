@@ -465,19 +465,25 @@ const App: React.FC = () => {
         try {
             const savedTx = await storage.addTransaction(tx, currentUser);
 
+            // Synchronize the local configuration state with the next expected number.
+            // This ensures that the "Preview" number shown in the UI is consistent with what's in the DB
+            // without waiting for a background reload.
             if (!isUpdate && typeof nextCounter === 'number' && Number.isFinite(nextCounter) && nextCounter > 0) {
                 const configKey = tx.billType === 'non-gst' ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-                const existingConfig = (configurations[configKey] || {}) as any;
-                const startingNumber = Number(existingConfig.startingNumber || 1);
-                const safeNextNumber = Math.max(nextCounter, startingNumber);
-
-                setConfigurations(prev => ({
-                    ...prev,
-                    [configKey]: {
-                        ...(prev[configKey] || {}),
-                        currentNumber: safeNextNumber,
+                setConfigurations(prev => {
+                    const existing = (prev[configKey] || {}) as any;
+                    // Only update if the nextCounter is actually greater than what we have (to avoid stale reverts)
+                    if (nextCounter > (existing.currentNumber || 0)) {
+                        return {
+                            ...prev,
+                            [configKey]: {
+                                ...existing,
+                                currentNumber: nextCounter,
+                            }
+                        };
                     }
-                }));
+                    return prev;
+                });
             }
 
             // Immediate local state update to ensure data shows in history without waiting for background reload.

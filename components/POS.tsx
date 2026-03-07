@@ -143,6 +143,7 @@ const POS = forwardRef<any, POSProps>(({
     const [isSaving, setIsSaving] = useState(false);
     const [reservedVoucherNumber, setReservedVoucherNumber] = useState<string | null>(null);
     const [nextVoucherNumberHint, setNextVoucherNumberHint] = useState<number | null>(null);
+    const lastReservedType = useRef<'sales-gst' | 'sales-non-gst' | null>(null);
     const [isProcessingRx, setIsProcessingRx] = useState(false);
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
@@ -244,34 +245,41 @@ const POS = forwardRef<any, POSProps>(({
         return 'Reserving...';
     }, [transactionToEdit, reservedVoucherNumber]);
 
-    const reserveNextVoucherNumber = useCallback(async (): Promise<{ documentNumber: string; nextNumber: number } | null> => {
+    const reserveNextVoucherNumber = useCallback(async (force: boolean = false, isPreview: boolean = true): Promise<{ documentNumber: string; nextNumber: number } | null> => {
         if (transactionToEdit || !currentUser) return null;
+        
+        const docType = isNonGst ? 'sales-non-gst' : 'sales-gst';
+        
+        // Prevent redundant reservation/preview if we already have a valid one for this type
+        // However, if we're moving from preview to real reservation, we must force it
+        if (!force && reservedVoucherNumber && lastReservedType.current === docType) {
+            return { documentNumber: reservedVoucherNumber, nextNumber: nextVoucherNumberHint || 0 };
+        }
 
         try {
-            const reservation = await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser);
+            const reservation = await storage.reserveVoucherNumber(docType, currentUser, isPreview);
             setReservedVoucherNumber(reservation.documentNumber);
             setNextVoucherNumberHint(reservation.nextNumber);
+            lastReservedType.current = docType;
             return { documentNumber: reservation.documentNumber, nextNumber: reservation.nextNumber };
         } catch (reservationError) {
             const errorMessage = reservationError instanceof Error ? reservationError.message : 'Voucher reservation failed';
             addNotification(`Unable to reserve voucher number. ${errorMessage}`, 'error');
             return null;
         }
-    }, [transactionToEdit, currentUser, isNonGst, addNotification]);
+    }, [transactionToEdit, currentUser, isNonGst, addNotification, reservedVoucherNumber, nextVoucherNumberHint]);
 
+    // Initial reservation and handling type switches - ALWAYS use preview mode here
     useEffect(() => {
-        if (transactionToEdit) {
-            setReservedVoucherNumber(null);
-            return;
+        if (transactionToEdit || !currentUser) return;
+        
+        const docType = isNonGst ? 'sales-non-gst' : 'sales-gst';
+        
+        // If we don't have a number, or it's for a different type, fetch a preview
+        if (!reservedVoucherNumber || lastReservedType.current !== docType) {
+            reserveNextVoucherNumber(false, true);
         }
-        if (!currentUser || reservedVoucherNumber) return;
-        reserveNextVoucherNumber();
-    }, [transactionToEdit, currentUser, reservedVoucherNumber, reserveNextVoucherNumber]);
-
-    useEffect(() => {
-        setReservedVoucherNumber(null);
-        setNextVoucherNumberHint(null);
-    }, [isNonGst]);
+    }, [transactionToEdit, currentUser, isNonGst, reserveNextVoucherNumber, reservedVoucherNumber]);
 
     useEffect(() => {
         if (transactionToEdit || nextVoucherNumberHint === null) return;
@@ -304,11 +312,13 @@ const POS = forwardRef<any, POSProps>(({
 
         setIsSaving(true);
 
-        let generatedId = transactionToEdit?.id || reservedVoucherNumber;
+        let generatedId = transactionToEdit?.id;
         let reservedNextNumber = nextVoucherNumberHint;
 
-        if (!generatedId && !transactionToEdit) {
-            const reservation = await reserveNextVoucherNumber();
+        // For new bills, we MUST perform a real reservation (isPreview: false) at the moment of save
+        // to ensure we get a unique number and increment the counter atomically.
+        if (!transactionToEdit) {
+            const reservation = await reserveNextVoucherNumber(true, false);
             if (!reservation) {
                 setIsSaving(false);
                 return;
@@ -357,9 +367,13 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch('');
             setLumpsumDiscount(0);
             setReferredBy('');
+            
+            // Clear current reservation before getting next
             setReservedVoucherNumber(null);
+            lastReservedType.current = null;
+            
             if (!transactionToEdit) {
-                await reserveNextVoucherNumber();
+                await reserveNextVoucherNumber(true);
             } else if (reservedNextNumber) {
                 setNextVoucherNumberHint(reservedNextNumber);
             }

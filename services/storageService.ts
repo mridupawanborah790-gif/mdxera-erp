@@ -45,12 +45,11 @@ const buildSequentialSalesBillId = (templateId: string, latestId?: string | null
 const SALES_BILL_ALLOWED_FIELDS = [
     'id', 'organization_id', 'user_id', 'date',
     'customerName', 'customerId', 'customerPhone', 'referredBy',
-    'items', 'itemCount',
+    'items', 'item_count',
     'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'roundOff', 'total', 'amountReceived',
     'status', 'paymentMode', 'billType',
     'prescriptionUrl', 'prescriptionImages', 'linkedChallans',
-    'createdAt', 'updatedAt',
-    'companyCodeId', 'setOfBooksId'
+    'createdAt', 'updatedAt'
 ];
 
 const PURCHASES_ALLOWED_FIELDS = [
@@ -59,8 +58,7 @@ const PURCHASES_ALLOWED_FIELDS = [
     'subtotal', 'totalGst', 'totalItemDiscount', 'totalItemSchemeDiscount', 'schemeDiscount', 'roundOff', 'totalAmount',
     'items',
     'status', 'eWayBillNo', 'eWayBillDate', 'referenceDocNumber', 'idempotency_key', 'linkedChallans',
-    'createdAt', 'updatedAt',
-    'companyCodeId', 'setOfBooksId'
+    'createdAt', 'updatedAt'
 ];
 
 const isValidUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -119,7 +117,7 @@ const toSnake = (obj: any): any => {
     }, {} as any);
 };
 
-export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null): Promise<any> => {
+export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null, isUpdate: boolean = false): Promise<any> => {
     if (!user?.organization_id) throw new Error("Organizational identity not verified.");
     const dbPayload: any = { ...data, organization_id: user.organization_id };
     const currentUserId = user?.user_id || user?.id;
@@ -127,17 +125,70 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     if (ownershipTrackingTables.includes(tableName) && currentUserId && !dbPayload.user_id) {
         dbPayload.user_id = currentUserId;
     }
-    if (!dbPayload.id) dbPayload.id = generateUUID();
+    
+    // If it's not an update and has no ID, generate one. 
+    // If it HAS an ID but is NOT an update (new bill with reserved number), we keep the ID.
+    if (!isUpdate && !dbPayload.id) dbPayload.id = generateUUID();
+    
     await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
+    
     if (navigator.onLine) {
         try {
             const remotePayload = getSupabasePayload(tableName, dbPayload);
             const snakeData = toSnake(remotePayload);
-            const { data: saved, error } = await supabase.from(tableName).upsert(snakeData).select().single();
-            if (error) throw error;
-            return saved ? toCamel(saved) : dbPayload;
+            
+            if (tableName === 'configurations') {
+                // Special handling for configurations to prevent stale voucher sequence overwrites.
+                // We fetch the latest config from DB and merge ONLY the volatile sequence fields.
+                const { data: existing, error: fetchError } = await supabase
+                    .from('configurations')
+                    .select('*')
+                    .eq('organization_id', user.organization_id)
+                    .maybeSingle();
+                
+                if (!fetchError && existing) {
+                    const voucherColumns = ['invoice_config', 'non_gst_invoice_config', 'purchase_config', 'purchase_order_config', 'sales_challan_config', 'delivery_challan_config', 'physical_inventory_config'];
+                    
+                    voucherColumns.forEach(col => {
+                        if (existing[col] && snakeData[col]) {
+                            // Deep merge the JSONB: Keep client's structural settings but DB's running numbers
+                            const dbVal = existing[col];
+                            const clientVal = snakeData[col];
+                            
+                            snakeData[col] = {
+                                ...clientVal,
+                                currentNumber: dbVal.currentNumber ?? dbVal.current_number ?? clientVal.currentNumber,
+                                fy: dbVal.fy ?? clientVal.fy,
+                                internalCurrentNumber: dbVal.internalCurrentNumber ?? dbVal.internal_current_number ?? clientVal.internalCurrentNumber
+                            };
+                        }
+                    });
+                }
+            }
+
+            let result;
+            // Use .insert() for new records to ensure we don't accidentally overwrite existing data
+            // Use .upsert() only when explicitly requested as an update
+            if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders'].includes(tableName)) {
+                const { data: saved, error } = await supabase.from(tableName).insert(snakeData).select().single();
+                if (error) {
+                    // If insert fails due to duplicate ID, it means the number was already used
+                    if (error.code === '23505') {
+                        throw new Error(`Voucher number ${dbPayload.id} already exists in database. Please refresh and try again.`);
+                    }
+                    throw error;
+                }
+                result = saved;
+            } else {
+                const { data: saved, error } = await supabase.from(tableName).upsert(snakeData).select().single();
+                if (error) throw error;
+                result = saved;
+            }
+            
+            return result ? toCamel(result) : dbPayload;
         } catch (e) {
             console.warn(`Supabase sync failed for ${tableName}, local copy preserved.`, e);
+            throw e; // Rethrow so the UI knows the sync failed
         }
     }
     return dbPayload;
@@ -213,10 +264,15 @@ const getVoucherConfigKey = (docType: VoucherDocumentType): keyof AppConfigurati
 };
 
 
-export const reserveVoucherNumber = async (docType: VoucherDocumentType, user: RegisteredPharmacy): Promise<VoucherReservationResult> => {
+export const reserveVoucherNumber = async (
+    docType: VoucherDocumentType, 
+    user: RegisteredPharmacy,
+    isPreview: boolean = false
+): Promise<VoucherReservationResult> => {
     const { data, error } = await supabase.rpc('reserve_voucher_number', {
         p_organization_id: user.organization_id,
-        p_document_type: docType
+        p_document_type: docType,
+        p_is_preview: isPreview
     });
 
     if (error) {
@@ -227,18 +283,6 @@ export const reserveVoucherNumber = async (docType: VoucherDocumentType, user: R
     if (!payload?.success) {
         throw new Error(payload?.message || 'Unable to reserve voucher number.');
     }
-
-    const configList = await getData('configurations', [], user) as AppConfigurations[];
-    const config = configList[0] || { organization_id: user.organization_id };
-    const configKey = getVoucherConfigKey(docType);
-    const existing = (config[configKey] as any) || {};
-    const updated = {
-        ...existing,
-        currentNumber: payload.next_number,
-        fy: payload.fy,
-        resetRule: 'financial-year'
-    };
-    await saveData('configurations', { ...config, [configKey]: updated }, user);
 
     return {
         documentNumber: payload.document_number,
@@ -389,7 +433,7 @@ const ensurePostingContext = async (
     };
 };
 
-export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) => {
+export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
     if (!tx.user_id) tx.user_id = user.user_id;
 
     try {
@@ -400,7 +444,7 @@ export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) 
         throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
     }
 
-    const res = await saveData('sales_bill', tx, user);
+    const res = await saveData('sales_bill', tx, user, isUpdate);
 
     // Batch inventory updates to avoid one network/database roundtrip per line item.
     const unitsToDeductByInventoryId = new Map<string, number>();
@@ -444,7 +488,7 @@ export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy) 
         }
     }
 
-    await syncSalesLedger(tx, user);
+    await syncSalesLedger(tx, user, isUpdate);
     return res;
 };
 
@@ -1262,7 +1306,7 @@ const findSupplierForPurchase = async (purchase: Purchase): Promise<Supplier | u
     return suppliers.find(s => (s.name || '').trim().toLowerCase() === supplierName);
 };
 
-export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy) => {
+export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
     const customer = await findCustomerForTransaction(tx);
     if (!customer) return;
 

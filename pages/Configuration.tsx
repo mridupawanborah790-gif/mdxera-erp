@@ -101,12 +101,17 @@ const buildNumberPreview = (cfg: Partial<InvoiceNumberConfig>, number: number) =
     return `${prefix}${padded}${cfg.useFiscalYear ? `-${fy}` : ''}`;
 };
 
-function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, configs: AppConfigurations, onChange: (section: keyof AppConfigurations, field: string, value: any) => void) {
+function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, configs: AppConfigurations, onChange: (section: keyof AppConfigurations, field: string, value: any) => void, liveSequences: Record<string, { currentNumber: number, documentNumber: string }>, isLoadingLive: boolean) {
     const merged = { ...getVoucherSchemeDefaults(), ...(configs[key] as InvoiceNumberConfig || {}) };
     const systemFy = getFinancialYearLabel();
-    const currentRunningNumber = Math.max(Number(merged.currentNumber || merged.startingNumber || 1), Number(merged.startingNumber || 1));
-    const lastUsedNumber = Math.max(Number(merged.startingNumber || 1), currentRunningNumber - 1);
+    
+    // Prioritize live data from database if available
+    const live = liveSequences[key];
+    const currentRunningNumber = live ? live.currentNumber : Number(merged.currentNumber || merged.startingNumber || 1);
+    const lastUsedNumber = currentRunningNumber > (merged.startingNumber || 1) ? currentRunningNumber - 1 : null;
     const remainingCount = merged.endNumber ? Math.max(0, Number(merged.endNumber) - currentRunningNumber + 1) : null;
+
+    const displayVal = (val: any) => isLoadingLive ? '...' : val;
 
     return (
         <div className="p-4 border border-gray-200 bg-gray-50 mb-4">
@@ -118,14 +123,14 @@ function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, c
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">End No (Optional)</label><input type="number" min={1} value={merged.endNumber ?? ''} onChange={e => onChange(key, 'endNumber', e.target.value ? parseInt(e.target.value, 10) : undefined)} className="w-full tally-input"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">Padding</label><input type="number" min={1} value={merged.paddingLength} onChange={e => onChange(key, 'paddingLength', parseInt(e.target.value || '1', 10))} className="w-full tally-input"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">Reset Rule</label><input type="text" value="FY-wise" disabled className="w-full tally-input bg-gray-100"/></div>
-                <div><label className="text-[9px] font-black text-gray-400 uppercase">Current Running No</label><input type="number" min={1} value={currentRunningNumber} readOnly className="w-full tally-input bg-gray-100"/></div>
+                <div><label className="text-[9px] font-black text-gray-400 uppercase">Next Sequence No</label><input type="text" value={displayVal(currentRunningNumber)} readOnly className="w-full tally-input bg-gray-100 font-bold"/></div>
                 <div className="pt-4"><Toggle label="Use FY in Number" enabled={merged.useFiscalYear} setEnabled={v => onChange(key, 'useFiscalYear', v)} /></div>
             </div>
             <div className="mt-4 p-3 border border-dashed border-gray-300 bg-white text-[10px] uppercase font-black tracking-wide grid grid-cols-1 md:grid-cols-4 gap-2">
-                <div><span className="text-gray-500">Last Used:</span> {buildNumberPreview({ ...merged, fy: systemFy }, lastUsedNumber)}</div>
-                <div><span className="text-gray-500">Current Running:</span> {buildNumberPreview({ ...merged, fy: systemFy }, currentRunningNumber)}</div>
-                <div><span className="text-gray-500">Preview:</span> {buildNumberPreview({ ...merged, fy: systemFy }, currentRunningNumber)}</div>
-                <div><span className="text-gray-500">Remaining:</span> {remainingCount === null ? 'Unlimited' : remainingCount}</div>
+                <div><span className="text-gray-500">Last Used:</span> {displayVal(lastUsedNumber ? buildNumberPreview({ ...merged, fy: systemFy }, lastUsedNumber) : 'None')}</div>
+                <div><span className="text-gray-500">Current Running:</span> {displayVal(buildNumberPreview({ ...merged, fy: systemFy }, currentRunningNumber))}</div>
+                <div><span className="text-gray-500">Preview (Next):</span> {displayVal(buildNumberPreview({ ...merged, fy: systemFy }, currentRunningNumber))}</div>
+                <div><span className="text-gray-500">Remaining:</span> {displayVal(remainingCount === null ? 'Unlimited' : remainingCount)}</div>
             </div>
         </div>
     );
@@ -219,6 +224,75 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 }) => {
     const [activeSection, setActiveSection] = useState<ConfigSection>('general');
     const [localConfigs, setLocalConfigs] = useState<AppConfigurations>(configurations || { organization_id: currentUser?.organization_id || 'MDXERA' });
+
+    // Live sequences fetched from DB for the numbering screen
+    const [liveSequences, setLiveSequences] = useState<Record<string, { currentNumber: number, documentNumber: string }>>({});
+    const [isLoadingLive, setIsLoadingLive] = useState(false);
+
+    // Deep merge voucher sequences from configurations prop to stay in sync with POS saves
+    // while preserving other unsaved local edits in the Configuration screen.
+    useEffect(() => {
+        if (configurations) {
+            setLocalConfigs(prev => {
+                const voucherKeys: Array<keyof AppConfigurations> = ['invoiceConfig', 'nonGstInvoiceConfig', 'purchaseConfig', 'purchaseOrderConfig', 'salesChallanConfig', 'deliveryChallanConfig', 'physicalInventoryConfig'];
+                const updated = { ...prev, ...configurations };
+                
+                voucherKeys.forEach(key => {
+                    const prevVal = prev[key];
+                    const configVal = configurations[key];
+                    if (configVal && prevVal) {
+                        (updated as any)[key] = {
+                            ...(prevVal as any),
+                            ...(configVal as any),
+                        };
+                    }
+                });
+                
+                return updated;
+            });
+        }
+    }, [configurations]);
+
+    // Fetch live DB sequence numbers when the numbering section is opened
+    useEffect(() => {
+        if (activeSection === 'invoiceNumbering' && currentUser) {
+            const fetchLiveSequences = async () => {
+                setIsLoadingLive(true);
+                const voucherKeysMap: Record<string, 'sales-gst' | 'sales-non-gst' | 'purchase-entry' | 'purchase-order' | 'sales-challan' | 'delivery-challan' | 'physical-inventory'> = {
+                    'invoiceConfig': 'sales-gst',
+                    'nonGstInvoiceConfig': 'sales-non-gst',
+                    'purchaseConfig': 'purchase-entry',
+                    'purchaseOrderConfig': 'purchase-order',
+                    'salesChallanConfig': 'sales-challan',
+                    'deliveryChallanConfig': 'delivery-challan',
+                    'physicalInventoryConfig': 'physical-inventory'
+                };
+
+                const results: Record<string, any> = {};
+                for (const [configKey, docType] of Object.entries(voucherKeysMap)) {
+                    try {
+                        const { data } = await supabase.rpc('reserve_voucher_number', {
+                            p_organization_id: currentUser.organization_id,
+                            p_document_type: docType,
+                            p_is_preview: true
+                        });
+                        const payload = Array.isArray(data) ? data[0] : data;
+                        if (payload?.success) {
+                            results[configKey] = {
+                                currentNumber: payload.used_number,
+                                documentNumber: payload.document_number
+                            };
+                        }
+                    } catch (e) {
+                        console.error(`Failed to fetch live sequence for ${docType}`, e);
+                    }
+                }
+                setLiveSequences(results);
+                setIsLoadingLive(false);
+            };
+            fetchLiveSequences();
+        }
+    }, [activeSection, currentUser]);
 
     // Import State
     const [importType, setImportType] = useState<string | null>(null);
@@ -1004,13 +1078,13 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                         {activeSection === 'invoiceNumbering' && (
                             <div className="space-y-4 animate-in fade-in duration-300">
                                 <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter border-b-2 border-primary pb-2 mb-6">Voucher Numbering Schemes</h2>
-                                {renderVoucherSeriesInput('Sales Bill (GST)', 'invoiceConfig', localConfigs, handleConfigChange)}
-                                {renderVoucherSeriesInput('Sales Bill (Non-GST)', 'nonGstInvoiceConfig', localConfigs, handleConfigChange)}
-                                {renderVoucherSeriesInput('Purchase Entry / Supplier Invoice', 'purchaseConfig', localConfigs, handleConfigChange)}
-                                {renderVoucherSeriesInput('Purchase Order', 'purchaseOrderConfig', localConfigs, handleConfigChange)}
-                                {renderVoucherSeriesInput('Sales Challan', 'salesChallanConfig', localConfigs, handleConfigChange)}
-                                {renderVoucherSeriesInput('Delivery Challan', 'deliveryChallanConfig', localConfigs, handleConfigChange)}
-                                {renderVoucherSeriesInput('Physical Inventory', 'physicalInventoryConfig', localConfigs, handleConfigChange)}
+                                {renderVoucherSeriesInput('Sales Bill (GST)', 'invoiceConfig', localConfigs, handleConfigChange, liveSequences)}
+                                {renderVoucherSeriesInput('Sales Bill (Non-GST)', 'nonGstInvoiceConfig', localConfigs, handleConfigChange, liveSequences)}
+                                {renderVoucherSeriesInput('Purchase Entry / Supplier Invoice', 'purchaseConfig', localConfigs, handleConfigChange, liveSequences)}
+                                {renderVoucherSeriesInput('Purchase Order', 'purchaseOrderConfig', localConfigs, handleConfigChange, liveSequences)}
+                                {renderVoucherSeriesInput('Sales Challan', 'salesChallanConfig', localConfigs, handleConfigChange, liveSequences)}
+                                {renderVoucherSeriesInput('Delivery Challan', 'deliveryChallanConfig', localConfigs, handleConfigChange, liveSequences)}
+                                {renderVoucherSeriesInput('Physical Inventory', 'physicalInventoryConfig', localConfigs, handleConfigChange, liveSequences)}
                             </div>
                         )}
 
