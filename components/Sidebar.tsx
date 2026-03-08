@@ -135,10 +135,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
             
             {!isSidebarCollapsed && (
               <>
-                <span className={`w-5 text-center font-bold font-mono text-[11px] ${isActive || isFocused ? 'text-accent' : 'text-gray-400'}`}>
+                <span className={`w-5 text-center font-bold font-mono text-[10px] ${isActive || isFocused ? 'text-accent' : 'text-gray-400'}`}>
                   {depth > 0 ? '•' : shortcutChar}
                 </span>
-                <span className="truncate flex-1 text-[13px] uppercase tracking-tight">
+                <span className="truncate flex-1 text-[12px] uppercase tracking-tight">
                   {depth > 0 ? (item.name) : (
                     <><span className={`${isActive || isFocused ? 'text-accent' : 'text-gray-100'} font-black`}>{shortcutChar}</span>{item.name.substring(1)}</>
                   )}
@@ -171,12 +171,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
   return (
     <div 
       ref={sidebarRef}
-      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : 'w-64'} bg-sidebar-bg flex flex-col h-full print:hidden border-r border-gray-400 z-10`}
+      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : 'w-[14.4rem]'} bg-sidebar-bg flex flex-col h-full print:hidden border-r border-gray-400 z-10`}
     >
       <div className={`p-4 h-14 bg-sidebar-bg-dark text-white flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
         {!isSidebarCollapsed && (
             <div className="flex items-center gap-2 overflow-hidden animate-in fade-in duration-300">
-                <span className="font-black text-[13px] tracking-widest truncate uppercase">MDXERA ERP</span>
+                <span className="font-black text-[12px] tracking-widest truncate uppercase">MDXERA ERP</span>
             </div>
         )}
         <button 
