@@ -43,6 +43,17 @@ const reportMenuGroups: ReportMenuGroup[] = [
 
 const reportNameMap = new Map(reportMenuGroups.flatMap(group => (group.children || [{ id: group.id, label: group.label }]).map(item => [item.id, item.label])));
 
+const getPeriodDefaults = () => {
+  const today = new Date();
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const toIso = (date: Date) => date.toISOString().slice(0, 10);
+
+  return {
+    from: toIso(monthStart),
+    to: toIso(today),
+  };
+};
+
 const formatDate = (date: string) => {
   if (!date) return '--';
   return new Date(date).toLocaleDateString('en-GB');
@@ -52,16 +63,53 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
   const defaultReportId = reportId && reportNameMap.has(reportId) ? reportId : 'dispatchSummary';
   const [activeGroup, setActiveGroup] = useState('dailyWorking');
   const [activeReportId, setActiveReportId] = useState(defaultReportId);
+  const [pendingReportId, setPendingReportId] = useState(defaultReportId);
+  const [isPeriodModalOpen, setIsPeriodModalOpen] = useState(true);
   const [selectedRow, setSelectedRow] = useState(0);
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [fromDate, setFromDate] = useState(getPeriodDefaults().from);
+  const [toDate, setToDate] = useState(getPeriodDefaults().to);
 
   useEffect(() => {
     if (!reportId || !reportNameMap.has(reportId)) return;
-    setActiveReportId(reportId);
+    setPendingReportId(reportId);
+    setIsPeriodModalOpen(true);
     const parentGroup = reportMenuGroups.find(group => group.children?.some(child => child.id === reportId));
     if (parentGroup) setActiveGroup(parentGroup.id);
   }, [reportId]);
+
+  useEffect(() => {
+    if (!isPeriodModalOpen) return;
+    const defaults = getPeriodDefaults();
+    setFromDate(defaults.from);
+    setToDate(defaults.to);
+  }, [isPeriodModalOpen]);
+
+  const openPeriodModal = useCallback((nextReportId: string) => {
+    setPendingReportId(nextReportId);
+    const parentGroup = reportMenuGroups.find(group => group.children?.some(child => child.id === nextReportId));
+    if (parentGroup) {
+      setActiveGroup(parentGroup.id);
+    }
+    setIsPeriodModalOpen(true);
+  }, []);
+
+  const handleGenerateReport = useCallback(() => {
+    if (!fromDate || !toDate || new Date(fromDate) > new Date(toDate)) {
+      return;
+    }
+    setActiveReportId(pendingReportId);
+    setIsPeriodModalOpen(false);
+  }, [fromDate, pendingReportId, toDate]);
+
+  const handleClearPeriod = useCallback(() => {
+    const defaults = getPeriodDefaults();
+    setFromDate(defaults.from);
+    setToDate(defaults.to);
+  }, []);
+
+  const handleCancelPeriodModal = useCallback(() => {
+    setIsPeriodModalOpen(false);
+  }, []);
 
   const reportRows = useMemo(() => {
     const from = fromDate ? new Date(fromDate) : null;
@@ -121,6 +169,7 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
 
   const totalDebit = reportRows.reduce((sum, row) => sum + row.debit, 0);
   const totalCredit = reportRows.reduce((sum, row) => sum + row.credit, 0);
+  const periodError = !fromDate || !toDate ? 'Please select both dates.' : new Date(fromDate) > new Date(toDate) ? 'Period From cannot be after To date.' : '';
 
   return (
     <main className="flex-1 overflow-hidden flex bg-[#d4d8d3] font-mono" tabIndex={0} onKeyDown={handleKeyNav}>
@@ -129,7 +178,13 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
         {reportMenuGroups.map(group => (
           <div key={group.id} className="border-b border-[#b2b9b5]">
             <button
-              onClick={() => setActiveGroup(group.id)}
+              onClick={() => {
+                if (group.children) {
+                  setActiveGroup(group.id);
+                  return;
+                }
+                openPeriodModal(group.id);
+              }}
               className={`w-full text-left px-3 py-2 text-[15px] font-semibold ${activeGroup === group.id ? 'bg-[#d6dfdb] text-[#14302b]' : 'hover:bg-[#dee4e1] text-[#2f3836]'}`}
             >
               {group.label}
@@ -139,7 +194,7 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
                 {group.children.map(child => (
                   <button
                     key={child.id}
-                    onClick={() => setActiveReportId(child.id)}
+                    onClick={() => openPeriodModal(child.id)}
                     className={`w-full text-left px-5 py-2 text-[14px] border-b border-gray-200 ${activeReportId === child.id ? 'bg-[#1d4c45] text-white font-bold' : 'hover:bg-[#edf3f1]'}`}
                   >
                     {child.label}
@@ -154,19 +209,7 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
       <section className="flex-1 flex flex-col overflow-hidden">
         <div className="h-10 bg-[#335f59] text-white px-4 flex items-center justify-between border-b-2 border-[#233f3a]">
           <h1 className="text-lg font-bold tracking-wide">{reportNameMap.get(activeReportId) || 'Daily Reports'} - MDXERA ERP</h1>
-          <span className="text-xs uppercase tracking-widest text-[#e4f2ee]">F2 Date · ↑↓ Move · Home/End Jump</span>
-        </div>
-
-        <div className="px-4 py-3 bg-[#ebefea] border-b border-[#c4ccc7] flex items-end gap-4">
-          <div>
-            <label className="block text-xs uppercase font-bold text-[#37534f]">Period From</label>
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="border border-[#7f8f8a] px-2 py-1 bg-white text-sm" />
-          </div>
-          <div>
-            <label className="block text-xs uppercase font-bold text-[#37534f]">To</label>
-            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="border border-[#7f8f8a] px-2 py-1 bg-white text-sm" />
-          </div>
-          <button onClick={() => { setFromDate(''); setToDate(''); }} className="px-3 py-1.5 border border-[#6b7a76] bg-white text-xs font-bold uppercase">Clear</button>
+          <span className="text-xs uppercase tracking-widest text-[#e4f2ee]">Period: {formatDate(fromDate)} to {formatDate(toDate)} · ↑↓ Move · Home/End Jump</span>
         </div>
 
         <div className="flex-1 flex overflow-hidden">
@@ -234,6 +277,55 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
           <span>Debit Total: {totalDebit.toFixed(2)} | Credit Total: {totalCredit.toFixed(2)}</span>
         </div>
       </section>
+
+      {isPeriodModalOpen && (
+        <div
+          className="absolute inset-0 bg-black/40 flex items-center justify-center px-4 z-50"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              handleGenerateReport();
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              handleCancelPeriodModal();
+            }
+          }}
+        >
+          <div className="w-full max-w-lg bg-[#eef2ee] border-2 border-[#5d726d] shadow-2xl" role="dialog" aria-modal="true" aria-label="Select Report Period">
+            <div className="bg-[#335f59] text-white px-4 py-2 font-bold tracking-wide">Select Report Period</div>
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-[#1f3833] font-semibold">{reportNameMap.get(pendingReportId) || 'Selected Report'}</p>
+              <div className="grid grid-cols-[120px_1fr] items-center gap-3">
+                <label className="text-sm font-bold text-[#1f3833]" htmlFor="period-from">Period From :</label>
+                <input
+                  id="period-from"
+                  type="date"
+                  value={fromDate}
+                  onChange={e => setFromDate(e.target.value)}
+                  className="border border-[#7f8f8a] px-2 py-1 bg-white text-sm"
+                  autoFocus
+                />
+
+                <label className="text-sm font-bold text-[#1f3833]" htmlFor="period-to">To :</label>
+                <input
+                  id="period-to"
+                  type="date"
+                  value={toDate}
+                  onChange={e => setToDate(e.target.value)}
+                  className="border border-[#7f8f8a] px-2 py-1 bg-white text-sm"
+                />
+              </div>
+              {periodError && <p className="text-xs text-red-700 font-semibold">{periodError}</p>}
+              <div className="flex justify-end gap-2 pt-1">
+                <button onClick={handleGenerateReport} className="px-3 py-1.5 border border-[#365852] bg-[#335f59] text-white text-xs font-bold uppercase">Generate Report</button>
+                <button onClick={handleClearPeriod} className="px-3 py-1.5 border border-[#6b7a76] bg-white text-xs font-bold uppercase">Clear</button>
+                <button onClick={handleCancelPeriodModal} className="px-3 py-1.5 border border-[#6b7a76] bg-white text-xs font-bold uppercase">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 };
