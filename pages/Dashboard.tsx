@@ -226,8 +226,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                         </div>
                     </div>
 
-                    <div className="lg:col-span-3">
-                        <Card className="p-0 tally-border !rounded-none bg-gray-100 dark:bg-zinc-800 shadow-xl overflow-hidden">
+                    <div className="lg:col-span-3 flex justify-end">
+                        <Card className="w-full lg:w-[80%] p-0 tally-border !rounded-none bg-gray-100 dark:bg-zinc-800 shadow-xl overflow-hidden">
                             <div className="bg-primary px-3 py-2 text-white text-[12px] font-bold text-center uppercase tracking-[0.2em] border-b-2 border-gray-700">
                                 MDXERA ENTERPRISE ERP
                             </div>
