@@ -98,7 +98,7 @@ const toCamel = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
     if (Array.isArray(obj)) return obj.map(toCamel);
     return Object.keys(obj).reduce((acc, key) => {
-        const preservedKeys = ['organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 'full_name', 'pharmacy_name', 'manager_name', 'address_line2', 'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 'gst_number', 'pan_number'];
+        const preservedKeys = ['organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 'full_name', 'pharmacy_name', 'manager_name', 'address_line2', 'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 'gst_number', 'pan_number'];
         let camelKey = preservedKeys.includes(key) ? key : key.replace(/_([a-z0-9])/g, (_, letter) => letter.toUpperCase());
         acc[camelKey] = preservedKeys.includes(key) ? obj[key] : toCamel(obj[key]);
         return acc;
@@ -110,7 +110,7 @@ const toSnake = (obj: any): any => {
     if (Array.isArray(obj)) return obj.map(toSnake);
     return Object.keys(obj).reduce((acc, key) => {
         if (key.startsWith('_')) return acc;
-        const preservedKeys = ['organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 'full_name', 'pharmacy_name', 'manager_name', 'address_line2', 'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 'gst_number', 'pan_number'];
+        const preservedKeys = ['organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 'full_name', 'pharmacy_name', 'manager_name', 'address_line2', 'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 'gst_number', 'pan_number'];
         let snakeKey = preservedKeys.includes(key) ? key : key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
         acc[snakeKey] = preservedKeys.includes(key) ? obj[key] : toSnake(obj[key]);
         return acc;

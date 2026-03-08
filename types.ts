@@ -163,8 +163,8 @@ export interface AppConfigurations {
         printCopies?: number;
         schemeDiscountCalculationBase?: SchemeDiscountCalculationBase;
         taxCalculationBase?: TaxCalculationBaseOption;
-        pharmacyLogoUrl?: string;
-        dashboardLogoUrl?: string;
+        pharmacy_logo_url?: string;
+        dashboard_logo_url?: string;
     };
     modules?: { [key: string]: ModuleConfig };
     discountRules?: DiscountRule[];
@@ -203,6 +203,7 @@ export interface RegisteredPharmacy {
     bank_upi_id?: string;
     authorized_signatory?: string; 
     pharmacy_logo_url?: string;
+    dashboard_logo_url?: string;
     terms_and_conditions?: string;
     purchase_order_terms?: string;
     subscription_plan?: string;

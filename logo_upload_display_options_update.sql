@@ -4,10 +4,10 @@
 UPDATE public.configurations
 SET display_options = COALESCE(display_options, '{}'::jsonb)
     || jsonb_build_object(
-        'pharmacyLogoUrl', COALESCE(display_options->>'pharmacyLogoUrl', ''),
-        'dashboardLogoUrl', COALESCE(display_options->>'dashboardLogoUrl', '')
+        'pharmacy_logo_url', COALESCE(display_options->>'pharmacy_logo_url', ''),
+        'dashboard_logo_url', COALESCE(display_options->>'dashboard_logo_url', '')
     )
 WHERE TRUE;
 
 COMMENT ON COLUMN public.configurations.display_options IS
-'Flags for stock enforcement, printing preferences, and uploaded logo URLs (pharmacyLogoUrl, dashboardLogoUrl).';
+'Flags for stock enforcement, printing preferences, and uploaded logo URLs (pharmacy_logo_url, dashboard_logo_url).';

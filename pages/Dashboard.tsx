@@ -32,10 +32,28 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
     </button>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
+const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: initialConfigurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
+    const [configurations, setConfigurations] = useState(initialConfigurations);
     const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(0);
     const [expiryFilter, setExpiryFilter] = useState<'expired' | 'nearExpiry'>('expired');
-    const promoImageUrl = configurations.displayOptions?.dashboardLogoUrl || 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
+
+    // Sync local configurations state with prop
+    useEffect(() => {
+        setConfigurations(initialConfigurations);
+    }, [initialConfigurations]);
+
+    // Listen for global configuration updates (e.g. from Logo Upload)
+    useEffect(() => {
+        const handleConfigUpdate = (e: any) => {
+            if (e.detail) {
+                setConfigurations(e.detail);
+            }
+        };
+        window.addEventListener('configurations-updated', handleConfigUpdate);
+        return () => window.removeEventListener('configurations-updated', handleConfigUpdate);
+    }, []);
+
+    const promoImageUrl = configurations.displayOptions?.dashboard_logo_url || 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
 
     const isVisible = (fieldId: string) => configurations.modules?.dashboard?.fields?.[fieldId] === true;
 

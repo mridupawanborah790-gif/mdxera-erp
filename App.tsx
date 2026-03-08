@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -975,7 +974,7 @@ const App: React.FC = () => {
 
     const buildBillPharmacy = () => {
         if (!currentUser) return null;
-        const configuredLogo = configurations.displayOptions?.pharmacyLogoUrl;
+        const configuredLogo = configurations.displayOptions?.pharmacy_logo_url;
         if (!configuredLogo) return currentUser;
         return { ...currentUser, pharmacy_logo_url: configuredLogo };
     };
@@ -1174,7 +1173,10 @@ const App: React.FC = () => {
                     return <GstCenter
                         transactions={transactions} purchases={purchases} customers={customers}
                         currentUser={currentUser} configurations={configurations}
-                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
+                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => {
+                            setConfigurations(cfg);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        })}
                     />;
                 case 'businessUsers':
                     return <BusinessUserAssignment
@@ -1188,7 +1190,10 @@ const App: React.FC = () => {
                 case 'configuration':
                     return <Configuration
                         configurations={configurations}
-                        onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
+                        onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => {
+                            setConfigurations(cfg);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        })}
                         addNotification={addNotification} currentUser={currentUser} inventory={inventory}
                         transactions={transactions} purchases={purchases} distributors={suppliers} customers={customers} medicines={medicines}
                         onBulkAddInventory={(l: any) => storage.saveBulkData('inventory', l, currentUser)}
