@@ -235,6 +235,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     onBulkAddInventory, onBulkAddDistributors, onBulkAddCustomers, onBulkAddPurchases, onBulkAddSales,
     onBulkAddMedicines, onBulkAddMappings, mappings
 }) => {
+    const MAX_DASHBOARD_SHORTCUTS = 12;
     const [activeSection, setActiveSection] = useState<ConfigSection>('general');
     const [localConfigs, setLocalConfigs] = useState<AppConfigurations>(configurations || { organization_id: currentUser?.organization_id || 'MDXERA' });
 
@@ -470,12 +471,66 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const handleShortcutToggle = (id: string) => {
         setLocalConfigs(prev => {
             const current = prev.masterShortcuts || [];
-            const updated = current.includes(id) 
-                ? current.filter(s => s !== id) 
-                : [...current, id];
-            return { ...prev, masterShortcuts: updated, _isDirty: true };
+            const currentOrder = { ...(prev.masterShortcutOrder || {}) };
+            const isSelected = current.includes(id);
+
+            if (isSelected) {
+                const updated = current.filter(s => s !== id);
+                delete currentOrder[id];
+                return { ...prev, masterShortcuts: updated, masterShortcutOrder: currentOrder, _isDirty: true };
+            }
+
+            if (current.length >= MAX_DASHBOARD_SHORTCUTS) {
+                addNotification(`Maximum ${MAX_DASHBOARD_SHORTCUTS} gateway shortcuts can be enabled.`, 'warning');
+                return prev;
+            }
+
+            const updated = [...current, id];
+            const usedOrders = new Set(Object.values(currentOrder).filter(order => Number.isInteger(order) && order >= 1 && order <= MAX_DASHBOARD_SHORTCUTS));
+            const nextOrder = Array.from({ length: MAX_DASHBOARD_SHORTCUTS }, (_, i) => i + 1).find(order => !usedOrders.has(order));
+            if (nextOrder) {
+                currentOrder[id] = nextOrder;
+            }
+
+            return { ...prev, masterShortcuts: updated, masterShortcutOrder: currentOrder, _isDirty: true };
         });
     };
+
+    const handleShortcutOrderChange = (id: string, orderValue: string) => {
+        setLocalConfigs(prev => {
+            const selected = prev.masterShortcuts || [];
+            if (!selected.includes(id)) {
+                addNotification('Display order can only be set for enabled modules.', 'warning');
+                return prev;
+            }
+
+            const parsedOrder = Number(orderValue);
+            if (!Number.isInteger(parsedOrder) || parsedOrder < 1 || parsedOrder > MAX_DASHBOARD_SHORTCUTS) {
+                addNotification(`Display order must be between 1 and ${MAX_DASHBOARD_SHORTCUTS}.`, 'warning');
+                return prev;
+            }
+
+            const orderMap = { ...(prev.masterShortcutOrder || {}) };
+            const duplicateShortcut = Object.entries(orderMap).find(([shortcutId, order]) => shortcutId !== id && order === parsedOrder && selected.includes(shortcutId));
+            if (duplicateShortcut) {
+                addNotification(`Display order ${parsedOrder} is already assigned to another module.`, 'warning');
+                return prev;
+            }
+
+            orderMap[id] = parsedOrder;
+            return { ...prev, masterShortcutOrder: orderMap, _isDirty: true };
+        });
+    };
+
+    const groupedShortcutOptions = useMemo(() => {
+        return MASTER_SHORTCUT_OPTIONS.reduce((acc, option) => {
+            if (!acc[option.group]) {
+                acc[option.group] = [];
+            }
+            acc[option.group].push(option);
+            return acc;
+        }, {} as Record<string, typeof MASTER_SHORTCUT_OPTIONS>);
+    }, []);
 
     const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
         const file = e.target.files?.[0];
@@ -803,29 +858,63 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                         {activeSection === 'dashboardShortcuts' && (
                             <div className="space-y-6 animate-in fade-in duration-300">
                                 <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter border-b-2 border-primary pb-2 mb-6">Configure Gateway Shortcuts</h2>
-                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-6">Select up to 8 modules to display on your dashboard 'Go To' menu.</p>
+                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-6">Enable up to 12 right sidebar modules for Dashboard Quick Access and set their display sequence.</p>
+                                <div className="text-[10px] font-black uppercase tracking-widest text-primary bg-primary/5 border border-primary/20 px-3 py-2 inline-block">
+                                    Selected: {(localConfigs.masterShortcuts || []).length} / {MAX_DASHBOARD_SHORTCUTS}
+                                </div>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {MASTER_SHORTCUT_OPTIONS.map(opt => {
-                                        const isSelected = (localConfigs.masterShortcuts || []).includes(opt.id);
-                                        return (
-                                            <button 
-                                                key={opt.id}
-                                                onClick={() => handleShortcutToggle(opt.id)}
-                                                className={`p-4 border-2 text-left transition-all flex items-center gap-4 ${isSelected ? 'bg-primary border-primary text-white shadow-lg' : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-primary/40'}`}
-                                            >
-                                                <div className={`p-2 rounded-none ${isSelected ? 'bg-white/10' : 'bg-white border border-gray-200'}`}>
-                                                    {opt.icon}
-                                                </div>
-                                                <div className="flex-1">
-                                                    <p className="text-xs font-black uppercase tracking-tight leading-none">{opt.label}</p>
-                                                    <p className={`text-[9px] mt-1 font-bold ${isSelected ? 'text-white/60' : 'text-gray-400'}`}>
-                                                        {isSelected ? 'ENABLED' : 'DISABLED'}
-                                                    </p>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
+                                <div className="space-y-6">
+                                    {Object.entries(groupedShortcutOptions).map(([group, options]) => (
+                                        <div key={group} className="space-y-2">
+                                            <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">{group}</h3>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                                {options.map(opt => {
+                                                    const isSelected = (localConfigs.masterShortcuts || []).includes(opt.id);
+                                                    const order = localConfigs.masterShortcutOrder?.[opt.id] || '';
+
+                                                    return (
+                                                        <div 
+                                                            key={opt.id}
+                                                            className={`p-3 border-2 transition-all ${isSelected ? 'bg-primary/5 border-primary text-primary' : 'bg-gray-50 border-gray-200 text-gray-600'}`}
+                                                        >
+                                                            <button
+                                                                onClick={() => handleShortcutToggle(opt.id)}
+                                                                className="w-full text-left flex items-center gap-3"
+                                                            >
+                                                                <div className={`p-2 rounded-none ${isSelected ? 'bg-primary/10' : 'bg-white border border-gray-200'}`}>
+                                                                    {opt.icon}
+                                                                </div>
+                                                                <div className="flex-1">
+                                                                    <p className="text-xs font-black uppercase tracking-tight leading-none">{opt.label}</p>
+                                                                    <p className={`text-[9px] mt-1 font-bold ${isSelected ? 'text-primary/70' : 'text-gray-400'}`}>
+                                                                        {isSelected ? 'ENABLED' : 'DISABLED'}
+                                                                    </p>
+                                                                </div>
+                                                            </button>
+
+                                                            <div className="mt-3">
+                                                                <label className="block text-[9px] font-black text-gray-500 uppercase mb-1 tracking-wider">
+                                                                    Display Order (1-{MAX_DASHBOARD_SHORTCUTS})
+                                                                </label>
+                                                                <input
+                                                                    type="number"
+                                                                    min={1}
+                                                                    max={MAX_DASHBOARD_SHORTCUTS}
+                                                                    disabled={!isSelected}
+                                                                    value={order}
+                                                                    onChange={e => handleShortcutOrderChange(opt.id, e.target.value)}
+                                                                    className="w-full tally-input text-center font-black disabled:opacity-40 disabled:cursor-not-allowed"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wide border-t border-gray-200 pt-3">
+                                    If display order is not assigned manually, sequence is auto-assigned in module selection order.
                                 </div>
                             </div>
                         )}
