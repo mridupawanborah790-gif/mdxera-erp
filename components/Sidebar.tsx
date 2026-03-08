@@ -117,7 +117,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
           <button
             onClick={handleItemClick}
             onMouseEnter={() => setFocusedIndex(flatIndex)}
-            className={`w-full flex items-center gap-2.5 py-2 px-3.5 transition-all text-left outline-none border-l-4 group ${
+            className={`w-full flex items-center gap-3 py-2.5 px-4 transition-all text-left outline-none border-l-4 group ${
               isActive 
               ? 'bg-white/10 text-white font-bold border-accent shadow-lg'
               : isFocused 
@@ -135,10 +135,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
             
             {!isSidebarCollapsed && (
               <>
-                <span className={`w-5 text-center font-bold font-mono text-[10px] ${isActive || isFocused ? 'text-accent' : 'text-gray-400'}`}>
+                <span className={`w-6 text-center font-bold font-mono text-[11px] leading-none ${isActive || isFocused ? 'text-accent' : 'text-gray-400'}`}>
                   {depth > 0 ? '•' : shortcutChar}
                 </span>
-                <span className="truncate flex-1 text-[11px] uppercase tracking-tight leading-tight">
+                <span className="truncate flex-1 text-xs uppercase tracking-tight leading-snug">
                   {depth > 0 ? (item.name) : (
                     <><span className={`${isActive || isFocused ? 'text-accent' : 'text-gray-100'} font-black`}>{shortcutChar}</span>{item.name.substring(1)}</>
                   )}
@@ -171,12 +171,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
   return (
     <div 
       ref={sidebarRef}
-      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : 'w-[12.96rem]'} bg-sidebar-bg flex flex-col h-full print:hidden border-r border-gray-400 z-10`}
+      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : 'w-[13.61rem]'} bg-sidebar-bg flex flex-col h-full print:hidden border-r border-gray-400 z-10`}
     >
       <div className={`p-4 h-14 bg-sidebar-bg-dark text-white flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
         {!isSidebarCollapsed && (
             <div className="flex items-center gap-2 overflow-hidden animate-in fade-in duration-300">
-                <span className="font-black text-[12px] tracking-widest truncate uppercase">MDXERA ERP</span>
+                <span className="font-black text-[13px] tracking-widest truncate uppercase">MDXERA ERP</span>
             </div>
         )}
         <button 
@@ -202,10 +202,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
         </nav>
       </div>
 
-      <div className="mt-auto p-3 bg-gray-900 border-t border-gray-700">
+      <div className="mt-auto px-3.5 py-3 bg-gray-900 border-t border-gray-700">
           {!isSidebarCollapsed ? (
               <div className="flex flex-col gap-2">
-                <div className="flex justify-between text-[10px] font-black text-gray-500 uppercase tracking-tighter">
+                <div className="flex justify-between text-[11px] font-black text-gray-500 uppercase tracking-tight">
                     <button onClick={() => onNavigate('pos')} className="hover:text-accent transition-colors outline-none focus:text-accent">F2 Sale</button>
                     <button onClick={() => onNavigate('inventory')} className="hover:text-accent transition-colors outline-none focus:text-accent">F4 Stock</button>
                     <button onClick={() => onNavigate('manualSupplierInvoice')} className="hover:text-accent transition-colors outline-none focus:text-accent">F8 Purc</button>
