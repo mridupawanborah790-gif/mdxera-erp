@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -317,6 +316,7 @@ const App: React.FC = () => {
                 setAuthView('reset');
             } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 if (session?.user) {
+                    setCurrentPage('dashboard');
                     storage.getCurrentUser().then(async user => {
                         if (user) {
                             setCurrentUser(user);
@@ -400,28 +400,25 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        const shouldShowSidebar = currentPage === 'dashboard';
         setConfigurations(prev => ({
             ...prev,
             sidebar: {
                 ...prev.sidebar,
-                isSidebarHidden: !shouldShowSidebar,
-                isSidebarCollapsed: shouldShowSidebar ? false : (prev.sidebar?.isSidebarCollapsed ?? true)
+                isSidebarHidden: false,
+                isSidebarCollapsed: prev.sidebar?.isSidebarCollapsed ?? false
             }
         }));
-    }, [currentPage]);
+    }, []);
 
     const toggleSidebar = useCallback(async () => {
-        const onDashboard = currentPage === 'dashboard';
-        const currentlyHidden = configurations.sidebar?.isSidebarHidden ?? !onDashboard;
-        const currentlyCollapsed = configurations.sidebar?.isSidebarCollapsed ?? !onDashboard;
+        const currentlyCollapsed = configurations.sidebar?.isSidebarCollapsed ?? false;
 
         const updatedConfig = {
             ...configurations,
             sidebar: {
                 ...configurations.sidebar,
-                isSidebarHidden: !currentlyHidden,
-                isSidebarCollapsed: currentlyHidden ? currentlyCollapsed : true
+                isSidebarHidden: false,
+                isSidebarCollapsed: !currentlyCollapsed
             }
         };
 
@@ -429,9 +426,18 @@ const App: React.FC = () => {
         if (currentUser) {
             await storage.saveData('configurations', updatedConfig, currentUser);
         }
-    }, [configurations, currentPage, currentUser]);
+    }, [configurations, currentUser]);
 
     const handleLogin = (user: RegisteredPharmacy) => {
+        setCurrentPage('dashboard');
+        setConfigurations(prev => ({
+            ...prev,
+            sidebar: {
+                ...prev.sidebar,
+                isSidebarHidden: false,
+                isSidebarCollapsed: false
+            }
+        }));
         setCurrentUser(user);
         loadData(user, 'initial');
     };
@@ -953,7 +959,7 @@ const App: React.FC = () => {
 
     const buildBillPharmacy = () => {
         if (!currentUser) return null;
-        const configuredLogo = configurations.displayOptions?.pharmacyLogoUrl;
+        const configuredLogo = configurations.displayOptions?.pharmacy_logo_url;
         if (!configuredLogo) return currentUser;
         return { ...currentUser, pharmacy_logo_url: configuredLogo };
     };
@@ -1152,7 +1158,10 @@ const App: React.FC = () => {
                     return <GstCenter
                         transactions={transactions} purchases={purchases} customers={customers}
                         currentUser={currentUser} configurations={configurations}
-                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
+                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => {
+                            setConfigurations(cfg);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        })}
                     />;
                 case 'businessUsers':
                     return <BusinessUserAssignment
@@ -1166,7 +1175,10 @@ const App: React.FC = () => {
                 case 'configuration':
                     return <Configuration
                         configurations={configurations}
-                        onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => setConfigurations(cfg))}
+                        onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => {
+                            setConfigurations(cfg);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        })}
                         addNotification={addNotification} currentUser={currentUser} inventory={inventory}
                         transactions={transactions} purchases={purchases} distributors={suppliers} customers={customers} medicines={medicines}
                         onBulkAddInventory={(l: any) => storage.saveBulkData('inventory', l, currentUser)}
@@ -1332,17 +1344,15 @@ const App: React.FC = () => {
                 onToggleSidebar={toggleSidebar}
             />
             <div className="flex-1 flex overflow-hidden">
-                {!configurations.sidebar?.isSidebarHidden && (
-                    <Sidebar
-                        currentPage={currentPage}
-                        onNavigate={handleNavigate}
-                        currentUser={currentUser}
-                        navigationItems={navigation}
-                        configurations={configurations}
-                        onToggleMasterExplorer={toggleSidebar}
-                        brandName="MDXERA"
-                    />
-                )}
+                <Sidebar
+                    currentPage={currentPage}
+                    onNavigate={handleNavigate}
+                    currentUser={currentUser}
+                    navigationItems={navigation}
+                    configurations={configurations}
+                    onToggleMasterExplorer={toggleSidebar}
+                    brandName="MDXERA"
+                />
                 <div className="flex-1 relative overflow-hidden flex flex-col">
                     {renderPage()}
                 </div>

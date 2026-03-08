@@ -9,6 +9,7 @@ import {
     parseCustomerCsv, parsePurchaseCsv, parseSalesCsv, parseMedicineMasterCsv, parseNomenclatureCsv 
 } from '../utils/csv';
 import ImportPreviewModal from '../components/ImportPreviewModal';
+import ImageCropModal from '../components/ImageCropModal';
 import DistributorImportPreviewModal from '../components/DistributorImportPreviewModal';
 import CustomerImportPreviewModal from '../components/CustomerImportPreviewModal';
 import PurchaseBillImportPreviewModal from '../components/PurchaseBillImportPreviewModal';
@@ -313,6 +314,11 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const pharmacyLogoInputRef = useRef<HTMLInputElement>(null);
     const dashboardLogoInputRef = useRef<HTMLInputElement>(null);
 
+    // Image Cropping State
+    const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+    const [selectedImage, setSelectedImage] = useState<string>('');
+    const [cropTarget, setCropTarget] = useState<'pharmacy_logo_url' | 'dashboard_logo_url'>('pharmacy_logo_url');
+
     const [demoBusinessType, setDemoBusinessType] = useState<DemoBusinessType>('RETAIL');
     const [duplicateHandlingMode, setDuplicateHandlingMode] = useState<DuplicateHandlingMode>('SKIP');
     const [demoPreviewRows, setDemoPreviewRows] = useState<PharmacyDemoMaterial[]>([]);
@@ -496,7 +502,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
 
 
-    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'pharmacyLogoUrl' | 'dashboardLogoUrl') => {
+    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'pharmacy_logo_url' | 'dashboard_logo_url') => {
         const file = e.target.files?.[0];
         if (!file) return;
 
@@ -519,14 +525,24 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
         if (!dataUrl) return;
 
-        handleConfigChange('displayOptions', target, dataUrl);
-        addNotification(`${target === 'pharmacyLogoUrl' ? 'Pharmacy logo' : 'Dashboard logo'} uploaded successfully.`, 'success');
+        setCropTarget(target);
+        setSelectedImage(dataUrl);
+        setIsCropModalOpen(true);
         e.target.value = '';
     };
 
-    const handleLogoRemove = (target: 'pharmacyLogoUrl' | 'dashboardLogoUrl') => {
-        handleConfigChange('displayOptions', target, undefined);
-        addNotification(`${target === 'pharmacyLogoUrl' ? 'Pharmacy logo' : 'Dashboard logo'} removed.`, 'success');
+    const handleLogoRemove = (target: 'pharmacy_logo_url' | 'dashboard_logo_url') => {
+        setLocalConfigs(prev => {
+            const currentDisplayOptions = (prev.displayOptions || {}) as any;
+            const updatedDisplayOptions = { ...currentDisplayOptions, [target]: undefined };
+            const updated = { ...prev, displayOptions: updatedDisplayOptions, _isDirty: true };
+            
+            // Perform the actual persistence
+            onUpdateConfigurations(updated);
+            
+            return updated;
+        });
+        addNotification(`${target === 'pharmacy_logo_url' ? 'Pharmacy logo' : 'Dashboard logo'} removed and saved.`, 'success');
     };
     const validateVoucherSchemes = (): string | null => {
         const targets: Array<[keyof AppConfigurations, string]> = [
@@ -877,53 +893,59 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                     type="file"
                                     accept=".png,.jpg,.jpeg,image/png,image/jpg,image/jpeg"
                                     className="hidden"
-                                    onChange={e => handleLogoUpload(e, 'pharmacyLogoUrl')}
+                                    onChange={e => handleLogoUpload(e, 'pharmacy_logo_url')}
                                 />
                                 <input
                                     ref={dashboardLogoInputRef}
                                     type="file"
                                     accept=".png,.jpg,.jpeg,image/png,image/jpg,image/jpeg"
                                     className="hidden"
-                                    onChange={e => handleLogoUpload(e, 'dashboardLogoUrl')}
+                                    onChange={e => handleLogoUpload(e, 'dashboard_logo_url')}
                                 />
 
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                     <div className="border border-gray-200 bg-gray-50 p-4 space-y-3">
                                         <h3 className="text-xs font-black text-primary uppercase tracking-widest">Pharmacy Logo Upload</h3>
-                                        <p className="text-[10px] font-bold text-gray-500 uppercase">Used automatically in invoice / bill print templates.</p>
-                                        <div className="h-28 border bg-white grid place-items-center overflow-hidden">
-                                            {localConfigs.displayOptions?.pharmacyLogoUrl ? (
-                                                <img src={localConfigs.displayOptions.pharmacyLogoUrl} alt="Pharmacy logo preview" className="h-full w-full object-contain" />
+                                        <div className="flex flex-col gap-0.5 mb-2">
+                                            <p className="text-[10px] font-bold text-gray-500 uppercase leading-none">Used in invoice / bill print templates.</p>
+                                            <p className="text-[9px] font-black text-emerald-600 uppercase leading-none">Recommended: 400 × 200 px (2:1 Ratio)</p>
+                                        </div>
+                                        <div className="h-28 border bg-white grid place-items-center overflow-hidden tally-shadow-inner">
+                                            {localConfigs.displayOptions?.pharmacy_logo_url ? (
+                                                <img src={localConfigs.displayOptions.pharmacy_logo_url} alt="Pharmacy logo preview" className="h-full w-full object-contain" />
                                             ) : (
                                                 <span className="text-[10px] font-black text-gray-400 uppercase">No logo uploaded</span>
                                             )}
                                         </div>
                                         <div className="flex gap-2">
                                             <button onClick={() => pharmacyLogoInputRef.current?.click()} className="px-4 py-2 tally-button-primary text-[10px]">Upload Image</button>
-                                            {!!localConfigs.displayOptions?.pharmacyLogoUrl && (
-                                                <button onClick={() => handleLogoRemove('pharmacyLogoUrl')} className="px-4 py-2 border border-red-300 text-red-600 text-[10px] font-black uppercase">Remove</button>
+                                            {!!localConfigs.displayOptions?.pharmacy_logo_url && (
+                                                <button onClick={() => handleLogoRemove('pharmacy_logo_url')} className="px-4 py-2 border border-red-300 text-red-600 text-[10px] font-black uppercase">Remove</button>
                                             )}
                                         </div>
-                                        <p className="text-[9px] font-bold text-gray-400 uppercase">Allowed formats: PNG / JPG / JPEG</p>
+                                        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter opacity-70">PNG / JPG / JPEG allowed</p>
                                     </div>
 
                                     <div className="border border-gray-200 bg-gray-50 p-4 space-y-3">
                                         <h3 className="text-xs font-black text-primary uppercase tracking-widest">Dashboard Logo Upload</h3>
-                                        <p className="text-[10px] font-bold text-gray-500 uppercase">Used in Central Dashboard Display with full-screen cover mode.</p>
-                                        <div className="h-28 border bg-white grid place-items-center overflow-hidden">
-                                            {localConfigs.displayOptions?.dashboardLogoUrl ? (
-                                                <img src={localConfigs.displayOptions.dashboardLogoUrl} alt="Dashboard logo preview" className="h-full w-full object-cover" />
+                                        <div className="flex flex-col gap-0.5 mb-2">
+                                            <p className="text-[10px] font-bold text-gray-500 uppercase leading-none">Used in Central Dashboard Display.</p>
+                                            <p className="text-[9px] font-black text-emerald-600 uppercase leading-none">Recommended: 1200 × 600 px (2:1 Ratio)</p>
+                                        </div>
+                                        <div className="h-28 border bg-white grid place-items-center overflow-hidden tally-shadow-inner">
+                                            {localConfigs.displayOptions?.dashboard_logo_url ? (
+                                                <img src={localConfigs.displayOptions.dashboard_logo_url} alt="Dashboard logo preview" className="h-full w-full object-contain" />
                                             ) : (
                                                 <span className="text-[10px] font-black text-gray-400 uppercase">No logo uploaded</span>
                                             )}
                                         </div>
                                         <div className="flex gap-2">
                                             <button onClick={() => dashboardLogoInputRef.current?.click()} className="px-4 py-2 tally-button-primary text-[10px]">Upload Image</button>
-                                            {!!localConfigs.displayOptions?.dashboardLogoUrl && (
-                                                <button onClick={() => handleLogoRemove('dashboardLogoUrl')} className="px-4 py-2 border border-red-300 text-red-600 text-[10px] font-black uppercase">Remove</button>
+                                            {!!localConfigs.displayOptions?.dashboard_logo_url && (
+                                                <button onClick={() => handleLogoRemove('dashboard_logo_url')} className="px-4 py-2 border border-red-300 text-red-600 text-[10px] font-black uppercase">Remove</button>
                                             )}
                                         </div>
-                                        <p className="text-[9px] font-bold text-gray-400 uppercase">Allowed formats: PNG / JPG / JPEG</p>
+                                        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter opacity-70">PNG / JPG / JPEG allowed</p>
                                     </div>
                                 </div>
                             </div>
@@ -1137,6 +1159,32 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
             {importType === 'sales' && previewData.length > 0 && <SalesBillImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddSales(d); setImportType(null); setPreviewData([]); addNotification("Sales data imported", 'success'); }} data={previewData} inventory={inventory} customers={customers} />}
             {importType === 'master' && previewData.length > 0 && <MedicineMasterImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddMedicines(d); setImportType(null); setPreviewData([]); addNotification("Master Data Updated", 'success'); }} data={previewData} />}
             {importType === 'nomenclature' && previewData.length > 0 && <MappingImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddMappings(d); setImportType(null); setPreviewData([]); addNotification("Nomenclature Rules Updated", 'success'); }} data={previewData} distributors={distributors} medicines={medicines} mappings={mappings} />}
+
+            <ImageCropModal 
+                isOpen={isCropModalOpen} 
+                onClose={() => { setIsCropModalOpen(false); setSelectedImage(''); }} 
+                imageSrc={selectedImage} 
+                aspectRatio={2} 
+                title={`Crop ${cropTarget === 'pharmacy_logo_url' ? 'Pharmacy' : 'Dashboard'} Logo`}
+                onCropComplete={(cropped) => {
+                    // Update the configuration in memory and save to database immediately.
+                    // We need the LATEST localConfigs to ensure other settings aren't lost.
+                    setLocalConfigs(prev => {
+                        const currentDisplayOptions = (prev.displayOptions || {}) as any;
+                        const updatedDisplayOptions = { ...currentDisplayOptions, [cropTarget]: cropped };
+                        const updated = { ...prev, displayOptions: updatedDisplayOptions, _isDirty: true };
+                        
+                        // Perform the actual persistence
+                        onUpdateConfigurations(updated);
+                        
+                        return updated;
+                    });
+                    
+                    addNotification(`${cropTarget === 'pharmacy_logo_url' ? 'Pharmacy logo' : 'Dashboard logo'} updated and saved.`, 'success');
+                    setIsCropModalOpen(false);
+                    setSelectedImage('');
+                }}
+            />
         </div>
     );
 };
