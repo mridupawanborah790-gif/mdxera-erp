@@ -15,7 +15,7 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationItems, configurations, onToggleMasterExplorer, brandName }) => {
   const isSidebarCollapsed = configurations.sidebar?.isSidebarCollapsed ?? false;
-  const expandedSidebarWidthClass = 'w-[14.97rem]';
+  const expandedSidebarWidthClass = 'w-[16.8rem]';
   const expandedItemPaddingClass = 'px-2';
   const [openMenus, setOpenMenus] = useState<string[]>([]);
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
