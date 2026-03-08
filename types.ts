@@ -146,6 +146,7 @@ export interface AppConfigurations {
     masterShortcuts?: string[]; 
     sidebar?: {
         isSidebarCollapsed?: boolean;
+        isSidebarHidden?: boolean;
     };
     displayOptions?: {
         showMultipleRates?: boolean;
