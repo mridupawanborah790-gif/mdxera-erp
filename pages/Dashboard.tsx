@@ -4,6 +4,7 @@ import Card from '../components/Card';
 import type { InventoryItem, RegisteredPharmacy, Transaction, Purchase, Medicine, Customer, Distributor, AppConfigurations } from '../types';
 import Chatbot from '../components/Chatbot'; // Import Chatbot here
 import { MASTER_SHORTCUT_OPTIONS } from '../constants';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 interface DashboardProps {
     currentUser: RegisteredPharmacy | null;
@@ -162,6 +163,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
     // Keyboard navigation for Gateway Shortcuts
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'dashboard')) return;
             // Don't intercept if an input is focused or sidebar has focus
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '')) return;
             if (document.querySelector('[role="dialog"]')) return;

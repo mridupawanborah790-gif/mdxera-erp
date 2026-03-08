@@ -5,6 +5,7 @@ import type { SupplierQuickResult } from '../services/supplierService';
 import { AddSupplierModal, EditSupplierModal } from '../components/AddSupplierModal';
 import ExportSuppliersModal from '../components/ExportSuppliersModal';
 import { fuzzyMatch } from '../utils/search';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 const uniformTextStyle = 'text-2xl font-normal tracking-tight uppercase leading-tight';
 
@@ -64,6 +65,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'suppliers')) return;
             if (e.key === 'F2') {
                 e.preventDefault();
                 setIsAddModalOpen(true);

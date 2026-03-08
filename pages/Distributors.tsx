@@ -10,6 +10,7 @@ import { STATE_DISTRICT_MAP } from '../constants';
 import { AddDistributorModal, EditDistributorModal, RecordPaymentModal } from '../components/AddDistributorModal';
 import PrintLedgerModal from '../components/PrintLedgerModal';
 import { getOutstandingBalance } from '../utils/helpers';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 // Standardized typography matching POS screen "Product Selection Matrix"
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
@@ -36,6 +37,7 @@ const DistributorsPage: React.FC<DistributorsProps> = ({ distributors, onAddDist
     // Keyboard Shortcuts
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'distributors')) return;
             if (e.key === 'F2') {
                 e.preventDefault();
                 setIsAddModalOpen(true);

@@ -6,6 +6,7 @@ import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import ConfirmModal from '../components/ConfirmModal';
 import ExportSalesModal from '../components/ExportSalesModal';
 import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 type SortableKeys = 'date' | 'total' | 'createdAt' | 'profit';
 
@@ -76,6 +77,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'salesHistory')) return;
             if (e.key === 'F3') {
                 e.preventDefault();
                 if (filteredAndSortedTransactions.length > 0) {

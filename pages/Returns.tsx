@@ -11,6 +11,7 @@ import type {
     ReturnsProps
 } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 const RETURN_REASONS = [
     'Damaged / Broken', 'Expired / Near Expiry', 'Incorrect Item Sent', 
@@ -41,6 +42,7 @@ const Returns: React.FC<ReturnsProps> = ({
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, ['salesReturns', 'purchaseReturns'])) return;
             if (e.key === 'F2') {
                 e.preventDefault();
                 setView('create');
