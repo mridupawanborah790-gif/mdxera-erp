@@ -171,7 +171,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
   return (
     <div 
       ref={sidebarRef}
-      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : 'w-[14.25rem]'} bg-sidebar-bg flex flex-col h-full print:hidden border-r border-gray-400 z-10`}
+      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : 'w-[13.61rem]'} bg-sidebar-bg flex flex-col h-full print:hidden border-r border-gray-400 z-10`}
     >
       <div className={`p-4 h-14 bg-sidebar-bg-dark text-white flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
         {!isSidebarCollapsed && (
