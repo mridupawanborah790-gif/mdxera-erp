@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { NavItem, RegisteredPharmacy, AppConfigurations } from '../types';
-import { navigation, settingsNavigation } from '../constants';
+import { settingsNavigation } from '../constants';
 
 interface SidebarProps {
   currentPage: string;
@@ -16,7 +16,7 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationItems, configurations, onToggleMasterExplorer, brandName }) => {
   const isSidebarCollapsed = configurations.sidebar?.isSidebarCollapsed ?? false;
   const expandedSidebarWidthClass = 'w-[14.97rem]';
-  const expandedItemPaddingClass = 'px-[1.1rem]';
+  const expandedItemPaddingClass = 'px-2';
   const [openMenus, setOpenMenus] = useState<string[]>([]);
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -119,36 +119,36 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
           <button
             onClick={handleItemClick}
             onMouseEnter={() => setFocusedIndex(flatIndex)}
-            className={`w-full flex items-center gap-3 py-2.5 ${isSidebarCollapsed ? 'px-4' : expandedItemPaddingClass} transition-all text-left outline-none border-l-4 group ${
+            className={`w-full flex items-center gap-2.5 py-2 px-2 ${isSidebarCollapsed ? 'px-4' : expandedItemPaddingClass} transition-all text-left outline-none border border-gray-400 group min-h-[42px] ${
               isActive 
-              ? 'bg-white/10 text-white font-bold border-accent shadow-lg'
+              ? 'bg-accent text-black border-primary shadow-sm font-semibold'
               : isFocused 
-                ? 'bg-white/20 text-white border-accent/50'
-                : 'text-gray-100 hover:bg-white/5 border-transparent'
+                ? 'bg-accent/80 text-black border-primary'
+                : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
             } ${isSidebarCollapsed ? 'justify-center !px-0' : ''}`}
             title={isSidebarCollapsed ? item.name : undefined}
             aria-expanded={isParent ? isParentOpen : undefined}
           >
             {Icon && (
-              <div className={`flex-shrink-0 ${isActive || isFocused ? 'text-accent' : 'text-gray-400 group-hover:text-gray-100'} transition-colors`}>
-                <Icon className={isSidebarCollapsed ? 'w-6 h-6' : 'w-5 h-5'} />
+              <div className={`flex-shrink-0 ${isActive || isFocused ? 'text-black' : 'text-gray-600 group-hover:text-black'} transition-colors`}>
+                <Icon className={isSidebarCollapsed ? 'w-6 h-6' : 'w-4 h-4'} />
               </div>
             )}
             
             {!isSidebarCollapsed && (
               <>
-                <span className={`w-6 text-center font-bold font-mono text-[11px] leading-none ${isActive || isFocused ? 'text-accent' : 'text-gray-400'}`}>
+                <span className={`w-5 text-center font-bold font-mono text-[10px] leading-none ${isActive || isFocused ? 'text-black' : 'text-gray-500'}`}>
                   {depth > 0 ? '•' : shortcutChar}
                 </span>
-                <span className="truncate flex-1 text-xs uppercase tracking-tight leading-snug">
+                <span className="truncate flex-1 text-[15px] font-semibold leading-tight">
                   {depth > 0 ? (item.name) : (
-                    <><span className={`${isActive || isFocused ? 'text-accent' : 'text-gray-100'} font-black`}>{shortcutChar}</span>{item.name.substring(1)}</>
+                    <><span className={`${isActive || isFocused ? 'text-black' : 'text-gray-800'} font-semibold`}>{shortcutChar}</span>{item.name.substring(1)}</>
                   )}
                 </span>
                 {isParent && (
                   <svg 
                     xmlns="http://www.w3.org/2000/svg" 
-                    className={`h-3 w-3 transition-transform ${isParentOpen ? 'rotate-90' : ''} ${isActive || isFocused ? 'text-white' : 'text-gray-500'}`}
+                    className={`h-3.5 w-3.5 transition-transform ${isParentOpen ? 'rotate-90' : ''} ${isActive || isFocused ? 'text-black' : 'text-gray-500'}`}
                     fill="none" 
                     viewBox="0 0 24 24" 
                     stroke="currentColor" 
@@ -161,7 +161,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
             )}
           </button>
           {isParentOpen && !isSidebarCollapsed && item.children && (
-            <div role="menu" className="bg-black/10 py-1">
+            <div role="menu" className="bg-gray-100/90 py-1 px-2 space-y-1">
               {renderMenuItems(item.children, depth + 1)}
             </div>
           )}
@@ -173,12 +173,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
   return (
     <div 
       ref={sidebarRef}
-      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : expandedSidebarWidthClass} bg-sidebar-bg flex flex-col h-full shrink-0 print:hidden border-r border-gray-400 z-10`}
+      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : expandedSidebarWidthClass} bg-gray-100 flex flex-col h-full shrink-0 print:hidden border-r border-gray-400 z-10`}
     >
-      <div className={`${isSidebarCollapsed ? 'p-4' : 'px-[1.1rem] py-4'} h-14 bg-sidebar-bg-dark text-white flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
+      <div className={`${isSidebarCollapsed ? 'p-4' : 'px-[1.1rem] py-3'} h-14 bg-primary text-white flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'} border-b-2 border-gray-700`}>
         {!isSidebarCollapsed && (
             <div className="flex items-center gap-2 overflow-hidden animate-in fade-in duration-300">
-                <span className="font-black text-[13px] tracking-widest truncate uppercase">MDXERA ERP</span>
+                <span className="font-bold text-[12px] tracking-[0.2em] truncate uppercase">MDXERA ERP</span>
             </div>
         )}
         <button 
@@ -196,21 +196,21 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-2 bg-sidebar-bg custom-scrollbar">
-        <nav className="space-y-0.5">
+      <div className="flex-1 overflow-y-auto py-2 bg-gray-100 custom-scrollbar">
+        <nav className="space-y-1 px-2">
           {renderMenuItems(navigationItems)}
-          {!isSidebarCollapsed && <div className="h-px bg-white/10 my-4 mx-[1.1rem]"></div>}
+          {!isSidebarCollapsed && <div className="h-px bg-gray-400 my-3 mx-0"></div>}
           {renderMenuItems(settingsNavigation)}
         </nav>
       </div>
 
-      <div className={`${isSidebarCollapsed ? 'px-3.5' : 'px-[0.9625rem]'} mt-auto py-3 bg-gray-900 border-t border-gray-700`}>
+      <div className={`${isSidebarCollapsed ? 'px-3.5' : 'px-2'} mt-auto py-2 bg-gray-200 border-t border-gray-400`}>
           {!isSidebarCollapsed ? (
               <div className="flex flex-col gap-2">
-                <div className="flex justify-between text-[11px] font-black text-gray-500 uppercase tracking-tight">
-                    <button onClick={() => onNavigate('pos')} className="hover:text-accent transition-colors outline-none focus:text-accent">F2 Sale</button>
-                    <button onClick={() => onNavigate('inventory')} className="hover:text-accent transition-colors outline-none focus:text-accent">F4 Stock</button>
-                    <button onClick={() => onNavigate('manualSupplierInvoice')} className="hover:text-accent transition-colors outline-none focus:text-accent">F8 Purc</button>
+                <div className="flex justify-between text-[10px] font-bold text-gray-600 uppercase tracking-wide">
+                    <button onClick={() => onNavigate('pos')} className="hover:text-black transition-colors outline-none focus:text-black">F2 Sale</button>
+                    <button onClick={() => onNavigate('inventory')} className="hover:text-black transition-colors outline-none focus:text-black">F4 Stock</button>
+                    <button onClick={() => onNavigate('manualSupplierInvoice')} className="hover:text-black transition-colors outline-none focus:text-black">F8 Purc</button>
                 </div>
               </div>
           ) : (
