@@ -226,8 +226,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                         </div>
                     </div>
 
-                    <div className="lg:col-span-3">
-                        <Card className="p-0 tally-border !rounded-none bg-gray-100 dark:bg-zinc-800 shadow-xl overflow-hidden">
+                    <div className="lg:col-span-3 flex justify-end">
+                        <Card className="w-full lg:w-[90%] p-0 tally-border !rounded-none bg-gray-100 dark:bg-zinc-800 shadow-xl overflow-hidden">
                             <div className="bg-primary px-3 py-2 text-white text-[12px] font-bold text-center uppercase tracking-[0.2em] border-b-2 border-gray-700">
                                 MDXERA ENTERPRISE ERP
                             </div>
@@ -237,7 +237,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                                         key={shortcut.id}
                                         onClick={() => onKpiClick(shortcut.id)}
                                         onMouseEnter={() => setFocusedShortcutIndex(idx)}
-                                        className={`w-full text-center py-2 px-2 leading-tight transition-colors text-[15px] font-semibold border border-gray-400 outline-none ${
+                                        className={`w-full text-center py-2 px-2 leading-tight transition-colors text-[13.5px] font-semibold border border-gray-400 outline-none ${
                                             focusedShortcutIndex === idx
                                                 ? 'bg-accent text-black border-primary'
                                                 : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
@@ -251,7 +251,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                                     <button
                                         onClick={() => onKpiClick('configuration')}
                                         onMouseEnter={() => setFocusedShortcutIndex(activeShortcuts.length)}
-                                        className={`w-full text-center py-2 px-2 leading-tight transition-colors text-[15px] font-semibold border border-gray-400 outline-none ${
+                                        className={`w-full text-center py-2 px-2 leading-tight transition-colors text-[13.5px] font-semibold border border-gray-400 outline-none ${
                                             focusedShortcutIndex === activeShortcuts.length
                                                 ? 'bg-accent text-black border-primary'
                                                 : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
