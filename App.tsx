@@ -317,6 +317,7 @@ const App: React.FC = () => {
                 setAuthView('reset');
             } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 if (session?.user) {
+                    setCurrentPage('dashboard');
                     storage.getCurrentUser().then(async user => {
                         if (user) {
                             setCurrentUser(user);
@@ -400,28 +401,25 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        const shouldShowSidebar = currentPage === 'dashboard';
         setConfigurations(prev => ({
             ...prev,
             sidebar: {
                 ...prev.sidebar,
-                isSidebarHidden: !shouldShowSidebar,
-                isSidebarCollapsed: shouldShowSidebar ? false : (prev.sidebar?.isSidebarCollapsed ?? true)
+                isSidebarHidden: false,
+                isSidebarCollapsed: prev.sidebar?.isSidebarCollapsed ?? false
             }
         }));
-    }, [currentPage]);
+    }, []);
 
     const toggleSidebar = useCallback(async () => {
-        const onDashboard = currentPage === 'dashboard';
-        const currentlyHidden = configurations.sidebar?.isSidebarHidden ?? !onDashboard;
-        const currentlyCollapsed = configurations.sidebar?.isSidebarCollapsed ?? !onDashboard;
+        const currentlyCollapsed = configurations.sidebar?.isSidebarCollapsed ?? false;
 
         const updatedConfig = {
             ...configurations,
             sidebar: {
                 ...configurations.sidebar,
-                isSidebarHidden: !currentlyHidden,
-                isSidebarCollapsed: currentlyHidden ? currentlyCollapsed : true
+                isSidebarHidden: false,
+                isSidebarCollapsed: !currentlyCollapsed
             }
         };
 
@@ -429,9 +427,18 @@ const App: React.FC = () => {
         if (currentUser) {
             await storage.saveData('configurations', updatedConfig, currentUser);
         }
-    }, [configurations, currentPage, currentUser]);
+    }, [configurations, currentUser]);
 
     const handleLogin = (user: RegisteredPharmacy) => {
+        setCurrentPage('dashboard');
+        setConfigurations(prev => ({
+            ...prev,
+            sidebar: {
+                ...prev.sidebar,
+                isSidebarHidden: false,
+                isSidebarCollapsed: false
+            }
+        }));
         setCurrentUser(user);
         loadData(user, 'initial');
     };
@@ -1332,17 +1339,15 @@ const App: React.FC = () => {
                 onToggleSidebar={toggleSidebar}
             />
             <div className="flex-1 flex overflow-hidden">
-                {!configurations.sidebar?.isSidebarHidden && (
-                    <Sidebar
-                        currentPage={currentPage}
-                        onNavigate={handleNavigate}
-                        currentUser={currentUser}
-                        navigationItems={navigation}
-                        configurations={configurations}
-                        onToggleMasterExplorer={toggleSidebar}
-                        brandName="MDXERA"
-                    />
-                )}
+                <Sidebar
+                    currentPage={currentPage}
+                    onNavigate={handleNavigate}
+                    currentUser={currentUser}
+                    navigationItems={navigation}
+                    configurations={configurations}
+                    onToggleMasterExplorer={toggleSidebar}
+                    brandName="MDXERA"
+                />
                 <div className="flex-1 relative overflow-hidden flex flex-col">
                     {renderPage()}
                 </div>
