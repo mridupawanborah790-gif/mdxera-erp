@@ -58,9 +58,10 @@ import { resolveUnitsPerStrip } from './utils/pack';
 import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screenShortcuts';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
 
-const ESC_ENTRY_SCREENS = [
+const DATA_ENTRY_SCREENS = [
     'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
-    'physicalInventory', 'deliveryChallans', 'salesChallans', 'manualSalesEntry', 'purchaseOrders'
+    'manualSalesEntry', 'physicalInventory', 'deliveryChallans', 'salesChallans', 'purchaseOrders',
+    'customers', 'suppliers', 'inventory', 'materialMaster'
 ];
 
 const App: React.FC = () => {
@@ -249,6 +250,14 @@ const App: React.FC = () => {
         }
     }, [addNotification]);
 
+    const isDashboardScreen = currentPage === 'dashboard';
+
+    const shouldPromptBeforeLeaving = useCallback((fromPage: string, toPage?: string) => {
+        if (!DATA_ENTRY_SCREENS.includes(fromPage)) return false;
+        if (!toPage) return true;
+        return fromPage !== toPage;
+    }, []);
+
     // Global ESC Key Listener
     useEffect(() => {
         setActiveScreenScope(currentPage);
@@ -263,7 +272,7 @@ const App: React.FC = () => {
                 if (currentPage === 'dashboard') return;
 
                 // Entry screens that require save/discard confirmation
-                if (ESC_ENTRY_SCREENS.includes(currentPage)) {
+                if (DATA_ENTRY_SCREENS.includes(currentPage)) {
                     setShowEscSavePrompt(true);
                 } else {
                     // Navigation screens, just go home
@@ -390,6 +399,12 @@ const App: React.FC = () => {
     const handleNavigate = useCallback((pageId: string) => {
         const isDailyReportLink = pageId.startsWith('dailyReports:');
         const resolvedPageId = isDailyReportLink ? 'dailyReports' : pageId;
+
+        if (shouldPromptBeforeLeaving(currentPage, resolvedPageId)) {
+            setShowEscSavePrompt(true);
+            return;
+        }
+
         if (isDailyReportLink) {
             setCurrentDailyReportId(pageId.replace('dailyReports:', ''));
         }
@@ -397,7 +412,7 @@ const App: React.FC = () => {
         if (resolvedPageId !== 'manualSupplierInvoice' && resolvedPageId !== 'manualPurchaseEntry' && resolvedPageId !== 'automatedPurchaseEntry') {
             setEditingPurchase(null);
         }
-    }, []);
+    }, [currentPage, shouldPromptBeforeLeaving]);
 
     useEffect(() => {
         setConfigurations(prev => ({
@@ -1344,15 +1359,17 @@ const App: React.FC = () => {
                 onToggleSidebar={toggleSidebar}
             />
             <div className="flex-1 flex overflow-hidden">
-                <Sidebar
-                    currentPage={currentPage}
-                    onNavigate={handleNavigate}
-                    currentUser={currentUser}
-                    navigationItems={navigation}
-                    configurations={configurations}
-                    onToggleMasterExplorer={toggleSidebar}
-                    brandName="MDXERA"
-                />
+                {isDashboardScreen && (
+                    <Sidebar
+                        currentPage={currentPage}
+                        onNavigate={handleNavigate}
+                        currentUser={currentUser}
+                        navigationItems={navigation}
+                        configurations={configurations}
+                        onToggleMasterExplorer={toggleSidebar}
+                        brandName="MDXERA"
+                    />
+                )}
                 <div className="flex-1 relative overflow-hidden flex flex-col">
                     {renderPage()}
                 </div>
@@ -1380,8 +1397,8 @@ const App: React.FC = () => {
                     isOpen={showEscSavePrompt}
                     title="Quit and Save"
                     message="Do you want to save data?"
-                    acceptLabel="Yes (Y)"
-                    discardLabel="No (N)"
+                    acceptLabel="Yes"
+                    discardLabel="No"
                     onAccept={handleEscSave}
                     onDiscard={handleEscDiscard}
                     onCancel={() => setShowEscSavePrompt(false)}
