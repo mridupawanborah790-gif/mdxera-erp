@@ -143,7 +143,8 @@ export interface AppConfigurations {
     deliveryChallanConfig?: InvoiceNumberConfig;
     salesChallanConfig?: InvoiceNumberConfig;
     medicineMasterConfig?: InvoiceNumberConfig;
-    masterShortcuts?: string[]; 
+    masterShortcuts?: string[];
+    masterShortcutOrder?: { [shortcutId: string]: number };
     sidebar?: {
         isSidebarCollapsed?: boolean;
         isSidebarHidden?: boolean;

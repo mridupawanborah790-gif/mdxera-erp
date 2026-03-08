@@ -172,11 +172,23 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
     }), [inventory, transactions, purchases, distributors, customers, medicines]);
 
     const activeShortcuts = useMemo(() => {
+        const maxShortcuts = 12;
         if (configurations.masterShortcuts && configurations.masterShortcuts.length > 0) {
-            return MASTER_SHORTCUT_OPTIONS.filter(opt => configurations.masterShortcuts?.includes(opt.id));
+            const selectedSet = new Set(configurations.masterShortcuts.slice(0, maxShortcuts));
+            const selected = MASTER_SHORTCUT_OPTIONS.filter(opt => selectedSet.has(opt.id));
+            const orderMap = configurations.masterShortcutOrder || {};
+            const fallbackOrder = new Map(configurations.masterShortcuts.map((id, idx) => [id, idx + 1]));
+
+            return selected
+                .sort((a, b) => {
+                    const orderA = orderMap[a.id] ?? fallbackOrder.get(a.id) ?? 999;
+                    const orderB = orderMap[b.id] ?? fallbackOrder.get(b.id) ?? 999;
+                    return orderA - orderB;
+                })
+                .slice(0, maxShortcuts);
         }
-        return MASTER_SHORTCUT_OPTIONS.slice(0, 8); // Fallback
-    }, [configurations.masterShortcuts]);
+        return MASTER_SHORTCUT_OPTIONS.slice(0, maxShortcuts);
+    }, [configurations.masterShortcutOrder, configurations.masterShortcuts]);
 
     // Keyboard navigation for Gateway Shortcuts
     useEffect(() => {
