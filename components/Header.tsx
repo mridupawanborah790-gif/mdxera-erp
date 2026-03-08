@@ -13,9 +13,10 @@ interface HeaderProps {
   currentPage: string;
   onReload: () => void;
   isReloading?: boolean;
+  onToggleSidebar: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate, onLogout, isFullScreen, onToggleFullScreen, brandName, currentPage, onReload, isReloading }) => {
+const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate, onLogout, isFullScreen, onToggleFullScreen, brandName, currentPage, onReload, isReloading, onToggleSidebar }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -101,6 +102,14 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
             <div className="px-3 bg-white/10 h-full flex items-center mr-2">
                 <span className="tracking-widest uppercase">MDXERA ERP</span>
             </div>
+            <button
+                onClick={onToggleSidebar}
+                className="h-full px-3 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 text-base"
+                title="Toggle Sidebar"
+                aria-label="Toggle Sidebar"
+            >
+                ☰
+            </button>
             {menuItems.map(item => (
                 <div key={item.id} className="relative h-full">
                     <button 

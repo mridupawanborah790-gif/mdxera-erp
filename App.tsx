@@ -59,6 +59,11 @@ import { resolveUnitsPerStrip } from './utils/pack';
 import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screenShortcuts';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
 
+const ESC_ENTRY_SCREENS = [
+    'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
+    'physicalInventory', 'deliveryChallans', 'salesChallans', 'manualSalesEntry', 'purchaseOrders'
+];
+
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
     const [currentPage, setCurrentPage] = useState('dashboard');
@@ -259,12 +264,7 @@ const App: React.FC = () => {
                 if (currentPage === 'dashboard') return;
 
                 // Entry screens that require save/discard confirmation
-                const entryScreens = [
-                    'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
-                    'physicalInventory', 'deliveryChallans', 'salesChallans'
-                ];
-
-                if (entryScreens.includes(currentPage)) {
+                if (ESC_ENTRY_SCREENS.includes(currentPage)) {
                     setShowEscSavePrompt(true);
                 } else {
                     // Navigation screens, just go home
@@ -397,25 +397,39 @@ const App: React.FC = () => {
         if (resolvedPageId !== 'manualSupplierInvoice' && resolvedPageId !== 'manualPurchaseEntry' && resolvedPageId !== 'automatedPurchaseEntry') {
             setEditingPurchase(null);
         }
-        if (resolvedPageId !== 'dashboard') {
-            setConfigurations(prev => ({
-                ...prev,
-                sidebar: { ...prev.sidebar, isSidebarCollapsed: true }
-            }));
-        }
     }, []);
 
+    useEffect(() => {
+        const shouldShowSidebar = currentPage === 'dashboard';
+        setConfigurations(prev => ({
+            ...prev,
+            sidebar: {
+                ...prev.sidebar,
+                isSidebarHidden: !shouldShowSidebar,
+                isSidebarCollapsed: shouldShowSidebar ? false : (prev.sidebar?.isSidebarCollapsed ?? true)
+            }
+        }));
+    }, [currentPage]);
+
     const toggleSidebar = useCallback(async () => {
-        const nextState = !configurations.sidebar?.isSidebarCollapsed;
+        const onDashboard = currentPage === 'dashboard';
+        const currentlyHidden = configurations.sidebar?.isSidebarHidden ?? !onDashboard;
+        const currentlyCollapsed = configurations.sidebar?.isSidebarCollapsed ?? !onDashboard;
+
         const updatedConfig = {
             ...configurations,
-            sidebar: { ...configurations.sidebar, isSidebarCollapsed: nextState }
+            sidebar: {
+                ...configurations.sidebar,
+                isSidebarHidden: !currentlyHidden,
+                isSidebarCollapsed: currentlyHidden ? currentlyCollapsed : true
+            }
         };
+
         setConfigurations(updatedConfig);
         if (currentUser) {
             await storage.saveData('configurations', updatedConfig, currentUser);
         }
-    }, [configurations, currentUser]);
+    }, [configurations, currentPage, currentUser]);
 
     const handleLogin = (user: RegisteredPharmacy) => {
         setCurrentUser(user);
@@ -1315,17 +1329,20 @@ const App: React.FC = () => {
                 currentPage={currentPage}
                 onReload={handleReload}
                 isReloading={isReloading}
+                onToggleSidebar={toggleSidebar}
             />
             <div className="flex-1 flex overflow-hidden">
-                <Sidebar
-                    currentPage={currentPage}
-                    onNavigate={handleNavigate}
-                    currentUser={currentUser}
-                    navigationItems={navigation}
-                    configurations={configurations}
-                    onToggleMasterExplorer={toggleSidebar}
-                    brandName="MDXERA"
-                />
+                {!configurations.sidebar?.isSidebarHidden && (
+                    <Sidebar
+                        currentPage={currentPage}
+                        onNavigate={handleNavigate}
+                        currentUser={currentUser}
+                        navigationItems={navigation}
+                        configurations={configurations}
+                        onToggleMasterExplorer={toggleSidebar}
+                        brandName="MDXERA"
+                    />
+                )}
                 <div className="flex-1 relative overflow-hidden flex flex-col">
                     {renderPage()}
                 </div>
@@ -1352,7 +1369,7 @@ const App: React.FC = () => {
                 <TallyPrompt
                     isOpen={showEscSavePrompt}
                     title="Quit and Save"
-                    message="Do you want to save the entry?"
+                    message="Do you want to save data?"
                     acceptLabel="Yes (Y)"
                     discardLabel="No (N)"
                     onAccept={handleEscSave}
