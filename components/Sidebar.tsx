@@ -117,7 +117,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
           <button
             onClick={handleItemClick}
             onMouseEnter={() => setFocusedIndex(flatIndex)}
-            className={`w-full flex items-center gap-3 py-2 px-4 transition-all text-left outline-none border-l-4 group ${
+            className={`w-full flex items-center gap-2.5 py-2 px-3.5 transition-all text-left outline-none border-l-4 group ${
               isActive 
               ? 'bg-white/10 text-white font-bold border-accent shadow-lg'
               : isFocused 
@@ -138,7 +138,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
                 <span className={`w-5 text-center font-bold font-mono text-[10px] ${isActive || isFocused ? 'text-accent' : 'text-gray-400'}`}>
                   {depth > 0 ? '•' : shortcutChar}
                 </span>
-                <span className="truncate flex-1 text-[12px] uppercase tracking-tight">
+                <span className="truncate flex-1 text-[11px] uppercase tracking-tight leading-tight">
                   {depth > 0 ? (item.name) : (
                     <><span className={`${isActive || isFocused ? 'text-accent' : 'text-gray-100'} font-black`}>{shortcutChar}</span>{item.name.substring(1)}</>
                   )}
@@ -171,7 +171,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
   return (
     <div 
       ref={sidebarRef}
-      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : 'w-[14.4rem]'} bg-sidebar-bg flex flex-col h-full print:hidden border-r border-gray-400 z-10`}
+      className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-16' : 'w-[12.96rem]'} bg-sidebar-bg flex flex-col h-full print:hidden border-r border-gray-400 z-10`}
     >
       <div className={`p-4 h-14 bg-sidebar-bg-dark text-white flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
         {!isSidebarCollapsed && (
