@@ -39,6 +39,39 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
     ]
   };
 
+  const dailyReportsMenu = {
+    id: 'daily_reports',
+    label: 'Daily Reports',
+    children: [
+      {
+        id: 'dailyWorking',
+        label: 'Daily Working',
+        children: [
+          { id: 'dailyReports:dispatchSummary', label: 'Dispatch Summary' },
+          { id: 'dailyReports:reorderManagement', label: 'Re-order Management' },
+          { id: 'dailyReports:stockSaleAnalysis', label: 'Stock & Sale Analysis' },
+          { id: 'dailyReports:multiBillPrinting', label: 'Multi Bill / Other Printing' },
+          { id: 'dailyReports:challanToBill', label: 'Challan to Bill' },
+          { id: 'dailyReports:pendingChallans', label: 'Pending Challans' },
+          { id: 'dailyReports:dispatchManagementReports', label: 'Dispatch Management Reports' },
+          { id: 'dailyReports:rateComparisonStatement', label: 'Rate Comparison Statement' },
+          { id: 'dailyReports:mergeBillsSingleOrder', label: 'Merge Bills in Single Order' },
+          { id: 'dailyReports:partyNotVisited', label: 'Party Not Visited' },
+          { id: 'dailyReports:billNotPrinted', label: 'Bill Not Printed' },
+        ]
+      },
+      { id: 'dailyReports:fastReports', label: 'Fast Reports' },
+      { id: 'dailyReports:businessAnalysis', label: 'Business Analysis' },
+      { id: 'dailyReports:orderCrm', label: 'Order CRM' },
+      { id: 'dailyReports:saleReport', label: 'Sale Report' },
+      { id: 'dailyReports:purchaseReport', label: 'Purchase Report' },
+      { id: 'dailyReports:inventoryReports', label: 'Inventory Reports' },
+      { id: 'dailyReports:abcAnalysis', label: 'ABC Analysis' },
+      { id: 'dailyReports:allAccountingRecords', label: 'All Accounting Records' },
+      { id: 'dailyReports:purchasePlanning', label: 'Purchase Planning' },
+    ]
+  };
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -101,6 +134,47 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                 ) : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
                 <span><u>R</u>eload</span>
             </button>
+            <div className="relative h-full">
+                <button
+                    onClick={() => setActiveMenu(activeMenu === dailyReportsMenu.id ? null : dailyReportsMenu.id)}
+                    className={`h-full px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 ${activeMenu === dailyReportsMenu.id ? 'bg-white/20' : ''}`}
+                >
+                    {dailyReportsMenu.label}
+                </button>
+                {activeMenu === dailyReportsMenu.id && (
+                    <div className="absolute top-full left-0 w-72 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl z-[100] py-1">
+                        {dailyReportsMenu.children.map(child => (
+                            <div key={child.id} className="group relative">
+                                <button
+                                    onClick={() => {
+                                        if (!('children' in child) || !child.children) {
+                                            onNavigate(child.id);
+                                            setActiveMenu(null);
+                                        }
+                                    }}
+                                    className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[12px] font-bold flex justify-between items-center"
+                                >
+                                    {child.label}
+                                    {'children' in child && child.children ? <span>▸</span> : null}
+                                </button>
+                                {'children' in child && child.children && (
+                                    <div className="absolute top-0 left-full w-80 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl hidden group-hover:block z-[110] py-1">
+                                        {child.children.map(grandChild => (
+                                            <button
+                                                key={grandChild.id}
+                                                onClick={() => { onNavigate(grandChild.id); setActiveMenu(null); }}
+                                                className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[12px] font-bold"
+                                            >
+                                                {grandChild.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
             <div className="relative h-full">
                 <button
                     onClick={() => setActiveMenu(activeMenu === utilitiesSetupMenu.id ? null : utilitiesSetupMenu.id)}
