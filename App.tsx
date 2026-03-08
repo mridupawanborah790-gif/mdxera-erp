@@ -18,6 +18,7 @@ import MaterialMaster from './components/MaterialMaster';
 import SubstituteFinder from './pages/SubstituteFinder';
 import Promotions from './pages/Promotions';
 import Reports from './pages/Reports';
+import DailyReports from './pages/DailyReports';
 import BalanceCarryforward from './pages/BalanceCarryforward';
 import GstCenter from './pages/GstCenter';
 import BusinessUserAssignment from './pages/BusinessUserAssignment';
@@ -60,6 +61,7 @@ import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
     const [currentPage, setCurrentPage] = useState('dashboard');
+    const [currentDailyReportId, setCurrentDailyReportId] = useState('dispatchSummary');
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isAppLoading, setIsAppLoading] = useState(true);
     const [isReloading, setIsReloading] = useState(false);
@@ -381,11 +383,16 @@ const App: React.FC = () => {
     }, [currentUser, loadData]);
 
     const handleNavigate = useCallback((pageId: string) => {
-        setCurrentPage(pageId);
-        if (pageId !== 'manualSupplierInvoice' && pageId !== 'manualPurchaseEntry' && pageId !== 'automatedPurchaseEntry') {
+        const isDailyReportLink = pageId.startsWith('dailyReports:');
+        const resolvedPageId = isDailyReportLink ? 'dailyReports' : pageId;
+        if (isDailyReportLink) {
+            setCurrentDailyReportId(pageId.replace('dailyReports:', ''));
+        }
+        setCurrentPage(resolvedPageId);
+        if (resolvedPageId !== 'manualSupplierInvoice' && resolvedPageId !== 'manualPurchaseEntry' && resolvedPageId !== 'automatedPurchaseEntry') {
             setEditingPurchase(null);
         }
-        if (pageId !== 'dashboard') {
+        if (resolvedPageId !== 'dashboard') {
             setConfigurations(prev => ({
                 ...prev,
                 sidebar: { ...prev.sidebar, isSidebarCollapsed: true }
@@ -1114,6 +1121,11 @@ const App: React.FC = () => {
                         inventory={inventory} transactions={transactions} purchases={purchases}
                         distributors={suppliers} customers={customers} salesReturns={salesReturns}
                         purchaseReturns={purchaseReturns} onPrintReport={setViewReport} config={config}
+                    />;
+                case 'dailyReports':
+                    return <DailyReports
+                        transactions={transactions}
+                        reportId={currentDailyReportId}
                     />;
                 case 'balanceCarryforward':
                     return <BalanceCarryforward />;
