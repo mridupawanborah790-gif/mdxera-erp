@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import type { Transaction } from '../types';
 
 type ReportMenuGroup = {
@@ -68,6 +68,9 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
   const [selectedRow, setSelectedRow] = useState(0);
   const [fromDate, setFromDate] = useState(getPeriodDefaults().from);
   const [toDate, setToDate] = useState(getPeriodDefaults().to);
+  const fromDateRef = useRef<HTMLInputElement>(null);
+  const toDateRef = useRef<HTMLInputElement>(null);
+  const generateButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!reportId || !reportNameMap.has(reportId)) return;
@@ -82,6 +85,7 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
     const defaults = getPeriodDefaults();
     setFromDate(defaults.from);
     setToDate(defaults.to);
+    fromDateRef.current?.focus();
   }, [isPeriodModalOpen]);
 
   const openPeriodModal = useCallback((nextReportId: string) => {
@@ -282,10 +286,6 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
         <div
           className="absolute inset-0 bg-black/40 flex items-center justify-center px-4 z-50"
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              handleGenerateReport();
-            }
             if (event.key === 'Escape') {
               event.preventDefault();
               handleCancelPeriodModal();
@@ -299,26 +299,52 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
               <div className="grid grid-cols-[120px_1fr] items-center gap-3">
                 <label className="text-sm font-bold text-[#1f3833]" htmlFor="period-from">Period From :</label>
                 <input
+                  ref={fromDateRef}
                   id="period-from"
                   type="date"
                   value={fromDate}
                   onChange={e => setFromDate(e.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      toDateRef.current?.focus();
+                    }
+                  }}
                   className="border border-[#7f8f8a] px-2 py-1 bg-white text-sm"
                   autoFocus
                 />
 
                 <label className="text-sm font-bold text-[#1f3833]" htmlFor="period-to">To :</label>
                 <input
+                  ref={toDateRef}
                   id="period-to"
                   type="date"
                   value={toDate}
                   onChange={e => setToDate(e.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      generateButtonRef.current?.focus();
+                    }
+                  }}
                   className="border border-[#7f8f8a] px-2 py-1 bg-white text-sm"
                 />
               </div>
               {periodError && <p className="text-xs text-red-700 font-semibold">{periodError}</p>}
               <div className="flex justify-end gap-2 pt-1">
-                <button onClick={handleGenerateReport} className="px-3 py-1.5 border border-[#365852] bg-[#335f59] text-white text-xs font-bold uppercase">Generate Report</button>
+                <button
+                  ref={generateButtonRef}
+                  onClick={handleGenerateReport}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      handleGenerateReport();
+                    }
+                  }}
+                  className="px-3 py-1.5 border border-[#365852] bg-[#335f59] text-white text-xs font-bold uppercase"
+                >
+                  Generate Report
+                </button>
                 <button onClick={handleClearPeriod} className="px-3 py-1.5 border border-[#6b7a76] bg-white text-xs font-bold uppercase">Clear</button>
                 <button onClick={handleCancelPeriodModal} className="px-3 py-1.5 border border-[#6b7a76] bg-white text-xs font-bold uppercase">Cancel</button>
               </div>
