@@ -9,6 +9,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import InfoTooltip from '../components/InfoTooltip';
 import ExportPurchasesModal from '../components/ExportPurchasesModal';
 import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 type SortableKeys = 'purchaseSerialId' | 'date' | 'totalAmount';
 
@@ -74,6 +75,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'purchaseHistory')) return;
             if (e.key === 'F3') {
                 e.preventDefault();
                 if (filteredAndSortedPurchases.length > 0) {

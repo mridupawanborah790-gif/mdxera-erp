@@ -10,6 +10,7 @@ import { formatExpiryToMMYY } from '../utils/helpers';
 import { configurableModules } from '../constants';
 import { getInventoryPolicy } from '../utils/materialType';
 import { resolveUnitsPerStrip } from '../utils/pack';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 // Standardized typography matching POS screen "Product Selection Matrix"
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
@@ -130,6 +131,7 @@ const Inventory: React.FC<InventoryProps> = ({
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'inventory')) return;
             if (e.key === 'F7') {
                 e.preventDefault();
                 setIsColumnSelectorOpen(prev => !prev);

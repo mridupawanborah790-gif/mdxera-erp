@@ -5,6 +5,7 @@ import AddMedicineModal from '../components/AddMedicineModal';
 import SupplierSyncView from '../components/SupplierSyncView';
 import type { Medicine, RegisteredPharmacy, Supplier, Purchase, SupplierProductMap } from '../types';
 import { fuzzyMatch } from '../utils/search';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 const ITEMS_PER_PAGE = 10;
@@ -124,6 +125,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
     // Keyboard navigation for pagination
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'materialMaster')) return;
             if (activeSubModule !== 'master') return;
             const isModalOpen = !!medicineToEdit || isAddModalOpen;
             if (isModalOpen) return;

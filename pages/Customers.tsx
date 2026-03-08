@@ -14,6 +14,7 @@ import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fetchCustomerPriceList, saveCustomerPriceList, fetchInventory } from '../services/storageService';
 import { fuzzyMatch } from '../utils/search';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
@@ -63,6 +64,7 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'customers')) return;
             if (e.key === 'F2') {
                 e.preventDefault();
                 setIsAddModalOpen(true);

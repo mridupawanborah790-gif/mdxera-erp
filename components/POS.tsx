@@ -17,6 +17,7 @@ import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber } from '../utils/helpers';
 import { calculateBillingTotals, calculateLineNetAmount, resolveBillingSettings } from '../utils/billing';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -387,6 +388,7 @@ const POS = forwardRef<any, POSProps>(({
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, ['pos', 'nonGstPos'], { allowWhenInputFocused: true })) return;
             if (e.ctrlKey && e.key.toLowerCase() === 's') {
                 e.preventDefault();
                 handleSave();

@@ -56,6 +56,7 @@ import {
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
 import { resolveUnitsPerStrip } from './utils/pack';
+import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screenShortcuts';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
 
 const App: React.FC = () => {
@@ -246,7 +247,11 @@ const App: React.FC = () => {
 
     // Global ESC Key Listener
     useEffect(() => {
+        setActiveScreenScope(currentPage);
+
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, currentPage, { allowWhenInputFocused: true })) return;
+
             if (e.key === 'Escape') {
                 // If a standard modal or dialog is open, let its own logic handle ESC
                 if (document.querySelector('[role="dialog"]')) return;
