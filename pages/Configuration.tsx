@@ -24,23 +24,36 @@ type DuplicateHandlingMode = 'SKIP' | 'UPDATE';
 
 type PharmacyDemoMaterial = {
     id: string;
-    industry: 'PHARMACY';
-    is_demo: boolean;
-    business_type: DemoBusinessType;
-    material_name: string;
-    item_code: string;
-    sku: string;
+    name: string;
+    material_code: string;
     barcode?: string;
-    pack?: string;
-    uom?: string;
-    hsn?: string;
-    gst_rate?: number;
-    category?: string;
-    manufacturer?: string;
     brand?: string;
+    manufacturer?: string;
+    marketer?: string;
+    composition?: string;
+    pack?: string;
+    description?: string;
+    directions?: string;
+    storage?: string;
+    uses?: string;
+    side_effects?: string;
+    benefits?: string;
     mrp?: number;
-    purchase_rate?: number;
-    sale_rate?: number;
+    rate_a?: number;
+    rate_b?: number;
+    rate_c?: number;
+    gst_rate?: number;
+    hsn_code?: string;
+    is_prescription_required?: boolean;
+    is_active?: boolean;
+    country_of_origin?: string;
+    material_master_type?: string;
+    is_inventorised?: boolean;
+    is_sales_enabled?: boolean;
+    is_purchase_enabled?: boolean;
+    is_production_enabled?: boolean;
+    is_internal_issue_enabled?: boolean;
+    allow_packaging_sale?: boolean;
     duplicate_exists?: boolean;
 };
 
@@ -50,9 +63,8 @@ type DemoMigrationJob = {
     job_id: string;
     organization_id: string;
     user_id?: string;
-    source_table: 'material_master_all(migration)';
+    source_table: 'material_master_migration';
     target_table: 'material_master';
-    business_type: DemoBusinessType;
     duplicate_mode: DuplicateHandlingMode;
     timestamp: string;
     records_found: number;
@@ -310,30 +322,16 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
     const runDemoMigrationRpcWithFallback = async () => {
         const args = {
-            businessType: demoBusinessType,
-            duplicateMode: duplicateHandlingMode,
-            useMaterialCode: false,
+            duplicateMode: duplicateHandlingMode
         };
 
         const attempts: Array<Record<string, string | boolean>> = [
             {
-                p_business_type: args.businessType,
-                p_duplicate_mode: args.duplicateMode,
-                p_use_material_code: args.useMaterialCode,
-            },
-            {
-                business_type: args.businessType,
-                duplicate_mode: args.duplicateMode,
-                use_material_code: args.useMaterialCode,
-            },
-            {
-                p_business_type: args.businessType,
                 p_duplicate_mode: args.duplicateMode,
             },
             {
-                business_type: args.businessType,
                 duplicate_mode: args.duplicateMode,
-            },
+            }
         ];
 
         let lastError: any = null;
@@ -353,10 +351,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     };
 
     const previewDefaultDemoMigration = async () => {
-        const { data, error } = await supabase.rpc('preview_default_material_master_migration', {
-            p_business_type: demoBusinessType,
-            p_use_material_code: false,
-        });
+        const { data, error } = await supabase.rpc('preview_default_material_master_migration');
 
         if (error) {
             addNotification(`Failed to preview source data: ${error.message}`, 'error');
@@ -365,7 +360,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
         const rows = (data || []) as PharmacyDemoMaterial[];
         setDemoPreviewRows(rows);
-        addNotification(`Preview ready. ${rows.length} records found in material_master_all(migration).`, 'success');
+        addNotification(`Preview ready. ${rows.length} records found in material_master_migration.`, 'success');
     };
 
     const runDefaultDemoMigration = async () => {
@@ -396,9 +391,8 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                 job_id: `DEMO-MAT-${Date.now()}`,
                 organization_id: currentUser.organization_id,
                 user_id: currentUser.id,
-                source_table: 'material_master_all(migration)',
+                source_table: 'material_master_migration',
                 target_table: 'material_master',
-                business_type: demoBusinessType,
                 duplicate_mode: duplicateHandlingMode,
                 timestamp,
                 records_found: foundRows,
@@ -418,9 +412,8 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                 job_id: `DEMO-MAT-${Date.now()}`,
                 organization_id: currentUser.organization_id,
                 user_id: currentUser.id,
-                source_table: 'material_master_all(migration)',
+                source_table: 'material_master_migration',
                 target_table: 'material_master',
-                business_type: demoBusinessType,
                 duplicate_mode: duplicateHandlingMode,
                 timestamp,
                 records_found: scopedDemoRows.length,
@@ -973,21 +966,14 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                     addNotification={addNotification}
                                 />
                                 <div className="p-4 border-2 border-primary/20 bg-primary/5 space-y-4">
-                                    <h3 className="text-sm font-black uppercase tracking-widest">Master data Migartion deafult</h3>
-                                    <p className="text-[11px] text-gray-600 font-bold uppercase">Default demo migration for Pharmacy Retail & Medicine Distributor (Material Master only).</p>
+                                    <h3 className="text-sm font-black uppercase tracking-widest">Master Data Migration Default</h3>
+                                    <p className="text-[11px] text-gray-600 font-bold uppercase">Default migration from central material master migration source.</p>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[10px] font-black uppercase">
                                         <div>Total records found: {scopedDemoRows.length}</div>
                                         <div>Duplicates detected: {duplicatesInPreview}</div>
                                         <div>Ready to import/update: {scopedDemoRows.length - (duplicateHandlingMode === 'SKIP' ? duplicatesInPreview : 0)}</div>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-[10px] font-black uppercase">Business Type</label>
-                                            <select className="w-full tally-input" value={demoBusinessType} onChange={e => setDemoBusinessType(e.target.value as DemoBusinessType)}>
-                                                <option value="RETAIL">Pharmacy Retail</option>
-                                                <option value="DISTRIBUTOR">Medicine Distributor</option>
-                                            </select>
-                                        </div>
                                         <div>
                                             <label className="text-[10px] font-black uppercase">Duplicate Handling</label>
                                             <select className="w-full tally-input" value={duplicateHandlingMode} onChange={e => setDuplicateHandlingMode(e.target.value as DuplicateHandlingMode)}>
@@ -997,11 +983,13 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
-                                        <button onClick={previewDefaultDemoMigration} className="px-3 py-2 border text-[10px] font-black uppercase">Preview</button>
-                                        <button onClick={runDefaultDemoMigration} className="px-3 py-2 bg-green-700 text-white text-[10px] font-black uppercase">Run Default Demo Migration (Material Master)</button>
+                                        <button onClick={previewDefaultDemoMigration} className="px-3 py-2 bg-primary text-white text-[10px] font-black uppercase">Run Default Demo Migration</button>
+                                        {demoPreviewRows.length > 0 && (
+                                            <button onClick={runDefaultDemoMigration} className="px-3 py-2 bg-green-700 text-white text-[10px] font-black uppercase animate-pulse">Accept Migration (Import {demoPreviewRows.length} Records)</button>
+                                        )}
                                     </div>
                                     <div className="border bg-white p-2 max-h-48 overflow-auto">
-                                        <div className="text-[10px] font-black uppercase mb-1">Preview Grid (material_master_all(migration) → material_master)</div>
+                                        <div className="text-[10px] font-black uppercase mb-1">Preview Grid (material_master_migration → material_master)</div>
                                         <table className="w-full text-[10px]">
                                             <thead className="bg-gray-100 font-black uppercase">
                                                 <tr>
@@ -1010,23 +998,21 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                                     <th className="p-1 text-left">HSN</th>
                                                     <th className="p-1 text-left">GST</th>
                                                     <th className="p-1 text-left">Manufacturer / Brand</th>
-                                                    <th className="p-1 text-left">Unit</th>
                                                     <th className="p-1 text-left">Category</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {demoPreviewRows.slice(0, 100).map(row => (
                                                     <tr key={row.id} className="border-t">
-                                                        <td className="p-1">{row.material_name}</td>
+                                                        <td className="p-1">{row.name}</td>
                                                         <td className="p-1">{row.pack}</td>
-                                                        <td className="p-1">{row.hsn}</td>
+                                                        <td className="p-1">{row.hsn_code}</td>
                                                         <td className="p-1">{row.gst_rate}</td>
                                                         <td className="p-1">{row.manufacturer || row.brand}</td>
-                                                        <td className="p-1">{row.uom}</td>
-                                                        <td className="p-1">{row.category}</td>
+                                                        <td className="p-1">{row.description}</td>
                                                     </tr>
                                                 ))}
-                                                {demoPreviewRows.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={7}>Click Preview to load demo records from material_master_all(migration) dataset.</td></tr>}
+                                                {demoPreviewRows.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={6}>Click "Run Default Demo Migration" to load records from material_master_migration dataset.</td></tr>}
                                             </tbody>
                                         </table>
                                     </div>
