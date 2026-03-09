@@ -835,6 +835,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             return;
         }
 
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            const pendingName = modalSearchTerm.trim();
+            setIsSearchModalOpen(false);
+            setIsAddMedicineMasterModalOpen(true);
+            if (pendingName && activeRowId) {
+                handleUpdateItem(activeRowId, 'name', pendingName);
+            }
+            return;
+        }
+
         if (deduplicatedSearchInventory.length === 0) return;
 
         if (e.key === 'ArrowDown') {
@@ -928,6 +939,41 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             }
         }, 50);
     };
+
+    const handleMedicineSavedFromPurchase = useCallback((savedMedicine: Medicine) => {
+        if (!savedMedicine?.name) return;
+
+        const itemLikeMedicine: InventoryItem = {
+            id: savedMedicine.id,
+            organization_id: savedMedicine.organization_id || '',
+            name: savedMedicine.name,
+            code: savedMedicine.materialCode,
+            brand: savedMedicine.brand || '',
+            category: 'Medicine',
+            manufacturer: savedMedicine.manufacturer || '',
+            stock: 0,
+            unitsPerPack: parseInt(savedMedicine.pack?.match(/\d+/)?.[0] || '10', 10),
+            packType: savedMedicine.pack || '',
+            minStockLimit: 0,
+            batch: 'NEW-STOCK',
+            expiry: 'N/A',
+            purchasePrice: 0,
+            mrp: parseFloat(savedMedicine.mrp || '0'),
+            gstPercent: savedMedicine.gstRate || 0,
+            hsnCode: savedMedicine.hsnCode || '',
+            composition: savedMedicine.composition || '',
+            barcode: savedMedicine.barcode || '',
+            is_active: true,
+        };
+
+        if (activeRowId) {
+            addSelectedBatchToGrid(itemLikeMedicine);
+            return;
+        }
+
+        setModalSearchTerm(savedMedicine.name);
+        setIsSearchModalOpen(true);
+    }, [activeRowId]);
 
     const openSearchModal = useCallback((rowId: string, initialValue: string) => {
         if (isReadOnly) return;
@@ -1745,7 +1791,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             {isWebcamModalOpen && <WebcamCaptureModal isOpen={isWebcamModalOpen} onClose={() => setIsWebcamModalOpen(false)} onCapture={handleWebcamCapture} />}
             {isAddSupplierModalOpen && <AddSupplierModal isOpen={isAddSupplierModalOpen} onClose={() => { setIsAddSupplierModalOpen(false); setSupplierQuickCreatePrefill(undefined); }} onAdd={onAddsupplier} onDuplicate={handleSupplierSelect} organizationId={organizationId} prefillData={supplierQuickCreatePrefill} />}
-            {isAddMedicineMasterModalOpen && <AddMedicineModal isOpen={isAddMedicineMasterModalOpen} onClose={() => setIsAddMedicineMasterModalOpen(false)} onAddMedicine={onAddMedicineMaster} organizationId={organizationId} />}
+            {isAddMedicineMasterModalOpen && (
+                <AddMedicineModal
+                    isOpen={isAddMedicineMasterModalOpen}
+                    onClose={() => setIsAddMedicineMasterModalOpen(false)}
+                    onAddMedicine={onAddMedicineMaster}
+                    onMedicineSaved={handleMedicineSavedFromPurchase}
+                    initialName={modalSearchTerm.trim() || undefined}
+                    organizationId={organizationId}
+                />
+            )}
             {isLinkModalOpen && reconciliationModalVisible && reconciliationSupplier && (
                 <LinkToMasterModal
                     isOpen={isLinkModalOpen} onClose={() => setIsLinkModalOpen(false)} supplier={reconciliationSupplier as any} medicines={medicines} mappings={mappings}
@@ -1774,7 +1829,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                             <span className="text-xs font-black uppercase tracking-[0.2em]">Material Discovery Engine</span>
                         </div>
-                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | F4 Product Details | Enter Select</span>
+                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | F4 Product Details | Enter Select | Ctrl+Enter New Material</span>
                     </div>
 
                     <div className="flex flex-1 overflow-hidden relative">
@@ -1791,7 +1846,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     className={`w-full p-2 border-2 border-primary/20 bg-white text-base font-black focus:border-primary outline-none shadow-inner uppercase tracking-tighter`}
                                 />
                                 {isKeywordFocused && (
-                                    <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-primary/80">F4: Product Details</p>
+                                    <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-primary/80">F4: Product Details | Ctrl+Enter: Register Material</p>
                                 )}
                             </div>
 
