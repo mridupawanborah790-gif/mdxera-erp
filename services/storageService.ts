@@ -88,6 +88,13 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         if (!sanitized.id || !isValidUuid(String(sanitized.id))) {
             sanitized.id = generateUUID();
         }
+        // Prevent Postgres date parsing errors when optional date fields are sent as empty strings.
+        if (sanitized.date === '') {
+            sanitized.date = new Date().toISOString().split('T')[0];
+        }
+        if (sanitized.eWayBillDate === '') {
+            sanitized.eWayBillDate = null;
+        }
         return sanitized;
     }
 
