@@ -957,8 +957,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             minStockLimit: 0,
             batch: 'NEW-STOCK',
             expiry: 'N/A',
-            purchasePrice: 0,
+            purchasePrice: Number(savedMedicine.rateA || 0),
             mrp: parseFloat(savedMedicine.mrp || '0'),
+            rateA: Number(savedMedicine.rateA || 0),
+            rateB: Number(savedMedicine.rateB || 0),
+            rateC: Number(savedMedicine.rateC || 0),
             gstPercent: savedMedicine.gstRate || 0,
             hsnCode: savedMedicine.hsnCode || '',
             composition: savedMedicine.composition || '',
@@ -966,14 +969,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             is_active: true,
         };
 
-        if (activeRowId) {
-            addSelectedBatchToGrid(itemLikeMedicine);
-            return;
-        }
-
-        setModalSearchTerm(savedMedicine.name);
-        setIsSearchModalOpen(true);
-    }, [activeRowId]);
+        addSelectedBatchToGrid(itemLikeMedicine);
+    }, []);
 
     const openSearchModal = useCallback((rowId: string, initialValue: string) => {
         if (isReadOnly) return;

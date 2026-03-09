@@ -7,7 +7,7 @@ import { getResolvedMedicinePolicy, MATERIAL_TYPE_RULES, type MaterialMasterType
 interface AddMedicineModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onAddMedicine: (newMedicine: Omit<Medicine, 'id' | 'created_at' | 'updated_at'>) => Promise<any> | any;
+    onAddMedicine: (newMedicine: Omit<Medicine, 'id' | 'created_at' | 'updated_at'>) => void | Medicine | Promise<void | Medicine>;
     onMedicineSaved?: (savedMedicine: Medicine) => void;
     initialName?: string; 
     organizationId: string;
@@ -78,13 +78,13 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (validate()) {
-            const savedMedicine = await onAddMedicine({ ...formState, organization_id: organizationId });
-            if (savedMedicine && typeof savedMedicine === 'object' && savedMedicine.id && savedMedicine.name) {
-                onMedicineSaved?.(savedMedicine as Medicine);
-            }
-            onClose();
+        if (!validate()) return;
+
+        const savedMedicine = await onAddMedicine({ ...formState, organization_id: organizationId });
+        if (savedMedicine && typeof savedMedicine === 'object' && 'id' in savedMedicine && 'name' in savedMedicine) {
+            onMedicineSaved?.(savedMedicine as Medicine);
         }
+        onClose();
     };
     
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
