@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Card from '../components/Card';
+import AddMedicineModal from '../components/AddMedicineModal';
 import { InventoryItem, Medicine, Purchase, PurchaseItem, RegisteredPharmacy, Supplier } from '../types';
 import { fuzzyMatch } from '../utils/search';
 import { handleEnterToNextField } from '../utils/navigation';
@@ -308,6 +309,38 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
     addNotification('Material master created. You can now select inventory item for this material.', 'success');
   };
 
+  const handleMedicineSavedFromPurchase = (savedMedicine: Medicine) => {
+    if (!savedMedicine?.name) return;
+
+    const itemLikeMedicine: InventoryItem = {
+        id: savedMedicine.id,
+        organization_id: savedMedicine.organization_id || '',
+        name: savedMedicine.name,
+        code: savedMedicine.materialCode,
+        brand: savedMedicine.brand || '',
+        category: 'Medicine',
+        manufacturer: savedMedicine.manufacturer || '',
+        stock: 0,
+        unitsPerPack: parseInt(savedMedicine.pack?.match(/\d+/)?.[0] || '10', 10),
+        packType: savedMedicine.pack || '',
+        minStockLimit: 0,
+        batch: 'NEW-STOCK',
+        expiry: 'N/A',
+        purchasePrice: Number(savedMedicine.rateA || 0),
+        mrp: parseFloat(savedMedicine.mrp || '0'),
+        rateA: Number(savedMedicine.rateA || 0),
+        rateB: Number(savedMedicine.rateB || 0),
+        rateC: Number(savedMedicine.rateC || 0),
+        gstPercent: savedMedicine.gstRate || 0,
+        hsnCode: savedMedicine.hsnCode || '',
+        composition: savedMedicine.composition || '',
+        barcode: savedMedicine.barcode || '',
+        is_active: true,
+    };
+
+    addItemLine(itemLikeMedicine);
+  };
+
   return (
     <div className="flex flex-col h-full bg-app-bg overflow-hidden" onKeyDown={handleEnterToNextField}>
       <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
@@ -436,18 +469,14 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
       </div>
 
       {isAddMasterOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="w-full max-w-md bg-white border border-gray-300 p-4 space-y-3">
-            <h3 className="text-sm font-black uppercase">Add New Material Master</h3>
-            <input className="w-full h-9 border border-gray-300 px-2 text-sm" placeholder="Material Name" value={newMaterialName} onChange={(e) => setNewMaterialName(e.target.value)} />
-            <input className="w-full h-9 border border-gray-300 px-2 text-sm" placeholder="Material Code (optional)" value={newMaterialCode} onChange={(e) => setNewMaterialCode(e.target.value)} />
-            <input className="w-full h-9 border border-gray-300 px-2 text-sm" placeholder="GST %" type="number" min={0} value={newMaterialGst} onChange={(e) => setNewMaterialGst(e.target.value)} />
-            <div className="flex justify-end gap-2">
-              <button className="h-9 px-3 border border-gray-300 text-xs font-bold uppercase" onClick={() => setIsAddMasterOpen(false)}>Cancel</button>
-              <button className="h-9 px-3 bg-primary text-white text-xs font-bold uppercase" onClick={handleAddMaterialMaster}>Save</button>
-            </div>
-          </div>
-        </div>
+        <AddMedicineModal
+            isOpen={isAddMasterOpen}
+            onClose={() => setIsAddMasterOpen(false)}
+            onAddMedicine={onAddMedicineMaster}
+            onMedicineSaved={handleMedicineSavedFromPurchase}
+            initialName={newMaterialName || undefined}
+            organizationId={currentUser?.organization_id || ''}
+        />
       )}
     </div>
   );

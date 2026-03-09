@@ -550,7 +550,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             return;
         }
 
-        if (lastSourceRef.current === sourceId && sourceId !== 'new') return;
+        if (lastSourceRef.current === sourceId) return;
         lastSourceRef.current = sourceId;
 
         if (purchaseToEdit) {
@@ -970,7 +970,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         };
 
         addSelectedBatchToGrid(itemLikeMedicine);
-    }, []);
+    }, [addSelectedBatchToGrid]);
 
     const openSearchModal = useCallback((rowId: string, initialValue: string) => {
         if (isReadOnly) return;

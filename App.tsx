@@ -396,11 +396,11 @@ const App: React.FC = () => {
         if (currentUser) await loadData(currentUser, 'sync');
     }, [currentUser, loadData]);
 
-    const handleNavigate = useCallback((pageId: string) => {
+    const handleNavigate = useCallback((pageId: string, skipPrompt = false) => {
         const isDailyReportLink = pageId.startsWith('dailyReports:');
         const resolvedPageId = isDailyReportLink ? 'dailyReports' : pageId;
 
-        if (shouldPromptBeforeLeaving(currentPage, resolvedPageId)) {
+        if (!skipPrompt && shouldPromptBeforeLeaving(currentPage, resolvedPageId)) {
             setShowEscSavePrompt(true);
             return;
         }
@@ -1036,7 +1036,7 @@ const App: React.FC = () => {
                         isManualEntry={false}
                         configurations={configurations}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
-                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
+                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
                     />;
                 case 'manualPurchaseEntry':
                     return <PurchaseForm
@@ -1053,7 +1053,7 @@ const App: React.FC = () => {
                         isManualEntry={true}
                         configurations={configurations}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
-                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
+                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
                     />;
 
                 case 'manualSupplierInvoice':
@@ -1065,7 +1065,7 @@ const App: React.FC = () => {
                         purchases={purchases}
                         addNotification={addNotification}
                         onAddPurchase={handleAddPurchase}
-                        onSaved={() => loadData(currentUser!, 'background')}
+                        onSaved={async () => handleNavigate('purchaseHistory', true)}
                         onAddMedicineMaster={handleAddMedicineMaster}
                     />;
                 case 'purchaseHistory':

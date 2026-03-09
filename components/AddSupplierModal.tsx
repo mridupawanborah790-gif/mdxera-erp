@@ -127,7 +127,7 @@ export const AddSupplierModal: React.FC<{
         setIsSaving(true);
         try {
             const result = await onAdd(form, form.opening_balance || 0, asOfDate);
-            if (result.status === 'duplicate') {
+            if (result.status === 'duplicate' || result.status === 'created' || result.status === 'updated') {
                 onDuplicate?.(result.supplier);
             }
             onClose();
