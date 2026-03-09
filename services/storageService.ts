@@ -88,6 +88,22 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         if (!sanitized.id || !isValidUuid(String(sanitized.id))) {
             sanitized.id = generateUUID();
         }
+        // Prevent Postgres date parsing errors when optional date fields are sent as empty strings.
+        if (typeof sanitized.date === 'string' && sanitized.date.trim() === '') {
+            sanitized.date = new Date().toISOString().split('T')[0];
+        }
+        if (typeof sanitized.eWayBillDate === 'string' && sanitized.eWayBillDate.trim() === '') {
+            sanitized.eWayBillDate = null;
+        }
+        return sanitized;
+    }
+
+    if (tableName === 'inventory') {
+        const sanitized = { ...payload };
+        // Expiry can be left blank while creating purchase lines; send null instead of empty string.
+        if (typeof sanitized.expiry === 'string' && sanitized.expiry.trim() === '') {
+            sanitized.expiry = null;
+        }
         return sanitized;
     }
 
@@ -1511,6 +1527,15 @@ export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPha
     const supplierControlGl = books?.default_supplier_gl_id;
     if (!supplierControlGl) throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
 
+    const { data: glRows, error: glError } = await supabase
+        .from('gl_master')
+        .select('id, gl_code')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', purchase.setOfBooksId)
+        .in('gl_code', ['510000']);
+    if (glError) throw glError;
+    const roundOffGl = (glRows || []).find((row: any) => String(row.gl_code) === '510000')?.id;
+
     const lineAcc = new Map<string, { debit: number; credit: number; memo: string }>();
     const addLine = (glId: string, debit: number, credit: number, memo: string) => {
         const cur = lineAcc.get(glId) || { debit: 0, credit: 0, memo };
@@ -1521,6 +1546,9 @@ export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPha
 
     addLine(String(supplierControlGl), 0, Number(purchase.totalAmount || 0), 'Supplier control');
 
+    let totalItemTaxable = 0;
+    let totalItemGst = 0;
+
     for (const item of purchase.items || []) {
         const materialType = mapMaterialType((item as any).category);
         const assignment = assignmentByType.get(materialType) || assignmentByType.get('Trading Goods');
@@ -1529,8 +1557,31 @@ export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPha
         }
         const taxable = Number((item as any).taxableValue || 0);
         const gst = Number((item as any).gstAmount || 0);
+        totalItemTaxable += taxable;
+        totalItemGst += gst;
         addLine(String(assignment.purchase_gl), taxable, 0, `${materialType} purchase`);
         if (gst > 0) addLine(String(assignment.tax_gl), gst, 0, `${materialType} tax`);
+    }
+
+    const fallbackAssignment = assignmentByType.get('Trading Goods') || (assignments || [])[0];
+    if (Math.abs(totalItemTaxable) <= 0.01 && Number(purchase.subtotal || 0) > 0) {
+        if (!fallbackAssignment?.purchase_gl) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        addLine(String(fallbackAssignment.purchase_gl), Number(purchase.subtotal || 0), 0, 'Purchase value');
+    }
+    if (Math.abs(totalItemGst) <= 0.01 && Number(purchase.totalGst || 0) > 0) {
+        if (!fallbackAssignment?.tax_gl) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        addLine(String(fallbackAssignment.tax_gl), Number(purchase.totalGst || 0), 0, 'Purchase tax');
+    }
+
+    const roundOff = Number(purchase.roundOff || 0);
+    if (Math.abs(roundOff) > 0.0001) {
+        if (!roundOffGl) throw new Error('Set of Books GL mapping incomplete. Required: Round Off (510000).');
+        if (roundOff > 0) addLine(String(roundOffGl), roundOff, 0, 'Round off');
+        else addLine(String(roundOffGl), 0, Math.abs(roundOff), 'Round off');
     }
 
     const lines = Array.from(lineAcc.entries()).map(([glId, v]) => ({ glId, debit: v.debit, credit: v.credit, memo: v.memo }));
