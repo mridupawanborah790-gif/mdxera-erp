@@ -522,6 +522,45 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         });
     };
 
+    const handleMoveShortcut = (id: string, direction: 'up' | 'down') => {
+        setLocalConfigs(prev => {
+            const currentShortcuts = prev.masterShortcuts || [];
+            if (currentShortcuts.length === 0) return prev;
+
+            const currentOrder = { ...(prev.masterShortcutOrder || {}) };
+            
+            // 1. Get current ordered list of selected shortcuts
+            // Fallback to 999 so new items go to the end
+            const orderedItems = MASTER_SHORTCUT_OPTIONS
+                .filter(opt => currentShortcuts.includes(opt.id))
+                .sort((a, b) => (currentOrder[a.id] || 999) - (currentOrder[b.id] || 999));
+
+            // 2. Normalize: Ensure every selected item has a sequential order (1, 2, 3...)
+            // This fixes cases where orders were undefined or had gaps
+            const normalizedOrder: Record<string, number> = {};
+            orderedItems.forEach((item, idx) => {
+                normalizedOrder[item.id] = idx + 1;
+            });
+
+            // 3. Find the index in our normalized list
+            const index = orderedItems.findIndex(item => item.id === id);
+            if (index === -1) return prev;
+
+            const targetIndex = direction === 'up' ? index - 1 : index + 1;
+            if (targetIndex < 0 || targetIndex >= orderedItems.length) return prev;
+
+            // 4. Swap the normalized orders
+            const itemA = orderedItems[index];
+            const itemB = orderedItems[targetIndex];
+            
+            const tempOrder = normalizedOrder[itemA.id];
+            normalizedOrder[itemA.id] = normalizedOrder[itemB.id];
+            normalizedOrder[itemB.id] = tempOrder;
+
+            return { ...prev, masterShortcutOrder: normalizedOrder, _isDirty: true };
+        });
+    };
+
     const groupedShortcutOptions = useMemo(() => {
         return MASTER_SHORTCUT_OPTIONS.reduce((acc, option) => {
             if (!acc[option.group]) {
@@ -859,10 +898,65 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                             <div className="space-y-6 animate-in fade-in duration-300">
                                 <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter border-b-2 border-primary pb-2 mb-6">Configure Gateway Shortcuts</h2>
                                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-6">Enable up to 12 right sidebar modules for Dashboard Quick Access and set their display sequence.</p>
-                                <div className="text-[10px] font-black uppercase tracking-widest text-primary bg-primary/5 border border-primary/20 px-3 py-2 inline-block">
-                                    Selected: {(localConfigs.masterShortcuts || []).length} / {MAX_DASHBOARD_SHORTCUTS}
-                                </div>
                                 
+                                {/* Current Selection & Order Manager */}
+                                <div className="bg-gray-50 border-2 border-primary/20 p-4 mb-8">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Active Selection & Sequence</h3>
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-primary bg-primary/5 border border-primary/20 px-3 py-1">
+                                            Selected: {(localConfigs.masterShortcuts || []).length} / {MAX_DASHBOARD_SHORTCUTS}
+                                        </div>
+                                    </div>
+                                    
+                                    {(localConfigs.masterShortcuts || []).length === 0 ? (
+                                        <div className="text-center py-8 border-2 border-dashed border-gray-200">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase italic">No shortcuts selected. Select from the modules below.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                            {MASTER_SHORTCUT_OPTIONS
+                                                .filter(opt => (localConfigs.masterShortcuts || []).includes(opt.id))
+                                                .sort((a, b) => (localConfigs.masterShortcutOrder?.[a.id] || 999) - (localConfigs.masterShortcutOrder?.[b.id] || 999))
+                                                .map((opt, idx, arr) => (
+                                                    <div key={opt.id} className="flex items-center gap-2 p-2 bg-white border border-primary/30 shadow-sm">
+                                                        <div className="w-6 h-6 flex items-center justify-center bg-primary text-white text-[10px] font-black">
+                                                            {localConfigs.masterShortcutOrder?.[opt.id] || idx + 1}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-[10px] font-black uppercase truncate">{opt.label}</p>
+                                                        </div>
+                                                        <div className="flex gap-1">
+                                                            <button 
+                                                                onClick={() => handleMoveShortcut(opt.id, 'up')}
+                                                                disabled={idx === 0}
+                                                                className="p-1 hover:bg-gray-100 disabled:opacity-20 text-primary transition-colors"
+                                                                title="Move Up"
+                                                            >
+                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="18 15 12 9 6 15"/></svg>
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleMoveShortcut(opt.id, 'down')}
+                                                                disabled={idx === arr.length - 1}
+                                                                className="p-1 hover:bg-gray-100 disabled:opacity-20 text-primary transition-colors"
+                                                                title="Move Down"
+                                                            >
+                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleShortcutToggle(opt.id)}
+                                                                className="p-1 hover:bg-red-50 text-red-500 transition-colors"
+                                                                title="Remove"
+                                                            >
+                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            }
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="space-y-6">
                                     {Object.entries(groupedShortcutOptions).map(([group, options]) => (
                                         <div key={group} className="space-y-2">
@@ -1216,6 +1310,16 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                     return;
                                 }
 
+                                // 1. Sanitize shortcuts: Only keep IDs that exist in our master options
+                                const validIds = new Set(MASTER_SHORTCUT_OPTIONS.map(opt => opt.id));
+                                const sanitizedShortcuts = (localConfigs.masterShortcuts || []).filter(id => validIds.has(id));
+                                
+                                // 2. Ensure orders are also cleaned up
+                                const sanitizedOrder = { ...(localConfigs.masterShortcutOrder || {}) };
+                                Object.keys(sanitizedOrder).forEach(id => {
+                                    if (!validIds.has(id)) delete sanitizedOrder[id];
+                                });
+
                                 const systemFy = getFinancialYearLabel();
                                 const voucherConfigKeys: Array<keyof AppConfigurations> = ['invoiceConfig', 'nonGstInvoiceConfig', 'purchaseConfig', 'purchaseOrderConfig', 'salesChallanConfig', 'deliveryChallanConfig', 'physicalInventoryConfig'];
                                 const normalizedConfigs = voucherConfigKeys.reduce((acc, configKey) => {
@@ -1230,10 +1334,14 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                             resetRule: 'financial-year'
                                         }
                                     };
-                                }, localConfigs as AppConfigurations);
+                                }, { 
+                                    ...localConfigs, 
+                                    masterShortcuts: sanitizedShortcuts,
+                                    masterShortcutOrder: sanitizedOrder 
+                                } as AppConfigurations);
 
                                 onUpdateConfigurations(normalizedConfigs);
-                                addNotification('Accepted Changes.', 'success');
+                                addNotification('Accepted Changes and sanitized shortcut list.', 'success');
                             }} className="px-16 py-4 tally-button-primary shadow-2xl uppercase text-[11px] font-black tracking-[0.3em] active:scale-95">Accept (Enter)</button>
                         </div>
                     </Card>

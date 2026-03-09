@@ -32,26 +32,9 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
     </button>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: initialConfigurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
-    const [configurations, setConfigurations] = useState(initialConfigurations);
+const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
     const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(0);
     const [expiryFilter, setExpiryFilter] = useState<'expired' | 'nearExpiry'>('expired');
-
-    // Sync local configurations state with prop
-    useEffect(() => {
-        setConfigurations(initialConfigurations);
-    }, [initialConfigurations]);
-
-    // Listen for global configuration updates (e.g. from Logo Upload)
-    useEffect(() => {
-        const handleConfigUpdate = (e: any) => {
-            if (e.detail) {
-                setConfigurations(e.detail);
-            }
-        };
-        window.addEventListener('configurations-updated', handleConfigUpdate);
-        return () => window.removeEventListener('configurations-updated', handleConfigUpdate);
-    }, []);
 
     const promoImageUrl = configurations.displayOptions?.dashboard_logo_url || 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
 
@@ -172,9 +155,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
     }), [inventory, transactions, purchases, distributors, customers, medicines]);
 
     const activeShortcuts = useMemo(() => {
-        const maxShortcuts = 12;
         if (configurations.masterShortcuts && configurations.masterShortcuts.length > 0) {
-            const selectedSet = new Set(configurations.masterShortcuts.slice(0, maxShortcuts));
+            const selectedSet = new Set(configurations.masterShortcuts);
             const selected = MASTER_SHORTCUT_OPTIONS.filter(opt => selectedSet.has(opt.id));
             const orderMap = configurations.masterShortcutOrder || {};
             const fallbackOrder = new Map(configurations.masterShortcuts.map((id, idx) => [id, idx + 1]));
@@ -184,10 +166,10 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
                     const orderA = orderMap[a.id] ?? fallbackOrder.get(a.id) ?? 999;
                     const orderB = orderMap[b.id] ?? fallbackOrder.get(b.id) ?? 999;
                     return orderA - orderB;
-                })
-                .slice(0, maxShortcuts);
+                });
         }
-        return MASTER_SHORTCUT_OPTIONS.slice(0, maxShortcuts);
+        // If no shortcuts selected, show first 12 defaults
+        return MASTER_SHORTCUT_OPTIONS.slice(0, 12);
     }, [configurations.masterShortcutOrder, configurations.masterShortcuts]);
 
     // Keyboard navigation for Gateway Shortcuts
@@ -198,13 +180,13 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '')) return;
             if (document.querySelector('[role="dialog"]')) return;
 
-            if (e.key === 'ArrowRight') {
+            if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 setFocusedShortcutIndex(prev => (prev < activeShortcuts.length - 1 ? prev + 1 : 0));
-            } else if (e.key === 'ArrowLeft') {
+            } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setFocusedShortcutIndex(prev => (prev > 0 ? prev - 1 : activeShortcuts.length - 1));
-            } else if (e.key === 'Enter' && focusedShortcutIndex >= 0) {
+            } else if ((e.key === 'Enter' || e.key === 'ArrowRight') && focusedShortcutIndex >= 0) {
                 e.preventDefault();
                 onKpiClick(activeShortcuts[focusedShortcutIndex].id);
             }
