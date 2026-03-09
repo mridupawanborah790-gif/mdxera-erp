@@ -88,6 +88,22 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         if (!sanitized.id || !isValidUuid(String(sanitized.id))) {
             sanitized.id = generateUUID();
         }
+        // Prevent Postgres date parsing errors when optional date fields are sent as empty strings.
+        if (typeof sanitized.date === 'string' && sanitized.date.trim() === '') {
+            sanitized.date = new Date().toISOString().split('T')[0];
+        }
+        if (typeof sanitized.eWayBillDate === 'string' && sanitized.eWayBillDate.trim() === '') {
+            sanitized.eWayBillDate = null;
+        }
+        return sanitized;
+    }
+
+    if (tableName === 'inventory') {
+        const sanitized = { ...payload };
+        // Expiry can be left blank while creating purchase lines; send null instead of empty string.
+        if (typeof sanitized.expiry === 'string' && sanitized.expiry.trim() === '') {
+            sanitized.expiry = null;
+        }
         return sanitized;
     }
 
