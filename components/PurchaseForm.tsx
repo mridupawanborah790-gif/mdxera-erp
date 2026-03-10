@@ -389,7 +389,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     const canOpenJournalEntry = Boolean(purchaseToEdit?.id);
     const isPostedVoucher = (purchaseToEdit?.status || '') === 'completed';
-    const supplierPhoneDisplay = currentsupplier?.mobile || currentsupplier?.phone || '-';
+    const supplierPhoneDisplay = currentsupplier?.mobile || currentsupplier?.phone || '';
     const supplierPurchaseHistory = useMemo(() => {
         if (!Supplier.trim()) return [];
         return purchases
@@ -1508,7 +1508,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setIsSupplierSearchModalOpen(false);
         setSelectedSupplierIndex(0);
         setSupplierNameError(null);
-        invoiceNumberInputRef.current?.focus();
+        voucherGridRef.current?.focus();
     };
 
     const handleQuickCreateSupplier = () => {
@@ -1571,7 +1571,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 <span className="text-[10px] font-black uppercase text-accent">No. {invoiceNumber || (isEditing ? purchaseToEdit?.purchaseSerialId : 'PINV000001-2025-26')}</span>
             </div>
             <div className="p-2 flex-1 flex flex-col gap-2 overflow-hidden">
-                <div className="p-2 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-12 gap-2 items-end flex-shrink-0">
+                <div className="sticky top-0 z-30 p-2 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-12 gap-2 items-end flex-shrink-0 min-h-[84px]">
                     <div className="md:col-span-2">
                         <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Date</label>
                         <input
@@ -1617,7 +1617,6 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             value={supplierPhoneDisplay}
                             readOnly
                             className="w-full border p-2 text-sm font-bold outline-none border-gray-400 bg-gray-50"
-                            placeholder="Supplier Phone"
                         />
                     </div>
                 </div>
