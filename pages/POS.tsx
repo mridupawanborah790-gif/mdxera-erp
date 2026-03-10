@@ -707,38 +707,15 @@ const POS = forwardRef<any, POSProps>(({
 
     const handleRowKeyNavigation = useCallback((e: React.KeyboardEvent, id: string) => {
         setSelectedRowId(id);
-        const fields = [
-            `name-${id}`,
-            `qty-p-${id}`,
-            `qty-l-${id}`,
-            `free-${id}`,
-            `rate-${id}`,
-            `disc-${id}`,
-            `gst-${id}`,
-            `scheme-${id}`
-        ].filter(id => {
-            const el = document.getElementById(id);
-            return el && !el.hasAttribute('disabled');
-        });
 
-        const target = e.target as HTMLElement;
-        const currentId = target.id;
-        const currentIndex = fields.indexOf(currentId);
         const fieldPrefixes = ['name', 'qty-p', 'qty-l', 'free', 'rate', 'disc', 'gst', 'scheme'];
+        const target = e.target as HTMLElement;
+        const activeElement = target.closest('input, button') as HTMLElement | null;
+        const currentId = activeElement?.id || target.id || '';
         const currentFieldPrefix = fieldPrefixes.find(prefix => currentId.startsWith(`${prefix}-`)) || 'name';
 
-        if (currentIndex === -1) return;
-
-        const focusRowField = (rowId: string) => {
-            const preferredFieldId = `${currentFieldPrefix}-${rowId}`;
-            const preferredField = document.getElementById(preferredFieldId);
-            if (preferredField && !preferredField.hasAttribute('disabled')) {
-                preferredField.focus();
-                if (preferredField instanceof HTMLInputElement) preferredField.select();
-                return;
-            }
-
-            const firstAvailableField = [
+        const getAvailableRowFields = (rowId: string) => (
+            [
                 `name-${rowId}`,
                 `qty-p-${rowId}`,
                 `qty-l-${rowId}`,
@@ -747,7 +724,26 @@ const POS = forwardRef<any, POSProps>(({
                 `disc-${rowId}`,
                 `gst-${rowId}`,
                 `scheme-${rowId}`
-            ]
+            ].filter(fieldId => {
+                const el = document.getElementById(fieldId);
+                return el && !el.hasAttribute('disabled');
+            })
+        );
+
+        const fields = getAvailableRowFields(id);
+        const currentIndex = fields.indexOf(currentId);
+
+        const focusRowField = (rowId: string) => {
+            const rowFields = getAvailableRowFields(rowId);
+            const preferredFieldId = `${currentFieldPrefix}-${rowId}`;
+            const preferredField = document.getElementById(preferredFieldId);
+            if (preferredField && !preferredField.hasAttribute('disabled')) {
+                preferredField.focus();
+                if (preferredField instanceof HTMLInputElement) preferredField.select();
+                return;
+            }
+
+            const firstAvailableField = rowFields
                 .map(fieldId => document.getElementById(fieldId))
                 .find(el => el && !el.hasAttribute('disabled'));
 
@@ -764,6 +760,9 @@ const POS = forwardRef<any, POSProps>(({
             const targetIdx = e.key === 'ArrowDown'
                 ? Math.min(itemIdx + 1, cartItems.length - 1)
                 : Math.max(itemIdx - 1, 0);
+
+            if (targetIdx === itemIdx) return;
+
             const targetItem = cartItems[targetIdx];
             if (!targetItem) return;
 
@@ -771,6 +770,8 @@ const POS = forwardRef<any, POSProps>(({
             setTimeout(() => focusRowField(targetItem.id), 0);
             return;
         }
+
+        if (currentIndex === -1) return;
 
         const moveNext = () => {
             if (currentIndex < fields.length - 1) {
