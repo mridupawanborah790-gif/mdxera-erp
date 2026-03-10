@@ -111,6 +111,7 @@ const App: React.FC = () => {
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
     const [editingSale, setEditingSale] = useState<Transaction | null>(null);
     const [salesReturnPrefillInvoiceId, setSalesReturnPrefillInvoiceId] = useState<string | null>(null);
+    const [purchaseReturnPrefillInvoiceId, setPurchaseReturnPrefillInvoiceId] = useState<string | null>(null);
 
     const [printBill, setPrintBill] = useState<(DetailedBill & { inventory: InventoryItem[]; configurations: AppConfigurations; }) | null>(null);
     const [viewTransaction, setViewTransaction] = useState<Transaction | null>(null);
@@ -1085,6 +1086,9 @@ const App: React.FC = () => {
                         purchases={purchases} distributors={suppliers} onViewDetails={setViewPurchase}
                         onCancelPurchase={handleCancelPurchase} inventory={inventory} medicines={medicines}
                         onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualSupplierInvoice'); }}
+                        onCreateReturn={(p) => { setPurchaseReturnPrefillInvoiceId(p.purchaseSerialId); handleNavigate('purchaseReturn'); }}
+                        purchaseReturns={purchaseReturns}
+                        onRefresh={async () => loadData(currentUser!, 'background')}
                         onAddInventoryItem={handleAddInventoryItem}
                         currentUser={currentUser} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                     />;
@@ -1285,7 +1289,9 @@ const App: React.FC = () => {
                         onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(async () => { await storage.syncPurchaseReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
                         addNotification={addNotification} defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'} isFixedMode={true}
                         prefillSalesInvoiceId={salesReturnPrefillInvoiceId}
+                        prefillPurchaseInvoiceId={purchaseReturnPrefillInvoiceId}
                         onPrefillSalesInvoiceHandled={() => setSalesReturnPrefillInvoiceId(null)}
+                        onPrefillPurchaseInvoiceHandled={() => setPurchaseReturnPrefillInvoiceId(null)}
                     />;
                 default:
                     return <Dashboard

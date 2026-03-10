@@ -875,7 +875,9 @@ export interface ReturnsProps {
     defaultTab: 'sales' | 'purchase';
     isFixedMode: boolean;
     prefillSalesInvoiceId?: string | null;
+    prefillPurchaseInvoiceId?: string | null;
     onPrefillSalesInvoiceHandled?: () => void;
+    onPrefillPurchaseInvoiceHandled?: () => void;
 }
 
 export interface EWayBill {
