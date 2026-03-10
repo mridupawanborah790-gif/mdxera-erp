@@ -136,7 +136,20 @@ const POS = forwardRef<any, POSProps>(({
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
     const inventoryWithPolicy = useMemo(() => inventory.map(item => ({ item, policy: getInventoryPolicy(item, medicines) })), [inventory, medicines]);
 
-    const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
+    const isFieldVisible = (fieldId: string) => {
+        const fields = config?.fields || {};
+        const aliasMap: Record<string, string[]> = {
+            colSch: ['colScheme'],
+            colRate: ['rate']
+        };
+
+        if (fields[fieldId] === false) return false;
+        const aliases = aliasMap[fieldId] || [];
+        return aliases.every(alias => fields[alias] !== false);
+    };
+
+    const lineItemColumns = ['colName', 'colBatch', 'colPack', 'colMrp', 'colPQty', 'colLQty', 'colFree', 'colRate', 'colDisc', 'colGst', 'colSch', 'colAmount'];
+    const visibleLineItemColumnCount = lineItemColumns.filter(isFieldVisible).length;
 
     const totals = useMemo(() => {
         let gross = 0, tradeDiscount = 0, tax = 0, schemeTotal = 0;
@@ -967,7 +980,7 @@ const POS = forwardRef<any, POSProps>(({
                                     {isFieldVisible('colRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
                                     {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
                                     {isFieldVisible('colGst') && <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>}
-                                    {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-20">Sch%</th>}
+                                    {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-20">SCH</th>}
                                     {isFieldVisible('colAmount') && <th className="p-2 text-right w-32">Amount</th>}
                                 </tr>
                             </thead>
@@ -1175,7 +1188,7 @@ const POS = forwardRef<any, POSProps>(({
                                                 autoComplete="off"
                                             />
                                         </td>
-                                        <td colSpan={11} className="border-r border-gray-200"></td>
+                                        <td colSpan={Math.max(1, visibleLineItemColumnCount - 1)} className="border-r border-gray-200"></td>
                                     </tr>
                                 )}
                             </tbody>
