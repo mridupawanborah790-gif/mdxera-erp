@@ -1555,12 +1555,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setSelectedSupplierIndex(prev => (prev - 1 + filtered.length) % Math.max(1, filtered.length));
         } else if (e.key === 'Enter') {
             e.preventDefault();
-            const filtered = suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10);
-            const selectedSupplier = filtered[selectedSupplierIndex] || filtered[0];
-            if (selectedSupplier) {
-                handleSupplierSelect(selectedSupplier);
-                return;
-            }
+            setIsSupplierDropdownOpen(false);
             setIsSupplierSearchModalOpen(true);
         } else if (e.key === 'Escape') {
             e.preventDefault();
