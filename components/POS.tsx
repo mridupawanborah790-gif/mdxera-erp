@@ -57,6 +57,15 @@ const calculateRateExcludingGst = (mrp: number, gstPercent: number): number => {
     return parseFloat((safeMrp / (1 + (safeGst / 100))).toFixed(2));
 };
 
+const parseExpiryForSort = (expiry?: string | null): number => {
+    const formatted = formatExpiryToMMYY(expiry || '');
+    const [monthText, yearText] = formatted.split('/');
+    const month = Number(monthText);
+    const year = Number(yearText);
+    if (!month || !year) return Number.MAX_SAFE_INTEGER;
+    return (year * 100) + month;
+};
+
 const resolveCustomerTierRate = (item: Pick<InventoryItem, 'rateA' | 'rateB' | 'rateC'>, customerTier?: Customer['defaultRateTier']): number | null => {
     if (customerTier === 'rateA' && Number(item.rateA) > 0) return Number(item.rateA);
     if (customerTier === 'rateB' && Number(item.rateB) > 0) return Number(item.rateB);
@@ -209,6 +218,61 @@ const POS = forwardRef<any, POSProps>(({
     const grandTotal = useMemo(() => {
         return parseFloat((totals.baseTotal + roundOff).toFixed(2));
     }, [totals.baseTotal, roundOff]);
+
+
+    const customerSnapshot = useMemo(() => {
+        if (!selectedCustomer) {
+            return {
+                area: '-',
+                route: '-',
+                collectionDays: '-',
+                lastSale: '-',
+                lastReceipt: '-',
+                avgPaymentDays: '-'
+            };
+        }
+
+        const customerTransactions = salesHistory
+            .filter(tx => tx.customerId === selectedCustomer.id)
+            .sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime());
+
+        const lastSale = customerTransactions[0];
+
+        return {
+            area: selectedCustomer.area || '-',
+            route: selectedCustomer.assignedStaffName || '-',
+            collectionDays: selectedCustomer.customerGroup || '-',
+            lastSale: lastSale ? new Date(lastSale.date).toLocaleDateString('en-GB') : '-',
+            lastReceipt: '-',
+            avgPaymentDays: '-'
+        };
+    }, [selectedCustomer, salesHistory]);
+
+    const activeBillItem = useMemo(() => {
+        if (cartItems.length === 0) return null;
+        const activeId = activeRowIdRef.current;
+        if (activeId) {
+            const match = cartItems.find(item => item.id === activeId);
+            if (match) return match;
+        }
+        return cartItems[cartItems.length - 1];
+    }, [cartItems]);
+
+    const activeStockSnapshot = useMemo(() => {
+        if (!activeBillItem) return null;
+        const matchingInventory = inventory.filter(inv => {
+            if (!activeBillItem.inventoryItemId) return false;
+            return inv.id === activeBillItem.inventoryItemId || (inv.name === activeBillItem.name && inv.batch === activeBillItem.batch);
+        });
+        const selectedBatchInventory = matchingInventory[0];
+        return {
+            item: activeBillItem.name || '-',
+            batch: activeBillItem.batch || selectedBatchInventory?.batch || '-',
+            expiry: activeBillItem.expiry || formatExpiryToMMYY(selectedBatchInventory?.expiry || '') || '-',
+            stock: selectedBatchInventory?.stock ?? 0,
+            mrp: activeBillItem.mrp || selectedBatchInventory?.mrp || 0
+        };
+    }, [activeBillItem, inventory]);
 
     useEffect(() => {
         setBillMode(billType === 'non-gst' ? 'EST' : 'GST');
@@ -392,17 +456,53 @@ const POS = forwardRef<any, POSProps>(({
             if (e.ctrlKey && e.key.toLowerCase() === 's') {
                 e.preventDefault();
                 handleSave();
+                return;
+            }
+
+            switch (e.key) {
+                case 'F2':
+                    e.preventDefault();
+                    setIsCustomerSearchModalOpen(true);
+                    return;
+                case 'F3':
+                    e.preventDefault();
+                    productSearchInputRef.current?.focus();
+                    return;
+                case 'F5':
+                    e.preventDefault();
+                    if (cartItems.length > 0) {
+                        const last = cartItems[cartItems.length - 1];
+                        const batches = inventory.filter(inv => inv.name === last.name).sort((a, b) => parseExpiryForSort(String(a.expiry || '')) - parseExpiryForSort(String(b.expiry || '')));
+                        if (batches.length > 0) triggerBatchSelection({ item: batches[0], batches });
+                    }
+                    return;
+                case 'F6':
+                    e.preventDefault();
+                    if (cartItems.length > 0) setSchemeItem(cartItems[cartItems.length - 1]);
+                    return;
+                case 'F8':
+                    e.preventDefault();
+                    localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy }));
+                    addNotification('Bill placed on hold.', 'success');
+                    return;
+                case 'F10':
+                    e.preventDefault();
+                    handleSave();
+                    return;
+                default:
+                    return;
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleSave]);
+    }, [handleSave, cartItems, inventory, customerSearch, customerPhone, billMode, billCategory, invoiceDate, referredBy, addNotification]);
 
     useImperativeHandle(ref, () => ({
         handleSave,
         setCartItems,
         cartItems
     }));
+
 
     const handleProcessPrescription = async (fileInput: FileInput, fileName: string) => {
         setIsProcessingRx(true);
@@ -650,7 +750,9 @@ const POS = forwardRef<any, POSProps>(({
             return normalized !== '' && !['NEW-STOCK', 'NEW-BATCH', 'N/A', 'NA'].includes(normalized);
         };
 
-        const candidateBatches = productWrapper.batches.filter(b => isValidBatch(b.batch));
+        const candidateBatches = productWrapper.batches
+            .filter(b => isValidBatch(b.batch))
+            .sort((a, b) => parseExpiryForSort(a.expiry ? String(a.expiry) : '') - parseExpiryForSort(b.expiry ? String(b.expiry) : ''));
 
         if (candidateBatches.length === 1) {
             addSelectedBatchToGrid(candidateBatches[0]);
@@ -678,7 +780,7 @@ const POS = forwardRef<any, POSProps>(({
             const nameBrandMatch = invName === itemName && invBrand === itemBrand;
 
             return codeMatch || nameBrandMatch;
-        });
+        }).sort((a, b) => parseExpiryForSort(a.expiry ? String(a.expiry) : '') - parseExpiryForSort(b.expiry ? String(b.expiry) : ''));
 
         if (fallbackBatches.length === 1) {
             addSelectedBatchToGrid(fallbackBatches[0]);
@@ -1311,135 +1413,61 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </Card>
 
-                <div className="flex items-stretch flex-shrink-0 gap-4 min-h-[180px]">
-                    <div className="flex-1 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center">
-                        <div className="space-y-1.5 font-bold text-[11px] uppercase tracking-tight">
-                            <div className="flex justify-between text-gray-500"><span>Gross</span> <span className="text-sm">₹{(totals.gross || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between text-red-600"><span>Trade Discount</span> <span className="text-sm">-₹{(totals.tradeDiscount || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between text-emerald-600"><span>Scheme Benefit ({billingSettings.schemeBase === 'subtotal' ? 'on Subtotal' : 'after Trade Discount'})</span> <span className="text-sm">-₹{(totals.schemeTotal || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between text-indigo-700 items-center">
-                                <span>Bill Discount</span>
-                                <input
-                                    type="number"
-                                    value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
-                                    onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
-                                    className="w-20 text-right bg-white border border-gray-300 font-normal no-spinner outline-none px-1 py-0.5"
-                                    disabled={isReadOnly}
-                                />
-                            </div>
-                            {!isNonGst && <div className="flex justify-between text-blue-700"><span>Tax (GST · {billingSettings.taxBase === 'subtotal' ? 'Subtotal' : billingSettings.taxBase === 'after_trade_discount' ? 'After Trade Discount' : 'After All Discounts'})</span> <span className="text-sm">+₹{(totals.tax || 0).toFixed(2)}</span></div>}
-                            <div className="flex justify-between text-purple-700 items-center">
-                                <span>Round Off</span>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    value={roundOff === 0 ? '' : roundOff}
-                                    onChange={e => {
-                                        setIsRoundOffManuallyEdited(true);
-                                        setRoundOff(parseFloat(e.target.value) || 0);
-                                    }}
-                                    className="w-20 text-right bg-white border border-gray-300 font-normal no-spinner outline-none px-1 py-0.5"
-                                    disabled={isReadOnly}
-                                />
-                            </div>
-                            <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-2xl font-black text-primary">
-                                <span>GRAND TOTAL</span>
-                                <span>₹{(grandTotal || 0).toFixed(2)}</span>
-                            </div>
+                <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[210px]">
+                    <div className="col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                        <div className="text-[11px] font-bold uppercase space-y-1">
+                            <div>Item : <span className="text-primary">{activeStockSnapshot?.item || '-'}</span></div>
+                            <div>Batch : <span className="text-primary">{activeStockSnapshot?.batch || '-'}</span></div>
+                            <div>Expiry : <span className="text-primary">{activeStockSnapshot?.expiry || '-'}</span></div>
+                            <div>Stock : <span className="text-primary">{activeStockSnapshot?.stock ?? 0}</span></div>
+                            <div>MRP : <span className="text-primary">₹{(activeStockSnapshot?.mrp || 0).toFixed(2)}</span></div>
                         </div>
                     </div>
 
-                    <div className="w-80 flex flex-col gap-2 self-stretch">
-                        {isFieldVisible('optPrescription') && (
-                            <div className="flex-1 bg-white p-3 tally-border !rounded-none shadow-sm flex flex-col overflow-hidden">
-                                <div className="border-b border-gray-300 pb-2 mb-3">
-                                    <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Prescription Management</h4>
-                                </div>
+                    <div className="col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                        <div className="space-y-1 text-[11px] font-bold uppercase">
+                            <div className="flex justify-between"><span>MRP Value</span><span>₹{(totals.gross || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Value of Goods</span><span>₹{(totals.subtotal || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>SGST</span><span>₹{((totals.tax || 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>CGST</span><span>₹{((totals.tax || 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Discount</span><span>₹{((totals.tradeDiscount || 0) + (totals.schemeTotal || 0) + (lumpsumDiscount || 0)).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>GST%</span><span>{(totals.subtotal || 0) > 0 ? (((totals.tax || 0) / totals.subtotal) * 100).toFixed(2) : '0.00'}%</span></div>
+                            <div className="flex justify-between"><span>Balance</span><span>₹{(grandTotal || 0).toFixed(2)}</span></div>
+                        </div>
+                    </div>
 
-                                {!isReadOnly && (
-                                    <div className="flex gap-2 mb-3">
-                                        <button
-                                            onClick={() => fileInputRef.current?.click()}
-                                            disabled={isProcessingRx}
-                                            className="flex-1 min-h-10 border border-dashed border-primary/30 rounded-none flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-wider text-primary hover:bg-primary/5 disabled:opacity-50"
-                                        >
-                                            {isProcessingRx ? <div className="w-3.5 h-3.5 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div> : <span>+</span>}
-                                            <span>{isProcessingRx ? 'Scanning...' : 'Add Rx'}</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setIsWebcamOpen(true)}
-                                            className="flex-1 min-h-10 border border-dashed border-primary/30 rounded-none flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-wider text-primary hover:bg-primary/5"
-                                        >
-                                            <span>📷</span>
-                                            <span>Camera</span>
-                                        </button>
-                                    </div>
-                                )}
+                    <div className="col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm">
+                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1">Customer Info</div>
+                        <div className="text-[11px] font-bold uppercase space-y-1">
+                            <div>Area: {customerSnapshot.area}</div>
+                            <div>Route: {customerSnapshot.route}</div>
+                            <div>Collection Days: {customerSnapshot.collectionDays}</div>
+                            <div>Last Sale: {customerSnapshot.lastSale}</div>
+                            <div>Last Receipt: {customerSnapshot.lastReceipt}</div>
+                            <div>Avg Pay Days: {customerSnapshot.avgPaymentDays}</div>
+                        </div>
+                    </div>
 
-                                <div className="flex-1 border border-dashed border-gray-300 bg-gray-50 p-2 overflow-auto">
-                                    {prescriptions.length > 0 ? (
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {prescriptions.map(p => (
-                                                <div key={p.id} className="relative group">
-                                                    <div className="h-20 border border-primary/20 bg-white overflow-hidden">
-                                                        {p.type === 'image' ? (
-                                                            <img src={p.data.startsWith('data:') ? p.data : `data:image/jpeg;base64,${p.data}`} alt={p.name} className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <div className="w-full h-full flex items-center justify-center text-red-500">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /></svg>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <button
-                                                        onClick={() => setPrescriptions(prev => prev.filter(x => x.id !== p.id))}
-                                                        className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center"
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <div className="h-full flex flex-col items-center justify-center text-gray-400 text-center">
-                                            <p className="text-[10px] font-black uppercase tracking-[0.2em]">Reserved space for RX preview / AI scan</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="flex flex-col gap-2">
-                            {isFieldVisible('optBillingCategory') && (
-                                <div className="bg-white p-2 tally-border shadow-sm">
-                                    <label className="text-[9px] font-bold text-gray-500 uppercase block mb-1">Billing Category</label>
-                                    <select
-                                        ref={billCategorySelectRef}
-                                        value={billCategory}
-                                        onChange={e => setBillCategory(e.target.value as any)}
-                                        className="w-full border border-gray-300 p-1.5 text-xs font-black uppercase outline-none focus:bg-yellow-50 h-8"
-                                        disabled={isReadOnly}
-                                    >
-                                        <option value="Cash Bill">Cash Bill</option>
-                                        <option value="Credit Bill">Credit Bill</option>
-                                    </select>
-                                </div>
-                            )}
+                    <div className="col-span-12 bg-[#255d55] px-2 py-1.5 text-white flex items-center gap-1 overflow-x-auto">
+                        {["SALE", "PURC", "SC", "PC", "COPY BILL", "PASTE", "SR", "PR", "CASH", "HOLD", "SAVE", "PRINT", "RETURN"].map(btn => (
                             <button
-                                onClick={() => { if (confirm("Discard current voucher?")) { setCartItems([]); if (onCancel) onCancel(); } }}
-                                className="w-full py-3 tally-border bg-white font-black text-[11px] hover:bg-red-50 text-red-600 transition-colors uppercase tracking-[0.2em] shadow-sm"
+                                key={btn}
+                                onClick={() => {
+                                    if (btn === 'SAVE') handleSave();
+                                    if (btn === 'PRINT' && transactionToEdit) onPrintBill(transactionToEdit);
+                                    if (btn === 'HOLD') {
+                                        localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy }));
+                                        addNotification('Bill placed on hold.', 'success');
+                                    }
+                                }}
+                                className="px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap"
                             >
-                                Discard
+                                {btn}
                             </button>
-                            <button
-                                onClick={handleSave}
-                                disabled={isSaving || isReadOnly || cartItems.length === 0}
-                                className="w-full py-6 tally-button-primary shadow-2xl active:translate-y-1 uppercase tracking-widest text-[12px] flex items-center justify-center gap-2"
-                            >
-                                {isSaving ? (
-                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                ) : null}
-                                {isSaving ? 'Saving' : 'Accept (Ent)'}
-                            </button>
+                        ))}
+                        <div className="ml-auto text-right pr-2">
+                            <div className="text-[11px] uppercase font-bold">Invoice Value</div>
+                            <div className="text-2xl font-black">₹{(grandTotal || 0).toFixed(2)}</div>
                         </div>
                     </div>
                 </div>
