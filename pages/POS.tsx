@@ -105,6 +105,7 @@ const POS = forwardRef<any, POSProps>(({
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+    const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
     const activeRowIdRef = useRef<string | null>(null);
 
@@ -251,6 +252,25 @@ const POS = forwardRef<any, POSProps>(({
         setCartItems,
         cartItems
     }));
+
+    useEffect(() => {
+        if (cartItems.length === 0) {
+            setSelectedRowId(null);
+            return;
+        }
+
+        if (selectedRowId && cartItems.some(item => item.id === selectedRowId)) {
+            return;
+        }
+
+        setSelectedRowId(cartItems[cartItems.length - 1]?.id || cartItems[0]?.id || null);
+    }, [cartItems, selectedRowId]);
+
+    useEffect(() => {
+        if (!selectedRowId) return;
+        const selectedRow = document.getElementById(`row-${selectedRowId}`);
+        selectedRow?.scrollIntoView({ block: 'nearest' });
+    }, [selectedRowId]);
 
     const handleProcessPrescription = async (fileInput: FileInput, fileName: string) => {
         setIsProcessingRx(true);
@@ -566,6 +586,7 @@ const POS = forwardRef<any, POSProps>(({
             }
             return [...prev, newItem];
         });
+        setSelectedRowId(newItemId);
 
         setSearchTerm('');
         setIsSearchModalOpen(false);
@@ -653,12 +674,14 @@ const POS = forwardRef<any, POSProps>(({
 
         setCartItems(prev => {
             if (prev.length <= 1) {
+                setSelectedRowId(null);
                 return [createBlankItem()];
             }
             const newItems = prev.filter(item => item.id !== id);
             const nextFocusIdx = index < newItems.length ? index : newItems.length - 1;
             const itemToFocus = newItems[nextFocusIdx];
             if (itemToFocus) {
+                setSelectedRowId(itemToFocus.id);
                 setTimeout(() => {
                     const qtyInput = document.getElementById(`qty-p-${itemToFocus.id}`);
                     qtyInput?.focus();
@@ -668,6 +691,24 @@ const POS = forwardRef<any, POSProps>(({
             return newItems;
         });
     }, [isReadOnly]);
+
+    const focusFirstEditableFieldInRow = useCallback((rowId: string) => {
+        const firstEditableField = [
+            `name-${rowId}`,
+            `qty-p-${rowId}`,
+            `qty-l-${rowId}`,
+            `free-${rowId}`,
+            `rate-${rowId}`,
+            `disc-${rowId}`,
+            `gst-${rowId}`,
+            `scheme-${rowId}`
+        ]
+            .map(fieldId => document.getElementById(fieldId))
+            .find(el => el && !el.hasAttribute('disabled'));
+
+        firstEditableField?.focus();
+        if (firstEditableField instanceof HTMLInputElement) firstEditableField.select();
+    }, []);
 
     const handleItemKeyDown = (e: React.KeyboardEvent, id: string, index: number) => {
         if (e.key === 'Delete') {
@@ -683,23 +724,70 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const handleRowKeyNavigation = useCallback((e: React.KeyboardEvent, id: string) => {
-        const fields = [
-            `name-${id}`,
-            `qty-p-${id}`,
-            `qty-l-${id}`,
-            `free-${id}`,
-            `rate-${id}`,
-            `disc-${id}`,
-            `gst-${id}`,
-            `scheme-${id}`
-        ].filter(id => {
-            const el = document.getElementById(id);
-            return el && !el.hasAttribute('disabled');
-        });
+        setSelectedRowId(id);
 
+        const fieldPrefixes = ['name', 'qty-p', 'qty-l', 'free', 'rate', 'disc', 'gst', 'scheme'];
         const target = e.target as HTMLElement;
-        const currentId = target.id;
+        const activeElement = target.closest('input, button') as HTMLElement | null;
+        const currentId = activeElement?.id || target.id || '';
+        const currentFieldPrefix = fieldPrefixes.find(prefix => currentId.startsWith(`${prefix}-`)) || 'name';
+
+        const getAvailableRowFields = (rowId: string) => (
+            [
+                `name-${rowId}`,
+                `qty-p-${rowId}`,
+                `qty-l-${rowId}`,
+                `free-${rowId}`,
+                `rate-${rowId}`,
+                `disc-${rowId}`,
+                `gst-${rowId}`,
+                `scheme-${rowId}`
+            ].filter(fieldId => {
+                const el = document.getElementById(fieldId);
+                return el && !el.hasAttribute('disabled');
+            })
+        );
+
+        const fields = getAvailableRowFields(id);
         const currentIndex = fields.indexOf(currentId);
+
+        const focusRowField = (rowId: string) => {
+            const rowFields = getAvailableRowFields(rowId);
+            const preferredFieldId = `${currentFieldPrefix}-${rowId}`;
+            const preferredField = document.getElementById(preferredFieldId);
+            if (preferredField && !preferredField.hasAttribute('disabled')) {
+                preferredField.focus();
+                if (preferredField instanceof HTMLInputElement) preferredField.select();
+                return;
+            }
+
+            const firstAvailableField = rowFields
+                .map(fieldId => document.getElementById(fieldId))
+                .find(el => el && !el.hasAttribute('disabled'));
+
+            firstAvailableField?.focus();
+            if (firstAvailableField instanceof HTMLInputElement) firstAvailableField.select();
+        };
+
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            e.stopPropagation();
+            const itemIdx = cartItems.findIndex(i => i.id === id);
+            if (itemIdx === -1) return;
+
+            const targetIdx = e.key === 'ArrowDown'
+                ? Math.min(itemIdx + 1, cartItems.length - 1)
+                : Math.max(itemIdx - 1, 0);
+
+            if (targetIdx === itemIdx) return;
+
+            const targetItem = cartItems[targetIdx];
+            if (!targetItem) return;
+
+            setSelectedRowId(targetItem.id);
+            setTimeout(() => focusRowField(targetItem.id), 0);
+            return;
+        }
 
         if (currentIndex === -1) return;
 
@@ -717,6 +805,7 @@ const POS = forwardRef<any, POSProps>(({
                     const itemIdx = cartItems.findIndex(i => i.id === id);
                     if (itemIdx < cartItems.length - 1) {
                         const nextId = cartItems[itemIdx + 1].id;
+                        setSelectedRowId(nextId);
                         const nextNameEl = document.getElementById(`name-${nextId}`);
                         nextNameEl?.focus();
                         if (nextNameEl instanceof HTMLInputElement) nextNameEl.select();
@@ -741,6 +830,7 @@ const POS = forwardRef<any, POSProps>(({
                         e.preventDefault();
                         e.stopPropagation();
                         const prevId = cartItems[itemIdx - 1].id;
+                        setSelectedRowId(prevId);
                         const prevLastField = `scheme-${prevId}`;
                         const prevLastEl = document.getElementById(prevLastField);
                         prevLastEl?.focus();
@@ -875,7 +965,19 @@ const POS = forwardRef<any, POSProps>(({
                                     const lineAmount = lineGross - tradeDiscAmt - (item.schemeDiscountAmount || 0);
 
                                     return (
-                                        <tr key={item.id} className="hover:bg-gray-50 group h-10">
+                                        <tr
+                                            id={`row-${item.id}`}
+                                            key={item.id}
+                                            onClick={(event) => {
+                                                setSelectedRowId(item.id);
+                                                const target = event.target as HTMLElement;
+                                                if (!target.closest('input, button')) {
+                                                    setTimeout(() => focusFirstEditableFieldInRow(item.id), 0);
+                                                }
+                                            }}
+                                            onFocusCapture={() => setSelectedRowId(item.id)}
+                                            className={`group h-10 transition-colors ${selectedRowId === item.id ? 'bg-sky-100/90 outline outline-1 outline-sky-300' : 'hover:bg-gray-50'}`}
+                                        >
                                             <td className={`p-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-2 border-r border-gray-200 text-primary uppercase w-72 truncate ${uniformTextStyle}`} title={item.name}>
