@@ -874,6 +874,8 @@ export interface ReturnsProps {
     addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
     defaultTab: 'sales' | 'purchase';
     isFixedMode: boolean;
+    prefillSalesInvoiceId?: string | null;
+    onPrefillSalesInvoiceHandled?: () => void;
 }
 
 export interface EWayBill {
