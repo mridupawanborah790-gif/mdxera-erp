@@ -170,6 +170,7 @@ const POS = forwardRef<any, POSProps>(({
     const [roundOff, setRoundOff] = useState(0);
     const [isRoundOffManuallyEdited, setIsRoundOffManuallyEdited] = useState(false);
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+    const [selectedRowIndex, setSelectedRowIndex] = useState(0);
 
     const activeRowIdRef = useRef<string | null>(null);
 
@@ -214,6 +215,15 @@ const POS = forwardRef<any, POSProps>(({
             setRoundOff(totals.autoRoundOff);
         }
     }, [totals.autoRoundOff, isRoundOffManuallyEdited]);
+
+    useEffect(() => {
+        if (cartItems.length === 0) {
+            setSelectedRowIndex(0);
+            return;
+        }
+
+        setSelectedRowIndex(prev => Math.min(prev, cartItems.length - 1));
+    }, [cartItems.length]);
 
     const grandTotal = useMemo(() => {
         return parseFloat((totals.baseTotal + roundOff).toFixed(2));
@@ -1008,8 +1018,25 @@ const POS = forwardRef<any, POSProps>(({
         const target = e.target as HTMLElement;
         const currentId = target.id;
         const currentIndex = fields.indexOf(currentId);
+        const itemIdx = cartItems.findIndex(i => i.id === id);
 
-        if (currentIndex === -1) return;
+        if (itemIdx === -1 || currentIndex === -1) return;
+
+        const moveRow = (direction: -1 | 1) => {
+            const nextRowIndex = itemIdx + direction;
+            if (nextRowIndex < 0 || nextRowIndex >= cartItems.length) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const nextId = cartItems[nextRowIndex].id;
+            const nextFieldId = fields[currentIndex]?.replace(id, nextId) || `name-${nextId}`;
+            const nextEl = document.getElementById(nextFieldId) || document.getElementById(`name-${nextId}`);
+
+            setSelectedRowIndex(nextRowIndex);
+            nextEl?.focus();
+            if (nextEl instanceof HTMLInputElement) nextEl.select();
+        };
 
         const moveNext = () => {
             if (currentIndex < fields.length - 1) {
@@ -1022,10 +1049,10 @@ const POS = forwardRef<any, POSProps>(({
                 if (e.key === 'Enter' || e.key === 'Tab' || e.key === 'ArrowRight') {
                     e.preventDefault();
                     e.stopPropagation();
-                    const itemIdx = cartItems.findIndex(i => i.id === id);
                     if (itemIdx < cartItems.length - 1) {
                         const nextId = cartItems[itemIdx + 1].id;
                         const nextNameEl = document.getElementById(`name-${nextId}`);
+                        setSelectedRowIndex(itemIdx + 1);
                         nextNameEl?.focus();
                         if (nextNameEl instanceof HTMLInputElement) nextNameEl.select();
                     } else {
@@ -1044,25 +1071,33 @@ const POS = forwardRef<any, POSProps>(({
                 if (prevEl instanceof HTMLInputElement) prevEl.select();
             } else {
                 if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
-                    const itemIdx = cartItems.findIndex(i => i.id === id);
                     if (itemIdx > 0) {
                         e.preventDefault();
                         e.stopPropagation();
                         const prevId = cartItems[itemIdx - 1].id;
                         const prevLastField = `scheme-${prevId}`;
                         const prevLastEl = document.getElementById(prevLastField);
+                        setSelectedRowIndex(itemIdx - 1);
                         prevLastEl?.focus();
                     }
                 }
             }
         };
 
-        if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'Enter' || e.key === 'ArrowRight') {
+        if (e.key === 'ArrowUp') {
+            moveRow(-1);
+        } else if (e.key === 'ArrowDown') {
+            moveRow(1);
+        } else if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'Enter' || e.key === 'ArrowRight') {
             moveNext();
         } else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
             movePrev();
         }
     }, [cartItems]);
+
+    const handleRowFocus = useCallback((index: number) => {
+        setSelectedRowIndex(index);
+    }, []);
 
     const handleReferredByKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
@@ -1188,7 +1223,7 @@ const POS = forwardRef<any, POSProps>(({
                                     const lineAmount = calculateLineNetAmount(item, configurations);
 
                                     return (
-                                        <tr key={item.id} className="hover:bg-gray-50 group h-10">
+                                        <tr key={item.id} className={`group h-10 ${selectedRowIndex === idx ? 'bg-sky-100' : 'hover:bg-gray-50'}`}>
                                             <td className={`p-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-2 border-r border-gray-200 text-primary uppercase w-72 truncate ${uniformTextStyle}`} title={item.name}>
@@ -1197,6 +1232,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="text"
                                                         value={item.name}
                                                         onChange={e => handleUpdateCartItem(item.id, 'name', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1218,6 +1254,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="text"
                                                         value={item.expiry || ''}
                                                         onChange={e => handleUpdateCartItem(item.id, 'expiry', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onBlur={e => handleExpiryBlur(item.id, e.target.value)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
@@ -1246,6 +1283,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.quantity === 0 ? '' : item.quantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'quantity', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1263,6 +1301,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.looseQuantity === 0 ? '' : item.looseQuantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'looseQuantity', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onInput={e => handleUpdateCartItem(item.id, 'looseQuantity', (e.target as HTMLInputElement).value)}
                                                         onBlur={() => handleLooseQtyFinalize(item.id)}
                                                         onKeyDown={e => {
@@ -1285,6 +1324,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.freeQuantity === 0 ? '' : item.freeQuantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'freeQuantity', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1303,6 +1343,7 @@ const POS = forwardRef<any, POSProps>(({
                                                             type="number"
                                                             value={item.rate === 0 ? '' : item.rate}
                                                             onChange={e => handleUpdateCartItem(item.id, 'rate', e.target.value)}
+                                                            onFocus={() => handleRowFocus(idx)}
                                                             onKeyDown={e => {
                                                                 handleItemKeyDown(e, item.id, idx);
                                                                 handleRowKeyNavigation(e, item.id);
@@ -1323,6 +1364,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.discountPercent === 0 ? '' : item.discountPercent}
                                                         onChange={e => handleUpdateCartItem(item.id, 'discountPercent', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1339,6 +1381,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.gstPercent === 0 ? '' : item.gstPercent}
                                                         onChange={e => handleUpdateCartItem(item.id, 'gstPercent', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1352,7 +1395,12 @@ const POS = forwardRef<any, POSProps>(({
                                                 <td className={`p-2 border-r border-gray-400 text-center ${uniformTextStyle}`}>
                                                     <button
                                                         id={`scheme-${item.id}`}
-                                                        onClick={() => !isReadOnly && setSchemeItem(item)}
+                                                        onClick={() => {
+                                                            if (isReadOnly) return;
+                                                            handleRowFocus(idx);
+                                                            setSchemeItem(item);
+                                                        }}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             if (e.key === 'Enter') {
                                                                 e.preventDefault();
