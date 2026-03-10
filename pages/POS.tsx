@@ -1062,26 +1062,26 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </Card>
 
-                <div className="flex justify-between items-stretch flex-shrink-0 gap-4 min-h-[120px]">
-                    <div className="w-[300px] max-w-[320px] bg-[#edf5f5] px-3 py-2 tally-border !rounded-none shadow-sm flex flex-col self-end">
-                        <h4 className="text-[9px] font-black text-gray-500 uppercase tracking-[0.25em] mb-1.5">Bill Summary</h4>
-                        <div className="space-y-1 text-[10px] font-bold uppercase tracking-tight">
-                            <div className="flex items-center justify-between text-gray-600 leading-none"><span>Gross</span> <span className="font-mono text-[11px]">₹{(totals.gross || 0).toFixed(2)}</span></div>
-                            <div className="flex items-center justify-between text-red-600 leading-none"><span>Trade Discount</span> <span className="font-mono text-[11px]">-₹{(totals.tradeDiscount || 0).toFixed(2)}</span></div>
-                            <div className="flex items-center justify-between text-emerald-700 leading-none"><span>Scheme Benefit</span> <span className="font-mono text-[11px]">-₹{(totals.schemeTotal || 0).toFixed(2)}</span></div>
-                            <div className="flex items-center justify-between text-indigo-700 gap-2 leading-none">
+                <div className="flex justify-between items-end flex-shrink-0 gap-4 min-h-0">
+                    <div className="w-[235px] max-w-[235px] bg-[#edf5f5] px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col self-end h-fit">
+                        <h4 className="text-[8px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1 leading-none">Bill Summary</h4>
+                        <div className="space-y-0.5 text-[9px] font-bold uppercase tracking-tight leading-none">
+                            <div className="flex items-center justify-between text-gray-600"><span>Gross</span> <span className="font-mono text-[10px]">₹{(totals.gross || 0).toFixed(2)}</span></div>
+                            <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span> <span className="font-mono text-[10px]">-₹{(totals.tradeDiscount || 0).toFixed(2)}</span></div>
+                            <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span> <span className="font-mono text-[10px]">-₹{(totals.schemeTotal || 0).toFixed(2)}</span></div>
+                            <div className="flex items-center justify-between text-indigo-700 gap-1">
                                 <span>Bill Discount</span>
                                 <input
                                     type="number"
                                     value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
                                     onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
-                                    className="w-20 text-right bg-white border border-gray-300 font-normal text-[10px] no-spinner outline-none px-1 py-0.5 h-6"
+                                    className="w-16 text-right bg-white border border-gray-300 font-normal text-[9px] no-spinner outline-none px-1 h-5"
                                     disabled={isReadOnly}
                                 />
                             </div>
-                            {!isNonGst && <div className="flex items-center justify-between text-blue-700 leading-none"><span>Tax (GST)</span> <span className="font-mono text-[11px]">+₹{(totals.tax || 0).toFixed(2)}</span></div>}
-                            <div className="flex items-center justify-between text-gray-600 leading-none"><span>Round Off</span> <span className="font-mono text-[11px]">₹{(totals.roundOff || 0).toFixed(2)}</span></div>
-                            <div className="border-t border-gray-400 pt-1 mt-1 flex items-center justify-between text-[13px] font-black text-primary">
+                            {!isNonGst && <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span> <span className="font-mono text-[10px]">+₹{(totals.tax || 0).toFixed(2)}</span></div>}
+                            <div className="flex items-center justify-between text-gray-600"><span>Round Off</span> <span className="font-mono text-[10px]">₹{(totals.roundOff || 0).toFixed(2)}</span></div>
+                            <div className="border-t border-gray-400 pt-0.5 mt-0.5 flex items-center justify-between text-[11px] font-black text-primary leading-none">
                                 <span>Grand Total</span>
                                 <span className="font-mono">₹{((totals.roundedNet + (isNonGst ? 0 : totals.tax)) || 0).toFixed(2)}</span>
                             </div>
