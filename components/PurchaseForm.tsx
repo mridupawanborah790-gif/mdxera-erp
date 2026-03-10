@@ -389,6 +389,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     const canOpenJournalEntry = Boolean(purchaseToEdit?.id);
     const isPostedVoucher = (purchaseToEdit?.status || '') === 'completed';
+    const supplierPhoneDisplay = currentsupplier?.mobile || currentsupplier?.phone || '-';
+    const supplierPurchaseHistory = useMemo(() => {
+        if (!Supplier.trim()) return [];
+        return purchases
+            .filter(p => normalizeSupplierKey(p.supplier || '') === normalizeSupplierKey(Supplier))
+            .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    }, [purchases, Supplier]);
+    const lastPurchaseDate = supplierPurchaseHistory[0]?.date || '-';
+    const lastPaymentDate = currentsupplier?.ledger
+        ?.filter(entry => Number(entry.credit || 0) > 0 || Number(entry.debit || 0) > 0)
+        .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))?.[0]?.date || '-';
 
 
     const reconciliationSupplier = useMemo<Supplier | null>(() => {
@@ -1557,11 +1568,21 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         View Journal Entry
                     </button>
                 </div>
-                <span className="text-[10px] font-black uppercase text-accent">No. {isEditing ? purchaseToEdit?.purchaseSerialId : 'New'}</span>
+                <span className="text-[10px] font-black uppercase text-accent">No. {invoiceNumber || (isEditing ? purchaseToEdit?.purchaseSerialId : 'PINV000001-2025-26')}</span>
             </div>
-            <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
-                <div className="p-3 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-4 gap-4 items-end flex-shrink-0">
-                    <div className="md:col-span-2 relative">
+            <div className="p-2 flex-1 flex flex-col gap-2 overflow-hidden">
+                <div className="p-2 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-12 gap-2 items-end flex-shrink-0">
+                    <div className="md:col-span-2">
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Date</label>
+                        <input
+                            ref={dateInputRef}
+                            type="date"
+                            value={date}
+                            onChange={(e) => setDate(e.target.value)}
+                            className="w-full border border-gray-400 p-2 text-sm font-bold outline-none"
+                        />
+                    </div>
+                    <div className="md:col-span-7 relative">
                         <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Particulars (Supplier Name)</label>
                         <input
                             ref={supplierNameInputRef}
@@ -1571,9 +1592,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
                             className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
-                            placeholder="Enter: search | Ctrl+Enter: quick create supplier"
+                            placeholder="Enter for selection, Esc to skip..."
                         />
-                        <p className="mt-1 ml-1 text-[10px] font-semibold text-gray-500">Enter: search | Ctrl+Enter: quick create supplier</p>
                         {isSupplierDropdownOpen && Supplier.length > 0 && (
                             <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
                                 {suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10).map((d, sIdx) => (
@@ -1590,25 +1610,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             </div>
                         )}
                     </div>
-                    <div>
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Invoice #</label>
+                    <div className="md:col-span-3">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Phone Number</label>
                         <input
-                            ref={invoiceNumberInputRef}
                             type="text"
-                            value={invoiceNumber}
-                            onChange={e => { setInvoiceNumber(e.target.value); setInvoiceNumberError(null); }}
-                            className={`w-full border p-2 text-sm font-bold outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
-                        />
-                        {invoiceNumberError && <p className="mt-1 text-[10px] font-bold text-red-600">{invoiceNumberError}</p>}
-                    </div>
-                    <div>
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase block mb-1">Date</label>
-                        <input
-                            ref={dateInputRef}
-                            type="date"
-                            value={date}
-                            onChange={(e) => setDate(e.target.value)}
-                            className="w-full border border-gray-400 p-2 text-sm font-bold outline-none"
+                            value={supplierPhoneDisplay}
+                            readOnly
+                            className="w-full border p-2 text-sm font-bold outline-none border-gray-400 bg-gray-50"
+                            placeholder="Supplier Phone"
                         />
                     </div>
                 </div>
@@ -1668,13 +1677,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     <th className="p-2 border-r border-gray-400 text-left w-24">MFR</th>
                                     {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
                                     <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-20">Exp.</th>
+                                    <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>
                                     <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">Qty</th>
+                                    <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>
+                                    <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>
                                     {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">FREE</th>}
                                     <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">Sch%</th>
+                                    <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>
                                     <th className="p-2 text-right w-32">Amount</th>
                                 </tr>
                             </thead>
@@ -1709,12 +1719,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} placeholder="MM/YY" inputMode="numeric" maxLength={5} pattern="(0[1-9]|1[0-2])/[0-9]{2}" className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-400 text-center text-gray-500 ${uniformTextStyle}`}><input type="number" id={`lqty-${p.id}`} value={p.looseQuantity || ''} onChange={e => handleUpdateItem(p.id, 'looseQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         {isFieldVisible('colFree') && (
                                             <td className={`p-1 border-r border-gray-400 text-center text-emerald-600 font-bold ${uniformTextStyle}`}><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         )}
                                         <td className={`p-1 border-r border-gray-400 text-right font-bold text-blue-900 ${uniformTextStyle}`}><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" value={p.discountPercent || ''} onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" id={`sch-${p.id}`} value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} onKeyDown={(e) => handleRateTierLastFieldEnter(e, p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
+                                        <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" id={`sch-${p.id}`} value={p.gstPercent || ''} onChange={e => handleUpdateItem(p.id, 'gstPercent', e.target.value)} onKeyDown={(e) => handleRateTierLastFieldEnter(e, p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
                                         <td className={`p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap ${uniformTextStyle}`}>₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.discountPercent || 0) / 100) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
                                     </tr>
                                 ))}
@@ -1723,86 +1734,60 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </Card>
 
-                <div className="sticky bottom-0 z-20 -mx-4 px-4 pb-1 pt-2 bg-app-bg/95 backdrop-blur supports-[backdrop-filter]:bg-app-bg/80">
-                <div className="flex flex-col xl:flex-row justify-between items-stretch flex-shrink-0 gap-4 min-h-[184px]">
-                    <div className="w-full xl:w-[390px] bg-[#e5f0f0] p-5 tally-border !rounded-none shadow-md flex flex-col justify-between gap-4">
-                        <div>
-                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
-                            <div className="space-y-2 text-[11px] font-bold uppercase tracking-tight">
-                                <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
-                                <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
-                                <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
-                                <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
-                                <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
-                                <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatRoundOffCurrency(calculatedTotals.roundOff)}</span></div>
-                                <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
-                            </div>
+                <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[210px]">
+                    <div className="col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                        <div className="text-[11px] font-bold uppercase space-y-1">
+                            <div>Item : <span className="text-primary">{activeIntelItem?.name || '-'}</span></div>
+                            <div>Batch : <span className="text-primary">{activeIntelItem?.batch || '-'}</span></div>
+                            <div>Expiry : <span className="text-primary">{activeIntelItem?.expiry || '-'}</span></div>
+                            <div>Stock : <span className="text-primary">{activeIntelItem?.stock ?? 0}</span></div>
+                            <div>MRP : <span className="text-primary">₹{(activeIntelItem?.mrp || 0).toFixed(2)}</span></div>
                         </div>
                     </div>
 
-                    <div className="flex-1 min-w-0">
-                        {activeIntelItem ? (
-                            <div className="bg-slate-100 p-4 h-full tally-border !rounded-none shadow-md animate-in fade-in duration-200 flex flex-col">
-                                <div className="flex justify-between items-center border-b border-gray-300 pb-2 mb-3 flex-shrink-0">
-                                    <div className="flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
-                                        <span className="text-xs font-black uppercase text-primary tracking-[0.2em]">Inventory Insight</span>
-                                    </div>
-                                    <span className="text-2xl font-black text-emerald-700 leading-none">QTY: {activeIntelItem.stock}</span>
-                                </div>
-
-                                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-hidden">
-                                    <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
-                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">Identity & Validity</p>
-                                        <div className="flex flex-col gap-0.5">
-                                            <p className="text-sm font-black text-primary uppercase font-mono truncate">{activeIntelItem.batch} | {activeIntelItem.code}</p>
-                                            <p className="text-xs font-bold text-red-600 uppercase">Expires: {activeIntelItem.expiry}</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
-                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 opacity-60">Pricing Vector</p>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div>
-                                                <p className="text-[10px] font-bold text-gray-500 uppercase">M.R.P</p>
-                                                <p className="text-sm font-black text-gray-900">₹{(activeIntelItem.mrp || 0).toFixed(2)}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-bold text-gray-500 uppercase">Pur Rate</p>
-                                                <p className="text-sm font-black text-blue-800">₹{(intelDetails?.lastPurRate ?? 0).toFixed(2)}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
-                                        <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3 opacity-70">Profit Quotient</p>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <span className="text-[11px] font-bold text-gray-500 uppercase">Net Margin</span>
-                                            <span className="text-xl font-black text-emerald-600">{(intelDetails?.profitMargin ?? 0).toFixed(1)}%</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-[11px] font-bold text-gray-500 uppercase">Per Unit</span>
-                                            <span className="text-xl font-black text-emerald-600">₹{(intelDetails?.profitAmount ?? 0).toFixed(2)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="h-full border-2 border-dashed border-gray-300 flex flex-col items-center justify-center p-4 rounded-none opacity-20">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-2"><path d="m21 21-4.3-4.3" /><circle cx="11" cy="11" r="8" /><path d="M11 8v6" /><path d="M8 11h6" /></svg>
-                                <p className="text-[11px] font-black uppercase tracking-[0.4em] italic">Search item for live intel</p>
-                            </div>
-                        )}
+                    <div className="col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                        <div className="space-y-1 text-[11px] font-bold uppercase">
+                            <div className="flex justify-between"><span>MRP Value</span><span>₹{(calculatedTotals.grossAmount || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Value of Goods</span><span>₹{(calculatedTotals.subtotal || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>SGST</span><span>₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>CGST</span><span>₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>IGST</span><span>₹0.00</span></div>
+                            <div className="flex justify-between"><span>Discount</span><span>₹{((calculatedTotals.totalItemDiscount || 0) + (calculatedTotals.totalItemSchemeDiscount || 0) + (calculatedTotals.billDiscount || 0)).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>GST%</span><span>{(calculatedTotals.subtotal || 0) > 0 ? (((calculatedTotals.totalGst || 0) / calculatedTotals.subtotal) * 100).toFixed(2) : '0.00'}%</span></div>
+                            <div className="flex justify-between"><span>Balance</span><span>₹{(calculatedTotals.grandTotal || 0).toFixed(2)}</span></div>
+                        </div>
                     </div>
 
-                    <div className="w-full xl:w-56 flex flex-col xl:items-end xl:justify-end gap-2 xl:self-stretch">
-                        <button onClick={handleDiscard} className="w-full px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
-                        <button onClick={handleSubmit} disabled={isSubmitting} className="w-full px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
-                            {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Save')}
-                        </button>
+                    <div className="col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm">
+                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1">Supplier Info</div>
+                        <div className="text-[11px] font-bold uppercase space-y-1">
+                            <div>Area: {currentsupplier?.area || '-'}</div>
+                            <div>Route: {currentsupplier?.city || '-'}</div>
+                            <div>Last Purchase: {lastPurchaseDate}</div>
+                            <div>Last Payment: {lastPaymentDate}</div>
+                            <div>Avg Credit Days: -</div>
+                        </div>
+                    </div>
+
+                    <div className="col-span-12 bg-[#255d55] px-2 py-1.5 text-white flex items-center gap-1 overflow-x-auto">
+                        {['SALE', 'PURC', 'SC', 'PC', 'COPY BILL', 'PASTE', 'SR', 'PR', 'CASH', 'HOLD', 'SAVE', 'PRINT', 'RETURN'].map(btn => (
+                            <button
+                                key={btn}
+                                onClick={() => {
+                                    if (btn === 'SAVE') handleSubmit();
+                                                                        if (btn === 'RETURN') handleDiscard();
+                                }}
+                                className={`px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap ${btn === 'PURC' ? 'bg-white text-[#255d55]' : ''}`}
+                            >
+                                {btn}
+                            </button>
+                        ))}
+                        <div className="ml-auto text-right pr-2">
+                            <div className="text-[11px] uppercase font-bold">Purchase Value</div>
+                            <div className="text-2xl font-black">₹{(calculatedTotals.grandTotal || 0).toFixed(2)}</div>
+                        </div>
                     </div>
                 </div>
-            </div>
 
             </div>
 
