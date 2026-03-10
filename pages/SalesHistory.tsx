@@ -33,6 +33,7 @@ const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, onViewDetails, onPrintBill, onCancelTransaction, initialFilters, onFiltersChange, currentUser, onRefresh, onViewSale, onEditSale, onCreateReturn, salesReturns }) => {
     const [searchTerm, setSearchTerm] = useState('');
+    const [searchInput, setSearchInput] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [rmpFilter, setRmpFilter] = useState('all');
@@ -196,7 +197,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (!shouldHandleScreenShortcut(e, 'salesHistory')) return;
+            if (!shouldHandleScreenShortcut(e, 'salesHistory', { allowedKeysWhenInputFocused: ['F5'] })) return;
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (filteredAndSortedTransactions.length === 0) return;
@@ -267,6 +268,10 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
 
     const totalRevenue = useMemo(() => filteredAndSortedTransactions.reduce((sum, t) => sum + (t.status !== 'cancelled' ? t.total : 0), 0), [filteredAndSortedTransactions]);
 
+    const applySearch = useCallback(() => {
+        setSearchTerm(searchInput.trim());
+    }, [searchInput]);
+
     return (
         <main className="flex-1 page-fade-in flex flex-col overflow-hidden bg-app-bg">
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
@@ -275,36 +280,52 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
             </div>
 
             <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
-                <Card className="p-3 tally-border !rounded-none grid grid-cols-1 md:grid-cols-7 gap-4 items-end bg-white">
-                    <div className="md:col-span-2">
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Search Vouchers</label>
-                        <input type="text" placeholder="Bill ID, Customer..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold focus:bg-yellow-50 outline-none" />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">From Date</label>
-                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none" />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">To Date</label>
-                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none" />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Status</label>
-                        <select
-                            value={statusFilter}
-                            onChange={e => setStatusFilter(e.target.value as 'all' | 'completed' | 'cancelled')}
-                            className="w-full border border-gray-400 p-2 text-sm font-bold outline-none bg-white"
-                        >
-                            <option value="all">All Orders</option>
-                            <option value="cancelled">Cancelled Orders</option>
-                            <option value="completed">Completed Orders</option>
-                        </select>
-                    </div>
-                    <div className="md:col-span-2">
-                        <button 
-                            onClick={handleRefresh} 
+                <Card className="sticky top-0 z-20 px-2 py-1.5 tally-border !rounded-none bg-white">
+                    <div className="flex items-center gap-2 whitespace-nowrap overflow-x-auto">
+                        <div className="flex items-center gap-1.5 min-w-[340px]">
+                            <label className="text-[11px] font-semibold text-gray-600">Search:</label>
+                            <input
+                                type="text"
+                                placeholder="Bill ID / Customer"
+                                value={searchInput}
+                                onChange={e => setSearchInput(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        applySearch();
+                                    }
+                                }}
+                                className="h-8 w-[300px] border border-gray-400 px-2 text-[13px] font-semibold focus:bg-yellow-50 outline-none"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-1.5 min-w-[180px]">
+                            <label className="text-[11px] font-semibold text-gray-600">From:</label>
+                            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-8 w-[150px] border border-gray-400 px-2 text-[12px] font-semibold outline-none" />
+                        </div>
+
+                        <div className="flex items-center gap-1.5 min-w-[170px]">
+                            <label className="text-[11px] font-semibold text-gray-600">To:</label>
+                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="h-8 w-[150px] border border-gray-400 px-2 text-[12px] font-semibold outline-none" />
+                        </div>
+
+                        <div className="flex items-center gap-1.5 min-w-[205px]">
+                            <label className="text-[11px] font-semibold text-gray-600">Status:</label>
+                            <select
+                                value={statusFilter}
+                                onChange={e => setStatusFilter(e.target.value as 'all' | 'completed' | 'cancelled')}
+                                className="h-8 w-[165px] border border-gray-400 px-2 text-[12px] font-semibold outline-none bg-white"
+                            >
+                                <option value="all">All Orders</option>
+                                <option value="cancelled">Cancelled Orders</option>
+                                <option value="completed">Completed Orders</option>
+                            </select>
+                        </div>
+
+                        <button
+                            onClick={handleRefresh}
                             disabled={isSyncing}
-                            className="w-full py-2 tally-button-primary text-[10px] flex items-center justify-center gap-2"
+                            className="h-8 min-w-[150px] px-3 tally-button-primary text-[11px] font-black uppercase flex items-center justify-center gap-2 disabled:opacity-60"
                         >
                             <RefreshIcon className={isSyncing ? 'animate-spin' : ''} />
                             {isSyncing ? 'Syncing...' : 'F5: Refresh'}
