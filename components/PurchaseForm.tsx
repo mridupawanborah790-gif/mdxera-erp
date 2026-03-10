@@ -261,6 +261,26 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [isSupplierSearchModalOpen, setIsSupplierSearchModalOpen] = useState(false);
     const [isRateTierModalOpen, setIsRateTierModalOpen] = useState(false);
     const [activeRateTierRowId, setActiveRateTierRowId] = useState<string | null>(null);
+
+    useEffect(() => {
+        setSelectedSearchIndex(0);
+    }, [modalSearchTerm]);
+
+    useEffect(() => {
+        if (isSearchModalOpen && searchResultsRef.current) {
+            const timer = setTimeout(() => {
+                const selectedRow = searchResultsRef.current?.querySelector(`[data-index="${selectedSearchIndex}"]`);
+                if (selectedRow) {
+                    selectedRow.scrollIntoView({
+                        block: 'nearest',
+                        behavior: 'auto'
+                    });
+                }
+            }, 0);
+            return () => clearTimeout(timer);
+        }
+    }, [selectedSearchIndex, isSearchModalOpen]);
+
     const [rateTierDraft, setRateTierDraft] = useState({ rateA: '', rateB: '', rateC: '' });
     const [rateTierHandledRows, setRateTierHandledRows] = useState<Set<string>>(new Set());
     const [selectedRateTierAction, setSelectedRateTierAction] = useState<'skip' | 'save'>('save');

@@ -11,9 +11,6 @@ interface BatchSelectionModalProps {
     onSelect: (batch: InventoryItem) => void;
 }
 
-// Synchronized typography style from Product Selection Matrix
-const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
-
 const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClose, productName, batches, onSelect }) => {
     const [selectedIndex, setSelectedIndex] = useState(0);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -27,8 +24,6 @@ const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClo
     }, [isOpen]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (batches.length === 0) return;
-        
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             setSelectedIndex(prev => (prev + 1) % batches.length);
@@ -37,7 +32,7 @@ const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClo
             setSelectedIndex(prev => (prev - 1 + batches.length) % batches.length);
         } else if (e.key === 'Enter') {
             e.preventDefault();
-            if (batches[selectedIndex]) onSelect(batches[selectedIndex]);
+            onSelect(batches[selectedIndex]);
         } else if (e.key === 'Escape') {
             onClose();
         }
@@ -46,21 +41,29 @@ const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClo
     if (!isOpen) return null;
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Batch Selection Matrix`} widthClass="max-w-xl" heightClass="h-auto">
+        <Modal 
+            isOpen={isOpen} 
+            onClose={onClose} 
+            title="Select Batch"
+            widthClass="max-w-3xl"
+        >
             <div 
                 ref={containerRef}
-                className="flex flex-col outline-none bg-white dark:bg-zinc-950 font-normal" 
-                onKeyDown={handleKeyDown} 
                 tabIndex={0}
+                onKeyDown={handleKeyDown}
+                className="flex flex-col h-full bg-white dark:bg-zinc-950 outline-none"
             >
-                {/* Product Identifier Section */}
-                <div className="p-6 bg-slate-50 dark:bg-zinc-900 border-b-2 border-app-border flex flex-col gap-1">
-                    <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em] leading-none mb-1">Target Material</p>
-                    <h3 className="text-2xl font-black uppercase text-gray-950 dark:text-white leading-tight tracking-tight">
+                {/* Header */}
+                <div className="bg-primary/5 p-4 border-b border-app-border">
+                    <h3 className="text-primary font-black uppercase text-sm tracking-widest">
                         {productName}
                     </h3>
+                    <p className="text-[10px] text-gray-500 font-bold uppercase mt-1">
+                        Use ↑ ↓ to navigate | Enter to select | Esc to cancel
+                    </p>
                 </div>
-                
+
+                {/* Table */}
                 <div className="overflow-y-auto max-h-[50vh] custom-scrollbar">
                     <table className="min-w-full border-collapse">
                         <thead className="bg-gray-100 dark:bg-zinc-800 text-gray-600 sticky top-0 z-10">
@@ -81,28 +84,35 @@ const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClo
                                         key={batch.id} 
                                         onClick={() => onSelect(batch)}
                                         onMouseEnter={() => setSelectedIndex(idx)}
-                                        className={`cursor-pointer transition-all ${
-                                            isSelected 
-                                            ? 'bg-primary text-white scale-[1.01] shadow-lg z-20 relative' 
-                                            : isExpired ? 'bg-red-50/30' : 'hover:bg-slate-50 dark:hover:bg-zinc-900'
-                                        }`}
+                                        className={`
+                                            cursor-pointer transition-colors
+                                            ${isSelected ? 'bg-primary/10' : 'hover:bg-gray-50 dark:hover:bg-zinc-900'}
+                                        `}
                                     >
-                                        <td className={`p-4 text-center font-bold ${isSelected ? 'text-white' : 'text-gray-400'}`}>
+                                        <td className="p-4 text-[11px] font-black text-gray-400">
                                             {idx + 1}
                                         </td>
                                         <td className="p-4">
-                                            <span className={`${matrixRowTextStyle} font-mono tracking-wider ${isSelected ? 'text-white' : 'text-primary'}`}>
-                                                {batch.batch}
+                                            <div className="flex items-center gap-2">
+                                                <span className={`text-xs font-black uppercase ${isSelected ? 'text-primary' : 'text-gray-900 dark:text-gray-100'}`}>
+                                                    {batch.batch}
+                                                </span>
+                                                {isExpired && (
+                                                    <span className="bg-red-100 text-red-600 text-[8px] px-1.5 py-0.5 rounded-none font-black uppercase">
+                                                        Expired
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="p-4 text-center">
+                                            <span className="text-xs font-mono font-bold text-gray-600 dark:text-gray-400">
+                                                {batch.expiry}
                                             </span>
-                                            {isExpired && (
-                                                <span className="ml-2 px-1.5 py-0.5 bg-red-600 text-white text-[9px] font-black uppercase rounded-none">Expired</span>
-                                            )}
                                         </td>
-                                        <td className={`p-4 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-700 dark:text-gray-300'}`}>
-                                            {batch.expiry}
-                                        </td>
-                                        <td className={`p-4 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : (batch.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>
-                                            {batch.stock}
+                                        <td className="p-4 text-right">
+                                            <span className={`text-xs font-black ${batch.stock > 10 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                {batch.stock}
+                                            </span>
                                         </td>
                                     </tr>
                                 );
@@ -110,22 +120,12 @@ const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClo
                         </tbody>
                     </table>
                 </div>
-                
-                {/* Shortcut Information Footer */}
-                <div className="p-4 bg-gray-100 dark:bg-zinc-900 border-t-2 border-app-border flex justify-between items-center px-6">
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1.5">
-                            <span className="px-2 py-0.5 bg-white dark:bg-zinc-800 border border-gray-300 rounded-none font-mono text-[10px] font-black shadow-sm">↑ ↓</span>
-                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter">Navigate</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            <span className="px-2 py-0.5 bg-white dark:bg-zinc-800 border border-gray-300 rounded-none font-mono text-[10px] font-black shadow-sm">ENT</span>
-                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter">Confirm</span>
-                        </div>
-                    </div>
+
+                {/* Footer */}
+                <div className="p-4 bg-gray-50 dark:bg-zinc-900 border-t border-app-border flex justify-end gap-3">
                     <button 
-                        onClick={onClose} 
-                        className="text-[11px] font-black uppercase tracking-widest text-red-600 hover:bg-red-50 px-3 py-1.5 transition-colors"
+                        onClick={onClose}
+                        className="text-[10px] font-black uppercase tracking-widest text-gray-500 hover:bg-red-50 px-3 py-1.5 transition-colors"
                     >
                         Cancel (Esc)
                     </button>

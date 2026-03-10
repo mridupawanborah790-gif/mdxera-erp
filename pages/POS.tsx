@@ -42,8 +42,8 @@ interface UploadedFile {
     name: string;
 }
 
-const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
-const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
+const uniformTextStyle = "text-sm font-bold tracking-tight uppercase leading-tight";
+const matrixRowTextStyle = "text-base font-bold tracking-tight uppercase leading-tight";
 
 const createBlankItem = (): BillItem => ({
     id: crypto.randomUUID(),
@@ -108,6 +108,25 @@ const POS = forwardRef<any, POSProps>(({
     const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
     const activeRowIdRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        setSelectedSearchIndex(0);
+    }, [modalSearchTerm]);
+
+    useEffect(() => {
+        if (isSearchModalOpen && searchResultsRef.current) {
+            const timer = setTimeout(() => {
+                const selectedRow = searchResultsRef.current?.querySelector(`[data-index="${selectedSearchIndex}"]`);
+                if (selectedRow) {
+                    selectedRow.scrollIntoView({
+                        block: 'nearest',
+                        behavior: 'auto'
+                    });
+                }
+            }, 0);
+            return () => clearTimeout(timer);
+        }
+    }, [selectedSearchIndex, isSearchModalOpen]);
 
     const isNonGst = billMode === 'EST';
     const canOpenJournalEntry = Boolean(transactionToEdit?.id);
