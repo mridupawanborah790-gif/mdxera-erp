@@ -29,7 +29,9 @@ const Returns: React.FC<ReturnsProps> = ({
     onAddPurchaseReturn,
     addNotification,
     defaultTab = 'sales',
-    isFixedMode
+    isFixedMode,
+    prefillSalesInvoiceId,
+    onPrefillSalesInvoiceHandled
 }) => {
     const [view, setView] = useState<'list' | 'create'>('list');
     const [activeTab, setActiveTab] = useState<'sales' | 'purchase'>(defaultTab);
@@ -60,6 +62,27 @@ const Returns: React.FC<ReturnsProps> = ({
         return activeTab === 'sales' ? salesReturns : purchaseReturns;
     }, [activeTab, salesReturns, purchaseReturns]);
 
+    useEffect(() => {
+        if (!prefillSalesInvoiceId) return;
+
+        setActiveTab('sales');
+        setView('create');
+        setSearchInvoiceId(prefillSalesInvoiceId);
+
+        const foundTx = transactions.find(tx => tx.id === prefillSalesInvoiceId);
+        if (foundTx) {
+            setReturnItems((foundTx.items || []).map(item => ({
+                ...item,
+                returnQuantity: 0,
+                reason: RETURN_REASONS[0],
+            } as SalesReturnItem)));
+            setSelectedInvoice(foundTx);
+            addNotification('Source Invoice Identified.', 'success');
+        }
+
+        onPrefillSalesInvoiceHandled?.();
+    }, [prefillSalesInvoiceId, transactions, addNotification, onPrefillSalesInvoiceHandled]);
+
     const handleSearchInvoice = () => {
         if (!searchInvoiceId.trim()) {
             addNotification("Enter Bill/Invoice number to continue.", "warning");
@@ -71,6 +94,20 @@ const Returns: React.FC<ReturnsProps> = ({
         if (activeTab === 'sales') {
             const foundTx = transactions.find(t => t.id.toLowerCase() === lowerSearchId);
             if (foundTx) {
+                const totalReturnedQty = (salesReturns || [])
+                    .filter(ret => ret.originalInvoiceId === foundTx.id)
+                    .flatMap(ret => ret.items || [])
+                    .reduce((sum, item) => sum + Number(item.returnQuantity || 0), 0);
+                const totalSoldQty = (foundTx.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+                if (foundTx.status !== 'completed') {
+                    addNotification('Selected invoice is not eligible for return.', 'warning');
+                    return;
+                }
+                if (totalSoldQty > 0 && totalReturnedQty >= totalSoldQty) {
+                    addNotification('Return already completed for this invoice.', 'warning');
+                    return;
+                }
+
                 setReturnItems((foundTx.items || []).map(item => ({
                     ...item,
                     returnQuantity: 0,
