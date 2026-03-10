@@ -200,7 +200,20 @@ const POS = forwardRef<any, POSProps>(({
     const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
 
-    const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
+    const isFieldVisible = (fieldId: string) => {
+        const fields = config?.fields || {};
+        const aliasMap: Record<string, string[]> = {
+            colSch: ['colScheme'],
+            colRate: ['rate']
+        };
+
+        if (fields[fieldId] === false) return false;
+        const aliases = aliasMap[fieldId] || [];
+        return aliases.every(alias => fields[alias] !== false);
+    };
+
+    const lineItemColumns = ['colName', 'colBatch', 'colExpiry', 'colPack', 'colMrp', 'colPQty', 'colLQty', 'colFree', 'colRate', 'colDisc', 'colGst', 'colSch', 'colAmount'];
+    const visibleLineItemColumnCount = lineItemColumns.filter(isFieldVisible).length;
     const isValidExpiry = useCallback((expiry: string) => /^(0[1-9]|1[0-2])\/\d{2}$/.test(expiry), []);
 
     const formatExpiryForInput = useCallback((expiry: string | undefined | null) => {
@@ -1233,7 +1246,7 @@ const POS = forwardRef<any, POSProps>(({
                                     {isFieldVisible('colRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
                                     {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
                                     {isFieldVisible('colGst') && <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>}
-                                    {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-20">Sch%</th>}
+                                    {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-20">SCH</th>}
                                     {isFieldVisible('colAmount') && <th className="p-2 text-right w-32">Amount</th>}
                                 </tr>
                             </thead>
@@ -1472,7 +1485,7 @@ const POS = forwardRef<any, POSProps>(({
                                                 autoComplete="off"
                                             />
                                         </td>
-                                        <td colSpan={11} className="border-r border-gray-200"></td>
+                                        <td colSpan={Math.max(1, visibleLineItemColumnCount - 1)} className="border-r border-gray-200"></td>
                                     </tr>
                                 )}
                             </tbody>
