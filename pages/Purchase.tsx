@@ -316,6 +316,39 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         };
     }, [items]);
 
+    const activeItemDetails = useMemo(() => {
+        const activeItem = items.find(item => item.id === activeRowId) || items.find(item => (item.name || '').trim() !== '');
+        return {
+            item: activeItem?.name || '-',
+            batch: activeItem?.batch || '-',
+            expiry: activeItem?.expiry || '-',
+            stock: 0,
+            mrp: activeItem?.mrp || 0
+        };
+    }, [activeRowId, items]);
+
+    const vendorSnapshot = useMemo(() => {
+        if (!currentDistributor) {
+            return {
+                area: '-',
+                route: '-',
+                collectionDays: '-',
+                lastPurchase: '-',
+                lastReceipt: '-',
+                avgPayDays: '-'
+            };
+        }
+
+        return {
+            area: currentDistributor.area || '-',
+            route: currentDistributor.city || '-',
+            collectionDays: currentDistributor.payment_details?.payment_terms || '-',
+            lastPurchase: '-',
+            lastReceipt: '-',
+            avgPayDays: '-'
+        };
+    }, [currentDistributor]);
+
     const handleSubmit = async () => {
         if (isSubmitting) return;
         if (!supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
@@ -593,17 +626,38 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </div>
                 </Card>
 
-                <div className="flex justify-end gap-3 flex-shrink-0">
-                    <div className="w-full md:w-[380px] bg-[#e5f0f0] p-3 tally-border !rounded-none shadow-md">
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
-                        <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-tight">
-                            <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
-                            <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
-                            <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatCurrency(calculatedTotals.roundOff)}</span></div>
-                            <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[210px]">
+                    <div className="col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                        <div className="text-[11px] font-bold uppercase space-y-1">
+                            <div>Item : <span className="text-primary">{activeItemDetails.item}</span></div>
+                            <div>Batch : <span className="text-primary">{activeItemDetails.batch}</span></div>
+                            <div>Expiry : <span className="text-primary">{activeItemDetails.expiry}</span></div>
+                            <div>Stock : <span className="text-primary">{activeItemDetails.stock}</span></div>
+                            <div>MRP : <span className="text-primary">₹{activeItemDetails.mrp.toFixed(2)}</span></div>
+                        </div>
+                    </div>
+
+                    <div className="col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                        <div className="space-y-1 text-[11px] font-bold uppercase">
+                            <div className="flex justify-between"><span>MRP Value</span><span>₹{calculatedTotals.grossAmount.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Value of Goods</span><span>₹{calculatedTotals.subtotal.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>SGST</span><span>₹{(calculatedTotals.totalGst / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>CGST</span><span>₹{(calculatedTotals.totalGst / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Discount</span><span>₹{(calculatedTotals.totalItemDiscount + calculatedTotals.totalItemSchemeDiscount + calculatedTotals.billDiscount).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>GST%</span><span>{calculatedTotals.subtotal > 0 ? ((calculatedTotals.totalGst / calculatedTotals.subtotal) * 100).toFixed(2) : '0.00'}%</span></div>
+                            <div className="flex justify-between"><span>Balance</span><span>₹{calculatedTotals.grandTotal.toFixed(2)}</span></div>
+                        </div>
+                    </div>
+
+                    <div className="col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm">
+                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1">Vendor Info</div>
+                        <div className="text-[11px] font-bold uppercase space-y-1">
+                            <div>Area: {vendorSnapshot.area}</div>
+                            <div>Route: {vendorSnapshot.route}</div>
+                            <div>Collection Days: {vendorSnapshot.collectionDays}</div>
+                            <div>Last Purchase: {vendorSnapshot.lastPurchase}</div>
+                            <div>Last Receipt: {vendorSnapshot.lastReceipt}</div>
+                            <div>Avg Pay Days: {vendorSnapshot.avgPayDays}</div>
                         </div>
                     </div>
                 </div>
