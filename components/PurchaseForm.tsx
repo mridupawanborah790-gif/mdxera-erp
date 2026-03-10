@@ -1514,6 +1514,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setSupplierGst(d.gst_number || '');
         setIsSupplierDropdownOpen(false);
         setIsSupplierSearchModalOpen(false);
+        setIsAddSupplierModalOpen(false);
+        setSupplierQuickCreatePrefill(undefined);
         setSelectedSupplierIndex(0);
         setSupplierNameError(null);
         setTimeout(() => {
@@ -1521,10 +1523,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }, 0);
     };
 
-    const handleQuickCreateSupplier = () => {
+    const handleQuickCreateSupplier = (supplierNameOverride?: string) => {
         if (isReadOnly) return;
+        const supplierName = (supplierNameOverride ?? Supplier).trim();
         setSupplierQuickCreatePrefill({
-            name: Supplier.trim(),
+            name: supplierName,
             gst_number: supplierGst || '',
             supplier_group: 'Sundry Creditors',
         });
@@ -2085,6 +2088,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 onClose={() => setIsSupplierSearchModalOpen(false)}
                 suppliers={suppliers}
                 onSelect={handleSupplierSelect}
+                onQuickCreateSupplier={handleQuickCreateSupplier}
                 initialSearch={Supplier}
             />
 
