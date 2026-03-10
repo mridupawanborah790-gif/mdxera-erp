@@ -921,9 +921,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
-        const newItemId = crypto.randomUUID();
+        const targetRowId = activeRowId || crypto.randomUUID();
         const newItem: PurchaseItem = {
-            id: newItemId,
+            id: targetRowId,
             inventoryItemId: batch.id,
             name: batch.name,
             brand: batch.brand || '',
@@ -960,10 +960,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setModalSearchTerm('');
         setIsSearchModalOpen(false);
         setPendingBatchSelection(null);
-        setActiveRowId(null);
+        setActiveRowId(targetRowId);
 
         setTimeout(() => {
-            const qtyInput = document.getElementById(`qty-${newItemId}`);
+            const qtyInput = document.getElementById(`qty-${targetRowId}`);
             if (qtyInput) {
                 (qtyInput as HTMLInputElement).focus();
                 (qtyInput as HTMLInputElement).select();
