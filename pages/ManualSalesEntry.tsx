@@ -61,6 +61,7 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [narration, setNarration] = useState('');
   const [lines, setLines] = useState<ManualLine[]>([newLine()]);
+  const [hoveredLineId, setHoveredLineId] = useState<string | null>(null);
   const [salesGlId, setSalesGlId] = useState('');
   const [discountGlId, setDiscountGlId] = useState('');
   const [taxGlId, setTaxGlId] = useState('');
@@ -70,6 +71,19 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
   const [taxOptions, setTaxOptions] = useState<GlOption[]>([]);
   const [expenseOptions, setExpenseOptions] = useState<GlOption[]>([]);
   const [searchText, setSearchText] = useState('');
+
+  const activeLine = useMemo(() => {
+    if (hoveredLineId) return lines.find(l => l.id === hoveredLineId);
+    return lines[lines.length - 1];
+  }, [hoveredLineId, lines]);
+
+  const activeInventoryItem = useMemo(() => {
+    if (!activeLine || !activeLine.description) return null;
+    return inventory.find(i => 
+      (activeLine.inventoryItemId && i.id === activeLine.inventoryItemId) || 
+      (i.name.toLowerCase() === activeLine.description.toLowerCase())
+    );
+  }, [activeLine, inventory]);
 
   const dateInputRef = useRef<HTMLInputElement>(null);
   const customerInputRef = useRef<HTMLSelectElement>(null);
@@ -304,6 +318,28 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
     await onSaved();
   };
 
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      const isInputFocused = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select';
+
+      if (!isInputFocused && lines.length > 0) {
+        const itemIdx = lines.findIndex(l => l.id === hoveredLineId);
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          const targetIdx = Math.max(0, itemIdx - 1);
+          setHoveredLineId(lines[targetIdx].id);
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          const targetIdx = Math.min(lines.length - 1, itemIdx + 1);
+          setHoveredLineId(lines[targetIdx].id);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [lines, hoveredLineId]);
+
   const onPost = async () => {
     const err = await validate();
     if (err) return addNotification(err, 'error');
@@ -416,7 +452,12 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
             </thead>
             <tbody>
               {lines.map((line, i) => (
-                <tr key={line.id} className="border-b border-gray-200 h-10 text-xs font-bold uppercase">
+                <tr 
+                  key={line.id} 
+                  onMouseEnter={() => setHoveredLineId(line.id)}
+                  onMouseLeave={() => setHoveredLineId(null)}
+                  className={`border-b border-gray-200 h-10 text-xs font-bold uppercase transition-colors ${hoveredLineId === line.id ? 'bg-sky-50' : ''}`}
+                >
                   <td className="p-2 border-r border-gray-200 text-center text-gray-500">{i + 1}</td>
                   <td className="p-2 border-r border-gray-200">
                     <input className="w-full bg-transparent outline-none" value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })} placeholder="Item description" />
@@ -443,6 +484,15 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
         </div>
 
         <div className="bg-white border border-app-border p-1.5 grid grid-cols-1 md:grid-cols-2 gap-2 flex-shrink-0">
+          {activeInventoryItem && (
+            <div className="md:col-span-2 bg-emerald-50 border border-emerald-200 p-2 flex flex-wrap gap-x-6 gap-y-1 text-[11px] font-bold uppercase animate-in fade-in duration-200">
+              <div className="text-emerald-800">Item: <span className="text-primary">{activeInventoryItem.name}</span></div>
+              <div className="text-emerald-800">Stock: <span className="text-primary">{activeInventoryItem.stock}</span></div>
+              <div className="text-emerald-800">MRP: <span className="text-primary">₹{(activeInventoryItem.mrp || 0).toFixed(2)}</span></div>
+              <div className="text-emerald-800">Batch: <span className="text-primary">{activeInventoryItem.batch || '-'}</span></div>
+              <div className="text-emerald-800">Expiry: <span className="text-primary">{activeInventoryItem.expiry || '-'}</span></div>
+            </div>
+          )}
           <select className="h-8 border border-gray-400 p-1 text-xs font-bold" value={salesGlId} onChange={(e) => setSalesGlId(e.target.value)}>
             <option value="">Select Sales GL *</option>
             {salesOptions.map((gl) => <option key={gl.id} value={gl.id}>{gl.label}</option>)}
@@ -458,12 +508,14 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
           <input className="h-8 border border-gray-300 p-1 text-xs font-bold bg-gray-100" value={customerControlGlId} readOnly placeholder="Customer/Receivable GL" />
         </div>
 
-        <div className="bg-gray-100 border border-gray-300 px-3 py-2 text-xs font-bold flex flex-wrap gap-4 justify-end flex-shrink-0">
-          <div>Sub Total: <span className="text-gray-800">{metrics.subTotal.toFixed(2)}</span></div>
-          <div>Total Discount: <span className="text-gray-800">{metrics.totalDiscount.toFixed(2)}</span></div>
-          <div>Taxable Value: <span className="text-gray-800">{metrics.taxableValue.toFixed(2)}</span></div>
-          <div>Tax: <span className="text-gray-800">{metrics.tax.toFixed(2)}</span></div>
-          <div className="text-primary">Grand Total: {metrics.grandTotal.toFixed(2)}</div>
+        <div className="bg-gray-100 border border-gray-300 px-3 py-2 text-[10px] font-bold flex flex-wrap gap-4 justify-end flex-shrink-0 uppercase tracking-tight">
+          <div>Sub Total: <span className="text-gray-800">₹{metrics.subTotal.toFixed(2)}</span></div>
+          <div>SGST: <span className="text-blue-700">₹{(metrics.tax / 2).toFixed(2)}</span></div>
+          <div>CGST: <span className="text-blue-700">₹{(metrics.tax / 2).toFixed(2)}</span></div>
+          <div>GST Amount: <span className="text-gray-800">₹{metrics.tax.toFixed(2)}</span></div>
+          <div>Total Discount: <span className="text-red-600">₹{metrics.totalDiscount.toFixed(2)}</span></div>
+          <div>Taxable Value: <span className="text-gray-800">₹{metrics.taxableValue.toFixed(2)}</span></div>
+          <div className="text-primary font-black text-xs">Grand Total: ₹{metrics.grandTotal.toFixed(2)}</div>
         </div>
 
         <div className="flex gap-2 justify-end flex-shrink-0">

@@ -14,7 +14,7 @@ import * as storage from '../services/storageService';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
-import { formatExpiryToMMYY, getOutstandingBalance, parseNumber } from '../utils/helpers';
+import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
 import { calculateBillingTotals, calculateLineNetAmount, resolveBillingSettings } from '../utils/billing';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
@@ -171,6 +171,7 @@ const POS = forwardRef<any, POSProps>(({
     const [isRoundOffManuallyEdited, setIsRoundOffManuallyEdited] = useState(false);
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
     const [selectedRowIndex, setSelectedRowIndex] = useState(0);
+    const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
     const activeRowIdRef = useRef<string | null>(null);
 
@@ -200,20 +201,7 @@ const POS = forwardRef<any, POSProps>(({
     const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
 
-    const isFieldVisible = (fieldId: string) => {
-        const fields = config?.fields || {};
-        const aliasMap: Record<string, string[]> = {
-            colSch: ['colScheme'],
-            colRate: ['rate']
-        };
-
-        if (fields[fieldId] === false) return false;
-        const aliases = aliasMap[fieldId] || [];
-        return aliases.every(alias => fields[alias] !== false);
-    };
-
-    const lineItemColumns = ['colName', 'colBatch', 'colExpiry', 'colPack', 'colMrp', 'colPQty', 'colLQty', 'colFree', 'colRate', 'colDisc', 'colGst', 'colSch', 'colAmount'];
-    const visibleLineItemColumnCount = lineItemColumns.filter(isFieldVisible).length;
+    const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
     const isValidExpiry = useCallback((expiry: string) => /^(0[1-9]|1[0-2])\/\d{2}$/.test(expiry), []);
 
     const formatExpiryForInput = useCallback((expiry: string | undefined | null) => {
@@ -231,6 +219,14 @@ const POS = forwardRef<any, POSProps>(({
     const isValidRateInput = useCallback((value: string) => {
         if (value === '') return true;
         return /^\d{0,6}(\.\d{0,2})?$/.test(value);
+    }, []);
+
+    useEffect(() => {
+        const handleGlobalKeyDown = () => {
+            setHoveredRowId(null);
+        };
+        window.addEventListener('keydown', handleGlobalKeyDown);
+        return () => window.removeEventListener('keydown', handleGlobalKeyDown);
     }, []);
 
     const billingSettings = useMemo(() => resolveBillingSettings(configurations), [configurations]);
@@ -262,6 +258,34 @@ const POS = forwardRef<any, POSProps>(({
     }, [totals.baseTotal, roundOff]);
 
 
+    const activeBillItem = useMemo(() => {
+        if (cartItems.length === 0) return null;
+
+        // Prioritize hovered row for insights
+        if (hoveredRowId) {
+            const match = cartItems.find(item => item.id === hoveredRowId);
+            if (match) return match;
+        }
+
+        // Fallback to currently selected row index
+        if (selectedRowIndex >= 0 && selectedRowIndex < cartItems.length) {
+            return cartItems[selectedRowIndex];
+        }
+
+        return cartItems[cartItems.length - 1];
+    }, [cartItems, hoveredRowId, selectedRowIndex]);
+
+    const activeLineTotals = useMemo(() => {
+        if (!activeBillItem) return null;
+        return calculateBillingTotals({
+            items: [activeBillItem],
+            billDiscount: 0,
+            isNonGst,
+            configurations,
+        });
+    }, [activeBillItem, isNonGst, configurations]);
+
+
     const customerSnapshot = useMemo(() => {
         if (!selectedCustomer) {
             return {
@@ -290,21 +314,11 @@ const POS = forwardRef<any, POSProps>(({
         };
     }, [selectedCustomer, salesHistory]);
 
-    const activeBillItem = useMemo(() => {
-        if (cartItems.length === 0) return null;
-        const activeId = activeRowIdRef.current;
-        if (activeId) {
-            const match = cartItems.find(item => item.id === activeId);
-            if (match) return match;
-        }
-        return cartItems[cartItems.length - 1];
-    }, [cartItems]);
-
     const activeStockSnapshot = useMemo(() => {
         if (!activeBillItem) return null;
         const matchingInventory = inventory.filter(inv => {
-            if (!activeBillItem.inventoryItemId) return false;
-            return inv.id === activeBillItem.inventoryItemId || (inv.name === activeBillItem.name && inv.batch === activeBillItem.batch);
+            if (activeBillItem.inventoryItemId && inv.id === activeBillItem.inventoryItemId) return true;
+            return (inv.name || '').toLowerCase() === (activeBillItem.name || '').toLowerCase() && (inv.batch || '') === (activeBillItem.batch || '');
         });
         const selectedBatchInventory = matchingInventory[0];
         return {
@@ -499,6 +513,28 @@ const POS = forwardRef<any, POSProps>(({
                 e.preventDefault();
                 handleSave();
                 return;
+            }
+
+            const activeTag = document.activeElement?.tagName.toLowerCase();
+            const isInputFocused = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || (activeTag === 'button' && (document.activeElement?.id?.includes('-') || (document.activeElement as HTMLElement)?.innerText?.includes('Apply')));
+
+            if (!isInputFocused && cartItems.length > 0) {
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedRowIndex(prev => Math.max(0, prev - 1));
+                    return;
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedRowIndex(prev => Math.min(cartItems.length - 1, prev + 1));
+                    return;
+                } else if (e.key === 'Enter') {
+                    const item = cartItems[selectedRowIndex];
+                    if (item) {
+                        e.preventDefault();
+                        focusFirstEditableFieldInRow(item.id);
+                    }
+                    return;
+                }
             }
 
             switch (e.key) {
@@ -839,6 +875,11 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
+        if (checkIsExpired(batch.expiry ? String(batch.expiry) : '')) {
+            addNotification(`Item ${batch.name} (Batch: ${batch.batch}) is expired and cannot be sold.`, 'error');
+            return;
+        }
+
         if (shouldPreventNegativeStock && Number(batch.stock || 0) <= 0) {
             addNotification(`Insufficient stock for ${batch.name}. Available: ${Number(batch.stock || 0)}`, 'error');
             return;
@@ -1018,6 +1059,25 @@ const POS = forwardRef<any, POSProps>(({
         });
     }, [isReadOnly]);
 
+    const focusFirstEditableFieldInRow = useCallback((rowId: string) => {
+        const firstEditableField = [
+            `name-${rowId}`,
+            `batch-${rowId}`,
+            `qty-p-${rowId}`,
+            `qty-l-${rowId}`,
+            `free-${rowId}`,
+            `rate-${rowId}`,
+            `disc-${rowId}`,
+            `gst-${rowId}`,
+            `scheme-${rowId}`
+        ]
+            .map(fieldId => document.getElementById(fieldId))
+            .find(el => el && !el.hasAttribute('disabled'));
+
+        firstEditableField?.focus();
+        if (firstEditableField instanceof HTMLInputElement) firstEditableField.select();
+    }, []);
+
     const handleItemKeyDown = (e: React.KeyboardEvent, id: string, index: number) => {
         if (e.key === 'Delete') {
             e.preventDefault();
@@ -1032,27 +1092,34 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const handleRowKeyNavigation = useCallback((e: React.KeyboardEvent, id: string) => {
-        const fields = [
-            `name-${id}`,
-            `expiry-${id}`,
-            `qty-p-${id}`,
-            `qty-l-${id}`,
-            `free-${id}`,
-            `rate-${id}`,
-            `disc-${id}`,
-            `gst-${id}`,
-            `scheme-${id}`
-        ].filter(id => {
-            const el = document.getElementById(id);
-            return el && !el.hasAttribute('disabled');
-        });
-
+        const fieldPrefixes = ['name', 'batch', 'qty-p', 'qty-l', 'free', 'rate', 'disc', 'gst', 'scheme'];
         const target = e.target as HTMLElement;
-        const currentId = target.id;
+        const activeElement = target.closest('input, button') as HTMLElement | null;
+        const currentId = activeElement?.id || target.id || '';
+        const currentFieldPrefix = fieldPrefixes.find(prefix => currentId.startsWith(`${prefix}-`)) || 'name';
+
+        const getAvailableRowFields = (rowId: string) => (
+            [
+                `name-${rowId}`,
+                `batch-${rowId}`,
+                `qty-p-${rowId}`,
+                `qty-l-${rowId}`,
+                `free-${rowId}`,
+                `rate-${rowId}`,
+                `disc-${rowId}`,
+                `gst-${rowId}`,
+                `scheme-${rowId}`
+            ].filter(fieldId => {
+                const el = document.getElementById(fieldId);
+                return el && !el.hasAttribute('disabled');
+            })
+        );
+
+        const fields = getAvailableRowFields(id);
         const currentIndex = fields.indexOf(currentId);
         const itemIdx = cartItems.findIndex(i => i.id === id);
 
-        if (itemIdx === -1 || currentIndex === -1) return;
+        if (itemIdx === -1) return;
 
         const moveRow = (direction: -1 | 1) => {
             const nextRowIndex = itemIdx + direction;
@@ -1062,8 +1129,13 @@ const POS = forwardRef<any, POSProps>(({
             e.stopPropagation();
 
             const nextId = cartItems[nextRowIndex].id;
-            const nextFieldId = fields[currentIndex]?.replace(id, nextId) || `name-${nextId}`;
-            const nextEl = document.getElementById(nextFieldId) || document.getElementById(`name-${nextId}`);
+            const nextFieldId = `${currentFieldPrefix}-${nextId}`;
+            let nextEl = document.getElementById(nextFieldId);
+
+            if (!nextEl || nextEl.hasAttribute('disabled')) {
+                const nextRowFields = getAvailableRowFields(nextId);
+                nextEl = document.getElementById(nextRowFields[0]);
+            }
 
             setSelectedRowIndex(nextRowIndex);
             nextEl?.focus();
@@ -1071,7 +1143,7 @@ const POS = forwardRef<any, POSProps>(({
         };
 
         const moveNext = () => {
-            if (currentIndex < fields.length - 1) {
+            if (currentIndex !== -1 && currentIndex < fields.length - 1) {
                 e.preventDefault();
                 e.stopPropagation();
                 const nextEl = document.getElementById(fields[currentIndex + 1]);
@@ -1237,16 +1309,14 @@ const POS = forwardRef<any, POSProps>(({
                                     <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
                                     {isFieldVisible('colName') && <th className="p-2 border-r border-gray-400 text-left w-72">Name of Item</th>}
                                     {isFieldVisible('colBatch') && <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>}
-                                    {isFieldVisible('colExpiry') && <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>}
                                     {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
-                                    {isFieldVisible('colMrp') && <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>}
                                     {isFieldVisible('colPQty') && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
                                     {isFieldVisible('colLQty') && <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>}
                                     {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">Free</th>}
-                                    {isFieldVisible('colRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
-                                    {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
+                                    <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>
+                                    <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>
                                     {isFieldVisible('colGst') && <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>}
-                                    {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-20">SCH</th>}
+                                    <th className="p-2 border-r border-gray-400 text-center w-20">Sch%</th>
                                     {isFieldVisible('colAmount') && <th className="p-2 text-right w-32">Amount</th>}
                                 </tr>
                             </thead>
@@ -1255,7 +1325,17 @@ const POS = forwardRef<any, POSProps>(({
                                     const lineAmount = calculateLineNetAmount(item, configurations);
 
                                     return (
-                                        <tr key={item.id} className={`group h-10 ${selectedRowIndex === idx ? 'bg-sky-100' : 'hover:bg-gray-50'}`}>
+                                        <tr 
+                                            key={item.id} 
+                                            onMouseEnter={() => setHoveredRowId(item.id)}
+                                            onMouseLeave={() => setHoveredRowId(null)}
+                                            onClick={() => {
+                                                setSelectedRowIndex(idx);
+                                                focusFirstEditableFieldInRow(item.id);
+                                            }}
+                                            onFocusCapture={() => setSelectedRowIndex(idx)}
+                                            className={`group h-10 cursor-pointer ${selectedRowIndex === idx ? 'bg-sky-100' : 'hover:bg-gray-50'}`}
+                                        >
                                             <td className={`p-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-2 border-r border-gray-200 text-primary uppercase w-72 truncate ${uniformTextStyle}`} title={item.name}>
@@ -1276,27 +1356,32 @@ const POS = forwardRef<any, POSProps>(({
                                             )}
                                             {isFieldVisible('colBatch') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>
-                                                    <span className="block leading-tight">{item.batch || 'N/A'}</span>
-                                                </td>
-                                            )}
-                                            {isFieldVisible('colExpiry') && (
-                                                <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
-                                                    <input
-                                                        id={`expiry-${item.id}`}
-                                                        type="text"
-                                                        value={item.expiry || ''}
-                                                        onChange={e => handleUpdateCartItem(item.id, 'expiry', e.target.value)}
-                                                        onFocus={() => handleRowFocus(idx)}
-                                                        onBlur={e => handleExpiryBlur(item.id, e.target.value)}
-                                                        onKeyDown={e => {
-                                                            handleItemKeyDown(e, item.id, idx);
-                                                            handleRowKeyNavigation(e, item.id);
+                                                    <button
+                                                        id={`batch-${item.id}`}
+                                                        onClick={() => {
+                                                            if (isReadOnly) return;
+                                                            const batches = inventory.filter(inv => inv.name === item.name).sort((a, b) => parseExpiryForSort(String(a.expiry || '')) - parseExpiryForSort(String(b.expiry || '')));
+                                                            if (batches.length > 0) setPendingBatchSelection({ item: batches[0], batches });
+                                                            activeRowIdRef.current = item.id;
                                                         }}
-                                                        className="w-full text-center bg-transparent font-normal outline-none"
-                                                        placeholder="MM/YY"
-                                                        maxLength={5}
+                                                        onFocus={() => handleRowFocus(idx)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                const batches = inventory.filter(inv => inv.name === item.name).sort((a, b) => parseExpiryForSort(String(a.expiry || '')) - parseExpiryForSort(String(b.expiry || '')));
+                                                                if (batches.length > 0) setPendingBatchSelection({ item: batches[0], batches });
+                                                                activeRowIdRef.current = item.id;
+                                                            } else {
+                                                                handleItemKeyDown(e, item.id, idx);
+                                                                handleRowKeyNavigation(e, item.id);
+                                                            }
+                                                        }}
+                                                        className="w-full text-center hover:bg-sky-200 hover:text-primary transition-colors outline-none focus:bg-sky-200 focus:text-primary rounded px-1"
                                                         disabled={isReadOnly}
-                                                    />
+                                                    >
+                                                        {item.batch || 'N/A'}
+                                                    </button>
                                                 </td>
                                             )}
                                             {isFieldVisible('colPack') && (
@@ -1307,7 +1392,6 @@ const POS = forwardRef<any, POSProps>(({
                                                     })()}
                                                 </td>
                                             )}
-                                            {isFieldVisible('colMrp') && <td className={`p-2 border-r border-gray-200 text-right text-gray-600 ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colPQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
                                                     <input
@@ -1485,7 +1569,7 @@ const POS = forwardRef<any, POSProps>(({
                                                 autoComplete="off"
                                             />
                                         </td>
-                                        <td colSpan={Math.max(1, visibleLineItemColumnCount - 1)} className="border-r border-gray-200"></td>
+                                        <td colSpan={11} className="border-r border-gray-200"></td>
                                     </tr>
                                 )}
                             </tbody>
@@ -1505,14 +1589,49 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
 
                     <div className="col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
-                        <div className="space-y-1 text-[11px] font-bold uppercase">
-                            <div className="flex justify-between"><span>MRP Value</span><span>₹{(totals.gross || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>Value of Goods</span><span>₹{(totals.subtotal || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>SGST</span><span>₹{((totals.tax || 0) / 2).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>CGST</span><span>₹{((totals.tax || 0) / 2).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>Discount</span><span>₹{((totals.tradeDiscount || 0) + (totals.schemeTotal || 0) + (lumpsumDiscount || 0)).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>GST%</span><span>{(totals.subtotal || 0) > 0 ? (((totals.tax || 0) / totals.subtotal) * 100).toFixed(2) : '0.00'}%</span></div>
-                            <div className="flex justify-between"><span>Balance</span><span>₹{(grandTotal || 0).toFixed(2)}</span></div>
+                        <div className="space-y-0.5 text-[9px] font-bold uppercase tracking-tight leading-none">
+                            <h4 className="text-[8px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1 leading-none">{activeLineTotals ? 'Item Summary' : 'Bill Summary'}</h4>
+                            {activeLineTotals && (
+                                <>
+                                    <div className="flex items-center justify-between text-blue-800"><span>Unit Rate</span> <span className="font-mono text-[10px]">₹{(activeBillItem?.rate || 0).toFixed(2)}</span></div>
+                                    <div className="flex items-center justify-between text-emerald-700"><span>Scheme %</span> <span className="font-mono text-[10px]">{(activeBillItem?.schemeDiscountPercent || 0).toFixed(2)}%</span></div>
+                                </>
+                            )}
+                            <div className="flex justify-between"><span>MRP Value</span><span>₹{(activeLineTotals?.gross ?? totals.gross ?? 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Value of Goods</span><span>₹{(activeLineTotals?.subtotal ?? totals.subtotal ?? 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between text-blue-700"><span>SGST</span><span>₹{((activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between text-blue-700"><span>CGST</span><span>₹{((activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between text-red-600">
+                                <span>Discount</span>
+                                <span>₹{activeLineTotals 
+                                    ? ((activeLineTotals.tradeDiscount || 0) + (activeLineTotals.schemeTotal || 0) + (activeLineTotals.lineFlatDiscount || 0)).toFixed(2)
+                                    : ((totals?.tradeDiscount || 0) + (totals?.schemeTotal || 0) + (totals?.lineFlatDiscount || 0) + (lumpsumDiscount || 0)).toFixed(2)
+                                }</span>
+                            </div>
+                            {!activeLineTotals && (
+                                <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5">
+                                    <span>Bill Discount</span>
+                                    <input
+                                        type="number"
+                                        value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
+                                        onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
+                                        className="w-16 text-right bg-white border border-gray-300 font-normal text-[9px] no-spinner outline-none px-1 h-4"
+                                        disabled={isReadOnly}
+                                    />
+                                </div>
+                            )}
+                            <div className="flex justify-between">
+                                <span>GST%</span>
+                                <span>{(() => {
+                                    const sub = activeLineTotals?.taxableValue ?? totals?.taxableValue ?? 0;
+                                    const tx = activeLineTotals?.tax ?? totals?.tax ?? 0;
+                                    return sub > 0 ? ((tx / sub) * 100).toFixed(2) : '0.00';
+                                })()}%</span>
+                            </div>
+                            <div className="flex justify-between font-black text-primary border-t border-gray-300 pt-1 mt-1">
+                                <span>{activeLineTotals ? 'Line Total' : 'Balance'}</span>
+                                <span>₹{(activeLineTotals ? (activeLineTotals.baseTotal ?? 0) : (grandTotal ?? 0)).toFixed(2)}</span>
+                            </div>
                         </div>
                     </div>
 
@@ -1545,9 +1664,27 @@ const POS = forwardRef<any, POSProps>(({
                                 {btn}
                             </button>
                         ))}
-                        <div className="ml-auto text-right pr-2">
-                            <div className="text-[11px] uppercase font-bold">Invoice Value</div>
-                            <div className="text-2xl font-black">₹{(grandTotal || 0).toFixed(2)}</div>
+                        <div className="ml-auto text-right pr-2 flex items-center gap-6">
+                            {!isNonGst && (
+                                <div className="flex gap-4 text-[10px] font-bold uppercase opacity-80 border-r border-white/20 pr-4">
+                                    <div className="flex flex-col">
+                                        <span>SGST</span>
+                                        <span className="text-xs">₹{(totals.tax / 2).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span>CGST</span>
+                                        <span className="text-xs">₹{(totals.tax / 2).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span>GST Amount</span>
+                                        <span className="text-xs">₹{(totals.tax || 0).toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="flex flex-col">
+                                <div className="text-[11px] uppercase font-bold">Invoice Value</div>
+                                <div className="text-2xl font-black">₹{(grandTotal || 0).toFixed(2)}</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1607,16 +1744,23 @@ const POS = forwardRef<any, POSProps>(({
                                                 const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
                                                 const stripsStock = Math.floor(totalStock / unitsPerPack);
                                                 const looseStock = totalStock % unitsPerPack;
+                                                const isAnyBatchExpired = res.batches.some(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
+                                                const areAllBatchesExpired = res.batches.length > 0 && res.batches.every(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
+
                                                 return (
                                                     <tr
                                                         key={item.id}
                                                         data-index={sIdx}
                                                         onClick={() => triggerBatchSelection(res)}
                                                         onMouseEnter={() => setSelectedSearchIndex(sIdx)}
-                                                        className={`cursor-pointer transition-all border-b border-gray-100 ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : 'hover:bg-yellow-50'}`}
+                                                        className={`cursor-pointer transition-all border-b border-gray-100 ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : 'hover:bg-yellow-50'} ${areAllBatchesExpired ? 'opacity-50 grayscale' : ''}`}
                                                     >
                                                         <td className="p-1.5 px-3 border-r border-gray-200">
-                                                            <p className={`leading-none ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
+                                                            <div className="flex items-center gap-2">
+                                                                <p className={`leading-none ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
+                                                                {areAllBatchesExpired && <span className="bg-red-600 text-white text-[8px] px-1 py-0.5 font-black uppercase">Expired</span>}
+                                                                {!areAllBatchesExpired && isAnyBatchExpired && <span className="bg-amber-500 text-white text-[8px] px-1 py-0.5 font-black uppercase">Some Expired</span>}
+                                                            </div>
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 text-center font-mono ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-primary'}`}>
                                                             {item.code}

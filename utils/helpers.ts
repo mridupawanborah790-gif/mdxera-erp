@@ -84,6 +84,33 @@ export const normalizeImportDate = (dateStr: string | undefined | null): string 
     return null;
 };
 
+/**
+ * Checks if a given expiry date (in MM/YY or YYYY-MM-DD format) is expired.
+ */
+export const checkIsExpired = (expiryStr: string | undefined | null): boolean => {
+    if (!expiryStr || expiryStr === 'N/A') return false;
+    
+    let expiryDate: Date;
+    
+    // Handle MM/YY format
+    const myMatch = expiryStr.match(/^(\d{1,2})\/(\d{2})$/);
+    if (myMatch) {
+        const month = parseInt(myMatch[1], 10);
+        const year = 2000 + parseInt(myMatch[2], 10);
+        // Expiry at the end of the month
+        expiryDate = new Date(year, month, 0);
+    } else {
+        // Handle YYYY-MM-DD or other formats
+        const normalized = normalizeImportDate(expiryStr);
+        if (!normalized) return false;
+        expiryDate = new Date(normalized);
+    }
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return expiryDate < today;
+};
+
 export const parseNumber = (value: string | number | undefined | null): number => {
     if (typeof value === 'number') return isFinite(value) ? value : 0;
     if (typeof value !== 'string') return 0;

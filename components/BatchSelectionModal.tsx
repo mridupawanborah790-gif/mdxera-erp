@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Modal from './Modal';
 import { InventoryItem } from '../types';
+import { checkIsExpired } from '../utils/helpers';
 
 interface BatchSelectionModalProps {
     isOpen: boolean;
@@ -77,7 +78,7 @@ const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClo
                         <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
                             {batches.map((batch, idx) => {
                                 const isSelected = idx === selectedIndex;
-                                const isExpired = new Date(batch.expiry) < new Date();
+                                const isExpired = checkIsExpired(batch.expiry ? String(batch.expiry) : '');
                                 
                                 return (
                                     <tr 
@@ -87,6 +88,7 @@ const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClo
                                         className={`
                                             cursor-pointer transition-colors
                                             ${isSelected ? 'bg-primary/10' : 'hover:bg-gray-50 dark:hover:bg-zinc-900'}
+                                            ${isExpired ? 'opacity-60 grayscale-[0.5]' : ''}
                                         `}
                                     >
                                         <td className="p-4 text-[11px] font-black text-gray-400">
@@ -105,7 +107,7 @@ const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClo
                                             </div>
                                         </td>
                                         <td className="p-4 text-center">
-                                            <span className="text-xs font-mono font-bold text-gray-600 dark:text-gray-400">
+                                            <span className={`text-xs font-mono font-bold ${isExpired ? 'text-red-500' : 'text-gray-600 dark:text-gray-400'}`}>
                                                 {batch.expiry}
                                             </span>
                                         </td>
@@ -136,3 +138,4 @@ const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({ isOpen, onClo
 };
 
 export default BatchSelectionModal;
+
