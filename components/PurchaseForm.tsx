@@ -3,7 +3,6 @@ import Card from './Card';
 import Modal from './Modal';
 import AddMedicineModal from './AddMedicineModal';
 import { AddSupplierModal } from './AddSupplierModal';
-import BatchSelectionModal from './BatchSelectionModal';
 import { extractPurchaseDetailsFromBill } from '../services/geminiService';
 import type { Purchase, InventoryItem, Supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, SupplierProductMap, Medicine, AppConfigurations, FileInput, Transaction } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
@@ -243,7 +242,6 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
-    const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
     const [isInsightsLoading, setIsInsightsLoading] = useState(false);
 
@@ -912,12 +910,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [isInsightsOpen, currentUser, salesHistory.length]);
 
     const triggerBatchSelection = (productWrapper: { item: InventoryItem; batches: InventoryItem[] }) => {
-        if (productWrapper.batches.length === 0) {
-            addSelectedBatchToGrid(productWrapper.item);
-            return;
-        }
-        setPendingBatchSelection(productWrapper);
-        setIsSearchModalOpen(false);
+        addSelectedBatchToGrid(productWrapper.item);
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
@@ -959,7 +952,6 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
         setModalSearchTerm('');
         setIsSearchModalOpen(false);
-        setPendingBatchSelection(null);
         setActiveRowId(targetRowId);
 
         setTimeout(() => {
@@ -2070,13 +2062,6 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
             </Modal>
 
-            <BatchSelectionModal
-                isOpen={!!pendingBatchSelection}
-                onClose={() => { setPendingBatchSelection(null); }}
-                productName={pendingBatchSelection?.item.name || ''}
-                batches={pendingBatchSelection?.batches || []}
-                onSelect={addSelectedBatchToGrid}
-            />
 
             <SupplierSearchModal
                 isOpen={isSupplierSearchModalOpen}
