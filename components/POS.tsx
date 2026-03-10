@@ -742,10 +742,15 @@ const POS = forwardRef<any, POSProps>(({
         activeRowIdRef.current = null;
 
         setTimeout(() => {
-            const qtyInput = document.getElementById(`qty-p-${newItemId}`);
-            if (qtyInput) {
-                (qtyInput as HTMLInputElement).focus();
-                (qtyInput as HTMLInputElement).select();
+            const firstEditableField =
+                document.getElementById(`expiry-${newItemId}`) ||
+                document.getElementById(`qty-p-${newItemId}`);
+
+            if (firstEditableField) {
+                firstEditableField.focus();
+                if (firstEditableField instanceof HTMLInputElement) {
+                    firstEditableField.select();
+                }
             }
         }, 50);
     };
@@ -1306,8 +1311,8 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </Card>
 
-                <div className="flex justify-between items-stretch flex-shrink-0 gap-4 min-h-[140px]">
-                    <div className="w-80 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center">
+                <div className="flex items-stretch flex-shrink-0 gap-4 min-h-[180px]">
+                    <div className="flex-1 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center">
                         <div className="space-y-1.5 font-bold text-[11px] uppercase tracking-tight">
                             <div className="flex justify-between text-gray-500"><span>Gross</span> <span className="text-sm">₹{(totals.gross || 0).toFixed(2)}</span></div>
                             <div className="flex justify-between text-red-600"><span>Trade Discount</span> <span className="text-sm">-₹{(totals.tradeDiscount || 0).toFixed(2)}</span></div>
@@ -1344,151 +1349,98 @@ const POS = forwardRef<any, POSProps>(({
                         </div>
                     </div>
 
-                    <div className="flex-1">
-                        {activeIntelItem ? (
-                            <div className="bg-slate-100 p-4 h-full tally-border !rounded-none shadow-md animate-in fade-in duration-200 flex flex-col">
-                                <div className="flex justify-between items-center border-b border-gray-300 pb-2 mb-3 flex-shrink-0">
-                                    <div className="flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
-                                        <span className="text-xs font-black uppercase text-primary tracking-[0.2em]">Inventory Insight</span>
+                    <div className="w-80 flex flex-col gap-2 self-stretch">
+                        {isFieldVisible('optPrescription') && (
+                            <div className="flex-1 bg-white p-3 tally-border !rounded-none shadow-sm flex flex-col overflow-hidden">
+                                <div className="border-b border-gray-300 pb-2 mb-3">
+                                    <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Prescription Management</h4>
+                                </div>
+
+                                {!isReadOnly && (
+                                    <div className="flex gap-2 mb-3">
+                                        <button
+                                            onClick={() => fileInputRef.current?.click()}
+                                            disabled={isProcessingRx}
+                                            className="flex-1 min-h-10 border border-dashed border-primary/30 rounded-none flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-wider text-primary hover:bg-primary/5 disabled:opacity-50"
+                                        >
+                                            {isProcessingRx ? <div className="w-3.5 h-3.5 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div> : <span>+</span>}
+                                            <span>{isProcessingRx ? 'Scanning...' : 'Add Rx'}</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setIsWebcamOpen(true)}
+                                            className="flex-1 min-h-10 border border-dashed border-primary/30 rounded-none flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-wider text-primary hover:bg-primary/5"
+                                        >
+                                            <span>📷</span>
+                                            <span>Camera</span>
+                                        </button>
                                     </div>
-                                    <span className="text-2xl font-black text-emerald-700 leading-none">QTY: {activeIntelItem.stock}</span>
-                                </div>
+                                )}
 
-                                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-hidden">
-                                    {isFieldVisible('intelIdentity') && (
-                                        <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">Identity & Validity</p>
-                                            <div className="flex flex-col gap-0.5">
-                                                <p className="text-sm font-black text-primary uppercase font-mono truncate">{activeIntelItem.batch} | {activeIntelItem.code}</p>
-                                                <p className="text-xs font-bold text-red-600 uppercase">Expires: {activeIntelItem.expiry}</p>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {isFieldVisible('intelPricing') && (
-                                        <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 opacity-60">Pricing Vector</p>
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-gray-500 uppercase">M.R.P</p>
-                                                    <p className="text-sm font-black text-gray-900">₹{(activeIntelItem.mrp || 0).toFixed(2)}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-gray-500 uppercase">Pur Rate</p>
-                                                    <p className="text-sm font-black text-blue-800">₹{(intelDetails?.lastPurRate ?? 0).toFixed(2)}</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {isFieldVisible('intelProfit') && (
-                                        <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
-                                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3 opacity-70">Profit Quotient</p>
-                                            <div className="flex justify-between items-center mb-2">
-                                                <span className="text-[11px] font-bold text-gray-500 uppercase">Net Margin</span>
-                                                <span className="text-xl font-black text-emerald-600">{(intelDetails?.profitMargin ?? 0).toFixed(1)}%</span>
-                                            </div>
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-[11px] font-bold text-gray-500 uppercase">Per Unit</span>
-                                                <span className="text-xl font-black text-emerald-600">₹{(intelDetails?.profitAmount ?? 0).toFixed(2)}</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="h-full border-2 border-dashed border-gray-300 flex flex-col items-center justify-center p-4 rounded-none">
-                                <div className="flex flex-col items-center flex-1 justify-center w-full">
-                                    {isFieldVisible('optPrescription') && (
-                                        <>
-                                            <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4 text-center">Prescription Management</h4>
-
-                                            <div className="w-full flex flex-wrap justify-center gap-3 mb-6">
-                                                {prescriptions.map((p) => (
-                                                    <div key={p.id} className="relative group">
-                                                        <div className="w-16 h-16 border-2 border-primary/20 rounded-none overflow-hidden bg-white shadow-md">
-                                                            {p.type === 'image' ? (
-                                                                <img src={p.data.startsWith('data:') ? p.data : `data:image/jpeg;base64,${p.data}`} alt={p.name} className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <div className="w-full h-full flex items-center justify-center text-red-500">
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /></svg>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <button
-                                                            onClick={() => setPrescriptions(prev => prev.filter(x => x.id !== p.id))}
-                                                            className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-lg transition-opacity group-hover:opacity-100 opacity-100"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                                                        </button>
+                                <div className="flex-1 border border-dashed border-gray-300 bg-gray-50 p-2 overflow-auto">
+                                    {prescriptions.length > 0 ? (
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {prescriptions.map(p => (
+                                                <div key={p.id} className="relative group">
+                                                    <div className="h-20 border border-primary/20 bg-white overflow-hidden">
+                                                        {p.type === 'image' ? (
+                                                            <img src={p.data.startsWith('data:') ? p.data : `data:image/jpeg;base64,${p.data}`} alt={p.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-red-500">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /></svg>
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                ))}
-
-                                                {!isReadOnly && (
-                                                    <>
-                                                        <button
-                                                            onClick={() => fileInputRef.current?.click()}
-                                                            disabled={isProcessingRx}
-                                                            className="w-16 h-16 border-2 border-dashed border-primary/20 rounded-none flex flex-col items-center justify-center text-primary/40 hover:bg-primary/5 hover:border-primary/40 transition-all disabled:opacity-50"
-                                                        >
-                                                            {isProcessingRx ? <div className="w-4 h-4 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>}
-                                                            <span className="text-[8px] font-black mt-1 uppercase">{isProcessingRx ? 'SCAN' : 'ADD Rx'}</span>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setIsWebcamOpen(true)}
-                                                            className="w-16 h-16 border-2 border-dashed border-primary/20 rounded-none flex flex-col items-center justify-center text-primary/40 hover:bg-primary/5 hover:border-primary/40 transition-all"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="4" /></svg>
-                                                            <span className="text-[8px] font-black mt-1 uppercase">CAMERA</span>
-                                                        </button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </>
+                                                    <button
+                                                        onClick={() => setPrescriptions(prev => prev.filter(x => x.id !== p.id))}
+                                                        className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="h-full flex flex-col items-center justify-center text-gray-400 text-center">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.2em]">Reserved space for RX preview / AI scan</p>
+                                        </div>
                                     )}
-
-                                    <div className="flex flex-col items-center text-gray-300">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-2 opacity-30"><path d="m21 21-4.3-4.3" /><circle cx="11" cy="11" r="8" /><path d="M11 8v6" /><path d="M8 11h6" /></svg>
-                                        <p className="text-[11px] font-black uppercase tracking-[0.4em] italic">Scan Rx or type name for live intel</p>
-                                    </div>
                                 </div>
                             </div>
                         )}
-                    </div>
 
-                    <div className="flex flex-col gap-2 w-56 self-stretch justify-end">
-                        {isFieldVisible('optBillingCategory') && (
-                            <div className="bg-white p-2 tally-border shadow-sm">
-                                <label className="text-[9px] font-bold text-gray-500 uppercase block mb-1">Billing Category</label>
-                                <select
-                                    ref={billCategorySelectRef}
-                                    value={billCategory}
-                                    onChange={e => setBillCategory(e.target.value as any)}
-                                    className="w-full border border-gray-300 p-1.5 text-xs font-black uppercase outline-none focus:bg-yellow-50 h-8"
-                                    disabled={isReadOnly}
-                                >
-                                    <option value="Cash Bill">Cash Bill</option>
-                                    <option value="Credit Bill">Credit Bill</option>
-                                </select>
-                            </div>
-                        )}
-                        <button
-                            onClick={() => { if (confirm("Discard current voucher?")) { setCartItems([]); if (onCancel) onCancel(); } }}
-                            className="w-full py-3 tally-border bg-white font-black text-[11px] hover:bg-red-50 text-red-600 transition-colors uppercase tracking-[0.2em] shadow-sm"
-                        >
-                            Discard
-                        </button>
-                        <button
-                            onClick={handleSave}
-                            disabled={isSaving || isReadOnly || cartItems.length === 0}
-                            className="w-full py-6 tally-button-primary shadow-2xl active:translate-y-1 uppercase tracking-widest text-[12px] flex items-center justify-center gap-2"
-                        >
-                            {isSaving ? (
-                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                            ) : null}
-                            {isSaving ? 'Saving' : 'Accept (Ent)'}
-                        </button>
+                        <div className="flex flex-col gap-2">
+                            {isFieldVisible('optBillingCategory') && (
+                                <div className="bg-white p-2 tally-border shadow-sm">
+                                    <label className="text-[9px] font-bold text-gray-500 uppercase block mb-1">Billing Category</label>
+                                    <select
+                                        ref={billCategorySelectRef}
+                                        value={billCategory}
+                                        onChange={e => setBillCategory(e.target.value as any)}
+                                        className="w-full border border-gray-300 p-1.5 text-xs font-black uppercase outline-none focus:bg-yellow-50 h-8"
+                                        disabled={isReadOnly}
+                                    >
+                                        <option value="Cash Bill">Cash Bill</option>
+                                        <option value="Credit Bill">Credit Bill</option>
+                                    </select>
+                                </div>
+                            )}
+                            <button
+                                onClick={() => { if (confirm("Discard current voucher?")) { setCartItems([]); if (onCancel) onCancel(); } }}
+                                className="w-full py-3 tally-border bg-white font-black text-[11px] hover:bg-red-50 text-red-600 transition-colors uppercase tracking-[0.2em] shadow-sm"
+                            >
+                                Discard
+                            </button>
+                            <button
+                                onClick={handleSave}
+                                disabled={isSaving || isReadOnly || cartItems.length === 0}
+                                className="w-full py-6 tally-button-primary shadow-2xl active:translate-y-1 uppercase tracking-widest text-[12px] flex items-center justify-center gap-2"
+                            >
+                                {isSaving ? (
+                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                ) : null}
+                                {isSaving ? 'Saving' : 'Accept (Ent)'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
