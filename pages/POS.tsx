@@ -692,6 +692,24 @@ const POS = forwardRef<any, POSProps>(({
         });
     }, [isReadOnly]);
 
+    const focusFirstEditableFieldInRow = useCallback((rowId: string) => {
+        const firstEditableField = [
+            `name-${rowId}`,
+            `qty-p-${rowId}`,
+            `qty-l-${rowId}`,
+            `free-${rowId}`,
+            `rate-${rowId}`,
+            `disc-${rowId}`,
+            `gst-${rowId}`,
+            `scheme-${rowId}`
+        ]
+            .map(fieldId => document.getElementById(fieldId))
+            .find(el => el && !el.hasAttribute('disabled'));
+
+        firstEditableField?.focus();
+        if (firstEditableField instanceof HTMLInputElement) firstEditableField.select();
+    }, []);
+
     const handleItemKeyDown = (e: React.KeyboardEvent, id: string, index: number) => {
         if (e.key === 'Delete') {
             e.preventDefault();
@@ -950,7 +968,13 @@ const POS = forwardRef<any, POSProps>(({
                                         <tr
                                             id={`row-${item.id}`}
                                             key={item.id}
-                                            onClick={() => setSelectedRowId(item.id)}
+                                            onClick={(event) => {
+                                                setSelectedRowId(item.id);
+                                                const target = event.target as HTMLElement;
+                                                if (!target.closest('input, button')) {
+                                                    setTimeout(() => focusFirstEditableFieldInRow(item.id), 0);
+                                                }
+                                            }}
                                             onFocusCapture={() => setSelectedRowId(item.id)}
                                             className={`group h-10 transition-colors ${selectedRowId === item.id ? 'bg-sky-100/90 outline outline-1 outline-sky-300' : 'hover:bg-gray-50'}`}
                                         >
