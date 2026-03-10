@@ -1,10 +1,9 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Card from '../components/Card';
 import type { Transaction, RegisteredPharmacy, InventoryItem } from '../types';
 import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import ConfirmModal from '../components/ConfirmModal';
-import ExportSalesModal from '../components/ExportSalesModal';
 import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
@@ -39,10 +38,11 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
     const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
     const [sortConfig, setSortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' }>({ key: 'date', direction: 'descending' });
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [transactionToCancel, setTransactionToCancel] = useState<string | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const [journalTransaction, setJournalTransaction] = useState<Transaction | null>(null);
+    const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
+    const [actionWarning, setActionWarning] = useState<string>('');
 
     const filteredAndSortedTransactions = useMemo(() => {
         let filtered = (transactions || []).filter(Boolean);
@@ -75,14 +75,109 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
         });
     }, [transactions, searchTerm, startDate, endDate, rmpFilter, paymentModeFilter, statusFilter, sortConfig]);
 
+    const selectedTransaction = useMemo(
+        () => filteredAndSortedTransactions.find(tx => tx.id === selectedTransactionId) || null,
+        [filteredAndSortedTransactions, selectedTransactionId]
+    );
+
+    useEffect(() => {
+        if (selectedTransactionId && !selectedTransaction) {
+            setSelectedTransactionId(null);
+        }
+    }, [selectedTransactionId, selectedTransaction]);
+
+    const requireSelectedTransaction = useCallback(() => {
+        if (!selectedTransaction) {
+            setActionWarning('Please select an Invoice first.');
+            return null;
+        }
+        setActionWarning('');
+        return selectedTransaction;
+    }, [selectedTransaction]);
+
+    const handleSelectRow = (transactionId: string) => {
+        setSelectedTransactionId(transactionId);
+        setActionWarning('');
+    };
+
+    const handleViewSelected = useCallback(() => {
+        const tx = requireSelectedTransaction();
+        if (!tx) return;
+        onViewSale(tx);
+    }, [onViewSale, requireSelectedTransaction]);
+
+    const handleViewJournalSelected = useCallback(() => {
+        const tx = requireSelectedTransaction();
+        if (!tx) return;
+        setJournalTransaction(tx);
+    }, [requireSelectedTransaction]);
+
+    const handlePrintSelected = useCallback(() => {
+        const tx = requireSelectedTransaction();
+        if (!tx) return;
+        onPrintBill(tx);
+    }, [onPrintBill, requireSelectedTransaction]);
+
+    const handleCancelSelected = useCallback(() => {
+        const tx = requireSelectedTransaction();
+        if (!tx) return;
+        if (tx.status === 'cancelled') {
+            setActionWarning('Selected invoice is already cancelled.');
+            return;
+        }
+        handleCancelClick(tx.id);
+    }, [requireSelectedTransaction]);
+
+    const handleExportSelected = useCallback(() => {
+        const tx = requireSelectedTransaction();
+        if (!tx) return;
+
+        const headers = ['Invoice ID', 'Date', 'Customer Name', 'Items', 'Amount', 'Status'];
+        const row = [
+            tx.id,
+            new Date(tx.date).toLocaleDateString('en-IN'),
+            tx.customerName,
+            String((tx.items || []).length),
+            (tx.total || 0).toFixed(2),
+            tx.status,
+        ];
+
+        const csvContent = [arrayToCsvRow(headers), arrayToCsvRow(row)].join('\n');
+        downloadCsv(`invoice-${tx.id}.csv`, csvContent);
+    }, [requireSelectedTransaction]);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!shouldHandleScreenShortcut(e, 'salesHistory')) return;
-            if (e.key === 'F3') {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
-                if (filteredAndSortedTransactions.length > 0) {
-                    setIsExportModalOpen(true);
+                if (filteredAndSortedTransactions.length === 0) return;
+
+                const currentIndex = selectedTransaction
+                    ? filteredAndSortedTransactions.findIndex(tx => tx.id === selectedTransaction.id)
+                    : -1;
+                const nextIndex = e.key === 'ArrowDown'
+                    ? Math.min(currentIndex + 1, filteredAndSortedTransactions.length - 1)
+                    : Math.max(currentIndex - 1, 0);
+                const nextTransaction = filteredAndSortedTransactions[nextIndex];
+                if (nextTransaction) {
+                    handleSelectRow(nextTransaction.id);
                 }
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                handleViewSelected();
+            } else if (e.key === 'F7') {
+                e.preventDefault();
+                handleViewJournalSelected();
+            } else if (e.key === 'F8') {
+                e.preventDefault();
+                handlePrintSelected();
+            } else if (e.key === 'Delete') {
+                e.preventDefault();
+                handleCancelSelected();
+            } else if (e.key === 'F3') {
+                e.preventDefault();
+                handleExportSelected();
             } else if (e.key === 'F5') {
                 e.preventDefault();
                 handleRefresh();
@@ -90,12 +185,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [filteredAndSortedTransactions]);
-
-    const handleExportClick = () => {
-        if (filteredAndSortedTransactions.length === 0) return;
-        setIsExportModalOpen(true);
-    };
+    }, [filteredAndSortedTransactions, selectedTransaction, handleViewSelected, handleViewJournalSelected, handlePrintSelected, handleCancelSelected, handleExportSelected]);
 
     const handleCancelClick = (id: string) => {
         setTransactionToCancel(id);
@@ -156,20 +246,36 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                             <option value="completed">Completed Orders</option>
                         </select>
                     </div>
-                    <div className="flex gap-2 md:col-span-2">
+                    <div className="md:col-span-2">
                         <button 
                             onClick={handleRefresh} 
                             disabled={isSyncing}
-                            className="flex-1 py-2 tally-button-primary text-[10px] flex items-center justify-center gap-2"
+                            className="w-full py-2 tally-button-primary text-[10px] flex items-center justify-center gap-2"
                         >
                             <RefreshIcon className={isSyncing ? 'animate-spin' : ''} />
                             {isSyncing ? 'Syncing...' : 'F5: Refresh'}
                         </button>
-                        <button onClick={handleExportClick} className="flex-1 py-2 tally-border bg-white font-bold uppercase text-[10px]">F3: Export</button>
                     </div>
                 </Card>
 
                 <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white">
+                    <div className="border-b border-gray-300 p-3 bg-gray-50 space-y-3">
+                        <div className="text-[11px] font-bold text-gray-700">
+                            Selected Invoice: <span className="font-mono text-primary">{selectedTransaction?.id || 'None'}</span>
+                            {' '}| Customer: <span className="uppercase">{selectedTransaction?.customerName || '-'}</span>
+                            {' '}| Voucher ID: <span className="font-mono">{selectedTransaction?.id || '-'}</span>
+                            {' '}| Amount: <span className="font-black">₹{(selectedTransaction?.total || 0).toFixed(2)}</span>
+                        </div>
+                        {actionWarning && <div className="text-[11px] font-bold text-red-700 bg-red-100 border border-red-200 px-2 py-1">{actionWarning}</div>}
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={handleViewSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase">Enter: View</button>
+                            <button onClick={handleViewJournalSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase">F7: View Journal Entry</button>
+                            <button onClick={handlePrintSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase">F8: Print</button>
+                            <button onClick={handleCancelSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase text-red-700">Delete: Cancel</button>
+                            <button onClick={handleExportSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase">F3: Export</button>
+                            <button onClick={handleRefresh} disabled={isSyncing} className="px-3 py-1.5 tally-button-primary text-[10px] font-black uppercase disabled:opacity-60">F5: Refresh</button>
+                        </div>
+                    </div>
                     <div className="flex-1 overflow-auto">
                         <table className="min-w-full border-collapse text-sm">
                             <thead className="sticky top-0 bg-gray-100 border-b border-gray-400">
@@ -181,12 +287,15 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                                     <th className="p-2 border-r border-gray-400 text-center w-24">Items</th>
                                     <th className="p-2 border-r border-gray-400 text-right w-32">Amount</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-28">Status</th>
-                                    <th className="p-2 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {filteredAndSortedTransactions.map((tx, idx) => (
-                                    <tr key={tx.id} className={`hover:bg-accent transition-colors ${tx.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}>
+                                    <tr
+                                        key={tx.id}
+                                        onClick={() => handleSelectRow(tx.id)}
+                                        className={`cursor-pointer transition-colors ${selectedTransactionId === tx.id ? 'bg-lime-100' : 'hover:bg-accent'} ${tx.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}
+                                    >
                                         <td className="p-2 border-r border-gray-200 font-bold text-gray-400 text-center">{idx + 1}</td>
                                         <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary">{tx.id}</td>
                                         <td className="p-2 border-r border-gray-200">{new Date(tx.date).toLocaleDateString('en-IN')}</td>
@@ -198,14 +307,6 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                                                 {tx.status === 'cancelled' ? 'Cancelled' : 'Completed'}
                                             </span>
                                         </td>
-                                        <td className="p-2 text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => onViewSale(tx)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
-                                                <button onClick={() => setJournalTransaction(tx)} className="text-indigo-700 font-black uppercase text-[10px] hover:underline">View Journal Entry</button>
-                                                <button onClick={() => onPrintBill(tx)} className="text-blue-700 font-black uppercase text-[10px] hover:underline">Print</button>
-                                                {tx.status !== 'cancelled' && <button onClick={() => handleCancelClick(tx.id)} className="text-red-600 font-black uppercase text-[10px] hover:underline">Cancel</button>}
-                                            </div>
-                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -215,15 +316,6 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
             </div>
             <ConfirmModal isOpen={isConfirmOpen} onClose={() => setIsConfirmOpen(false)} onConfirm={handleConfirmCancel} title="Cancel Invoice" message="Are you sure you want to cancel this invoice? Inventory will be reversed." />
             
-            {isExportModalOpen && (
-                <ExportSalesModal
-                    isOpen={isExportModalOpen}
-                    onClose={() => setIsExportModalOpen(false)}
-                    data={filteredAndSortedTransactions}
-                    pharmacyName={currentUser?.pharmacy_name || 'MDXERA ERP'}
-                />
-            )}
-
             <JournalEntryViewerModal
                 isOpen={!!journalTransaction}
                 onClose={() => setJournalTransaction(null)}
