@@ -487,10 +487,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
                 <span className="text-[10px] font-black uppercase text-accent">No. {isEditing ? purchaseToEdit?.purchaseSerialId : 'New'}</span>
             </div>
-            <div className="p-2 md:p-3 flex-1 flex flex-col gap-2 md:gap-3 overflow-hidden">
-                <div className="p-2 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-4 gap-2 md:gap-3 items-end flex-shrink-0">
+            <div className="p-2 flex-1 flex flex-col gap-2 overflow-hidden">
+                <Card className="p-1.5 bg-white border border-app-border rounded-none grid grid-cols-1 md:grid-cols-5 gap-2 items-end flex-shrink-0">
                     <div className="md:col-span-2 relative">
-                        <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Particulars (Supplier Name)</label>
+                        <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Particulars (Supplier Name)</label>
                         <input
                             ref={supplierNameInputRef}
                             type="text"
@@ -498,7 +498,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             autoComplete="off"
                             onChange={e => { setSupplier(e.target.value); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
-                            className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
+                            className={`w-full h-8 border p-1 text-xs font-bold uppercase outline-none focus:bg-yellow-50 ${supplierNameError ? 'border-red-500' : 'border-gray-400'}`}
                             placeholder="Type to search Ledger..."
                         />
                         {isSupplierDropdownOpen && supplier.length > 0 && (
@@ -508,7 +508,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         key={d.id}
                                         onClick={() => handleSupplierSelect(d)}
                                         onMouseEnter={() => setSelectedSupplierIndex(sIdx)}
-                                        className={`p-3 cursor-pointer flex justify-between items-center border-b border-gray-100 ${sIdx === selectedSupplierIndex ? 'bg-primary text-white' : 'hover:bg-gray-50'}`}
+                                        className={`p-2 cursor-pointer flex justify-between items-center border-b border-gray-100 ${sIdx === selectedSupplierIndex ? 'bg-primary text-white' : 'hover:bg-yellow-50'}`}
                                     >
                                         <span className="text-xs font-bold uppercase">{d.name}</span>
                                         <span className={`text-[9px] font-black ${sIdx === selectedSupplierIndex ? 'text-white' : 'text-primary opacity-50'}`}>Balance: ₹{(getOutstandingBalance(d) || 0).toFixed(2)}</span>
@@ -518,43 +518,52 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         )}
                     </div>
                     <div>
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Invoice #</label>
+                        <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Invoice #</label>
                         <input
                             ref={invoiceNumberInputRef}
                             type="text"
                             value={invoiceNumber}
                             onChange={e => setInvoiceNumber(e.target.value)}
-                            className={`w-full border p-2 text-sm font-bold outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
+                            className={`w-full h-8 border p-1 text-xs font-bold outline-none focus:bg-yellow-50 ${invoiceNumberError ? 'border-red-500' : 'border-gray-400'}`}
                         />
                     </div>
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase block mb-1">Date</label>
+                        <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Date</label>
                         <input
                             ref={dateInputRef}
                             type="date"
                             value={date}
                             onChange={(e) => setDate(e.target.value)}
-                            className="w-full border border-gray-400 p-2 text-sm font-bold outline-none"
+                            className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50"
                         />
                     </div>
-                </div>
+                    <div>
+                        <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Supplier GSTIN</label>
+                        <input
+                            value={supplierGst}
+                            onChange={(e) => setSupplierGst(e.target.value)}
+                            className="w-full h-8 border border-gray-400 p-1 text-xs font-bold uppercase outline-none focus:bg-yellow-50"
+                            placeholder="Supplier GST Number"
+                        />
+                    </div>
+                </Card>
 
                 {!isEditing && !disableAIInput && !isManualEntry && (
-                    <div className="flex flex-wrap gap-2 flex-shrink-0 px-1">
-                        <button onClick={() => setIsWebcamModalOpen(true)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><CameraIcon /> Webcam Scan</button>
-                        <button onClick={() => setMobileSyncSessionId(generateUUID())} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><SmartphoneIcon /> Mobile Sync</button>
-                        <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 text-[10px] font-black uppercase bg-white text-primary border border-primary flex items-center gap-2 hover:bg-primary/5 transition-colors"><UploadIcon /> {isUploading ? <Spinner /> : 'Import Document'}</button>
+                    <div className="bg-white border border-app-border p-1.5 flex flex-wrap gap-2 flex-shrink-0">
+                        <button onClick={() => setIsWebcamModalOpen(true)} className="px-3 h-8 text-[10px] font-bold uppercase bg-white text-primary border border-gray-400 flex items-center gap-2 hover:bg-yellow-50"><CameraIcon /> Webcam Scan</button>
+                        <button onClick={() => setMobileSyncSessionId(generateUUID())} className="px-3 h-8 text-[10px] font-bold uppercase bg-white text-primary border border-gray-400 flex items-center gap-2 hover:bg-yellow-50"><SmartphoneIcon /> Mobile Sync</button>
+                        <button onClick={() => fileInputRef.current?.click()} className="px-3 h-8 text-[10px] font-bold uppercase bg-white text-primary border border-gray-400 flex items-center gap-2 hover:bg-yellow-50"><UploadIcon /> {isUploading ? <Spinner /> : 'Import Document'}</button>
                         <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*,application/pdf" />
                     </div>
                 )}
 
-                <Card className="flex-1 min-h-[380px] md:min-h-[460px] flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
+                <div className="bg-white border border-app-border overflow-auto flex-1 min-h-[380px] md:min-h-[460px]">
                     <div className="flex-1 overflow-auto">
                         <table className="min-w-full border-collapse text-sm">
-                            <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400 z-10">
-                                <tr className="text-[10px] font-black uppercase text-gray-600 h-9">
-                                    <th className="p-1 border-r border-gray-400 text-left w-8">Sl.</th>
-                                    <th className="p-1 border-r border-gray-400 text-left min-w-[200px]">Name of Item</th>
+                            <thead className="sticky top-0 bg-gray-100 border-b border-gray-400 z-10">
+                                <tr className="text-[10px] font-black uppercase text-gray-700 tracking-wide h-9">
+                                    <th className="p-2 border-r border-gray-300 text-left w-8">Sl.</th>
+                                    <th className="p-2 border-r border-gray-300 text-left min-w-[200px]">Name of Item</th>
                                     <th className="p-1 border-r border-gray-400 text-left w-20">MFR</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Pack</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-20">Batch</th>
@@ -591,33 +600,28 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             </tbody>
                         </table>
                     </div>
-                </Card>
-
-                <div className="flex justify-end gap-3 flex-shrink-0">
-                    <div className="w-full md:w-[380px] bg-[#e5f0f0] p-3 tally-border !rounded-none shadow-md">
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Summary</h3>
-                        <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-tight">
-                            <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
-                            <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
-                            <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
-                            <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatCurrency(calculatedTotals.roundOff)}</span></div>
-                            <div className="border-t border-gray-400 pt-1.5 mt-1 flex items-center justify-between text-lg font-black text-primary"><span>Grand Total</span><span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
-                        </div>
-                    </div>
                 </div>
 
-                <div className="flex justify-end gap-3 pb-2">
-                    <button onClick={onCancel} className="px-6 py-2 bg-white font-bold hover:bg-gray-100 text-gray-700 tally-border uppercase tracking-widest text-[10px] shadow-sm">Discard</button>
-                    <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-2 tally-button-primary shadow-lg uppercase text-[10px] font-black tracking-widest">
+                <div className="bg-gray-100 border border-gray-300 px-3 py-2 text-xs font-bold grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1.5 flex-shrink-0">
+                    <div className="flex items-center justify-between text-gray-700"><span>Gross</span><span className="font-mono">{formatCurrency(calculatedTotals.grossAmount)}</span></div>
+                    <div className="flex items-center justify-between text-red-600"><span>Trade Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemDiscount, '-')}</span></div>
+                    <div className="flex items-center justify-between text-emerald-700"><span>Scheme Benefit</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalItemSchemeDiscount, '-')}</span></div>
+                    <div className="flex items-center justify-between text-red-700"><span>Bill Discount</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.billDiscount, '-')}</span></div>
+                    <div className="flex items-center justify-between text-blue-700"><span>Tax (GST)</span><span className="font-mono">{formatSignedCurrency(calculatedTotals.totalGst, '+')}</span></div>
+                    <div className="flex items-center justify-between text-gray-700"><span>Round Off</span><span className="font-mono">{formatCurrency(calculatedTotals.roundOff)}</span></div>
+                    <div className="col-span-2 md:col-span-2 text-right font-black text-primary">Grand Total: <span className="font-mono">{formatCurrency(calculatedTotals.grandTotal)}</span></div>
+                </div>
+
+                <div className="flex gap-2 justify-end flex-shrink-0 pb-1">
+                    <button onClick={onCancel} className="px-4 h-9 border border-gray-400 bg-white text-xs font-bold uppercase">Discard</button>
+                    <button onClick={handleSubmit} disabled={isSubmitting} className="px-4 h-9 bg-emerald-600 text-white text-xs font-bold uppercase inline-flex items-center">
                         {isSubmitting ? <Spinner /> : (isEditing ? 'Update Entry' : 'Accept (Enter)')}
                     </button>
                     <button
                         type="button"
                         onClick={() => setIsJournalModalOpen(true)}
                         disabled={!canOpenJournalEntry}
-                        className="px-5 py-2 bg-white border border-primary text-primary hover:bg-primary/5 font-black uppercase tracking-widest text-[10px] disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-4 h-9 bg-white border border-gray-400 text-xs font-bold uppercase disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         Show Accounting Entry
                     </button>
