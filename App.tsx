@@ -521,7 +521,7 @@ const App: React.FC = () => {
         }
 
         try {
-            const savedTx = await storage.addTransaction(tx, currentUser);
+            const savedTx = await storage.addTransaction(tx, currentUser, isUpdate);
 
             // Synchronize the local configuration state with the next expected number.
             // This ensures that the "Preview" number shown in the UI is consistent with what's in the DB
