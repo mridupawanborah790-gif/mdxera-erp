@@ -1,13 +1,16 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Card from '../components/Card';
-import Modal from '../components/Modal';
-// Fix: Corrected named import for PurchaseForm to default import
-import PurchaseForm from '../components/PurchaseForm';
-import type { Purchase, Distributor, InventoryItem, RegisteredPharmacy, Medicine, DistributorProductMap } from '../types';
+import type {
+    Purchase,
+    Distributor,
+    InventoryItem,
+    RegisteredPharmacy,
+    Medicine,
+    DistributorProductMap,
+    PurchaseReturn,
+} from '../types';
 import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import ConfirmModal from '../components/ConfirmModal';
-import InfoTooltip from '../components/InfoTooltip';
-import ExportPurchasesModal from '../components/ExportPurchasesModal';
 import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
@@ -18,31 +21,49 @@ interface PurchaseHistoryProps {
     distributors: Distributor[];
     onViewDetails: (purchase: Purchase) => void;
     onCancelPurchase: (purchaseId: string) => void;
-    onEditPurchase?: (purchase: Purchase) => void; 
+    onEditPurchase?: (purchase: Purchase) => void;
+    onCreateReturn?: (purchase: Purchase) => void;
     inventory: InventoryItem[];
     medicines: Medicine[];
     onUpdatePurchase: (purchase: Purchase, supplierGst?: string) => Promise<void>;
     onAddInventoryItem: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     currentUser: RegisteredPharmacy | null;
     onSaveMapping: (map: DistributorProductMap) => Promise<void>;
+    purchaseReturns?: PurchaseReturn[];
+    onRefresh?: () => Promise<void>;
 }
 
-const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({ 
-    purchases, distributors, onViewDetails, onCancelPurchase, 
-    inventory, medicines, onUpdatePurchase, onAddInventoryItem, currentUser,
-    onSaveMapping, onEditPurchase 
+const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+);
+
+const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
+    purchases,
+    distributors,
+    onViewDetails,
+    onCancelPurchase,
+    currentUser,
+    onEditPurchase,
+    onCreateReturn,
+    purchaseReturns,
+    onRefresh,
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
+    const [searchInput, setSearchInput] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [distributorFilter, setDistributorFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('completed');
-    const [sortConfig, setSortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' }>({ key: 'date', direction: 'descending' });
+    const [sortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' }>({ key: 'date', direction: 'descending' });
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [purchaseToCancel, setPurchaseToCancel] = useState<string | null>(null);
     const [journalPurchase, setJournalPurchase] = useState<Purchase | null>(null);
-    
+    const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
+    const [actionWarning, setActionWarning] = useState('');
+    const [isSyncing, setIsSyncing] = useState(false);
+
     const filteredAndSortedPurchases = useMemo(() => {
         let filtered = (purchases || []).filter(Boolean);
 
@@ -56,7 +77,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         }
         if (distributorFilter !== 'all') filtered = filtered.filter(p => p.supplier === distributorFilter);
         if (statusFilter !== 'all') filtered = filtered.filter(p => p.status === statusFilter);
-        
+
         if (searchTerm) {
             const lowercasedFilter = searchTerm.toLowerCase();
             filtered = filtered.filter(p =>
@@ -73,29 +94,129 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         });
     }, [purchases, searchTerm, startDate, endDate, distributorFilter, statusFilter, sortConfig]);
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (!shouldHandleScreenShortcut(e, 'purchaseHistory')) return;
-            if (e.key === 'F3') {
-                e.preventDefault();
-                if (filteredAndSortedPurchases.length > 0) {
-                    setIsExportModalOpen(true);
-                }
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [filteredAndSortedPurchases]);
+    const selectedPurchase = useMemo(
+        () => filteredAndSortedPurchases.find(p => p.id === selectedPurchaseId) || null,
+        [filteredAndSortedPurchases, selectedPurchaseId]
+    );
 
-    const handleExport = () => {
-        if (filteredAndSortedPurchases.length === 0) return;
-        setIsExportModalOpen(true);
+    useEffect(() => {
+        if (selectedPurchaseId && !selectedPurchase) {
+            setSelectedPurchaseId(null);
+        }
+    }, [selectedPurchaseId, selectedPurchase]);
+
+    const requireSelectedPurchase = useCallback(() => {
+        if (!selectedPurchase) {
+            setActionWarning('Please select a Bill first.');
+            return null;
+        }
+        setActionWarning('');
+        return selectedPurchase;
+    }, [selectedPurchase]);
+
+    const handleSelectRow = (purchaseId: string) => {
+        setSelectedPurchaseId(purchaseId);
+        setActionWarning('');
     };
+
+    const handleViewSelected = useCallback(() => {
+        const purchase = requireSelectedPurchase();
+        if (!purchase) return;
+        onViewDetails(purchase);
+    }, [onViewDetails, requireSelectedPurchase]);
+
+    const handleEditSelected = useCallback(() => {
+        const purchase = requireSelectedPurchase();
+        if (!purchase) return;
+
+        const hasEditPermission = ['owner', 'admin', 'manager'].includes(currentUser?.role || '');
+        if (!hasEditPermission || purchase.status !== 'completed' || !onEditPurchase) {
+            setActionWarning('Selected bill cannot be modified.');
+            return;
+        }
+
+        setActionWarning('');
+        onEditPurchase(purchase);
+    }, [requireSelectedPurchase, currentUser, onEditPurchase]);
+
+    const handleReturnSelected = useCallback(() => {
+        const purchase = requireSelectedPurchase();
+        if (!purchase) return;
+
+        const hasReturnPermission = ['owner', 'admin', 'manager', 'purchase'].includes(currentUser?.role || '');
+        if (!hasReturnPermission || purchase.status !== 'completed' || !onCreateReturn) {
+            setActionWarning('Selected bill is not eligible for purchase return.');
+            return;
+        }
+
+        const totalReturnedQty = (purchaseReturns || [])
+            .filter(ret => ret.originalPurchaseInvoiceId === purchase.purchaseSerialId)
+            .flatMap(ret => ret.items || [])
+            .reduce((sum, item) => sum + Number(item.returnQuantity || 0), 0);
+        const totalPurchasedQty = (purchase.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+
+        if (totalPurchasedQty > 0 && totalReturnedQty >= totalPurchasedQty) {
+            setActionWarning('Purchase return already completed for this bill.');
+            return;
+        }
+
+        setActionWarning('');
+        onCreateReturn(purchase);
+    }, [requireSelectedPurchase, currentUser, onCreateReturn, purchaseReturns]);
+
+    const handleViewJournalSelected = useCallback(() => {
+        const purchase = requireSelectedPurchase();
+        if (!purchase) return;
+        setJournalPurchase(purchase);
+    }, [requireSelectedPurchase]);
+
+    const handlePrintSelected = useCallback(() => {
+        const purchase = requireSelectedPurchase();
+        if (!purchase) return;
+        onViewDetails(purchase);
+    }, [onViewDetails, requireSelectedPurchase]);
 
     const handleCancelClick = (id: string) => {
         setPurchaseToCancel(id);
         setIsConfirmOpen(true);
     };
+
+    const handleCancelSelected = useCallback(() => {
+        const purchase = requireSelectedPurchase();
+        if (!purchase) return;
+
+        const hasCancelPermission = ['owner', 'admin', 'manager'].includes(currentUser?.role || '');
+        if (!hasCancelPermission || purchase.status === 'draft') {
+            setActionWarning('Selected bill cannot be cancelled.');
+            return;
+        }
+
+        if (purchase.status === 'cancelled') {
+            setActionWarning('Selected bill cannot be cancelled.');
+            return;
+        }
+
+        handleCancelClick(purchase.id);
+    }, [requireSelectedPurchase, currentUser]);
+
+    const handleExportSelected = useCallback(() => {
+        const purchase = requireSelectedPurchase();
+        if (!purchase) return;
+
+        const headers = ['System ID', 'Supplier Bill ID', 'Date', 'Supplier', 'Items', 'Amount', 'Status'];
+        const row = [
+            purchase.purchaseSerialId,
+            purchase.invoiceNumber,
+            new Date(purchase.date).toLocaleDateString('en-IN'),
+            purchase.supplier,
+            String((purchase.items || []).length),
+            (purchase.totalAmount || 0).toFixed(2),
+            purchase.status,
+        ];
+
+        const csvContent = [arrayToCsvRow(headers), arrayToCsvRow(row)].join('\n');
+        downloadCsv(`purchase-${purchase.purchaseSerialId}.csv`, csvContent);
+    }, [requireSelectedPurchase]);
 
     const handleConfirmCancel = () => {
         if (purchaseToCancel) {
@@ -105,7 +226,80 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         setIsConfirmOpen(false);
     };
 
+    const handleRefresh = useCallback(async () => {
+        if (!onRefresh) return;
+        setIsSyncing(true);
+        try {
+            await onRefresh();
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [onRefresh]);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'purchaseHistory', { allowedKeysWhenInputFocused: ['F5'] })) return;
+
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (filteredAndSortedPurchases.length === 0) return;
+
+                const currentIndex = selectedPurchase
+                    ? filteredAndSortedPurchases.findIndex(p => p.id === selectedPurchase.id)
+                    : -1;
+                const nextIndex = e.key === 'ArrowDown'
+                    ? Math.min(currentIndex + 1, filteredAndSortedPurchases.length - 1)
+                    : Math.max(currentIndex - 1, 0);
+
+                const nextPurchase = filteredAndSortedPurchases[nextIndex];
+                if (nextPurchase) handleSelectRow(nextPurchase.id);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                handleViewSelected();
+            } else if (e.key === 'F4') {
+                e.preventDefault();
+                handleEditSelected();
+            } else if (e.key === 'F6') {
+                e.preventDefault();
+                handleReturnSelected();
+            } else if (e.key === 'F7') {
+                e.preventDefault();
+                handleViewJournalSelected();
+            } else if (e.key === 'F8') {
+                e.preventDefault();
+                handlePrintSelected();
+            } else if (e.key === 'Delete') {
+                e.preventDefault();
+                handleCancelSelected();
+            } else if (e.key === 'F3') {
+                e.preventDefault();
+                handleExportSelected();
+            } else if (e.key === 'F5') {
+                e.preventDefault();
+                handleRefresh();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [
+        filteredAndSortedPurchases,
+        selectedPurchase,
+        handleViewSelected,
+        handleEditSelected,
+        handleReturnSelected,
+        handleViewJournalSelected,
+        handlePrintSelected,
+        handleCancelSelected,
+        handleExportSelected,
+        handleRefresh,
+    ]);
+
     const totalValue = useMemo(() => filteredAndSortedPurchases.reduce((sum, p) => sum + (p.status !== 'cancelled' ? p.totalAmount : 0), 0), [filteredAndSortedPurchases]);
+
+    const applySearch = useCallback(() => {
+        setSearchTerm(searchInput.trim());
+    }, [searchInput]);
 
     return (
         <main className="flex-1 page-fade-in flex flex-col overflow-hidden bg-app-bg">
@@ -115,25 +309,85 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             </div>
 
             <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
-                <Card className="p-3 tally-border !rounded-none grid grid-cols-1 md:grid-cols-5 gap-4 items-end bg-white">
-                    <div className="md:col-span-2">
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Search Bills</label>
-                        <input type="text" placeholder="Bill No, Supplier..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold focus:bg-yellow-50 outline-none" />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Status</label>
-                        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none">
-                            <option value="completed">Completed</option>
-                            <option value="cancelled">Cancelled</option>
-                            <option value="all">All</option>
-                        </select>
-                    </div>
-                    <div className="flex gap-2 md:col-span-2">
-                        <button onClick={handleExport} className="flex-1 py-2 tally-button-primary text-[10px]">F3: Export</button>
+                <Card className="sticky top-0 z-20 px-2 py-1.5 tally-border !rounded-none bg-white">
+                    <div className="flex items-center gap-2 whitespace-nowrap overflow-x-auto">
+                        <div className="flex items-center gap-1.5 min-w-[340px]">
+                            <label className="text-[11px] font-semibold text-gray-600">Search:</label>
+                            <input
+                                type="text"
+                                placeholder="Bill No / Supplier"
+                                value={searchInput}
+                                onChange={e => setSearchInput(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        applySearch();
+                                    }
+                                }}
+                                className="h-8 w-[300px] border border-gray-400 px-2 text-[13px] font-semibold focus:bg-yellow-50 outline-none"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-1.5 min-w-[180px]">
+                            <label className="text-[11px] font-semibold text-gray-600">From:</label>
+                            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-8 w-[150px] border border-gray-400 px-2 text-[12px] font-semibold outline-none" />
+                        </div>
+
+                        <div className="flex items-center gap-1.5 min-w-[170px]">
+                            <label className="text-[11px] font-semibold text-gray-600">To:</label>
+                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="h-8 w-[150px] border border-gray-400 px-2 text-[12px] font-semibold outline-none" />
+                        </div>
+
+                        <div className="flex items-center gap-1.5 min-w-[190px]">
+                            <label className="text-[11px] font-semibold text-gray-600">Supplier:</label>
+                            <select value={distributorFilter} onChange={e => setDistributorFilter(e.target.value)} className="h-8 w-[150px] border border-gray-400 px-2 text-[12px] font-semibold outline-none bg-white">
+                                <option value="all">All Suppliers</option>
+                                {distributors.map(d => (
+                                    <option key={d.id} value={d.name}>{d.name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 min-w-[190px]">
+                            <label className="text-[11px] font-semibold text-gray-600">Status:</label>
+                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'all' | 'completed' | 'cancelled')} className="h-8 w-[150px] border border-gray-400 px-2 text-[12px] font-semibold outline-none bg-white">
+                                <option value="completed">Completed</option>
+                                <option value="cancelled">Cancelled</option>
+                                <option value="all">All Bills</option>
+                            </select>
+                        </div>
+
+                        <button
+                            onClick={handleRefresh}
+                            disabled={isSyncing}
+                            className="h-8 min-w-[150px] px-3 tally-button-primary text-[11px] font-black uppercase flex items-center justify-center gap-2 disabled:opacity-60"
+                        >
+                            <RefreshIcon className={isSyncing ? 'animate-spin' : ''} />
+                            {isSyncing ? 'Syncing...' : 'F5: Refresh'}
+                        </button>
                     </div>
                 </Card>
 
                 <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white">
+                    <div className="border-b border-gray-300 p-3 bg-gray-50 space-y-3">
+                        <div className="text-[11px] font-bold text-gray-700">
+                            Selected Bill: <span className="font-mono text-primary">{selectedPurchase?.purchaseSerialId || 'None'}</span>
+                            {' '}| Supplier: <span className="uppercase">{selectedPurchase?.supplier || '-'}</span>
+                            {' '}| Supplier Bill ID: <span className="font-mono">{selectedPurchase?.invoiceNumber || '-'}</span>
+                            {' '}| Amount: <span className="font-black">₹{(selectedPurchase?.totalAmount || 0).toFixed(2)}</span>
+                        </div>
+                        {actionWarning && <div className="text-[11px] font-bold text-red-700 bg-red-100 border border-red-200 px-2 py-1">{actionWarning}</div>}
+                        <div className="flex flex-wrap gap-2">
+                            <button disabled={!selectedPurchase} onClick={handleViewSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Enter: View</button>
+                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager'].includes(currentUser?.role || '')} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
+                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager', 'purchase'].includes(currentUser?.role || '')} onClick={handleReturnSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Purchase Return</button>
+                            <button disabled={!selectedPurchase} onClick={handleViewJournalSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F7: View Journal Entry</button>
+                            <button disabled={!selectedPurchase} onClick={handlePrintSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F8: Print</button>
+                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager'].includes(currentUser?.role || '')} onClick={handleCancelSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase text-red-700 disabled:opacity-50">Delete: Cancel</button>
+                            <button disabled={!selectedPurchase} onClick={handleExportSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F3: Export</button>
+                            <button onClick={handleRefresh} disabled={isSyncing} className="px-3 py-1.5 tally-button-primary text-[10px] font-black uppercase disabled:opacity-60">F5: Refresh</button>
+                        </div>
+                    </div>
                     <div className="flex-1 overflow-auto">
                         <table className="min-w-full border-collapse text-sm">
                             <thead className="sticky top-0 bg-gray-100 border-b border-gray-400">
@@ -144,27 +398,26 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                                     <th className="p-2 border-r border-gray-400 text-left">Date</th>
                                     <th className="p-2 border-r border-gray-400 text-left">Supplier</th>
                                     <th className="p-2 border-r border-gray-400 text-right w-32">Amount</th>
-                                    <th className="p-2 text-right">Actions</th>
+                                    <th className="p-2 border-r border-gray-400 text-center w-28">Status</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {filteredAndSortedPurchases.map((p, idx) => (
-                                    <tr key={p.id} className={`hover:bg-accent transition-colors ${p.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}>
+                                    <tr
+                                        key={p.id}
+                                        onClick={() => handleSelectRow(p.id)}
+                                        className={`cursor-pointer transition-colors ${selectedPurchaseId === p.id ? 'bg-lime-100' : 'hover:bg-accent'} ${p.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}
+                                    >
                                         <td className="p-2 border-r border-gray-200 font-bold text-gray-400 text-center">{idx + 1}</td>
                                         <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary">{p.purchaseSerialId}</td>
                                         <td className="p-2 border-r border-gray-200 font-bold uppercase">{p.invoiceNumber}</td>
                                         <td className="p-2 border-r border-gray-200">{new Date(p.date).toLocaleDateString('en-IN')}</td>
                                         <td className="p-2 border-r border-gray-200 font-bold uppercase">{p.supplier}</td>
                                         <td className="p-2 border-r border-gray-200 text-right font-black">₹{(p.totalAmount || 0).toFixed(2)}</td>
-                                        <td className="p-2 text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => onViewDetails(p)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
-                                                <button onClick={() => setJournalPurchase(p)} className="text-indigo-700 font-black uppercase text-[10px] hover:underline">View Journal Entry</button>
-                                                {p.status !== 'cancelled' && onEditPurchase && (
-                                                    <button onClick={() => onEditPurchase(p)} className="text-blue-700 font-black uppercase text-[10px] hover:underline">Edit</button>
-                                                )}
-                                                {p.status !== 'cancelled' && <button onClick={() => handleCancelClick(p.id)} className="text-red-600 font-black uppercase text-[10px] hover:underline">Cancel</button>}
-                                            </div>
+                                        <td className="p-2 border-r border-gray-200 text-center">
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${p.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                                                {p.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+                                            </span>
                                         </td>
                                     </tr>
                                 ))}
@@ -174,15 +427,6 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                 </Card>
             </div>
             <ConfirmModal isOpen={isConfirmOpen} onClose={() => setIsConfirmOpen(false)} onConfirm={handleConfirmCancel} title="Cancel Purchase" message="Are you sure you want to cancel this inward entry? Stock levels will be reduced." />
-            
-            {isExportModalOpen && (
-                <ExportPurchasesModal
-                    isOpen={isExportModalOpen}
-                    onClose={() => setIsExportModalOpen(false)}
-                    data={filteredAndSortedPurchases}
-                    pharmacyName={currentUser?.pharmacy_name || 'MDXERA ERP'}
-                />
-            )}
 
             <JournalEntryViewerModal
                 isOpen={!!journalPurchase}

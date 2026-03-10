@@ -31,7 +31,9 @@ const Returns: React.FC<ReturnsProps> = ({
     defaultTab = 'sales',
     isFixedMode,
     prefillSalesInvoiceId,
-    onPrefillSalesInvoiceHandled
+    prefillPurchaseInvoiceId,
+    onPrefillSalesInvoiceHandled,
+    onPrefillPurchaseInvoiceHandled
 }) => {
     const [view, setView] = useState<'list' | 'create'>('list');
     const [activeTab, setActiveTab] = useState<'sales' | 'purchase'>(defaultTab);
@@ -82,6 +84,43 @@ const Returns: React.FC<ReturnsProps> = ({
 
         onPrefillSalesInvoiceHandled?.();
     }, [prefillSalesInvoiceId, transactions, addNotification, onPrefillSalesInvoiceHandled]);
+
+
+    useEffect(() => {
+        if (!prefillPurchaseInvoiceId) return;
+
+        setActiveTab('purchase');
+        setView('create');
+        setSearchInvoiceId(prefillPurchaseInvoiceId);
+
+        const foundPur = purchases.find(p => p.invoiceNumber === prefillPurchaseInvoiceId || p.purchaseSerialId === prefillPurchaseInvoiceId);
+        if (foundPur) {
+            const totalReturnedQty = (purchaseReturns || [])
+                .filter(ret => ret.originalPurchaseInvoiceId === foundPur.purchaseSerialId)
+                .flatMap(ret => ret.items || [])
+                .reduce((sum, item) => sum + Number(item.returnQuantity || 0), 0);
+            const totalPurchasedQty = (foundPur.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+
+            if (foundPur.status !== 'completed') {
+                addNotification('Selected bill is not eligible for purchase return.', 'warning');
+            } else if (totalPurchasedQty > 0 && totalReturnedQty >= totalPurchasedQty) {
+                addNotification('Purchase return already completed for this bill.', 'warning');
+            } else {
+                setReturnItems((foundPur.items || []).map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    brand: item.brand,
+                    purchasePrice: item.purchasePrice,
+                    returnQuantity: 0,
+                    reason: RETURN_REASONS[0],
+                } as PurchaseReturnItem)));
+                setSelectedInvoice(foundPur);
+                addNotification('Source Bill Identified.', 'success');
+            }
+        }
+
+        onPrefillPurchaseInvoiceHandled?.();
+    }, [prefillPurchaseInvoiceId, purchases, purchaseReturns, addNotification, onPrefillPurchaseInvoiceHandled]);
 
     const handleSearchInvoice = () => {
         if (!searchInvoiceId.trim()) {
