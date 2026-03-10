@@ -1501,6 +1501,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
     };
 
+    const focusFirstLineItemField = () => {
+        const firstRow = items[0];
+        if (!firstRow) return;
+        const firstNameInput = document.getElementById(`name-${firstRow.id}`) as HTMLInputElement | null;
+        firstNameInput?.focus();
+        firstNameInput?.select();
+    };
+
     const handleSupplierSelect = (d: Supplier) => {
         setSupplier(d.name);
         setSupplierGst(d.gst_number || '');
@@ -1508,7 +1516,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setIsSupplierSearchModalOpen(false);
         setSelectedSupplierIndex(0);
         setSupplierNameError(null);
-        voucherGridRef.current?.focus();
+        setTimeout(() => {
+            focusFirstLineItemField();
+        }, 0);
     };
 
     const handleQuickCreateSupplier = () => {
@@ -1545,6 +1555,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setSelectedSupplierIndex(prev => (prev - 1 + filtered.length) % Math.max(1, filtered.length));
         } else if (e.key === 'Enter') {
             e.preventDefault();
+            const filtered = suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10);
+            const selectedSupplier = filtered[selectedSupplierIndex] || filtered[0];
+            if (selectedSupplier) {
+                handleSupplierSelect(selectedSupplier);
+                return;
+            }
             setIsSupplierSearchModalOpen(true);
         } else if (e.key === 'Escape') {
             e.preventDefault();
