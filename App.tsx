@@ -573,8 +573,10 @@ const App: React.FC = () => {
 
             loadData(currentUser, 'background');
             addNotification("Purchase voucher updated.", "success");
+            return savedPurchase;
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
+            throw e;
         }
     };
 
@@ -587,8 +589,10 @@ const App: React.FC = () => {
 
             loadData(currentUser, 'background');
             addNotification("Purchase entry posted.", "success");
+            return savedPurchase;
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
+            throw e;
         }
     };
 
@@ -1050,6 +1054,7 @@ const App: React.FC = () => {
                         configurations={configurations}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
                         organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
+                        onPrint={setViewPurchase}
                     />;
                 case 'manualPurchaseEntry':
                     return <PurchaseForm
@@ -1067,6 +1072,7 @@ const App: React.FC = () => {
                         configurations={configurations}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
                         organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
+                        onPrint={setViewPurchase}
                     />;
 
                 case 'manualSupplierInvoice':

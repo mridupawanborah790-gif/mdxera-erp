@@ -207,11 +207,12 @@ interface PurchaseFormProps {
     setMobileSyncSessionId: (id: string | null) => void;
     config?: ModuleConfig;
     onCancel?: () => void;
+    onPrint?: (purchase: Purchase) => void;
     organizationId: string;
 }
 
 const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
-    onAddPurchase, onUpdatePurchase, inventory, suppliers, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, onClearDraft, currentUser, onAddMedicineMaster, onAddsupplier, onSaveMapping, onCancel, title, className, configurations, addNotification, isReadOnly = false,
+    onAddPurchase, onUpdatePurchase, inventory, suppliers, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, onClearDraft, currentUser, onAddMedicineMaster, onAddsupplier, onSaveMapping, onCancel, onPrint, title, className, configurations, addNotification, isReadOnly = false,
     isManualEntry = false, isChallan = false, disableAIInput = false, mobileSyncSessionId, setMobileSyncSessionId,
     organizationId,
 }, ref) => {
@@ -219,7 +220,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const isFieldVisible = useCallback((fieldId: string) => configurations.modules?.purchase?.fields?.[fieldId] !== false, [configurations.modules]);
 
     // Standard State
-    const [Supplier, setSupplier] = useState('');
+    const [supplier, setSupplier] = useState('');
     const [supplierGst, setSupplierGst] = useState('');
     const [invoiceNumber, setInvoiceNumber] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -235,6 +236,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [voucherDraftCreated, setVoucherDraftCreated] = useState(false);
     const [lockImportUIReset, setLockImportUIReset] = useState(false);
     const [purchaseVoucherDraft, setPurchaseVoucherDraft] = useState<PurchaseVoucherDraftState | null>(null);
+    const [previewVoucherNumber, setPreviewVoucherNumber] = useState<string>('');
+
+    useEffect(() => {
+        if (!isEditing && currentUser) {
+            reserveVoucherNumber('purchase-entry', currentUser, true)
+                .then(res => setPreviewVoucherNumber(res.documentNumber))
+                .catch(err => console.error('Error fetching preview number:', err));
+        }
+    }, [isEditing, currentUser]);
 
     // Matrix Props
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -315,12 +325,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const commitVoucherDraftAndOpen = useCallback((nextItems: PurchaseItem[]) => {
         const normalizedItems = [...nextItems, createBlankItem()];
         const draftState: PurchaseVoucherDraftState = {
-            supplier: Supplier,
+            supplier: supplier,
             supplierGst,
             invoiceNumber,
             date,
             items: normalizedItems,
         };
+
 
         setItems(normalizedItems);
         setPurchaseVoucherDraft(draftState);
@@ -329,7 +340,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setIsLinkModalOpen(false);
         setVoucherDraftCreated(true);
         setLockImportUIReset(true);
-    }, [Supplier, supplierGst, invoiceNumber, date]);
+    }, [supplier, supplierGst, invoiceNumber, date]);
 
     const getImportWorkflowLabel = useCallback((stage: ImportWorkflowStage) => {
         switch (stage) {
@@ -376,24 +387,24 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, []);
 
     const currentsupplier = useMemo(() => {
-        const supplierKey = normalizeSupplierKey(Supplier);
+        const supplierKey = normalizeSupplierKey(supplier);
         if (!supplierKey) return null;
 
         const exact = suppliers.find(d => normalizeSupplierKey(d.name || '') === supplierKey);
         if (exact) return exact;
 
         return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
-    }, [suppliers, Supplier]);
+    }, [suppliers, supplier]);
 
     const canOpenJournalEntry = Boolean(purchaseToEdit?.id);
     const isPostedVoucher = (purchaseToEdit?.status || '') === 'completed';
     const supplierPhoneDisplay = currentsupplier?.mobile || currentsupplier?.phone || '';
     const supplierPurchaseHistory = useMemo(() => {
-        if (!Supplier.trim()) return [];
+        if (!supplier.trim()) return [];
         return purchases
-            .filter(p => normalizeSupplierKey(p.supplier || '') === normalizeSupplierKey(Supplier))
+            .filter(p => normalizeSupplierKey(p.supplier || '') === normalizeSupplierKey(supplier))
             .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-    }, [purchases, Supplier]);
+    }, [purchases, supplier]);
     const lastPurchaseDate = supplierPurchaseHistory[0]?.date || '-';
     const lastPaymentDate = currentsupplier?.ledger
         ?.filter(entry => Number(entry.credit || 0) > 0 || Number(entry.debit || 0) > 0)
@@ -402,18 +413,18 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     const reconciliationSupplier = useMemo<Supplier | null>(() => {
         if (currentsupplier) return currentsupplier;
-        if (!Supplier.trim()) return null;
+        if (!supplier.trim()) return null;
         return {
             id: 'temp',
             organization_id: organizationId,
-            name: Supplier.trim(),
+            name: supplier.trim(),
             gst_number: supplierGst,
             pan_number: '',
             ledger: [],
             payment_details: {},
             is_active: true,
         } as Supplier;
-    }, [currentsupplier, Supplier, organizationId, supplierGst]);
+    }, [currentsupplier, supplier, organizationId, supplierGst]);
 
     const findSupplierByName = useCallback((name?: string | null): Supplier | null => {
         const supplierKey = normalizeSupplierKey(name || '');
@@ -679,7 +690,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [items]);
 
     const hasDuplicateSupplierInvoice = useCallback(() => {
-        const normalizedSupplier = Supplier.toLowerCase().trim();
+        const normalizedSupplier = supplier.toLowerCase().trim();
         const normalizedInvoice = invoiceNumber.toLowerCase().trim();
         if (!normalizedSupplier || !normalizedInvoice) return false;
 
@@ -697,20 +708,35 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (currentFy && purchaseFy) return purchaseFy === currentFy;
             return true;
         });
-    }, [Supplier, invoiceNumber, purchaseToEdit, purchases, organizationId]);
+    }, [supplier, invoiceNumber, purchaseToEdit, purchases, organizationId]);
 
     const handleSubmit = async () => {
-        if (isSubmitting) return;
-        if (!Supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
-        if (!invoiceNumber.trim()) { setInvoiceNumberError("Invoice number is required."); return; }
+        if (isSubmitting) return null;
+        
+        // Field Validations with Notifications
+        if (!supplier.trim()) { 
+            setSupplierNameError("Supplier name is required."); 
+            addNotification("Please select or enter a Supplier name.", "warning");
+            return null; 
+        }
+        if (!invoiceNumber.trim()) { 
+            setInvoiceNumberError("Invoice number is required."); 
+            addNotification("Supplier Invoice Number is required.", "warning");
+            return null; 
+        }
+        
         if (hasDuplicateSupplierInvoice()) {
             const duplicateMessage = "Duplicate Supplier Invoice # already recorded. Please verify Purchase History.";
             setInvoiceNumberError(duplicateMessage);
             addNotification(duplicateMessage, "error");
-            return;
+            return null;
         }
+        
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
-        if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
+        if (activeItems.length === 0) { 
+            addNotification("At least one item is required to save.", "error"); 
+            return null; 
+        }
 
         const invalidExpiryItem = activeItems.find(item => {
             const expiryValue = (item.expiry || '').trim();
@@ -718,11 +744,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         });
         if (invalidExpiryItem) {
             addNotification(`Invalid expiry for ${invalidExpiryItem.name}. Use MM/YY format (e.g., 01/25).`, "error");
-            return;
+            return null;
         }
 
         setIsSubmitting(true);
         try {
+            console.log('PurchaseForm: Starting submission...', { supplier, invoiceNumber, itemCount: activeItems.length });
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;
 
             if (!purchaseToEdit && currentUser) {
@@ -732,7 +759,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             const payload = {
                 purchaseSerialId: purchaseSerialId!,
-                supplier: Supplier,
+                supplier: supplier,
                 invoiceNumber: invoiceNumber.trim(),
                 date,
                 items: calculatedTotals.itemsWithCalculations.map(item => ({
@@ -750,15 +777,23 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 schemeDiscount: 0
             };
 
+            let saved: any;
             if (purchaseToEdit) {
-                await onUpdatePurchase({ ...purchaseToEdit, ...payload } as any, supplierGst);
+                saved = await onUpdatePurchase({ ...purchaseToEdit, ...payload } as any, supplierGst);
             } else {
-                await onAddPurchase(payload, supplierGst);
+                saved = await onAddPurchase(payload, supplierGst);
             }
-            onClearDraft(); if (onCancel) onCancel();
+            
+            console.log('PurchaseForm: Save successful', saved);
+            onClearDraft();
+            return saved;
         } catch (e: any) {
-            addNotification(`Error: ${parseNetworkAndApiError(e)}`, "error");
-        } finally { setIsSubmitting(false); }
+            console.error('PurchaseForm: Save failed', e);
+            addNotification(`Save Failed: ${parseNetworkAndApiError(e)}`, "error");
+            return null;
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleDiscard = useCallback(() => {
@@ -779,7 +814,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         inventory.forEach(i => {
             const name = i.name.toLowerCase();
             const code = (i.code || '').toLowerCase();
-            if (!term || name.startsWith(term) || code.startsWith(term)) {
+            if (!term || name.includes(term) || code.includes(term)) {
                 const key = `${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
                 if (!grouped.has(key)) grouped.set(key, { item: i, batches: [i] });
                 else {
@@ -796,7 +831,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         medicines.forEach(m => {
             const name = m.name.toLowerCase();
             const materialCode = (m.materialCode || '').toLowerCase();
-            if (!term || name.startsWith(term) || materialCode.startsWith(term)) {
+            if (!term || name.includes(term) || materialCode.includes(term)) {
                 const key = `${m.name.toLowerCase()}|${m.brand?.toLowerCase() || ''}`;
                 if (!grouped.has(key)) {
                     const virtualItem: InventoryItem = {
@@ -831,12 +866,128 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             .slice(0, 30);
     }, [modalSearchTerm, inventory, medicines]);
 
+    const activeRowCalculations = useMemo(() => {
+        if (!activeRowId) return null;
+        const p = items.find(item => item.id === activeRowId);
+        if (!p || !p.name.trim()) return null;
+
+        const gross = (p.purchasePrice || 0) * (p.quantity || 0);
+        const tradeDisc = gross * ((p.discountPercent || 0) / 100);
+        const afterTrade = gross - tradeDisc;
+        const schemeDiscPercentAmount = afterTrade * ((p.schemeDiscountPercent || 0) / 100);
+        const schemeDisc = p.schemeDiscountAmount > 0 ? p.schemeDiscountAmount : schemeDiscPercentAmount;
+        const taxable = afterTrade - schemeDisc;
+        const gst = taxable * ((p.gstPercent || 0) / 100);
+        const total = taxable + gst;
+
+        return {
+            grossAmount: gross,
+            taxableValue: taxable,
+            sgst: gst / 2,
+            cgst: gst / 2,
+            totalGst: gst,
+            discount: tradeDisc + schemeDisc,
+            netAmount: total,
+            gstPercent: p.gstPercent || 0
+        };
+    }, [activeRowId, items]);
+
     const activeIntelItem = useMemo(() => {
         if (isSearchModalOpen && deduplicatedSearchInventory.length > 0) {
             return deduplicatedSearchInventory[selectedSearchIndex]?.item;
         }
+        if (activeRowId) {
+            const row = items.find(p => p.id === activeRowId);
+            if (row && row.name.trim()) {
+                const linkedInv = inventory.find(inv => inv.id === row.inventoryItemId);
+                if (linkedInv) return linkedInv;
+                return {
+                    name: row.name,
+                    brand: row.brand,
+                    batch: row.batch,
+                    expiry: row.expiry,
+                    mrp: row.mrp,
+                    stock: 0
+                } as any;
+            }
+        }
         return null;
-    }, [isSearchModalOpen, deduplicatedSearchInventory, selectedSearchIndex]);
+    }, [isSearchModalOpen, deduplicatedSearchInventory, selectedSearchIndex, activeRowId, items, inventory]);
+
+    const handleGlobalKeyDown = useCallback((e: KeyboardEvent) => {
+        if (isSearchModalOpen || isWebcamModalOpen || isAddSupplierModalOpen || isAddMedicineMasterModalOpen || isLinkModalOpen || isRateTierModalOpen || isSupplierSearchModalOpen) return;
+
+        const isInputFocused = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
+
+        if (!isInputFocused && activeRowId) {
+            const rowIndex = items.findIndex(p => p.id === activeRowId);
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const nextRow = items[rowIndex + 1];
+                if (nextRow) setActiveRowId(nextRow.id);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prevRow = items[rowIndex - 1];
+                if (prevRow) setActiveRowId(prevRow.id);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const nameInput = document.getElementById(`name-${activeRowId}`);
+                nameInput?.focus();
+                (nameInput as HTMLInputElement)?.select();
+            }
+        }
+    }, [activeRowId, items, isSearchModalOpen, isWebcamModalOpen, isAddSupplierModalOpen, isAddMedicineMasterModalOpen, isLinkModalOpen, isRateTierModalOpen, isSupplierSearchModalOpen]);
+
+    useEffect(() => {
+        window.addEventListener('keydown', handleGlobalKeyDown);
+        return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+    }, [handleGlobalKeyDown]);
+
+    const handleGridKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowId: string, field: string) => {
+        const fields = ['name', 'mfr', 'pack', 'batch', 'expiry', 'mrp', 'qty', 'lqty', 'free', 'rate', 'disc', 'sch'];
+        const currentIndex = fields.indexOf(field);
+        const rowIndex = items.findIndex(p => p.id === rowId);
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const nextRow = items[rowIndex + 1];
+            if (nextRow) {
+                const nextInput = document.getElementById(`${field}-${nextRow.id}`);
+                nextInput?.focus();
+                (nextInput as HTMLInputElement)?.select();
+            }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prevRow = items[rowIndex - 1];
+            if (prevRow) {
+                const prevInput = document.getElementById(`${field}-${prevRow.id}`);
+                prevInput?.focus();
+                (prevInput as HTMLInputElement)?.select();
+            }
+        } else if (e.key === 'ArrowRight') {
+            const input = e.target as HTMLInputElement;
+            if (input.selectionEnd === input.value.length || input.type === 'number') {
+                const nextField = fields[currentIndex + 1];
+                if (nextField) {
+                    e.preventDefault();
+                    const nextInput = document.getElementById(`${nextField}-${rowId}`);
+                    nextInput?.focus();
+                    (nextInput as HTMLInputElement)?.select();
+                }
+            }
+        } else if (e.key === 'ArrowLeft') {
+            const input = e.target as HTMLInputElement;
+            if (input.selectionStart === 0 || input.type === 'number') {
+                const prevField = fields[currentIndex - 1];
+                if (prevField) {
+                    e.preventDefault();
+                    const prevInput = document.getElementById(`${prevField}-${rowId}`);
+                    prevInput?.focus();
+                    (prevInput as HTMLInputElement)?.select();
+                }
+            }
+        }
+    };
 
     const intelDetails = useMemo(() => {
         if (!activeIntelItem) return null;
@@ -1005,7 +1156,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [isReadOnly]);
 
     const handleUpdateItem = (id: string, field: keyof PurchaseItem, value: any) => {
-        if (isReadOnly || !Supplier.trim()) return;
+        if (isReadOnly || !supplier.trim()) return;
         setItems(prev => {
             const index = prev.findIndex(p => p.id === id); if (index === -1) return prev;
             let updatedItem = { ...prev[index], [field]: value };
@@ -1154,7 +1305,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         e.preventDefault();
         e.stopPropagation();
 
-        if (isReadOnly || !Supplier.trim()) return;
+        if (isReadOnly || !supplier.trim()) return;
         if (!rateTierHandledRows.has(rowId)) {
             openRateTierModal(rowId);
             return;
@@ -1517,7 +1668,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     const handleQuickCreateSupplier = (supplierNameOverride?: string) => {
         if (isReadOnly) return;
-        const supplierName = (supplierNameOverride ?? Supplier).trim();
+        const supplierName = (supplierNameOverride ?? supplier).trim();
         setSupplierQuickCreatePrefill({
             name: supplierName,
             gst_number: supplierGst || '',
@@ -1531,7 +1682,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const handleSupplierKeyDown = (e: React.KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
             e.preventDefault();
-            const exact = suppliers.find(d => normalizeSupplierKey(d.name || '') === normalizeSupplierKey(Supplier));
+            const exact = suppliers.find(d => normalizeSupplierKey(d.name || '') === normalizeSupplierKey(supplier));
             if (exact) {
                 handleSupplierSelect(exact);
                 return;
@@ -1542,11 +1693,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            const filtered = suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10);
+            const filtered = suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
             setSelectedSupplierIndex(prev => (prev + 1) % Math.max(1, filtered.length));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            const filtered = suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10);
+            const filtered = suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
             setSelectedSupplierIndex(prev => (prev - 1 + filtered.length) % Math.max(1, filtered.length));
         } else if (e.key === 'Enter') {
             e.preventDefault();
@@ -1574,7 +1725,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         View Journal Entry
                     </button>
                 </div>
-                <span className="text-[10px] font-black uppercase text-accent">No. {invoiceNumber || (isEditing ? purchaseToEdit?.purchaseSerialId : 'PINV000001-2025-26')}</span>
+                <span className="text-[10px] font-black uppercase text-accent">No. {isEditing ? purchaseToEdit?.purchaseSerialId : (previewVoucherNumber || 'Loading...')}</span>
             </div>
             <div className="p-2 flex-1 flex flex-col gap-2 overflow-hidden">
                 <div className="sticky top-0 z-30 p-2 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-12 gap-2 items-end flex-shrink-0 min-h-[84px]">
@@ -1588,21 +1739,32 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             className="w-full border border-gray-400 p-2 text-sm font-bold outline-none"
                         />
                     </div>
-                    <div className="md:col-span-7 relative">
+                    <div className="md:col-span-2">
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Invoice #</label>
+                        <input
+                            ref={invoiceNumberInputRef}
+                            type="text"
+                            value={invoiceNumber}
+                            onChange={(e) => { setInvoiceNumber(e.target.value); setInvoiceNumberError(null); }}
+                            className={`w-full border p-2 text-sm font-bold uppercase outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
+                            placeholder="Supplier Inv #..."
+                        />
+                    </div>
+                    <div className="md:col-span-6 relative">
                         <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Particulars (Supplier Name)</label>
                         <input
                             ref={supplierNameInputRef}
                             type="text"
-                            value={Supplier}
+                            value={supplier}
                             autoComplete="off"
                             onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
                             onKeyDown={handleSupplierKeyDown}
                             className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                             placeholder="Enter for selection, Esc to skip..."
                         />
-                        {isSupplierDropdownOpen && Supplier.length > 0 && (
+                        {isSupplierDropdownOpen && supplier.length > 0 && (
                             <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
-                                {suppliers.filter(d => fuzzyMatch(d.name, Supplier)).slice(0, 10).map((d, sIdx) => (
+                                {suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10).map((d, sIdx) => (
                                     <div
                                         key={d.id}
                                         onClick={() => handleSupplierSelect(d)}
@@ -1616,13 +1778,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             </div>
                         )}
                     </div>
-                    <div className="md:col-span-3">
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Phone Number</label>
+                    <div className="md:col-span-2">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Phone</label>
                         <input
                             type="text"
                             value={supplierPhoneDisplay}
                             readOnly
-                            className="w-full border p-2 text-sm font-bold outline-none border-gray-400 bg-gray-50"
+                            className="w-full border p-2 text-sm font-bold outline-none border-gray-400 bg-gray-50 truncate"
                         />
                     </div>
                 </div>
@@ -1672,8 +1834,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     </>
                 )}
 
-                <Card className="flex-1 min-h-[420px] md:min-h-[500px] flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
-                    <div ref={voucherGridRef} tabIndex={-1} className="flex-1 overflow-auto">
+                <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
+                    <div ref={voucherGridRef} tabIndex={-1} className="flex-1 overflow-auto min-h-[200px]">
                         <table className="min-w-full border-collapse text-sm">
                             <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400 z-10">
                                 <tr className="text-[10px] font-black uppercase text-gray-600 h-9">
@@ -1694,102 +1856,274 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
-                                {items.map((p, idx) => (
-                                    <tr key={p.id} className="hover:bg-gray-50 group h-10">
-                                        <td className={`p-1 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{idx + 1}</td>
-                                        <td className={`p-1 border-r border-gray-200 text-primary uppercase relative min-w-[200px] ${uniformTextStyle}`}>
-                                            <input
-                                                type="text"
-                                                id={`name-${p.id}`}
-                                                value={p.name}
-                                                autoComplete="off"
-                                                onChange={e => {
-                                                    const val = e.target.value;
-                                                    handleUpdateItem(p.id, 'name', val);
-                                                    openSearchModal(p.id, val);
-                                                }}
-                                                onFocus={() => {
-                                                    setActiveRowId(p.id);
-                                                    openSearchModal(p.id, p.name);
-                                                }}
-                                                className={`w-full bg-transparent outline-none focus:bg-yellow-50 ${uniformTextStyle}`}
-                                                disabled={isReadOnly || !Supplier.trim()}
-                                            />
-                                        </td>
-                                        <td className={`p-1 border-r border-gray-400 ${uniformTextStyle}`}><input type="text" id={`mfr-${p.id}`} value={p.brand} onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)} className={`w-full bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        {isFieldVisible('colPack') && (
-                                            <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" value={p.packType} onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        )}
-                                        <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}><input type="text" id={`expiry-${p.id}`} value={p.expiry} onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} placeholder="MM/YY" inputMode="numeric" maxLength={5} pattern="(0[1-9]|1[0-2])/[0-9]{2}" className={`w-full text-center bg-transparent outline-none ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center text-gray-500 ${uniformTextStyle}`}><input type="number" id={`lqty-${p.id}`} value={p.looseQuantity || ''} onChange={e => handleUpdateItem(p.id, 'looseQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        {isFieldVisible('colFree') && (
-                                            <td className={`p-1 border-r border-gray-400 text-center text-emerald-600 font-bold ${uniformTextStyle}`}><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        )}
-                                        <td className={`p-1 border-r border-gray-400 text-right font-bold text-blue-900 ${uniformTextStyle}`}><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} className={`w-full text-right bg-transparent outline-none no-spinner font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" value={p.discountPercent || ''} onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 border-r border-gray-400 text-center text-red-600 ${uniformTextStyle}`}><input type="number" id={`sch-${p.id}`} value={p.gstPercent || ''} onChange={e => handleUpdateItem(p.id, 'gstPercent', e.target.value)} onKeyDown={(e) => handleRateTierLastFieldEnter(e, p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${uniformTextStyle}`} disabled={isReadOnly || !Supplier.trim()} /></td>
-                                        <td className={`p-1 text-right font-black font-mono text-gray-950 whitespace-nowrap ${uniformTextStyle}`}>₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.discountPercent || 0) / 100) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
-                                    </tr>
-                                ))}
+                                {items.map((p, idx) => {
+                                    const isActive = activeRowId === p.id;
+                                    return (
+                                        <tr 
+                                            key={p.id} 
+                                            onClick={() => setActiveRowId(p.id)}
+                                            className={`hover:bg-gray-50 group h-10 cursor-pointer transition-colors ${isActive ? 'bg-blue-700 text-white shadow-md' : ''}`}
+                                        >
+                                            <td className={`p-1 border-r border-gray-200 text-center ${isActive ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
+                                            <td className={`p-1 border-r border-gray-200 uppercase relative min-w-[200px] ${uniformTextStyle} ${isActive ? 'text-white' : 'text-primary'}`}>
+                                                <input
+                                                    type="text"
+                                                    id={`name-${p.id}`}
+                                                    value={p.name}
+                                                    autoComplete="off"
+                                                    onChange={e => {
+                                                        const val = e.target.value;
+                                                        handleUpdateItem(p.id, 'name', val);
+                                                        openSearchModal(p.id, val);
+                                                    }}
+                                                    onFocus={() => {
+                                                        setActiveRowId(p.id);
+                                                        openSearchModal(p.id, p.name);
+                                                    }}
+                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'name')}
+                                                    className={`w-full bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            <td className={`p-1 border-r border-gray-400 ${uniformTextStyle}`}>
+                                                <input
+                                                    type="text"
+                                                    id={`mfr-${p.id}`}
+                                                    value={p.brand}
+                                                    onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)}
+                                                    onFocus={() => setActiveRowId(p.id)}
+                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'mfr')}
+                                                    className={`w-full bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            {isFieldVisible('colPack') && (
+                                                <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="text"
+                                                        id={`pack-${p.id}`}
+                                                        value={p.packType}
+                                                        onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'pack')}
+                                                        className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}>
+                                                <input
+                                                    type="text"
+                                                    id={`batch-${p.id}`}
+                                                    value={p.batch}
+                                                    onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())}
+                                                    onFocus={() => setActiveRowId(p.id)}
+                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'batch')}
+                                                    className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}>
+                                                <input
+                                                    type="text"
+                                                    id={`expiry-${p.id}`}
+                                                    value={p.expiry}
+                                                    onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)}
+                                                    onFocus={() => setActiveRowId(p.id)}
+                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'expiry')}
+                                                    placeholder="MM/YY"
+                                                    inputMode="numeric"
+                                                    maxLength={5}
+                                                    pattern="(0[1-9]|1[0-2])/[0-9]{2}"
+                                                    className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}>
+                                                <input
+                                                    type="number"
+                                                    id={`mrp-${p.id}`}
+                                                    value={p.mrp || ''}
+                                                    onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)}
+                                                    onFocus={() => setActiveRowId(p.id)}
+                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'mrp')}
+                                                    className={`w-full text-right bg-transparent outline-none no-spinner focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}>
+                                                <input
+                                                    type="number"
+                                                    id={`qty-${p.id}`}
+                                                    value={p.quantity || ''}
+                                                    onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)}
+                                                    onFocus={() => setActiveRowId(p.id)}
+                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'qty')}
+                                                    className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            <td className={`p-1 border-r border-gray-400 text-center ${isActive ? 'text-white/80' : 'text-gray-500'} ${uniformTextStyle}`}>
+                                                <input
+                                                    type="number"
+                                                    id={`lqty-${p.id}`}
+                                                    value={p.looseQuantity || ''}
+                                                    onChange={e => handleUpdateItem(p.id, 'looseQuantity', e.target.value)}
+                                                    onFocus={() => setActiveRowId(p.id)}
+                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'lqty')}
+                                                    className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            {isFieldVisible('colFree') && (
+                                                <td className={`p-1 border-r border-gray-400 text-center font-bold ${isActive ? 'text-emerald-300' : 'text-emerald-600'} ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="number"
+                                                        id={`free-${p.id}`}
+                                                        value={p.freeQuantity || ''}
+                                                        onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'free')}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            <td className={`p-1 border-r border-gray-400 text-right font-bold ${isActive ? 'text-white' : 'text-blue-900'} ${uniformTextStyle}`}>
+                                                <input
+                                                    type="number"
+                                                    id={`rate-${p.id}`}
+                                                    value={p.purchasePrice || ''}
+                                                    onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)}
+                                                    onFocus={() => setActiveRowId(p.id)}
+                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'rate')}
+                                                    className={`w-full text-right bg-transparent outline-none no-spinner font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            <td className={`p-1 border-r border-gray-200 text-center ${isActive ? 'text-red-300' : 'text-red-600'} ${uniformTextStyle}`}>
+                                                <input
+                                                    type="number"
+                                                    id={`disc-${p.id}`}
+                                                    value={p.discountPercent || ''}
+                                                    onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)}
+                                                    onFocus={() => setActiveRowId(p.id)}
+                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'disc')}
+                                                    className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            <td className={`p-1 border-r border-gray-400 text-center ${isActive ? 'text-red-300' : 'text-red-600'} ${uniformTextStyle}`}>
+                                                <input
+                                                    type="number"
+                                                    id={`sch-${p.id}`}
+                                                    value={p.gstPercent || ''}
+                                                    onChange={e => handleUpdateItem(p.id, 'gstPercent', e.target.value)}
+                                                    onFocus={() => setActiveRowId(p.id)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') handleRateTierLastFieldEnter(e, p.id);
+                                                        else handleGridKeyDown(e, p.id, 'sch');
+                                                    }}
+                                                    className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                    disabled={isReadOnly || !supplier.trim()}
+                                                />
+                                            </td>
+                                            <td className={`p-1 text-right font-black font-mono whitespace-nowrap ${isActive ? 'text-white' : 'text-gray-950'} ${uniformTextStyle}`}>₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.discountPercent || 0) / 100) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
                 </Card>
 
-                <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[210px]">
-                    <div className="col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-2 flex-shrink-0">
+                    <div className="md:col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px] flex flex-col justify-center">
                         <div className="text-[11px] font-bold uppercase space-y-1">
-                            <div>Item : <span className="text-primary">{activeIntelItem?.name || '-'}</span></div>
-                            <div>Batch : <span className="text-primary">{activeIntelItem?.batch || '-'}</span></div>
-                            <div>Expiry : <span className="text-primary">{activeIntelItem?.expiry || '-'}</span></div>
-                            <div>Stock : <span className="text-primary">{activeIntelItem?.stock ?? 0}</span></div>
-                            <div>MRP : <span className="text-primary">₹{(activeIntelItem?.mrp || 0).toFixed(2)}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Item :</span> <span className="text-primary truncate">{activeIntelItem?.name || '-'}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Batch :</span> <span className="text-primary">{activeIntelItem?.batch || '-'}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Expiry :</span> <span className="text-primary">{activeIntelItem?.expiry || '-'}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Stock :</span> <span className="text-primary">{activeIntelItem?.stock ?? 0}</span></div>
+                            <div className="flex"><span className="w-16 text-gray-500">MRP :</span> <span className="text-primary">₹{(activeIntelItem?.mrp || 0).toFixed(2)}</span></div>
                         </div>
                     </div>
 
-                    <div className="col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                    <div className="md:col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px]">
+                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1 border-b border-gray-200 pb-1">Line Item Details</div>
                         <div className="space-y-1 text-[11px] font-bold uppercase">
-                            <div className="flex justify-between"><span>MRP Value</span><span>₹{(calculatedTotals.grossAmount || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>Value of Goods</span><span>₹{(calculatedTotals.subtotal || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>SGST</span><span>₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>CGST</span><span>₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>IGST</span><span>₹0.00</span></div>
-                            <div className="flex justify-between"><span>Discount</span><span>₹{((calculatedTotals.totalItemDiscount || 0) + (calculatedTotals.totalItemSchemeDiscount || 0) + (calculatedTotals.billDiscount || 0)).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>GST%</span><span>{(calculatedTotals.subtotal || 0) > 0 ? (((calculatedTotals.totalGst || 0) / calculatedTotals.subtotal) * 100).toFixed(2) : '0.00'}%</span></div>
-                            <div className="flex justify-between"><span>Balance</span><span>₹{(calculatedTotals.grandTotal || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>MRP Value</span><span>₹{(activeRowCalculations?.grossAmount || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Taxable Value</span><span>₹{(activeRowCalculations?.taxableValue || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>SGST ({(activeRowCalculations?.gstPercent || 0) / 2}%)</span><span>₹{(activeRowCalculations?.sgst || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>CGST ({(activeRowCalculations?.gstPercent || 0) / 2}%)</span><span>₹{(activeRowCalculations?.cgst || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Discount</span><span className="text-red-600">- ₹{(activeRowCalculations?.discount || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between font-black text-blue-900 pt-1"><span>Line Net Amt</span><span>₹{(activeRowCalculations?.netAmount || 0).toFixed(2)}</span></div>
                         </div>
                     </div>
 
-                    <div className="col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm">
-                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1">Supplier Info</div>
-                        <div className="text-[11px] font-bold uppercase space-y-1">
-                            <div>Area: {currentsupplier?.area || '-'}</div>
-                            <div>Route: {currentsupplier?.city || '-'}</div>
-                            <div>Last Purchase: {lastPurchaseDate}</div>
-                            <div>Last Payment: {lastPaymentDate}</div>
-                            <div>Avg Credit Days: -</div>
+                    <div className="md:col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm min-h-[100px]">
+                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1 border-b border-gray-200 pb-1 flex justify-between"><span>Supplier Info</span> <span className="text-[8px] text-primary bg-primary/10 px-1">ACTIVE</span></div>
+                        <div className="text-[11px] font-bold uppercase space-y-0.5">
+                            <div className="truncate">Area: <span className="text-gray-600">{currentsupplier?.area || '-'}</span></div>
+                            <div className="truncate">Route: <span className="text-gray-600">{currentsupplier?.city || '-'}</span></div>
+                            <div className="truncate">Last Purchase: <span className="text-gray-600">{lastPurchaseDate}</span></div>
+                            <div className="text-[9px] mt-1 text-gray-400">Last Payment: {lastPaymentDate}</div>
                         </div>
                     </div>
 
                     <div className="col-span-12 bg-[#255d55] px-2 py-1.5 text-white flex items-center gap-1 overflow-x-auto">
-                        {['SALE', 'PURC', 'SC', 'PC', 'COPY BILL', 'PASTE', 'SR', 'PR', 'CASH', 'HOLD', 'SAVE', 'PRINT', 'RETURN'].map(btn => (
-                            <button
-                                key={btn}
-                                onClick={() => {
-                                    if (btn === 'SAVE') handleSubmit();
-                                                                        if (btn === 'RETURN') handleDiscard();
-                                }}
-                                className={`px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap ${btn === 'PURC' ? 'bg-white text-[#255d55]' : ''}`}
-                            >
-                                {btn}
-                            </button>
-                        ))}
-                        <div className="ml-auto text-right pr-2">
-                            <div className="text-[11px] uppercase font-bold">Purchase Value</div>
-                            <div className="text-2xl font-black">₹{(calculatedTotals.grandTotal || 0).toFixed(2)}</div>
+                        <div className="flex gap-1">
+                            {['SALE', 'PURC', 'SC', 'PC', 'COPY BILL', 'PASTE', 'SR', 'PR', 'CASH', 'HOLD', 'SAVE', 'PRINT', 'RETURN'].map(btn => (
+                                <button
+                                    key={btn}
+                                    onClick={async () => {
+                                        if (btn === 'SAVE') {
+                                            console.log('PurchaseForm: Save clicked');
+                                            const saved = await handleSubmit();
+                                            if (saved && onCancel) {
+                                                // After a successful save of a NEW entry, we usually go back
+                                                // If it's editing, we might want to stay or go back depending on UX
+                                                // For now, let's just stay on the page unless it's a new one.
+                                                if (!purchaseToEdit) onCancel();
+                                            }
+                                        }
+                                        if (btn === 'PRINT') {
+                                            console.log('PurchaseForm: Print clicked');
+                                            const saved = await handleSubmit();
+                                            if (saved && onPrint) {
+                                                onPrint(saved);
+                                            } else if (!saved) {
+                                                addNotification("Please fix validation errors before printing.", "warning");
+                                            }
+                                        }
+                                        if (btn === 'RETURN') handleDiscard();
+                                    }}
+                                    className={`px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap hover:bg-white hover:text-[#255d55] transition-colors ${btn === 'PURC' ? 'bg-white text-[#255d55]' : ''}`}
+                                >
+                                    {btn}
+                                </button>
+                            ))}
+
+                        </div>
+                        
+                        <div className="ml-auto flex items-center gap-6 pr-2">
+                            <div className="flex gap-4 border-r border-white/20 pr-6">
+                                <div className="text-right">
+                                    <div className="text-[9px] uppercase font-bold opacity-80">SGST</div>
+                                    <div className="text-sm font-black">₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-[9px] uppercase font-bold opacity-80">CGST</div>
+                                    <div className="text-sm font-black">₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-[9px] uppercase font-bold opacity-80">Total GST</div>
+                                    <div className="text-sm font-black">₹{(calculatedTotals.totalGst || 0).toFixed(2)}</div>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-[11px] uppercase font-bold">Purchase Total</div>
+                                <div className="text-2xl font-black text-accent">₹{(calculatedTotals.grandTotal || 0).toFixed(2)}</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2069,7 +2403,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 suppliers={suppliers}
                 onSelect={handleSupplierSelect}
                 onQuickCreateSupplier={handleQuickCreateSupplier}
-                initialSearch={Supplier}
+                initialSearch={supplier}
             />
 
             <JournalEntryViewerModal
