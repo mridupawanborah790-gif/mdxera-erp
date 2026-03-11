@@ -278,6 +278,7 @@ export interface BillItem {
     schemeValue?: number;
     schemeDiscountAmount?: number;
     schemeDiscountPercent?: number;
+    schemeDisplayPercent?: number;
     schemeBaseRate?: number;
     amount?: number;
     finalAmount?: number;

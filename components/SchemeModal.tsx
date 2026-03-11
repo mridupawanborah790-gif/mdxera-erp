@@ -6,7 +6,7 @@ interface SchemeModalProps {
     isOpen: boolean;
     onClose: () => void;
     item: BillItem;
-    onApply: (itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number) => void;
+    onApply: (itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number, schemeDisplayPercent?: number) => void;
     onClear: (itemId: string) => void;
 }
 
@@ -30,6 +30,29 @@ const parseSchemeRule = (value: string): { freeQty: number; requiredQty: number 
 
     return null;
 };
+
+const calculateSchemeDisplayPercent = (params: { mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio'; value: number; schemeQty: number; schemeTotalQty?: number; billedQty: number; }): number => {
+    const { mode, value, schemeQty, schemeTotalQty, billedQty } = params;
+
+    if (mode === 'percent') return Math.max(0, value);
+
+    if (mode === 'qty_ratio') {
+        const totalQty = Math.max(0, Number(schemeTotalQty || 0));
+        const freeQty = Math.max(0, Number(schemeQty || 0));
+        if (totalQty <= 0) return 0;
+        return (freeQty / totalQty) * 100;
+    }
+
+    if (mode === 'free_qty') {
+        const billed = Math.max(0, Number(billedQty || 0));
+        const freeQty = Math.max(0, Number(schemeQty || 0));
+        if (billed <= 0) return 0;
+        return (Math.min(freeQty, billed) / billed) * 100;
+    }
+
+    return 0;
+};
+
 
 const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onApply, onClear }) => {
     const [schemeRule, setSchemeRule] = useState('');
@@ -103,6 +126,16 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
         return { mode: null, discountPercent: 0, discountAmount: 0, schemeQty: 0, schemeTotalQty: undefined, value: 0, freeQuantity: 0 };
     })();
 
+    const schemeDisplayPercent = computed.mode
+        ? calculateSchemeDisplayPercent({
+            mode: computed.mode,
+            value: computed.value,
+            schemeQty: computed.schemeQty,
+            schemeTotalQty: computed.schemeTotalQty,
+            billedQty,
+        })
+        : 0;
+
     const handleApply = () => {
         if (!computed.mode || computed.discountAmount <= 0) {
             onClear(item.id);
@@ -118,7 +151,8 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
             computed.discountAmount,
             computed.discountPercent,
             computed.freeQuantity,
-            computed.schemeTotalQty
+            computed.schemeTotalQty,
+            schemeDisplayPercent
         );
         onClose();
     };
@@ -208,7 +242,7 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
                 </div>
 
                 <div className="rounded border border-dashed border-emerald-300 bg-emerald-50 p-3 text-sm">
-                    <div className="flex justify-between"><span>SCH%</span><span>{computed.discountPercent.toFixed(2)}%</span></div>
+                    <div className="flex justify-between"><span>SCH%</span><span>{schemeDisplayPercent.toFixed(2)}%</span></div>
                     <div className="flex justify-between"><span>FREE Qty</span><span>{computed.freeQuantity.toFixed(2)}</span></div>
                     <div className="flex justify-between"><span>Benefit</span><span>₹{computed.discountAmount.toFixed(2)}</span></div>
                 </div>

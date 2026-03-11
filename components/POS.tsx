@@ -163,46 +163,6 @@ const recalculateSchemeFields = (item: BillItem): BillItem => {
     };
 };
 
-const calculateEffectiveRateFromScheme = (originalRate: number, schemeRule: string): number | null => {
-    const safeRate = Number(originalRate);
-    if (!safeRate || safeRate <= 0) return null;
-
-    const normalizedRule = schemeRule.trim().toLowerCase();
-    if (!normalizedRule) return null;
-
-    const plusMatch = normalizedRule.match(/^(\d+(?:\.\d+)?)\s*\+\s*(\d+(?:\.\d+)?)$/);
-    if (plusMatch) {
-        const paidQty = Number(plusMatch[1]);
-        const freeQty = Number(plusMatch[2]);
-        const totalQty = paidQty + freeQty;
-        if (paidQty > 0 && freeQty >= 0 && totalQty > 0) {
-            return parseFloat(((paidQty * safeRate) / totalQty).toFixed(2));
-        }
-        return null;
-    }
-
-    const ratioMatch = normalizedRule.match(/^\s*(\d+(?:\.\d+)?)\s*(?:in|\/|:)\s*(\d+(?:\.\d+)?)\s*$/);
-    if (ratioMatch) {
-        const freeQty = Number(ratioMatch[1]);
-        const paidQty = Number(ratioMatch[2]);
-        const totalQty = freeQty + paidQty;
-        if (paidQty > 0 && freeQty >= 0 && totalQty > 0) {
-            return parseFloat(((paidQty * safeRate) / totalQty).toFixed(2));
-        }
-        return null;
-    }
-
-    const percentageMatch = normalizedRule.match(/^(\d+(?:\.\d+)?)\s*%$/);
-    if (percentageMatch) {
-        const schemePercent = Number(percentageMatch[1]);
-        if (schemePercent >= 0 && schemePercent < 100) {
-            return parseFloat((safeRate * (1 - (schemePercent / 100))).toFixed(2));
-        }
-    }
-
-    return null;
-};
-
 const POS = forwardRef<any, POSProps>(({
     inventory,
     purchases,
@@ -261,11 +221,8 @@ const POS = forwardRef<any, POSProps>(({
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
     const [selectedRowIndex, setSelectedRowIndex] = useState(0);
     const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
-    const [rateSchemePopup, setRateSchemePopup] = useState<{ itemId: string; rowIndex: number; top: number; left: number; width: number; originalRate: number } | null>(null);
-    const [rateSchemeRule, setRateSchemeRule] = useState('');
 
     const activeRowIdRef = useRef<string | null>(null);
-    const rateSchemeInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         setSelectedSearchIndex(0);
@@ -320,12 +277,6 @@ const POS = forwardRef<any, POSProps>(({
         window.addEventListener('keydown', handleGlobalKeyDown);
         return () => window.removeEventListener('keydown', handleGlobalKeyDown);
     }, []);
-
-    useEffect(() => {
-        if (!rateSchemePopup) return;
-        const timer = setTimeout(() => rateSchemeInputRef.current?.focus(), 0);
-        return () => clearTimeout(timer);
-    }, [rateSchemePopup]);
 
     const billingSettings = useMemo(() => resolveBillingSettings(configurations), [configurations]);
 
@@ -1096,7 +1047,7 @@ const POS = forwardRef<any, POSProps>(({
     //     }
     // }, [addNotification, isValidExpiry]);
 
-    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number) => {
+    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number, schemeDisplayPercent?: number) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
                 const updatedItem: BillItem = {
@@ -1108,6 +1059,7 @@ const POS = forwardRef<any, POSProps>(({
                     schemeDiscountAmount: discountAmount,
                     schemeDiscountPercent: discountPercent,
                     schemeTotalQty,
+                    schemeDisplayPercent,
                 };
                 return recalculateSchemeFields(updatedItem);
             }
@@ -1120,7 +1072,7 @@ const POS = forwardRef<any, POSProps>(({
     const handleClearScheme = useCallback((itemId: string) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
-                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeTotalQty, schemeBaseRate, ...rest } = item;
+                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeDisplayPercent, schemeTotalQty, schemeBaseRate, ...rest } = item;
                 return { ...rest };
             }
             return item;
@@ -1164,55 +1116,6 @@ const POS = forwardRef<any, POSProps>(({
             return newItems;
         });
     }, [isReadOnly]);
-
-    const openRateSchemePopup = useCallback((event: React.KeyboardEvent<HTMLInputElement>, item: BillItem, rowIndex: number) => {
-        if (isReadOnly) return;
-        const target = event.currentTarget;
-        const rect = target.getBoundingClientRect();
-        setRateSchemeRule('');
-        setRateSchemePopup({
-            itemId: item.id,
-            rowIndex,
-            originalRate: Number(item.rate) || 0,
-            top: rect.bottom + window.scrollY + 4,
-            left: rect.left + window.scrollX,
-            width: Math.max(220, rect.width + 28),
-        });
-    }, [isReadOnly]);
-
-    const closeRateSchemePopup = useCallback((focusRateField = true) => {
-        if (!rateSchemePopup) return;
-        const focusedItemId = rateSchemePopup.itemId;
-        setRateSchemePopup(null);
-        setRateSchemeRule('');
-        if (focusRateField) {
-            setTimeout(() => {
-                const rateField = document.getElementById(`rate-${focusedItemId}`);
-                rateField?.focus();
-                if (rateField instanceof HTMLInputElement) {
-                    rateField.select();
-                }
-            }, 0);
-        }
-    }, [rateSchemePopup]);
-
-    const handleApplyRateScheme = useCallback(() => {
-        if (!rateSchemePopup) return;
-        const effectiveRate = calculateEffectiveRateFromScheme(rateSchemePopup.originalRate, rateSchemeRule);
-        if (effectiveRate === null) {
-            addNotification('Invalid scheme. Use formats like 10+1, 1 in 10, or 10%.', 'error');
-            return;
-        }
-
-        handleUpdateCartItem(rateSchemePopup.itemId, 'rate', effectiveRate.toString());
-        setSelectedRowIndex(rateSchemePopup.rowIndex);
-        closeRateSchemePopup(true);
-    }, [addNotification, closeRateSchemePopup, handleUpdateCartItem, rateSchemePopup, rateSchemeRule]);
-
-    const liveEffectiveRate = useMemo(() => {
-        if (!rateSchemePopup) return null;
-        return calculateEffectiveRateFromScheme(rateSchemePopup.originalRate, rateSchemeRule);
-    }, [rateSchemePopup, rateSchemeRule]);
 
     const focusFirstEditableFieldInRow = useCallback((rowId: string) => {
         const firstEditableField = [
@@ -1616,12 +1519,6 @@ const POS = forwardRef<any, POSProps>(({
                                                             onChange={e => handleUpdateCartItem(item.id, 'rate', e.target.value)}
                                                             onFocus={() => handleRowFocus(idx)}
                                                             onKeyDown={e => {
-                                                                if (e.ctrlKey && e.key === 'Enter') {
-                                                                    e.preventDefault();
-                                                                    e.stopPropagation();
-                                                                    openRateSchemePopup(e, item, idx);
-                                                                    return;
-                                                                }
                                                                 handleItemKeyDown(e, item.id, idx);
                                                                 handleRowKeyNavigation(e, item.id);
                                                             }}
@@ -1691,7 +1588,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         className={`px-2 py-0.5 text-[10px] font-normal uppercase rounded border border-dashed transition-all ${item.schemeMode ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-gray-50 text-gray-400 border-gray-300 hover:text-primary hover:border-primary'}`}
                                                         disabled={isReadOnly}
                                                     >
-                                                        {(item.schemeDiscountPercent || 0).toFixed(1)}%
+                                                        {(item.schemeDisplayPercent ?? item.schemeDiscountPercent ?? 0).toFixed(1)}%
                                                     </button>
                                                 </td>
                                             )}
@@ -1755,7 +1652,7 @@ const POS = forwardRef<any, POSProps>(({
                             {activeLineTotals && (
                                 <>
                                     <div className="flex items-center justify-between text-blue-800"><span>Unit Rate</span> <span className="font-mono text-[10px]">₹{(activeBillItem?.rate || 0).toFixed(2)}</span></div>
-                                    <div className="flex items-center justify-between text-emerald-700"><span>Scheme %</span> <span className="font-mono text-[10px]">{(activeBillItem?.schemeDiscountPercent || 0).toFixed(2)}%</span></div>
+                                    <div className="flex items-center justify-between text-emerald-700"><span>Scheme %</span> <span className="font-mono text-[10px]">{(activeBillItem?.schemeDisplayPercent ?? activeBillItem?.schemeDiscountPercent ?? 0).toFixed(2)}%</span></div>
                                 </>
                             )}
                             <div className="flex justify-between"><span>MRP Value</span><span>₹{(activeLineTotals?.gross ?? totals.gross ?? 0).toFixed(2)}</span></div>
@@ -2039,44 +1936,6 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </div>
             </Modal>
-
-            {rateSchemePopup && (
-                <div
-                    className="fixed z-50 rounded-md border border-primary/20 bg-white shadow-2xl p-3"
-                    style={{
-                        top: rateSchemePopup.top,
-                        left: rateSchemePopup.left,
-                        width: rateSchemePopup.width,
-                        maxWidth: '280px'
-                    }}
-                >
-                    <p className="text-[10px] font-black uppercase tracking-wider text-primary mb-2">Scheme Effective Rate</p>
-                    <p className="text-[10px] text-gray-600 mb-2">Original Rate: <span className="font-black">₹{rateSchemePopup.originalRate.toFixed(2)}</span></p>
-                    <input
-                        ref={rateSchemeInputRef}
-                        value={rateSchemeRule}
-                        onChange={e => setRateSchemeRule(e.target.value)}
-                        onKeyDown={e => {
-                            if (e.key === 'Escape') {
-                                e.preventDefault();
-                                closeRateSchemePopup(true);
-                                return;
-                            }
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleApplyRateScheme();
-                            }
-                        }}
-                        placeholder="10+1 / 1 in 10 / 10%"
-                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded outline-none focus:border-primary"
-                    />
-                    <p className="mt-2 text-[11px] text-gray-700">Effective Rate: <span className="font-black text-emerald-700">{liveEffectiveRate !== null ? `₹${liveEffectiveRate.toFixed(2)}` : '—'}</span></p>
-                    <div className="mt-3 flex justify-end gap-2">
-                        <button onClick={() => closeRateSchemePopup(true)} className="px-2 py-1 text-[10px] font-bold uppercase text-gray-500">Cancel</button>
-                        <button onClick={handleApplyRateScheme} className="px-3 py-1 text-[10px] font-black uppercase bg-primary text-white rounded">Apply</button>
-                    </div>
-                </div>
-            )}
 
             <JournalEntryViewerModal
                 isOpen={isJournalModalOpen}
