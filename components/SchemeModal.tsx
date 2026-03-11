@@ -10,23 +10,22 @@ interface SchemeModalProps {
     onClear: (itemId: string) => void;
 }
 
-const parseSchemeRule = (value: string): { freeQty: number; totalQty: number } | null => {
+const parseSchemeRule = (value: string): { freeQty: number; requiredQty: number } | null => {
     const normalized = value.toLowerCase().trim();
     if (!normalized) return null;
 
     const inMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*in\s*(\d+(?:\.\d+)?)$/);
     if (inMatch) {
         const freeQty = Number(inMatch[1]);
-        const totalQty = Number(inMatch[2]);
-        if (freeQty > 0 && totalQty > 0) return { freeQty, totalQty };
+        const requiredQty = Number(inMatch[2]);
+        if (freeQty > 0 && requiredQty > 0) return { freeQty, requiredQty };
     }
 
     const plusMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*\+\s*(\d+(?:\.\d+)?)$/);
     if (plusMatch) {
-        const paidQty = Number(plusMatch[1]);
+        const requiredQty = Number(plusMatch[1]);
         const freeQty = Number(plusMatch[2]);
-        const totalQty = paidQty + freeQty;
-        if (freeQty > 0 && totalQty > 0) return { freeQty, totalQty };
+        if (freeQty > 0 && requiredQty > 0) return { freeQty, requiredQty };
     }
 
     return null;
@@ -70,14 +69,14 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
         }
 
         if (parsedRule) {
-            const benefitPercent = (parsedRule.freeQty / parsedRule.totalQty) * 100;
+            const benefitPercent = (parsedRule.freeQty / parsedRule.requiredQty) * 100;
             const discountAmount = Math.min(lineSubtotal, lineSubtotal * (benefitPercent / 100));
             return {
                 mode: 'qty_ratio' as const,
                 discountPercent: benefitPercent,
                 discountAmount,
                 schemeQty: parsedRule.freeQty,
-                schemeTotalQty: parsedRule.totalQty,
+                schemeTotalQty: parsedRule.requiredQty,
                 value: parsedRule.freeQty,
             };
         }
