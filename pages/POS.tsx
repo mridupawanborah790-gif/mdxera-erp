@@ -809,7 +809,7 @@ const POS = forwardRef<any, POSProps>(({
         }));
     };
 
-    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, schemeTotalQty?: number) => {
+    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
                 return {
@@ -819,6 +819,7 @@ const POS = forwardRef<any, POSProps>(({
                     schemeValue: value,
                     schemeDiscountAmount: discountAmount,
                     schemeDiscountPercent: discountPercent,
+                    freeQuantity,
                     schemeTotalQty
                 };
             }
@@ -832,7 +833,7 @@ const POS = forwardRef<any, POSProps>(({
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
                 const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeTotalQty, ...rest } = item;
-                return rest;
+                return { ...rest, freeQuantity: 0 };
             }
             return item;
         }));
