@@ -14,8 +14,8 @@ import * as storage from '../services/storageService';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
-import { formatExpiryToMMYY, getOutstandingBalance, parseNumber } from '../utils/helpers';
-import { calculateBillingTotals, calculateLineNetAmount, resolveBillingSettings } from '../utils/billing';
+import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
+import { calculateBillingTotals, resolveBillingSettings } from '../utils/billing';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
@@ -44,8 +44,8 @@ interface UploadedFile {
     name: string;
 }
 
-const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
-const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
+const uniformTextStyle = "text-sm font-bold tracking-tight uppercase leading-tight";
+const matrixRowTextStyle = "text-base font-bold tracking-tight uppercase leading-tight";
 
 const isGstInclusiveMrp = (taxBasis?: string) => taxBasis === 'I-Incl.MRP';
 
@@ -55,6 +55,15 @@ const calculateRateExcludingGst = (mrp: number, gstPercent: number): number => {
     if (safeMrp <= 0) return 0;
     if (safeGst <= 0) return safeMrp;
     return parseFloat((safeMrp / (1 + (safeGst / 100))).toFixed(2));
+};
+
+const parseExpiryForSort = (expiry?: string | null): number => {
+    const formatted = formatExpiryToMMYY(expiry || '');
+    const [monthText, yearText] = formatted.split('/');
+    const month = Number(monthText);
+    const year = Number(yearText);
+    if (!month || !year) return Number.MAX_SAFE_INTEGER;
+    return (year * 100) + month;
 };
 
 const resolveCustomerTierRate = (item: Pick<InventoryItem, 'rateA' | 'rateB' | 'rateC'>, customerTier?: Customer['defaultRateTier']): number | null => {
@@ -104,6 +113,61 @@ const createBlankItem = (): BillItem => ({
     discountPercent: 0,
     itemFlatDiscount: 0,
 });
+
+const getBilledQuantity = (item: BillItem): number => {
+    const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
+    return Math.max(0, (item.quantity || 0) + ((item.looseQuantity || 0) / (unitsPerPack || 1)));
+};
+
+const getDisplaySchemePercent = (item?: Partial<BillItem> | null): number => {
+    if (!item) return 0;
+    if (typeof item.schemeDisplayPercent === 'number') return item.schemeDisplayPercent;
+    return Number(item.schemeDiscountPercent || 0);
+};
+
+const recalculateSchemeFields = (item: BillItem): BillItem => {
+    if (!item.schemeMode) return item;
+
+    const billedQty = getBilledQuantity(item);
+    const baseRate = Number(item.rate || item.mrp || 0);
+    const tradeDiscountPercent = Number(item.discountPercent || 0);
+    const netRate = baseRate * (1 - tradeDiscountPercent / 100);
+    const appliedQty = Math.max(0, Number(item.schemeQty || 0));
+    const schemeValue = Math.max(0, Number(item.schemeValue || 0));
+    const schemeTotalQty = Math.max(0, Number(item.schemeTotalQty || 0));
+
+    let freeQuantity = 0;
+    let calculatedTotalDiscount = 0;
+
+    if (item.schemeMode === 'free_qty') {
+        freeQuantity = Math.min(appliedQty, billedQty);
+        calculatedTotalDiscount = freeQuantity * netRate;
+    } else if (item.schemeMode === 'qty_ratio' && schemeTotalQty > 0) {
+        const applications = Math.floor(billedQty / schemeTotalQty);
+        freeQuantity = applications * appliedQty;
+        calculatedTotalDiscount = freeQuantity * netRate;
+    } else if (item.schemeMode === 'flat') {
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * schemeValue;
+        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+    } else if (item.schemeMode === 'percent') {
+        calculatedTotalDiscount = Math.min(appliedQty || billedQty, billedQty) * (netRate * (schemeValue / 100));
+        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+    } else if (item.schemeMode === 'price_override') {
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * Math.max(0, netRate - schemeValue);
+        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+    }
+
+    const discountedSubtotal = billedQty * netRate;
+    const schemeDiscountAmount = Math.max(0, Math.min(calculatedTotalDiscount, discountedSubtotal));
+    const schemeDiscountPercent = discountedSubtotal > 0 ? (schemeDiscountAmount / discountedSubtotal) * 100 : 0;
+
+    return {
+        ...item,
+        freeQuantity,
+        schemeDiscountAmount,
+        schemeDiscountPercent,
+    };
+};
 
 const POS = forwardRef<any, POSProps>(({
     inventory,
@@ -161,8 +225,29 @@ const POS = forwardRef<any, POSProps>(({
     const [roundOff, setRoundOff] = useState(0);
     const [isRoundOffManuallyEdited, setIsRoundOffManuallyEdited] = useState(false);
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+    const [selectedRowIndex, setSelectedRowIndex] = useState(0);
+    const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
     const activeRowIdRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        setSelectedSearchIndex(0);
+    }, [modalSearchTerm]);
+
+    useEffect(() => {
+        if (isSearchModalOpen && searchResultsRef.current) {
+            const timer = setTimeout(() => {
+                const selectedRow = searchResultsRef.current?.querySelector(`[data-index="${selectedSearchIndex}"]`);
+                if (selectedRow) {
+                    selectedRow.scrollIntoView({
+                        block: 'nearest',
+                        behavior: 'auto'
+                    });
+                }
+            }, 0);
+            return () => clearTimeout(timer);
+        }
+    }, [selectedSearchIndex, isSearchModalOpen]);
 
     const isNonGst = billMode === 'EST';
     const canOpenJournalEntry = Boolean(transactionToEdit?.id);
@@ -191,6 +276,14 @@ const POS = forwardRef<any, POSProps>(({
         return /^\d{0,6}(\.\d{0,2})?$/.test(value);
     }, []);
 
+    useEffect(() => {
+        const handleGlobalKeyDown = () => {
+            setHoveredRowId(null);
+        };
+        window.addEventListener('keydown', handleGlobalKeyDown);
+        return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+    }, []);
+
     const billingSettings = useMemo(() => resolveBillingSettings(configurations), [configurations]);
 
     const totals = useMemo(() => calculateBillingTotals({
@@ -206,9 +299,91 @@ const POS = forwardRef<any, POSProps>(({
         }
     }, [totals.autoRoundOff, isRoundOffManuallyEdited]);
 
+    useEffect(() => {
+        if (cartItems.length === 0) {
+            setSelectedRowIndex(0);
+            return;
+        }
+
+        setSelectedRowIndex(prev => Math.min(prev, cartItems.length - 1));
+    }, [cartItems.length]);
+
     const grandTotal = useMemo(() => {
         return parseFloat((totals.baseTotal + roundOff).toFixed(2));
     }, [totals.baseTotal, roundOff]);
+
+
+    const activeBillItem = useMemo(() => {
+        if (cartItems.length === 0) return null;
+
+        // Prioritize hovered row for insights
+        if (hoveredRowId) {
+            const match = cartItems.find(item => item.id === hoveredRowId);
+            if (match) return match;
+        }
+
+        // Fallback to currently selected row index
+        if (selectedRowIndex >= 0 && selectedRowIndex < cartItems.length) {
+            return cartItems[selectedRowIndex];
+        }
+
+        return cartItems[cartItems.length - 1];
+    }, [cartItems, hoveredRowId, selectedRowIndex]);
+
+    const activeLineTotals = useMemo(() => {
+        if (!activeBillItem) return null;
+        return calculateBillingTotals({
+            items: [activeBillItem],
+            billDiscount: 0,
+            isNonGst,
+            configurations,
+        });
+    }, [activeBillItem, isNonGst, configurations]);
+
+
+    const customerSnapshot = useMemo(() => {
+        if (!selectedCustomer) {
+            return {
+                area: '-',
+                route: '-',
+                collectionDays: '-',
+                lastSale: '-',
+                lastReceipt: '-',
+                avgPaymentDays: '-'
+            };
+        }
+
+        const customerTransactions = salesHistory
+            .filter(tx => tx.customerId === selectedCustomer.id)
+            .sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime());
+
+        const lastSale = customerTransactions[0];
+
+        return {
+            area: selectedCustomer.area || '-',
+            route: selectedCustomer.assignedStaffName || '-',
+            collectionDays: selectedCustomer.customerGroup || '-',
+            lastSale: lastSale ? new Date(lastSale.date).toLocaleDateString('en-GB') : '-',
+            lastReceipt: '-',
+            avgPaymentDays: '-'
+        };
+    }, [selectedCustomer, salesHistory]);
+
+    const activeStockSnapshot = useMemo(() => {
+        if (!activeBillItem) return null;
+        const matchingInventory = inventory.filter(inv => {
+            if (activeBillItem.inventoryItemId && inv.id === activeBillItem.inventoryItemId) return true;
+            return (inv.name || '').toLowerCase() === (activeBillItem.name || '').toLowerCase() && (inv.batch || '') === (activeBillItem.batch || '');
+        });
+        const selectedBatchInventory = matchingInventory[0];
+        return {
+            item: activeBillItem.name || '-',
+            batch: activeBillItem.batch || selectedBatchInventory?.batch || '-',
+            expiry: activeBillItem.expiry || formatExpiryToMMYY(selectedBatchInventory?.expiry || '') || '-',
+            stock: selectedBatchInventory?.stock ?? 0,
+            mrp: activeBillItem.mrp || selectedBatchInventory?.mrp || 0
+        };
+    }, [activeBillItem, inventory]);
 
     useEffect(() => {
         setBillMode(billType === 'non-gst' ? 'EST' : 'GST');
@@ -392,17 +567,75 @@ const POS = forwardRef<any, POSProps>(({
             if (e.ctrlKey && e.key.toLowerCase() === 's') {
                 e.preventDefault();
                 handleSave();
+                return;
+            }
+
+            const activeTag = document.activeElement?.tagName.toLowerCase();
+            const isInputFocused = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || (activeTag === 'button' && (document.activeElement?.id?.includes('-') || (document.activeElement as HTMLElement)?.innerText?.includes('Apply')));
+
+            if (!isInputFocused && cartItems.length > 0) {
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedRowIndex(prev => Math.max(0, prev - 1));
+                    return;
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedRowIndex(prev => Math.min(cartItems.length - 1, prev + 1));
+                    return;
+                } else if (e.key === 'Enter') {
+                    const item = cartItems[selectedRowIndex];
+                    if (item) {
+                        e.preventDefault();
+                        focusFirstEditableFieldInRow(item.id);
+                    }
+                    return;
+                }
+            }
+
+            switch (e.key) {
+                case 'F2':
+                    e.preventDefault();
+                    setIsCustomerSearchModalOpen(true);
+                    return;
+                case 'F3':
+                    e.preventDefault();
+                    productSearchInputRef.current?.focus();
+                    return;
+                case 'F5':
+                    e.preventDefault();
+                    if (cartItems.length > 0) {
+                        const last = cartItems[cartItems.length - 1];
+                        const batches = inventory.filter(inv => inv.name === last.name).sort((a, b) => parseExpiryForSort(String(a.expiry || '')) - parseExpiryForSort(String(b.expiry || '')));
+                        if (batches.length > 0) triggerBatchSelection({ item: batches[0], batches });
+                    }
+                    return;
+                case 'F6':
+                    e.preventDefault();
+                    if (cartItems.length > 0) setSchemeItem(cartItems[cartItems.length - 1]);
+                    return;
+                case 'F8':
+                    e.preventDefault();
+                    localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy }));
+                    addNotification('Bill placed on hold.', 'success');
+                    return;
+                case 'F10':
+                    e.preventDefault();
+                    handleSave();
+                    return;
+                default:
+                    return;
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleSave]);
+    }, [handleSave, cartItems, inventory, customerSearch, customerPhone, billMode, billCategory, invoiceDate, referredBy, addNotification]);
 
     useImperativeHandle(ref, () => ({
         handleSave,
         setCartItems,
         cartItems
     }));
+
 
     const handleProcessPrescription = async (fileInput: FileInput, fileName: string) => {
         setIsProcessingRx(true);
@@ -650,7 +883,9 @@ const POS = forwardRef<any, POSProps>(({
             return normalized !== '' && !['NEW-STOCK', 'NEW-BATCH', 'N/A', 'NA'].includes(normalized);
         };
 
-        const candidateBatches = productWrapper.batches.filter(b => isValidBatch(b.batch));
+        const candidateBatches = productWrapper.batches
+            .filter(b => isValidBatch(b.batch))
+            .sort((a, b) => parseExpiryForSort(a.expiry ? String(a.expiry) : '') - parseExpiryForSort(b.expiry ? String(b.expiry) : ''));
 
         if (candidateBatches.length === 1) {
             addSelectedBatchToGrid(candidateBatches[0]);
@@ -678,7 +913,7 @@ const POS = forwardRef<any, POSProps>(({
             const nameBrandMatch = invName === itemName && invBrand === itemBrand;
 
             return codeMatch || nameBrandMatch;
-        });
+        }).sort((a, b) => parseExpiryForSort(a.expiry ? String(a.expiry) : '') - parseExpiryForSort(b.expiry ? String(b.expiry) : ''));
 
         if (fallbackBatches.length === 1) {
             addSelectedBatchToGrid(fallbackBatches[0]);
@@ -695,6 +930,11 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
+        if (checkIsExpired(batch.expiry ? String(batch.expiry) : '')) {
+            addNotification(`Item ${batch.name} (Batch: ${batch.batch}) is expired and cannot be sold.`, 'error');
+            return;
+        }
+
         if (shouldPreventNegativeStock && Number(batch.stock || 0) <= 0) {
             addNotification(`Insufficient stock for ${batch.name}. Available: ${Number(batch.stock || 0)}`, 'error');
             return;
@@ -742,10 +982,15 @@ const POS = forwardRef<any, POSProps>(({
         activeRowIdRef.current = null;
 
         setTimeout(() => {
-            const qtyInput = document.getElementById(`qty-p-${newItemId}`);
-            if (qtyInput) {
-                (qtyInput as HTMLInputElement).focus();
-                (qtyInput as HTMLInputElement).select();
+            const firstEditableField =
+                document.getElementById(`expiry-${newItemId}`) ||
+                document.getElementById(`qty-p-${newItemId}`);
+
+            if (firstEditableField) {
+                firstEditableField.focus();
+                if (firstEditableField instanceof HTMLInputElement) {
+                    firstEditableField.select();
+                }
             }
         }, 50);
     };
@@ -763,6 +1008,7 @@ const POS = forwardRef<any, POSProps>(({
                     if (!isValidRateInput(rateText)) return item;
                     const parsedRate = rateText === '' ? 0 : (parseFloat(rateText) || 0);
                     updated.rate = Math.min(parsedRate, 999999.99);
+                    updated.schemeBaseRate = undefined;
                     return updated;
                 }
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
@@ -773,8 +1019,13 @@ const POS = forwardRef<any, POSProps>(({
                     updated.rate = calculateRateExcludingGst(updated.mrp, updated.gstPercent);
                 }
 
+                if (updated.schemeMode && ['quantity', 'looseQuantity', 'discountPercent', 'rate', 'mrp', 'schemeMode', 'schemeQty', 'schemeTotalQty', 'schemeValue'].includes(field as string)) {
+                    return recalculateSchemeFields(updated);
+                }
+
                 if (field === 'looseQuantity' || field === 'packType' || field === 'unitsPerPack') {
-                    return normalizePackConversion(updated);
+                    const normalized = normalizePackConversion(updated);
+                    return normalized.schemeMode ? recalculateSchemeFields(normalized) : normalized;
                 }
                 return updated;
             }
@@ -802,18 +1053,21 @@ const POS = forwardRef<any, POSProps>(({
     //     }
     // }, [addNotification, isValidExpiry]);
 
-    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, schemeTotalQty?: number) => {
+    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number, schemeDisplayPercent?: number) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
-                return {
+                const updatedItem: BillItem = {
                     ...item,
                     schemeQty,
                     schemeMode: mode,
                     schemeValue: value,
+                    freeQuantity,
                     schemeDiscountAmount: discountAmount,
                     schemeDiscountPercent: discountPercent,
-                    schemeTotalQty
+                    schemeTotalQty,
+                    schemeDisplayPercent,
                 };
+                return recalculateSchemeFields(updatedItem);
             }
             return item;
         }));
@@ -824,8 +1078,8 @@ const POS = forwardRef<any, POSProps>(({
     const handleClearScheme = useCallback((itemId: string) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
-                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeTotalQty, ...rest } = item;
-                return rest;
+                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeDisplayPercent, schemeTotalQty, schemeBaseRate, ...rest } = item;
+                return { ...rest };
             }
             return item;
         }));
@@ -869,6 +1123,25 @@ const POS = forwardRef<any, POSProps>(({
         });
     }, [isReadOnly]);
 
+    const focusFirstEditableFieldInRow = useCallback((rowId: string) => {
+        const firstEditableField = [
+            `name-${rowId}`,
+            `batch-${rowId}`,
+            `qty-p-${rowId}`,
+            `qty-l-${rowId}`,
+            `free-${rowId}`,
+            `rate-${rowId}`,
+            `disc-${rowId}`,
+            `gst-${rowId}`,
+            `scheme-${rowId}`
+        ]
+            .map(fieldId => document.getElementById(fieldId))
+            .find(el => el && !el.hasAttribute('disabled'));
+
+        firstEditableField?.focus();
+        if (firstEditableField instanceof HTMLInputElement) firstEditableField.select();
+    }, []);
+
     const handleItemKeyDown = (e: React.KeyboardEvent, id: string, index: number) => {
         if (e.key === 'Delete') {
             e.preventDefault();
@@ -883,29 +1156,58 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const handleRowKeyNavigation = useCallback((e: React.KeyboardEvent, id: string) => {
-        const fields = [
-            `name-${id}`,
-            `expiry-${id}`,
-            `qty-p-${id}`,
-            `qty-l-${id}`,
-            `free-${id}`,
-            `rate-${id}`,
-            `disc-${id}`,
-            `gst-${id}`,
-            `scheme-${id}`
-        ].filter(id => {
-            const el = document.getElementById(id);
-            return el && !el.hasAttribute('disabled');
-        });
-
+        const fieldPrefixes = ['name', 'batch', 'qty-p', 'qty-l', 'free', 'rate', 'disc', 'gst', 'scheme'];
         const target = e.target as HTMLElement;
-        const currentId = target.id;
-        const currentIndex = fields.indexOf(currentId);
+        const activeElement = target.closest('input, button') as HTMLElement | null;
+        const currentId = activeElement?.id || target.id || '';
+        const currentFieldPrefix = fieldPrefixes.find(prefix => currentId.startsWith(`${prefix}-`)) || 'name';
 
-        if (currentIndex === -1) return;
+        const getAvailableRowFields = (rowId: string) => (
+            [
+                `name-${rowId}`,
+                `batch-${rowId}`,
+                `qty-p-${rowId}`,
+                `qty-l-${rowId}`,
+                `free-${rowId}`,
+                `rate-${rowId}`,
+                `disc-${rowId}`,
+                `gst-${rowId}`,
+                `scheme-${rowId}`
+            ].filter(fieldId => {
+                const el = document.getElementById(fieldId);
+                return el && !el.hasAttribute('disabled');
+            })
+        );
+
+        const fields = getAvailableRowFields(id);
+        const currentIndex = fields.indexOf(currentId);
+        const itemIdx = cartItems.findIndex(i => i.id === id);
+
+        if (itemIdx === -1) return;
+
+        const moveRow = (direction: -1 | 1) => {
+            const nextRowIndex = itemIdx + direction;
+            if (nextRowIndex < 0 || nextRowIndex >= cartItems.length) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const nextId = cartItems[nextRowIndex].id;
+            const nextFieldId = `${currentFieldPrefix}-${nextId}`;
+            let nextEl = document.getElementById(nextFieldId);
+
+            if (!nextEl || nextEl.hasAttribute('disabled')) {
+                const nextRowFields = getAvailableRowFields(nextId);
+                nextEl = document.getElementById(nextRowFields[0]);
+            }
+
+            setSelectedRowIndex(nextRowIndex);
+            nextEl?.focus();
+            if (nextEl instanceof HTMLInputElement) nextEl.select();
+        };
 
         const moveNext = () => {
-            if (currentIndex < fields.length - 1) {
+            if (currentIndex !== -1 && currentIndex < fields.length - 1) {
                 e.preventDefault();
                 e.stopPropagation();
                 const nextEl = document.getElementById(fields[currentIndex + 1]);
@@ -915,10 +1217,10 @@ const POS = forwardRef<any, POSProps>(({
                 if (e.key === 'Enter' || e.key === 'Tab' || e.key === 'ArrowRight') {
                     e.preventDefault();
                     e.stopPropagation();
-                    const itemIdx = cartItems.findIndex(i => i.id === id);
                     if (itemIdx < cartItems.length - 1) {
                         const nextId = cartItems[itemIdx + 1].id;
                         const nextNameEl = document.getElementById(`name-${nextId}`);
+                        setSelectedRowIndex(itemIdx + 1);
                         nextNameEl?.focus();
                         if (nextNameEl instanceof HTMLInputElement) nextNameEl.select();
                     } else {
@@ -937,25 +1239,33 @@ const POS = forwardRef<any, POSProps>(({
                 if (prevEl instanceof HTMLInputElement) prevEl.select();
             } else {
                 if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
-                    const itemIdx = cartItems.findIndex(i => i.id === id);
                     if (itemIdx > 0) {
                         e.preventDefault();
                         e.stopPropagation();
                         const prevId = cartItems[itemIdx - 1].id;
                         const prevLastField = `scheme-${prevId}`;
                         const prevLastEl = document.getElementById(prevLastField);
+                        setSelectedRowIndex(itemIdx - 1);
                         prevLastEl?.focus();
                     }
                 }
             }
         };
 
-        if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'Enter' || e.key === 'ArrowRight') {
+        if (e.key === 'ArrowUp') {
+            moveRow(-1);
+        } else if (e.key === 'ArrowDown') {
+            moveRow(1);
+        } else if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'Enter' || e.key === 'ArrowRight') {
             moveNext();
         } else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
             movePrev();
         }
     }, [cartItems]);
+
+    const handleRowFocus = useCallback((index: number) => {
+        setSelectedRowIndex(index);
+    }, []);
 
     const handleReferredByKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
@@ -1063,25 +1373,33 @@ const POS = forwardRef<any, POSProps>(({
                                     <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
                                     {isFieldVisible('colName') && <th className="p-2 border-r border-gray-400 text-left w-72">Name of Item</th>}
                                     {isFieldVisible('colBatch') && <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>}
-                                    {isFieldVisible('colExpiry') && <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>}
                                     {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
-                                    {isFieldVisible('colMrp') && <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>}
                                     {isFieldVisible('colPQty') && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
                                     {isFieldVisible('colLQty') && <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>}
                                     {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">Free</th>}
-                                    {isFieldVisible('colRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
-                                    {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
+                                    <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>
+                                    <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>
                                     {isFieldVisible('colGst') && <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>}
-                                    {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-20">Sch%</th>}
+                                    <th className="p-2 border-r border-gray-400 text-center w-20">Sch%</th>
                                     {isFieldVisible('colAmount') && <th className="p-2 text-right w-32">Amount</th>}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
-                                    const lineAmount = calculateLineNetAmount(item, configurations);
+                                    const lineAmount = getBilledQuantity(item) * Number(item.rate || 0);
 
                                     return (
-                                        <tr key={item.id} className="hover:bg-gray-50 group h-10">
+                                        <tr 
+                                            key={item.id} 
+                                            onMouseEnter={() => setHoveredRowId(item.id)}
+                                            onMouseLeave={() => setHoveredRowId(null)}
+                                            onClick={() => {
+                                                setSelectedRowIndex(idx);
+                                                focusFirstEditableFieldInRow(item.id);
+                                            }}
+                                            onFocusCapture={() => setSelectedRowIndex(idx)}
+                                            className={`group h-10 cursor-pointer ${selectedRowIndex === idx ? 'bg-sky-100' : 'hover:bg-gray-50'}`}
+                                        >
                                             <td className={`p-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-2 border-r border-gray-200 text-primary uppercase w-72 truncate ${uniformTextStyle}`} title={item.name}>
@@ -1090,6 +1408,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="text"
                                                         value={item.name}
                                                         onChange={e => handleUpdateCartItem(item.id, 'name', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1101,26 +1420,32 @@ const POS = forwardRef<any, POSProps>(({
                                             )}
                                             {isFieldVisible('colBatch') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>
-                                                    <span className="block leading-tight">{item.batch || 'N/A'}</span>
-                                                </td>
-                                            )}
-                                            {isFieldVisible('colExpiry') && (
-                                                <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
-                                                    <input
-                                                        id={`expiry-${item.id}`}
-                                                        type="text"
-                                                        value={item.expiry || ''}
-                                                        onChange={e => handleUpdateCartItem(item.id, 'expiry', e.target.value)}
-                                                        onBlur={e => handleExpiryBlur(item.id, e.target.value)}
-                                                        onKeyDown={e => {
-                                                            handleItemKeyDown(e, item.id, idx);
-                                                            handleRowKeyNavigation(e, item.id);
+                                                    <button
+                                                        id={`batch-${item.id}`}
+                                                        onClick={() => {
+                                                            if (isReadOnly) return;
+                                                            const batches = inventory.filter(inv => inv.name === item.name).sort((a, b) => parseExpiryForSort(String(a.expiry || '')) - parseExpiryForSort(String(b.expiry || '')));
+                                                            if (batches.length > 0) setPendingBatchSelection({ item: batches[0], batches });
+                                                            activeRowIdRef.current = item.id;
                                                         }}
-                                                        className="w-full text-center bg-transparent font-normal outline-none"
-                                                        placeholder="MM/YY"
-                                                        maxLength={5}
+                                                        onFocus={() => handleRowFocus(idx)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                const batches = inventory.filter(inv => inv.name === item.name).sort((a, b) => parseExpiryForSort(String(a.expiry || '')) - parseExpiryForSort(String(b.expiry || '')));
+                                                                if (batches.length > 0) setPendingBatchSelection({ item: batches[0], batches });
+                                                                activeRowIdRef.current = item.id;
+                                                            } else {
+                                                                handleItemKeyDown(e, item.id, idx);
+                                                                handleRowKeyNavigation(e, item.id);
+                                                            }
+                                                        }}
+                                                        className="w-full text-center hover:bg-sky-200 hover:text-primary transition-colors outline-none focus:bg-sky-200 focus:text-primary rounded px-1"
                                                         disabled={isReadOnly}
-                                                    />
+                                                    >
+                                                        {item.batch || 'N/A'}
+                                                    </button>
                                                 </td>
                                             )}
                                             {isFieldVisible('colPack') && (
@@ -1131,7 +1456,6 @@ const POS = forwardRef<any, POSProps>(({
                                                     })()}
                                                 </td>
                                             )}
-                                            {isFieldVisible('colMrp') && <td className={`p-2 border-r border-gray-200 text-right text-gray-600 ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colPQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
                                                     <input
@@ -1139,6 +1463,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.quantity === 0 ? '' : item.quantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'quantity', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1156,6 +1481,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.looseQuantity === 0 ? '' : item.looseQuantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'looseQuantity', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onInput={e => handleUpdateCartItem(item.id, 'looseQuantity', (e.target as HTMLInputElement).value)}
                                                         onBlur={() => handleLooseQtyFinalize(item.id)}
                                                         onKeyDown={e => {
@@ -1178,6 +1504,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.freeQuantity === 0 ? '' : item.freeQuantity}
                                                         onChange={e => handleUpdateCartItem(item.id, 'freeQuantity', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1196,6 +1523,7 @@ const POS = forwardRef<any, POSProps>(({
                                                             type="number"
                                                             value={item.rate === 0 ? '' : item.rate}
                                                             onChange={e => handleUpdateCartItem(item.id, 'rate', e.target.value)}
+                                                            onFocus={() => handleRowFocus(idx)}
                                                             onKeyDown={e => {
                                                                 handleItemKeyDown(e, item.id, idx);
                                                                 handleRowKeyNavigation(e, item.id);
@@ -1216,6 +1544,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.discountPercent === 0 ? '' : item.discountPercent}
                                                         onChange={e => handleUpdateCartItem(item.id, 'discountPercent', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1232,6 +1561,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         type="number"
                                                         value={item.gstPercent === 0 ? '' : item.gstPercent}
                                                         onChange={e => handleUpdateCartItem(item.id, 'gstPercent', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
@@ -1242,10 +1572,24 @@ const POS = forwardRef<any, POSProps>(({
                                                 </td>
                                             )}
                                             {isFieldVisible('colSch') && (
-                                                <td className={`p-2 border-r border-gray-400 text-center ${uniformTextStyle}`}>
+                                                <td
+                                                    className={`p-2 border-r border-gray-400 text-center ${uniformTextStyle}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (isReadOnly) return;
+                                                        handleRowFocus(idx);
+                                                        setSchemeItem(item);
+                                                    }}
+                                                >
                                                     <button
                                                         id={`scheme-${item.id}`}
-                                                        onClick={() => !isReadOnly && setSchemeItem(item)}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (isReadOnly) return;
+                                                            handleRowFocus(idx);
+                                                            setSchemeItem(item);
+                                                        }}
+                                                        onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             if (e.key === 'Enter') {
                                                                 e.preventDefault();
@@ -1256,10 +1600,10 @@ const POS = forwardRef<any, POSProps>(({
                                                                 handleRowKeyNavigation(e, item.id);
                                                             }
                                                         }}
-                                                        className={`px-2 py-0.5 text-[10px] font-normal uppercase rounded border border-dashed transition-all ${item.schemeMode ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-gray-50 text-gray-400 border-gray-300 hover:text-primary hover:border-primary'}`}
+                                                        className={`w-full px-2 py-0.5 text-[10px] font-normal uppercase rounded border border-dashed transition-all ${item.schemeMode ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-gray-50 text-gray-400 border-gray-300 hover:text-primary hover:border-primary'}`}
                                                         disabled={isReadOnly}
                                                     >
-                                                        {(item.schemeDiscountPercent || item.schemeDiscountAmount) ? `${(item.schemeDiscountPercent || 0).toFixed(1)}%` : 'Apply'}
+                                                        {getDisplaySchemePercent(item).toFixed(1)}%
                                                     </button>
                                                 </td>
                                             )}
@@ -1306,189 +1650,115 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </Card>
 
-                <div className="flex justify-between items-stretch flex-shrink-0 gap-4 min-h-[140px]">
-                    <div className="w-80 bg-[#e5f0f0] p-4 tally-border !rounded-none shadow-md flex flex-col justify-center">
-                        <div className="space-y-1.5 font-bold text-[11px] uppercase tracking-tight">
-                            <div className="flex justify-between text-gray-500"><span>Gross</span> <span className="text-sm">₹{(totals.gross || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between text-red-600"><span>Trade Discount</span> <span className="text-sm">-₹{(totals.tradeDiscount || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between text-emerald-600"><span>Scheme Benefit ({billingSettings.schemeBase === 'subtotal' ? 'on Subtotal' : 'after Trade Discount'})</span> <span className="text-sm">-₹{(totals.schemeTotal || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between text-indigo-700 items-center">
-                                <span>Bill Discount</span>
-                                <input
-                                    type="number"
-                                    value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
-                                    onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
-                                    className="w-20 text-right bg-white border border-gray-300 font-normal no-spinner outline-none px-1 py-0.5"
-                                    disabled={isReadOnly}
-                                />
+                <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[210px]">
+                    <div className="col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                        <div className="text-[11px] font-bold uppercase space-y-1">
+                            <div>Item : <span className="text-primary">{activeStockSnapshot?.item || '-'}</span></div>
+                            <div>Batch : <span className="text-primary">{activeStockSnapshot?.batch || '-'}</span></div>
+                            <div>Expiry : <span className="text-primary">{activeStockSnapshot?.expiry || '-'}</span></div>
+                            <div>Stock : <span className="text-primary">{activeStockSnapshot?.stock ?? 0}</span></div>
+                            <div>MRP : <span className="text-primary">₹{(activeStockSnapshot?.mrp || 0).toFixed(2)}</span></div>
+                        </div>
+                    </div>
+
+                    <div className="col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
+                        <div className="space-y-0.5 text-[9px] font-bold uppercase tracking-tight leading-none">
+                            <h4 className="text-[8px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1 leading-none">{activeLineTotals ? 'Item Summary' : 'Bill Summary'}</h4>
+                            {activeLineTotals && (
+                                <>
+                                    <div className="flex items-center justify-between text-blue-800"><span>Unit Rate</span> <span className="font-mono text-[10px]">₹{(activeBillItem?.rate || 0).toFixed(2)}</span></div>
+                                    <div className="flex items-center justify-between text-emerald-700"><span>Scheme %</span> <span className="font-mono text-[10px]">{getDisplaySchemePercent(activeBillItem).toFixed(2)}%</span></div>
+                                </>
+                            )}
+                            <div className="flex justify-between"><span>MRP Value</span><span>₹{(activeLineTotals?.gross ?? totals.gross ?? 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Value of Goods</span><span>₹{(activeLineTotals?.subtotal ?? totals.subtotal ?? 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between text-blue-700"><span>SGST</span><span>₹{((activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between text-blue-700"><span>CGST</span><span>₹{((activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                            <div className="flex justify-between text-red-600">
+                                <span>Discount</span>
+                                <span>₹{activeLineTotals 
+                                    ? ((activeLineTotals.tradeDiscount || 0) + (activeLineTotals.schemeTotal || 0) + (activeLineTotals.lineFlatDiscount || 0)).toFixed(2)
+                                    : ((totals?.tradeDiscount || 0) + (totals?.schemeTotal || 0) + (totals?.lineFlatDiscount || 0) + (lumpsumDiscount || 0)).toFixed(2)
+                                }</span>
                             </div>
-                            {!isNonGst && <div className="flex justify-between text-blue-700"><span>Tax (GST · {billingSettings.taxBase === 'subtotal' ? 'Subtotal' : billingSettings.taxBase === 'after_trade_discount' ? 'After Trade Discount' : 'After All Discounts'})</span> <span className="text-sm">+₹{(totals.tax || 0).toFixed(2)}</span></div>}
-                            <div className="flex justify-between text-purple-700 items-center">
-                                <span>Round Off</span>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    value={roundOff === 0 ? '' : roundOff}
-                                    onChange={e => {
-                                        setIsRoundOffManuallyEdited(true);
-                                        setRoundOff(parseFloat(e.target.value) || 0);
-                                    }}
-                                    className="w-20 text-right bg-white border border-gray-300 font-normal no-spinner outline-none px-1 py-0.5"
-                                    disabled={isReadOnly}
-                                />
+                            {!activeLineTotals && (
+                                <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5">
+                                    <span>Bill Discount</span>
+                                    <input
+                                        type="number"
+                                        value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
+                                        onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
+                                        className="w-16 text-right bg-white border border-gray-300 font-normal text-[9px] no-spinner outline-none px-1 h-4"
+                                        disabled={isReadOnly}
+                                    />
+                                </div>
+                            )}
+                            <div className="flex justify-between">
+                                <span>GST%</span>
+                                <span>{(() => {
+                                    const sub = activeLineTotals?.taxableValue ?? totals?.taxableValue ?? 0;
+                                    const tx = activeLineTotals?.tax ?? totals?.tax ?? 0;
+                                    return sub > 0 ? ((tx / sub) * 100).toFixed(2) : '0.00';
+                                })()}%</span>
                             </div>
-                            <div className="border-t border-gray-400 pt-2 mt-1 flex justify-between text-2xl font-black text-primary">
-                                <span>GRAND TOTAL</span>
-                                <span>₹{(grandTotal || 0).toFixed(2)}</span>
+                            <div className="flex justify-between font-black text-primary border-t border-gray-300 pt-1 mt-1">
+                                <span>{activeLineTotals ? 'Line Total' : 'Balance'}</span>
+                                <span>₹{(activeLineTotals ? (activeLineTotals.baseTotal ?? 0) : (grandTotal ?? 0)).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
 
-                    <div className="flex-1">
-                        {activeIntelItem ? (
-                            <div className="bg-slate-100 p-4 h-full tally-border !rounded-none shadow-md animate-in fade-in duration-200 flex flex-col">
-                                <div className="flex justify-between items-center border-b border-gray-300 pb-2 mb-3 flex-shrink-0">
-                                    <div className="flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
-                                        <span className="text-xs font-black uppercase text-primary tracking-[0.2em]">Inventory Insight</span>
-                                    </div>
-                                    <span className="text-2xl font-black text-emerald-700 leading-none">QTY: {activeIntelItem.stock}</span>
-                                </div>
-
-                                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-hidden">
-                                    {isFieldVisible('intelIdentity') && (
-                                        <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">Identity & Validity</p>
-                                            <div className="flex flex-col gap-0.5">
-                                                <p className="text-sm font-black text-primary uppercase font-mono truncate">{activeIntelItem.batch} | {activeIntelItem.code}</p>
-                                                <p className="text-xs font-bold text-red-600 uppercase">Expires: {activeIntelItem.expiry}</p>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {isFieldVisible('intelPricing') && (
-                                        <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 opacity-60">Pricing Vector</p>
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-gray-500 uppercase">M.R.P</p>
-                                                    <p className="text-sm font-black text-gray-900">₹{(activeIntelItem.mrp || 0).toFixed(2)}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-gray-500 uppercase">Pur Rate</p>
-                                                    <p className="text-sm font-black text-blue-800">₹{(intelDetails?.lastPurRate ?? 0).toFixed(2)}</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {isFieldVisible('intelProfit') && (
-                                        <div className="bg-white/60 p-2.5 border border-gray-200 rounded-none flex flex-col justify-center">
-                                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3 opacity-70">Profit Quotient</p>
-                                            <div className="flex justify-between items-center mb-2">
-                                                <span className="text-[11px] font-bold text-gray-500 uppercase">Net Margin</span>
-                                                <span className="text-xl font-black text-emerald-600">{(intelDetails?.profitMargin ?? 0).toFixed(1)}%</span>
-                                            </div>
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-[11px] font-bold text-gray-500 uppercase">Per Unit</span>
-                                                <span className="text-xl font-black text-emerald-600">₹{(intelDetails?.profitAmount ?? 0).toFixed(2)}</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="h-full border-2 border-dashed border-gray-300 flex flex-col items-center justify-center p-4 rounded-none">
-                                <div className="flex flex-col items-center flex-1 justify-center w-full">
-                                    {isFieldVisible('optPrescription') && (
-                                        <>
-                                            <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4 text-center">Prescription Management</h4>
-
-                                            <div className="w-full flex flex-wrap justify-center gap-3 mb-6">
-                                                {prescriptions.map((p) => (
-                                                    <div key={p.id} className="relative group">
-                                                        <div className="w-16 h-16 border-2 border-primary/20 rounded-none overflow-hidden bg-white shadow-md">
-                                                            {p.type === 'image' ? (
-                                                                <img src={p.data.startsWith('data:') ? p.data : `data:image/jpeg;base64,${p.data}`} alt={p.name} className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <div className="w-full h-full flex items-center justify-center text-red-500">
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /></svg>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <button
-                                                            onClick={() => setPrescriptions(prev => prev.filter(x => x.id !== p.id))}
-                                                            className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-lg transition-opacity group-hover:opacity-100 opacity-100"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                                                        </button>
-                                                    </div>
-                                                ))}
-
-                                                {!isReadOnly && (
-                                                    <>
-                                                        <button
-                                                            onClick={() => fileInputRef.current?.click()}
-                                                            disabled={isProcessingRx}
-                                                            className="w-16 h-16 border-2 border-dashed border-primary/20 rounded-none flex flex-col items-center justify-center text-primary/40 hover:bg-primary/5 hover:border-primary/40 transition-all disabled:opacity-50"
-                                                        >
-                                                            {isProcessingRx ? <div className="w-4 h-4 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>}
-                                                            <span className="text-[8px] font-black mt-1 uppercase">{isProcessingRx ? 'SCAN' : 'ADD Rx'}</span>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setIsWebcamOpen(true)}
-                                                            className="w-16 h-16 border-2 border-dashed border-primary/20 rounded-none flex flex-col items-center justify-center text-primary/40 hover:bg-primary/5 hover:border-primary/40 transition-all"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="4" /></svg>
-                                                            <span className="text-[8px] font-black mt-1 uppercase">CAMERA</span>
-                                                        </button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </>
-                                    )}
-
-                                    <div className="flex flex-col items-center text-gray-300">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-2 opacity-30"><path d="m21 21-4.3-4.3" /><circle cx="11" cy="11" r="8" /><path d="M11 8v6" /><path d="M8 11h6" /></svg>
-                                        <p className="text-[11px] font-black uppercase tracking-[0.4em] italic">Scan Rx or type name for live intel</p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                    <div className="col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm">
+                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1">Customer Info</div>
+                        <div className="text-[11px] font-bold uppercase space-y-1">
+                            <div>Area: {customerSnapshot.area}</div>
+                            <div>Route: {customerSnapshot.route}</div>
+                            <div>Collection Days: {customerSnapshot.collectionDays}</div>
+                            <div>Last Sale: {customerSnapshot.lastSale}</div>
+                            <div>Last Receipt: {customerSnapshot.lastReceipt}</div>
+                            <div>Avg Pay Days: {customerSnapshot.avgPaymentDays}</div>
+                        </div>
                     </div>
 
-                    <div className="flex flex-col gap-2 w-56 self-stretch justify-end">
-                        {isFieldVisible('optBillingCategory') && (
-                            <div className="bg-white p-2 tally-border shadow-sm">
-                                <label className="text-[9px] font-bold text-gray-500 uppercase block mb-1">Billing Category</label>
-                                <select
-                                    ref={billCategorySelectRef}
-                                    value={billCategory}
-                                    onChange={e => setBillCategory(e.target.value as any)}
-                                    className="w-full border border-gray-300 p-1.5 text-xs font-black uppercase outline-none focus:bg-yellow-50 h-8"
-                                    disabled={isReadOnly}
-                                >
-                                    <option value="Cash Bill">Cash Bill</option>
-                                    <option value="Credit Bill">Credit Bill</option>
-                                </select>
+                    <div className="col-span-12 bg-[#255d55] px-2 py-1.5 text-white flex items-center gap-1 overflow-x-auto">
+                        {["SALE", "PURC", "SC", "PC", "COPY BILL", "PASTE", "SR", "PR", "CASH", "HOLD", "SAVE", "PRINT", "RETURN"].map(btn => (
+                            <button
+                                key={btn}
+                                onClick={() => {
+                                    if (btn === 'SAVE') handleSave();
+                                    if (btn === 'PRINT' && transactionToEdit) onPrintBill(transactionToEdit);
+                                    if (btn === 'HOLD') {
+                                        localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy }));
+                                        addNotification('Bill placed on hold.', 'success');
+                                    }
+                                }}
+                                className="px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap"
+                            >
+                                {btn}
+                            </button>
+                        ))}
+                        <div className="ml-auto text-right pr-2 flex items-center gap-6">
+                            {!isNonGst && (
+                                <div className="flex gap-4 text-[10px] font-bold uppercase opacity-80 border-r border-white/20 pr-4">
+                                    <div className="flex flex-col">
+                                        <span>SGST</span>
+                                        <span className="text-xs">₹{(totals.tax / 2).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span>CGST</span>
+                                        <span className="text-xs">₹{(totals.tax / 2).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span>GST Amount</span>
+                                        <span className="text-xs">₹{(totals.tax || 0).toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="flex flex-col">
+                                <div className="text-[11px] uppercase font-bold">Invoice Value</div>
+                                <div className="text-2xl font-black">₹{(grandTotal || 0).toFixed(2)}</div>
                             </div>
-                        )}
-                        <button
-                            onClick={() => { if (confirm("Discard current voucher?")) { setCartItems([]); if (onCancel) onCancel(); } }}
-                            className="w-full py-3 tally-border bg-white font-black text-[11px] hover:bg-red-50 text-red-600 transition-colors uppercase tracking-[0.2em] shadow-sm"
-                        >
-                            Discard
-                        </button>
-                        <button
-                            onClick={handleSave}
-                            disabled={isSaving || isReadOnly || cartItems.length === 0}
-                            className="w-full py-6 tally-button-primary shadow-2xl active:translate-y-1 uppercase tracking-widest text-[12px] flex items-center justify-center gap-2"
-                        >
-                            {isSaving ? (
-                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                            ) : null}
-                            {isSaving ? 'Saving' : 'Accept (Ent)'}
-                        </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1547,16 +1817,23 @@ const POS = forwardRef<any, POSProps>(({
                                                 const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
                                                 const stripsStock = Math.floor(totalStock / unitsPerPack);
                                                 const looseStock = totalStock % unitsPerPack;
+                                                const isAnyBatchExpired = res.batches.some(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
+                                                const areAllBatchesExpired = res.batches.length > 0 && res.batches.every(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
+
                                                 return (
                                                     <tr
                                                         key={item.id}
                                                         data-index={sIdx}
                                                         onClick={() => triggerBatchSelection(res)}
                                                         onMouseEnter={() => setSelectedSearchIndex(sIdx)}
-                                                        className={`cursor-pointer transition-all border-b border-gray-100 ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : 'hover:bg-yellow-50'}`}
+                                                        className={`cursor-pointer transition-all border-b border-gray-100 ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : 'hover:bg-yellow-50'} ${areAllBatchesExpired ? 'opacity-50 grayscale' : ''}`}
                                                     >
                                                         <td className="p-1.5 px-3 border-r border-gray-200">
-                                                            <p className={`leading-none ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
+                                                            <div className="flex items-center gap-2">
+                                                                <p className={`leading-none ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
+                                                                {areAllBatchesExpired && <span className="bg-red-600 text-white text-[8px] px-1 py-0.5 font-black uppercase">Expired</span>}
+                                                                {!areAllBatchesExpired && isAnyBatchExpired && <span className="bg-amber-500 text-white text-[8px] px-1 py-0.5 font-black uppercase">Some Expired</span>}
+                                                            </div>
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 text-center font-mono ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-primary'}`}>
                                                             {item.code}

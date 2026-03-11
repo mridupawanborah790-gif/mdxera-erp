@@ -7,7 +7,8 @@ import { getResolvedMedicinePolicy, MATERIAL_TYPE_RULES, type MaterialMasterType
 interface AddMedicineModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onAddMedicine: (newMedicine: Omit<Medicine, 'id' | 'created_at' | 'updated_at'>) => void;
+    onAddMedicine: (newMedicine: Omit<Medicine, 'id' | 'created_at' | 'updated_at'>) => void | Medicine | Promise<void | Medicine>;
+    onMedicineSaved?: (savedMedicine: Medicine) => void;
     initialName?: string; 
     organizationId: string;
 }
@@ -44,7 +45,7 @@ const initialState: Omit<Medicine, 'id' | 'created_at' | 'updated_at'> = {
 
 type FormErrors = Partial<Record<keyof typeof initialState, string>>;
 
-const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, onAddMedicine, initialName, organizationId }) => {
+const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, onAddMedicine, onMedicineSaved, initialName, organizationId }) => {
     const [formState, setFormState] = useState(initialState);
     const [errors, setErrors] = useState<FormErrors>({});
 
@@ -75,12 +76,15 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
         }
     }, [isOpen, initialName, organizationId]);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (validate()) {
-            onAddMedicine({ ...formState, organization_id: organizationId });
-            onClose();
+        if (!validate()) return;
+
+        const savedMedicine = await onAddMedicine({ ...formState, organization_id: organizationId });
+        if (savedMedicine && typeof savedMedicine === 'object' && 'id' in savedMedicine && 'name' in savedMedicine) {
+            onMedicineSaved?.(savedMedicine as Medicine);
         }
+        onClose();
     };
     
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {

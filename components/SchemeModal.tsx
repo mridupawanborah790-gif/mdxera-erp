@@ -1,225 +1,285 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
 import type { BillItem } from '../types';
-import { handleEnterToNextField } from '../utils/navigation';
 
 interface SchemeModalProps {
     isOpen: boolean;
     onClose: () => void;
     item: BillItem;
-    onApply: (itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, schemeTotalQty?: number) => void;
+    onApply: (itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number, schemeDisplayPercent?: number) => void;
     onClear: (itemId: string) => void;
 }
 
-const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onApply, onClear }) => {
-    const [schemeQty, setSchemeQty] = useState<number>(0);
-    const [schemeTotalQty, setSchemeTotalQty] = useState<number>(0);
-    const [schemeMode, setSchemeMode] = useState<'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio'>('free_qty');
-    const [schemeValue, setSchemeValue] = useState<number>(0);
-    const [finalDiscountAmount, setFinalDiscountAmount] = useState<number>(0);
+const parseSchemeRule = (value: string): { freeQty: number; requiredQty: number } | null => {
+    const normalized = value.toLowerCase().trim();
+    if (!normalized) return null;
 
-    const modeSelectRef = useRef<HTMLSelectElement>(null);
-    const schemeQtyRef = useRef<HTMLInputElement>(null);
-    const schemeTotalQtyRef = useRef<HTMLInputElement>(null);
-    const schemeValRef = useRef<HTMLInputElement>(null);
+    const inMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*in\s*(\d+(?:\.\d+)?)$/);
+    if (inMatch) {
+        const freeQty = Number(inMatch[1]);
+        const requiredQty = Number(inMatch[2]);
+        if (freeQty > 0 && requiredQty > 0) return { freeQty, requiredQty };
+    }
+
+    const plusMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*\+\s*(\d+(?:\.\d+)?)$/);
+    if (plusMatch) {
+        const requiredQty = Number(plusMatch[1]);
+        const freeQty = Number(plusMatch[2]);
+        if (freeQty > 0 && requiredQty > 0) return { freeQty, requiredQty };
+    }
+
+    return null;
+};
+
+const parsePercentRule = (value: string): number | null => {
+    const normalized = value.toLowerCase().trim();
+    if (!normalized) return null;
+
+    const percentMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*%\s*(scheme)?$/);
+    if (!percentMatch) return null;
+
+    const percent = Number(percentMatch[1]);
+    if (percent <= 0) return null;
+    return percent;
+};
+
+const calculateSchemeDisplayPercent = (params: { mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio'; value: number; schemeQty: number; schemeTotalQty?: number; billedQty: number; discountPercent: number; }): number => {
+    const { mode, value, schemeQty, schemeTotalQty, billedQty, discountPercent } = params;
+
+    if (mode === 'percent') return Math.max(0, value);
+
+    if (mode === 'flat') {
+        return Math.max(0, Number(discountPercent || 0));
+    }
+
+    if (mode === 'qty_ratio') {
+        const totalQty = Math.max(0, Number(schemeTotalQty || 0));
+        const freeQty = Math.max(0, Number(schemeQty || 0));
+        if (totalQty <= 0) return 0;
+        return (freeQty / totalQty) * 100;
+    }
+
+    if (mode === 'free_qty') {
+        const billed = Math.max(0, Number(billedQty || 0));
+        const freeQty = Math.max(0, Number(schemeQty || 0));
+        if (billed <= 0) return 0;
+        return (Math.min(freeQty, billed) / billed) * 100;
+    }
+
+    return 0;
+};
+
+
+const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onApply, onClear }) => {
+    const [schemeRule, setSchemeRule] = useState('');
+    const [selectedRule, setSelectedRule] = useState('custom');
+    const [schemePercent, setSchemePercent] = useState<number>(0);
+    const [schemeRate, setSchemeRate] = useState<number>(0);
 
     useEffect(() => {
-        if (isOpen) {
-            setSchemeQty(item.schemeQty || 0);
-            setSchemeTotalQty(item.schemeTotalQty || 0);
-            setSchemeMode(item.schemeMode || 'free_qty');
-            setSchemeValue(item.schemeValue || 0);
-            setFinalDiscountAmount(item.schemeDiscountAmount || 0);
-            // Focus the mode selector on open
-            setTimeout(() => modeSelectRef.current?.focus(), 150);
+        if (!isOpen) return;
+
+        if (item.schemeMode === 'qty_ratio' && (item.schemeQty || 0) > 0 && (item.schemeTotalQty || 0) > 0) {
+            setSchemeRule(`${item.schemeQty} in ${item.schemeTotalQty}`);
+            setSelectedRule('custom');
+            setSchemePercent(0);
+            setSchemeRate(0);
+            return;
         }
+
+        if (item.schemeMode === 'percent' && (item.schemeValue || 0) > 0) {
+            setSchemePercent(item.schemeValue || 0);
+            setSchemeRule('');
+            setSelectedRule('custom');
+            setSchemeRate(0);
+            return;
+        }
+
+        setSchemeRule('');
+        setSelectedRule('custom');
+        setSchemePercent(item.schemeDiscountPercent || 0);
+        setSchemeRate(0);
     }, [isOpen, item]);
 
-    const totalQty = item.quantity;
+    const unitsPerPack = item.unitsPerPack || 1;
+    const billedQty = Math.max(0, (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack));
     const baseRate = item.rate ?? item.mrp ?? 0;
-    const tradeDiscountPercent = item.discountPercent || 0;
-    const netRate = baseRate * (1 - tradeDiscountPercent / 100);
-    
-    useEffect(() => {
-        let calculatedTotalDiscount = 0;
-        const calculationBasis = netRate;
+    const netRate = baseRate * (1 - ((item.discountPercent || 0) / 100));
+    const lineSubtotal = billedQty * netRate;
 
-        if (schemeMode === 'free_qty') {
-            calculatedTotalDiscount = Math.min(schemeQty, totalQty) * calculationBasis;
-        } else if (schemeMode === 'qty_ratio' && schemeTotalQty > 0) {
-            const effectivePercent = (schemeQty / schemeTotalQty);
-            calculatedTotalDiscount = (totalQty * calculationBasis) * effectivePercent;
-        } else if (schemeMode === 'flat') {
-            calculatedTotalDiscount = Math.min(schemeQty, totalQty) * schemeValue;
-        } else if (schemeMode === 'percent') {
-            calculatedTotalDiscount = Math.min(schemeQty, totalQty) * (calculationBasis * (schemeValue / 100));
-        } else if (schemeMode === 'price_override') {
-            calculatedTotalDiscount = Math.min(schemeQty, totalQty) * Math.max(0, calculationBasis - schemeValue);
+    const parsedRule = parseSchemeRule(schemeRule);
+    const parsedPercentRule = parsePercentRule(schemeRule);
+
+    const computed = (() => {
+        if (schemeRate > 0) {
+            const discountAmount = Math.min(lineSubtotal, billedQty * schemeRate);
+            const discountPercent = lineSubtotal > 0 ? (discountAmount / lineSubtotal) * 100 : 0;
+            const freeQuantity = netRate > 0 ? discountAmount / netRate : 0;
+            return { mode: 'flat' as const, discountPercent, discountAmount, schemeQty: billedQty, schemeTotalQty: undefined, value: schemeRate, freeQuantity };
         }
 
-        const lineTotalBeforeScheme = totalQty * calculationBasis;
-        setFinalDiscountAmount(Math.min(calculatedTotalDiscount, lineTotalBeforeScheme));
+        if (schemePercent > 0 || (parsedPercentRule || 0) > 0) {
+            const resolvedPercent = schemePercent > 0 ? schemePercent : (parsedPercentRule || 0);
+            const discountAmount = Math.min(lineSubtotal, lineSubtotal * (resolvedPercent / 100));
+            const freeQuantity = netRate > 0 ? discountAmount / netRate : 0;
+            return {
+                mode: 'percent' as const,
+                discountPercent: resolvedPercent,
+                discountAmount,
+                schemeQty: billedQty,
+                schemeTotalQty: undefined,
+                value: resolvedPercent,
+                freeQuantity,
+            };
+        }
 
-    }, [schemeQty, schemeTotalQty, schemeMode, schemeValue, totalQty, netRate]);
+        if (parsedRule) {
+            const ruleApplications = Math.floor(billedQty / parsedRule.requiredQty);
+            const freeQuantity = ruleApplications * parsedRule.freeQty;
+            const discountAmount = Math.min(lineSubtotal, freeQuantity * netRate);
+            const benefitPercent = lineSubtotal > 0 ? (discountAmount / lineSubtotal) * 100 : 0;
+            return {
+                mode: 'qty_ratio' as const,
+                discountPercent: benefitPercent,
+                discountAmount,
+                schemeQty: parsedRule.freeQty,
+                schemeTotalQty: parsedRule.requiredQty,
+                value: parsedRule.freeQty,
+                freeQuantity,
+            };
+        }
 
-    const handleSave = () => {
-        if (finalDiscountAmount > 0) {
-            let effectivePercent = 0;
-            const discountedSubtotal = netRate * totalQty;
-            
-            if (schemeMode === 'percent') {
-                effectivePercent = schemeValue;
-            } else if (schemeMode === 'qty_ratio' && schemeTotalQty > 0) {
-                effectivePercent = (schemeQty / schemeTotalQty) * 100;
-            } else if (discountedSubtotal > 0) {
-                effectivePercent = (finalDiscountAmount / discountedSubtotal) * 100;
-            }
-            
-            onApply(item.id, schemeQty, schemeMode, schemeValue, finalDiscountAmount, effectivePercent, schemeTotalQty);
-        } else {
+        return { mode: null, discountPercent: 0, discountAmount: 0, schemeQty: 0, schemeTotalQty: undefined, value: 0, freeQuantity: 0 };
+    })();
+
+    const schemeDisplayPercent = computed.mode
+        ? calculateSchemeDisplayPercent({
+            mode: computed.mode,
+            value: computed.value,
+            schemeQty: computed.schemeQty,
+            schemeTotalQty: computed.schemeTotalQty,
+            billedQty,
+            discountPercent: computed.discountPercent,
+        })
+        : 0;
+
+    const handleApply = () => {
+        if (!computed.mode) {
             onClear(item.id);
+            onClose();
+            return;
         }
+
+        onApply(
+            item.id,
+            computed.schemeQty,
+            computed.mode,
+            computed.value,
+            computed.discountAmount,
+            computed.discountPercent,
+            computed.freeQuantity,
+            computed.schemeTotalQty,
+            schemeDisplayPercent
+        );
         onClose();
     };
 
-    const handlePopupKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-        if (e.key === 'Enter') {
-            const target = e.target as HTMLElement;
-            
-            // 1. If explicit "Apply" button is focused, save.
-            if (target.tagName === 'BUTTON' && target.innerText.includes('Apply')) {
-                handleSave();
-                return;
-            }
-
-            // 2. Immediate Save Logic based on current mode visibility
-            if (schemeMode === 'free_qty') {
-                // This mode only has one input: schemeQty
-                if (target === schemeQtyRef.current) {
-                    handleSave();
-                    return;
-                }
-            } else if (schemeMode === 'qty_ratio') {
-                // This mode has two inputs: schemeQty -> schemeTotalQty
-                if (target === schemeTotalQtyRef.current) {
-                    handleSave();
-                    return;
-                }
-            } else if (['flat', 'percent', 'price_override'].includes(schemeMode)) {
-                // These modes have two inputs: schemeQty -> schemeValue
-                if (target === schemeValRef.current) {
-                    handleSave();
-                    return;
-                }
-            }
-            
-            // Default: Move to next field
-            handleEnterToNextField(e);
-        }
-
-        // Arrow Key Navigation between fields
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            const target = e.target as HTMLElement;
-            // Don't intercept if it's a select element (Standard behavior is to change options)
-            if (target.tagName === 'SELECT') return;
-
-            e.preventDefault();
-            const focusableSelector = 'input:not([disabled]):not([readonly]), select:not([disabled]), button:not([disabled])';
-            const focusables = Array.from(e.currentTarget.querySelectorAll(focusableSelector)) as HTMLElement[];
-            const currentIndex = focusables.indexOf(target);
-
-            if (e.key === 'ArrowDown' && currentIndex < focusables.length - 1) {
-                focusables[currentIndex + 1].focus();
-                if (focusables[currentIndex + 1] instanceof HTMLInputElement) (focusables[currentIndex + 1] as HTMLInputElement).select();
-            } else if (e.key === 'ArrowUp' && currentIndex > 0) {
-                focusables[currentIndex - 1].focus();
-                if (focusables[currentIndex - 1] instanceof HTMLInputElement) (focusables[currentIndex - 1] as HTMLInputElement).select();
-            }
-        }
-    };
-
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Pricing Strategy & Schemes`} widthClass="max-w-md" heightClass="h-auto">
-            <div className="p-8 font-normal" onKeyDown={handlePopupKeyDown}>
-                <div className="bg-slate-50 dark:bg-slate-800 p-5 border-2 border-app-border mb-8 flex justify-between items-center rounded-none shadow-inner font-normal">
-                    <div>
-                        <p className="text-[10px] font-normal text-gray-400 uppercase tracking-widest leading-none mb-1.5">Product</p>
-                        <p className="text-base font-normal text-gray-900 dark:text-white uppercase truncate max-w-[220px]">{item.name}</p>
-                    </div>
-                    <div className="text-right">
-                        <p className="text-[10px] font-normal text-gray-400 uppercase tracking-widest leading-none mb-1.5">Net Base Rate</p>
-                        <p className="text-lg font-normal text-primary">₹{netRate.toFixed(2)}</p>
-                    </div>
+        <Modal isOpen={isOpen} onClose={onClose} title="Scheme Rule" widthClass="max-w-md">
+            <div className="space-y-4 p-2">
+                <div className="text-xs text-gray-500 uppercase">{item.name}</div>
+
+                <div>
+                    <label className="block text-xs font-semibold mb-1">Quick Scheme</label>
+                    <select
+                        value={selectedRule}
+                        onChange={(e) => {
+                            const nextRule = e.target.value;
+                            setSelectedRule(nextRule);
+                            if (nextRule === 'custom') return;
+                            setSchemeRule(nextRule.includes('%') ? '' : nextRule);
+                            setSchemePercent(nextRule.includes('%') ? Number(nextRule.replace('%', '')) : 0);
+                            setSchemeRate(0);
+                        }}
+                        className="w-full p-2 border border-app-border bg-input-bg"
+                    >
+                        <option value="custom">Custom</option>
+                        <option value="10+1">10+1</option>
+                        <option value="1 in 10">1 in 10</option>
+                        <option value="100%">100% scheme</option>
+                    </select>
                 </div>
 
-                <div className="space-y-6">
-                    <div>
-                        <label className="block text-[11px] font-normal text-gray-400 uppercase mb-2 ml-1 tracking-widest">Calculation Mode</label>
-                        <select 
-                            ref={modeSelectRef}
-                            value={schemeMode} 
-                            onChange={e => { setSchemeMode(e.target.value as any); }} 
-                            className="w-full p-3 border-2 border-app-border rounded-none bg-input-bg font-normal text-sm focus:ring-4 focus:ring-primary/5 focus:border-primary outline-none appearance-none"
-                        >
-                            <option value="qty_ratio">Ratio Benefit (e.g. 1 in 10)</option>
-                            <option value="free_qty">100% Off (Specific Free Units)</option>
-                            <option value="percent">Percentage Off (%)</option>
-                            <option value="flat">Cash Discount (₹)</option>
-                            <option value="price_override">Net Unit Override (₹)</option>
-                        </select>
-                    </div>
+                <div>
+                    <label className="block text-xs font-semibold mb-1">Scheme format</label>
+                    <input
+                        type="text"
+                        value={schemeRule}
+                        onChange={(e) => {
+                            setSchemeRule(e.target.value);
+                            if (e.target.value.trim()) {
+                                setSchemePercent(0);
+                                setSchemeRate(0);
+                                setSelectedRule('custom');
+                            }
+                        }}
+                        placeholder="1 in 10 or 10+1"
+                        className="w-full p-2 border border-app-border bg-input-bg"
+                    />
+                </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className={schemeMode === 'qty_ratio' ? 'col-span-1' : 'col-span-2'}>
-                            <label className="block text-[11px] font-normal text-gray-400 uppercase mb-2 ml-1 tracking-widest">
-                                {schemeMode === 'qty_ratio' ? 'Free Units' : 'Applied Units'}
-                            </label>
-                            <input 
-                                ref={schemeQtyRef}
-                                type="number" 
-                                value={schemeQty === 0 ? '' : schemeQty} 
-                                onChange={e => { setSchemeQty(parseFloat(e.target.value) || 0); }} 
-                                className="w-full p-3 border-2 border-app-border rounded-none bg-input-bg text-xl font-normal focus:border-primary outline-none no-spinner shadow-sm"
-                            />
-                        </div>
+                <div className="text-center text-xs text-gray-400">OR</div>
 
-                        {schemeMode === 'qty_ratio' && (
-                            <div className="col-span-1">
-                                <label className="block text-[11px] font-normal text-gray-400 uppercase mb-2 ml-1 tracking-widest">In Total</label>
-                                <input 
-                                    ref={schemeTotalQtyRef}
-                                    type="number" 
-                                    value={schemeTotalQty === 0 ? '' : schemeTotalQty} 
-                                    onChange={e => { setSchemeTotalQty(parseFloat(e.target.value) || 0); }} 
-                                    className="w-full p-3 border-2 border-app-border rounded-none bg-input-bg text-xl font-normal focus:border-primary outline-none no-spinner shadow-sm"
-                                />
-                            </div>
-                        )}
+                <div>
+                    <label className="block text-xs font-semibold mb-1">Scheme %</label>
+                    <input
+                        type="number"
+                        value={schemePercent === 0 ? '' : schemePercent}
+                        onChange={(e) => {
+                            const value = parseFloat(e.target.value) || 0;
+                            setSchemePercent(Math.max(0, value));
+                            if (value > 0) {
+                                setSchemeRule('');
+                                setSchemeRate(0);
+                                setSelectedRule('custom');
+                            }
+                        }}
+                        placeholder="5"
+                        className="w-full p-2 border border-app-border bg-input-bg"
+                    />
+                </div>
 
-                        {['flat', 'percent', 'price_override'].includes(schemeMode) && (
-                            <div className="col-span-2">
-                                <label className="block text-[11px] font-normal text-gray-400 uppercase mb-2 ml-1 tracking-widest">
-                                    {schemeMode === 'percent' ? 'Bonus %' : schemeMode === 'price_override' ? 'Override Price (₹)' : 'Reduction (₹)'}
-                                </label>
-                                <input 
-                                    ref={schemeValRef}
-                                    type="number" 
-                                    value={schemeValue === 0 ? '' : schemeValue} 
-                                    onChange={e => { setSchemeValue(parseFloat(e.target.value) || 0); }} 
-                                    className="w-full p-3 border-2 border-app-border rounded-none bg-input-bg text-xl font-normal focus:border-primary outline-none no-spinner shadow-sm"
-                                />
-                            </div>
-                        )}
-                    </div>
+                <div>
+                    <label className="block text-xs font-semibold mb-1">Scheme Rate (₹ per billed qty)</label>
+                    <input
+                        type="number"
+                        value={schemeRate === 0 ? '' : schemeRate}
+                        onChange={(e) => {
+                            const value = parseFloat(e.target.value) || 0;
+                            setSchemeRate(Math.max(0, value));
+                            if (value > 0) {
+                                setSchemePercent(0);
+                                setSchemeRule('');
+                                setSelectedRule('custom');
+                            }
+                        }}
+                        placeholder="0"
+                        className="w-full p-2 border border-app-border bg-input-bg"
+                    />
+                </div>
+
+                <div className="rounded border border-dashed border-emerald-300 bg-emerald-50 p-3 text-sm">
+                    <div className="flex justify-between"><span>SCH%</span><span>{schemeDisplayPercent.toFixed(2)}%</span></div>
+                    <div className="flex justify-between"><span>FREE Qty</span><span>{computed.freeQuantity.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>Benefit</span><span>₹{computed.discountAmount.toFixed(2)}</span></div>
                 </div>
             </div>
-            
-            <div className="flex justify-between items-center p-6 bg-gray-100 dark:bg-gray-900 border-t-2 border-app-border rounded-none font-normal">
-                <button onClick={() => { onClear(item.id); onClose(); }} className="px-6 py-3 text-[11px] font-normal text-red-600 uppercase tracking-[0.2em] hover:bg-red-50 transition-colors">Discard Strategy</button>
-                <div className="flex gap-4">
-                    <button onClick={onClose} className="px-8 py-3 text-[11px] font-normal text-gray-500 uppercase tracking-[0.2em] hover:text-gray-950 transition-colors">Cancel</button>
-                    <button onClick={handleSave} className="px-12 py-4 bg-primary text-white font-normal rounded-none shadow-2xl shadow-primary/30 hover:bg-primary-dark transition-all transform active:scale-95 uppercase tracking-[0.2em] text-[11px]">Apply To Billing</button>
+
+            <div className="flex justify-between items-center p-4 border-t border-app-border bg-gray-50">
+                <button onClick={() => { onClear(item.id); onClose(); }} className="px-4 py-2 text-xs text-red-600">Clear</button>
+                <div className="flex gap-2">
+                    <button onClick={onClose} className="px-4 py-2 text-xs">Cancel</button>
+                    <button onClick={handleApply} className="px-4 py-2 bg-primary text-white text-xs">Apply</button>
                 </div>
             </div>
         </Modal>

@@ -88,31 +88,85 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         if (!sanitized.id || !isValidUuid(String(sanitized.id))) {
             sanitized.id = generateUUID();
         }
+        // Prevent Postgres date parsing errors when optional date fields are sent as empty strings.
+        if (typeof sanitized.date === 'string' && sanitized.date.trim() === '') {
+            sanitized.date = new Date().toISOString().split('T')[0];
+        }
+        if (typeof sanitized.eWayBillDate === 'string' && sanitized.eWayBillDate.trim() === '') {
+            sanitized.eWayBillDate = null;
+        }
+        return sanitized;
+    }
+
+    if (tableName === 'inventory') {
+        const sanitized = { ...payload };
+        // Expiry can be left blank while creating purchase lines; send null instead of empty string.
+        if (typeof sanitized.expiry === 'string' && sanitized.expiry.trim() === '') {
+            sanitized.expiry = null;
+        }
         return sanitized;
     }
 
     return payload;
 };
 
-const toCamel = (obj: any): any => {
+export const toCamel = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
     if (Array.isArray(obj)) return obj.map(toCamel);
     return Object.keys(obj).reduce((acc, key) => {
-        const preservedKeys = ['organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 'full_name', 'pharmacy_name', 'manager_name', 'address_line2', 'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 'gst_number', 'pan_number'];
+        const preservedKeys = [
+            'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 
+            'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
+            'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
+            'contact_person', 'opening_balance', 'supplier_group', 'control_gl_id',
+            'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 
+            'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
+            'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 
+            'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 
+            'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 
+            'gst_number', 'pan_number'
+        ];
+        
+        // Skip key conversion for these specific metadata fields that contain IDs
+        const skipValueConversionKeys = ['master_shortcuts', 'masterShortcuts', 'master_shortcut_order', 'masterShortcutOrder'];
+        
         let camelKey = preservedKeys.includes(key) ? key : key.replace(/_([a-z0-9])/g, (_, letter) => letter.toUpperCase());
-        acc[camelKey] = preservedKeys.includes(key) ? obj[key] : toCamel(obj[key]);
+        
+        // If it's one of the shortcut keys, don't recursively convert its values/keys
+        acc[camelKey] = (preservedKeys.includes(key) || skipValueConversionKeys.includes(key)) 
+            ? obj[key] 
+            : toCamel(obj[key]);
+            
         return acc;
     }, {} as any);
 };
 
-const toSnake = (obj: any): any => {
+export const toSnake = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
     if (Array.isArray(obj)) return obj.map(toSnake);
     return Object.keys(obj).reduce((acc, key) => {
         if (key.startsWith('_')) return acc;
-        const preservedKeys = ['organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 'full_name', 'pharmacy_name', 'manager_name', 'address_line2', 'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 'gst_number', 'pan_number'];
+        const preservedKeys = [
+            'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 
+            'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
+            'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
+            'contact_person', 'opening_balance', 'supplier_group', 'control_gl_id',
+            'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 
+            'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
+            'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 
+            'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 
+            'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 
+            'gst_number', 'pan_number'
+        ];
+        
+        const skipValueConversionKeys = ['master_shortcuts', 'masterShortcuts', 'master_shortcut_order', 'masterShortcutOrder'];
+        
         let snakeKey = preservedKeys.includes(key) ? key : key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-        acc[snakeKey] = preservedKeys.includes(key) ? obj[key] : toSnake(obj[key]);
+        
+        acc[snakeKey] = (preservedKeys.includes(key) || skipValueConversionKeys.includes(key))
+            ? obj[key]
+            : toSnake(obj[key]);
+            
         return acc;
     }, {} as any);
 };
@@ -163,6 +217,12 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                             };
                         }
                     });
+
+                    // Explicitly preserve master_shortcut_order if it exists in DB but not in payload
+                    // Or merge if both exist (favoring client's new order)
+                    if (existing.master_shortcut_order && !snakeData.master_shortcut_order) {
+                        snakeData.master_shortcut_order = existing.master_shortcut_order;
+                    }
                 }
             }
 
@@ -1511,6 +1571,15 @@ export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPha
     const supplierControlGl = books?.default_supplier_gl_id;
     if (!supplierControlGl) throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
 
+    const { data: glRows, error: glError } = await supabase
+        .from('gl_master')
+        .select('id, gl_code')
+        .eq('organization_id', user.organization_id)
+        .eq('set_of_books_id', purchase.setOfBooksId)
+        .in('gl_code', ['510000']);
+    if (glError) throw glError;
+    const roundOffGl = (glRows || []).find((row: any) => String(row.gl_code) === '510000')?.id;
+
     const lineAcc = new Map<string, { debit: number; credit: number; memo: string }>();
     const addLine = (glId: string, debit: number, credit: number, memo: string) => {
         const cur = lineAcc.get(glId) || { debit: 0, credit: 0, memo };
@@ -1521,6 +1590,9 @@ export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPha
 
     addLine(String(supplierControlGl), 0, Number(purchase.totalAmount || 0), 'Supplier control');
 
+    let totalItemTaxable = 0;
+    let totalItemGst = 0;
+
     for (const item of purchase.items || []) {
         const materialType = mapMaterialType((item as any).category);
         const assignment = assignmentByType.get(materialType) || assignmentByType.get('Trading Goods');
@@ -1529,8 +1601,31 @@ export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPha
         }
         const taxable = Number((item as any).taxableValue || 0);
         const gst = Number((item as any).gstAmount || 0);
+        totalItemTaxable += taxable;
+        totalItemGst += gst;
         addLine(String(assignment.purchase_gl), taxable, 0, `${materialType} purchase`);
         if (gst > 0) addLine(String(assignment.tax_gl), gst, 0, `${materialType} tax`);
+    }
+
+    const fallbackAssignment = assignmentByType.get('Trading Goods') || (assignments || [])[0];
+    if (Math.abs(totalItemTaxable) <= 0.01 && Number(purchase.subtotal || 0) > 0) {
+        if (!fallbackAssignment?.purchase_gl) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        addLine(String(fallbackAssignment.purchase_gl), Number(purchase.subtotal || 0), 0, 'Purchase value');
+    }
+    if (Math.abs(totalItemGst) <= 0.01 && Number(purchase.totalGst || 0) > 0) {
+        if (!fallbackAssignment?.tax_gl) {
+            throw new Error('GL Assignment missing for Material Type under selected Set of Books. Please configure in Utilities & Setup.');
+        }
+        addLine(String(fallbackAssignment.tax_gl), Number(purchase.totalGst || 0), 0, 'Purchase tax');
+    }
+
+    const roundOff = Number(purchase.roundOff || 0);
+    if (Math.abs(roundOff) > 0.0001) {
+        if (!roundOffGl) throw new Error('Set of Books GL mapping incomplete. Required: Round Off (510000).');
+        if (roundOff > 0) addLine(String(roundOffGl), roundOff, 0, 'Round off');
+        else addLine(String(roundOffGl), 0, Math.abs(roundOff), 'Round off');
     }
 
     const lines = Array.from(lineAcc.entries()).map(([glId, v]) => ({ glId, debit: v.debit, credit: v.credit, memo: v.memo }));

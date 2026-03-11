@@ -109,6 +109,9 @@ const App: React.FC = () => {
     const [sourceChallansForPurchase, setSourceChallansForPurchase] = useState<{ items: PurchaseItem[], supplier: string, ids: string[] } | null>(null);
     const [mobileSyncSessionId, setMobileSyncSessionId] = useState<string | null>(null);
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
+    const [editingSale, setEditingSale] = useState<Transaction | null>(null);
+    const [salesReturnPrefillInvoiceId, setSalesReturnPrefillInvoiceId] = useState<string | null>(null);
+    const [purchaseReturnPrefillInvoiceId, setPurchaseReturnPrefillInvoiceId] = useState<string | null>(null);
 
     const [printBill, setPrintBill] = useState<(DetailedBill & { inventory: InventoryItem[]; configurations: AppConfigurations; }) | null>(null);
     const [viewTransaction, setViewTransaction] = useState<Transaction | null>(null);
@@ -396,11 +399,11 @@ const App: React.FC = () => {
         if (currentUser) await loadData(currentUser, 'sync');
     }, [currentUser, loadData]);
 
-    const handleNavigate = useCallback((pageId: string) => {
+    const handleNavigate = useCallback((pageId: string, skipPrompt = false) => {
         const isDailyReportLink = pageId.startsWith('dailyReports:');
         const resolvedPageId = isDailyReportLink ? 'dailyReports' : pageId;
 
-        if (shouldPromptBeforeLeaving(currentPage, resolvedPageId)) {
+        if (!skipPrompt && shouldPromptBeforeLeaving(currentPage, resolvedPageId)) {
             setShowEscSavePrompt(true);
             return;
         }
@@ -519,7 +522,7 @@ const App: React.FC = () => {
         }
 
         try {
-            const savedTx = await storage.addTransaction(tx, currentUser);
+            const savedTx = await storage.addTransaction(tx, currentUser, isUpdate);
 
             // Synchronize the local configuration state with the next expected number.
             // This ensures that the "Preview" number shown in the UI is consistent with what's in the DB
@@ -545,6 +548,7 @@ const App: React.FC = () => {
             // Immediate local state update to ensure data shows in history without waiting for background reload.
             if (isUpdate) {
                 setTransactions(prev => prev.map(t => t.id === savedTx.id ? savedTx : t));
+                setEditingSale(null);
             } else {
                 setTransactions(prev => [savedTx, ...prev]);
             }
@@ -553,6 +557,8 @@ const App: React.FC = () => {
             loadData(currentUser, 'background').catch((err) => {
                 console.warn('Background reload after sales save failed:', err);
             });
+
+            addNotification(isUpdate ? 'Bill updated successfully.' : 'Bill saved successfully.', 'success');
         } catch (e) {
             throw new Error(parseNetworkAndApiError(e));
         }
@@ -567,8 +573,10 @@ const App: React.FC = () => {
 
             loadData(currentUser, 'background');
             addNotification("Purchase voucher updated.", "success");
+            return savedPurchase;
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
+            throw e;
         }
     };
 
@@ -581,8 +589,10 @@ const App: React.FC = () => {
 
             loadData(currentUser, 'background');
             addNotification("Purchase entry posted.", "success");
+            return savedPurchase;
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
+            throw e;
         }
     };
 
@@ -790,16 +800,22 @@ const App: React.FC = () => {
                 defaultControlGlId: mappedControlGlId,
             });
 
-            if (result.status !== 'duplicate' && balance !== 0) {
-                await storage.addLedgerEntry({
-                    id: storage.generateUUID(),
-                    date,
-                    type: 'openingBalance',
-                    description: 'Opening Balance',
-                    debit: balance < 0 ? Math.abs(balance) : 0,
-                    credit: balance > 0 ? balance : 0,
-                    balance: 0,
-                }, { type: 'supplier', id: result.supplier.id }, currentUser);
+            if (result.status !== 'duplicate') {
+                const savedSupplier = result.supplier;
+                if (balance !== 0) {
+                    await storage.addLedgerEntry({
+                        id: storage.generateUUID(),
+                        date,
+                        type: 'openingBalance',
+                        description: 'Opening Balance',
+                        debit: balance < 0 ? Math.abs(balance) : 0,
+                        credit: balance > 0 ? balance : 0,
+                        balance: 0,
+                    }, { type: 'supplier', id: savedSupplier.id }, currentUser);
+                }
+                
+                // Immediate local state update
+                setSuppliers(prev => [savedSupplier, ...prev]);
             }
 
             await loadData(currentUser, 'background');
@@ -857,10 +873,20 @@ const App: React.FC = () => {
                 existingSuppliers: suppliers,
                 defaultControlGlId: mappedControlGlId,
             });
+
+            if (result.status !== 'duplicate') {
+                const savedSupplier = result.supplier;
+                // Immediate local state update
+                setSuppliers(prev => prev.map(s => s.id === savedSupplier.id ? savedSupplier : s));
+            }
+
             await loadData(currentUser, 'background');
             addNotification(result.message, result.status === 'duplicate' ? 'warning' : 'success');
+            return result;
         } catch (e) {
-            addNotification(formatSupplierApiError(e), 'error');
+            const message = formatSupplierApiError(e);
+            addNotification(message, 'error');
+            throw new Error(message);
         }
     };
 
@@ -1001,7 +1027,11 @@ const App: React.FC = () => {
                         currentUser={currentUser} config={config} configurations={configurations}
                         billType={currentPage === 'nonGstPos' ? 'non-gst' : 'regular'}
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
-                        onCancel={() => handleNavigate('dashboard')}
+                        onCancel={() => {
+                            setEditingSale(null);
+                            handleNavigate('dashboard');
+                        }}
+                        transactionToEdit={editingSale}
                     />;
                 case 'salesHistory':
                     return <SalesHistory
@@ -1009,7 +1039,10 @@ const App: React.FC = () => {
                         onViewDetails={setViewTransaction}
                         onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
                         onCancelTransaction={handleCancelTransaction}
-                        currentUser={currentUser} onViewSale={setViewTransaction} onEditSale={() => { }}
+                        currentUser={currentUser} onViewSale={setViewTransaction}
+                        onEditSale={(tx) => { setEditingSale(tx); handleNavigate(tx.billType === 'non-gst' ? 'nonGstPos' : 'pos'); }}
+                        onCreateReturn={(tx) => { setSalesReturnPrefillInvoiceId(tx.id); handleNavigate('salesReturns'); }}
+                        salesReturns={salesReturns}
                     />;
                 case 'manualSalesEntry':
                     return <ManualSalesEntry
@@ -1036,7 +1069,8 @@ const App: React.FC = () => {
                         isManualEntry={false}
                         configurations={configurations}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
-                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
+                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
+                        onPrint={setViewPurchase}
                     />;
                 case 'manualPurchaseEntry':
                     return <PurchaseForm
@@ -1053,7 +1087,8 @@ const App: React.FC = () => {
                         isManualEntry={true}
                         configurations={configurations}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
-                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory')}
+                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
+                        onPrint={setViewPurchase}
                     />;
 
                 case 'manualSupplierInvoice':
@@ -1065,7 +1100,7 @@ const App: React.FC = () => {
                         purchases={purchases}
                         addNotification={addNotification}
                         onAddPurchase={handleAddPurchase}
-                        onSaved={() => loadData(currentUser!, 'background')}
+                        onSaved={async () => handleNavigate('purchaseHistory', true)}
                         onAddMedicineMaster={handleAddMedicineMaster}
                     />;
                 case 'purchaseHistory':
@@ -1073,6 +1108,9 @@ const App: React.FC = () => {
                         purchases={purchases} distributors={suppliers} onViewDetails={setViewPurchase}
                         onCancelPurchase={handleCancelPurchase} inventory={inventory} medicines={medicines}
                         onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualSupplierInvoice'); }}
+                        onCreateReturn={(p) => { setPurchaseReturnPrefillInvoiceId(p.purchaseSerialId); handleNavigate('purchaseReturn'); }}
+                        purchaseReturns={purchaseReturns}
+                        onRefresh={async () => loadData(currentUser!, 'background')}
                         onAddInventoryItem={handleAddInventoryItem}
                         currentUser={currentUser} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                     />;
@@ -1272,6 +1310,10 @@ const App: React.FC = () => {
                         onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(async () => { await storage.syncSalesReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
                         onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(async () => { await storage.syncPurchaseReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
                         addNotification={addNotification} defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'} isFixedMode={true}
+                        prefillSalesInvoiceId={salesReturnPrefillInvoiceId}
+                        prefillPurchaseInvoiceId={purchaseReturnPrefillInvoiceId}
+                        onPrefillSalesInvoiceHandled={() => setSalesReturnPrefillInvoiceId(null)}
+                        onPrefillPurchaseInvoiceHandled={() => setPurchaseReturnPrefillInvoiceId(null)}
                     />;
                 default:
                     return <Dashboard

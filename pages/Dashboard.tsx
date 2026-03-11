@@ -32,26 +32,9 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
     </button>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: initialConfigurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
-    const [configurations, setConfigurations] = useState(initialConfigurations);
+const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading }) => {
     const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(0);
     const [expiryFilter, setExpiryFilter] = useState<'expired' | 'nearExpiry'>('expired');
-
-    // Sync local configurations state with prop
-    useEffect(() => {
-        setConfigurations(initialConfigurations);
-    }, [initialConfigurations]);
-
-    // Listen for global configuration updates (e.g. from Logo Upload)
-    useEffect(() => {
-        const handleConfigUpdate = (e: any) => {
-            if (e.detail) {
-                setConfigurations(e.detail);
-            }
-        };
-        window.addEventListener('configurations-updated', handleConfigUpdate);
-        return () => window.removeEventListener('configurations-updated', handleConfigUpdate);
-    }, []);
 
     const promoImageUrl = configurations.displayOptions?.dashboard_logo_url || 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
 
@@ -173,10 +156,21 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
 
     const activeShortcuts = useMemo(() => {
         if (configurations.masterShortcuts && configurations.masterShortcuts.length > 0) {
-            return MASTER_SHORTCUT_OPTIONS.filter(opt => configurations.masterShortcuts?.includes(opt.id));
+            const selectedSet = new Set(configurations.masterShortcuts);
+            const selected = MASTER_SHORTCUT_OPTIONS.filter(opt => selectedSet.has(opt.id));
+            const orderMap = configurations.masterShortcutOrder || {};
+            const fallbackOrder = new Map(configurations.masterShortcuts.map((id, idx) => [id, idx + 1]));
+
+            return selected
+                .sort((a, b) => {
+                    const orderA = orderMap[a.id] ?? fallbackOrder.get(a.id) ?? 999;
+                    const orderB = orderMap[b.id] ?? fallbackOrder.get(b.id) ?? 999;
+                    return orderA - orderB;
+                });
         }
-        return MASTER_SHORTCUT_OPTIONS.slice(0, 8); // Fallback
-    }, [configurations.masterShortcuts]);
+        // If no shortcuts selected, show first 12 defaults
+        return MASTER_SHORTCUT_OPTIONS.slice(0, 12);
+    }, [configurations.masterShortcutOrder, configurations.masterShortcuts]);
 
     // Keyboard navigation for Gateway Shortcuts
     useEffect(() => {
@@ -186,13 +180,13 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '')) return;
             if (document.querySelector('[role="dialog"]')) return;
 
-            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+            if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 setFocusedShortcutIndex(prev => (prev < activeShortcuts.length - 1 ? prev + 1 : 0));
-            } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+            } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setFocusedShortcutIndex(prev => (prev > 0 ? prev - 1 : activeShortcuts.length - 1));
-            } else if (e.key === 'Enter' && focusedShortcutIndex >= 0) {
+            } else if ((e.key === 'Enter' || e.key === 'ArrowRight') && focusedShortcutIndex >= 0) {
                 e.preventDefault();
                 onKpiClick(activeShortcuts[focusedShortcutIndex].id);
             }
@@ -204,9 +198,9 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
 
     return (
         <div className="relative min-h-full flex flex-col overflow-hidden bg-app-bg dark:bg-zinc-950">
-            <main className="p-6 space-y-6 view-enter flex-1 pb-28">
+            <main className="p-4 sm:p-6 space-y-6 view-enter flex-1 pb-28">
                 
-                {/* Header Strip */}
+                {/* Header Strip - Reverted to original layout */}
                 <div className="flex justify-between items-center bg-primary text-white px-4 py-3 tally-shadow">
                     <div className="flex items-center gap-3">
                         <h2 className="text-base font-bold uppercase tracking-widest">Dashboard Summary — {brandName}</h2>
@@ -223,41 +217,36 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    <div className="lg:col-span-9 space-y-6">
-                        <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white min-h-[520px] flex flex-col">
-                            <div className="bg-gray-100 border-b border-gray-300 px-4 py-2 text-[12px] font-bold uppercase tracking-[0.2em] text-gray-600">
+                    {/* Main Content Area */}
+                    <div className="lg:col-span-9 space-y-6 order-1">
+                        <Card className="p-0 tally-border !rounded-none overflow-hidden bg-white flex flex-col shadow-lg">
+                            <div className="bg-gray-100 border-b border-gray-300 px-4 py-2 text-[10px] sm:text-[12px] font-bold uppercase tracking-[0.2em] text-gray-600">
                                 Central Dashboard Display
                             </div>
-                            <div className="flex-1 grid place-items-center bg-gradient-to-b from-white to-gray-50 overflow-hidden">
+                            <div className="flex-1 bg-gradient-to-b from-white to-gray-50 overflow-hidden h-[350px] sm:h-[450px] md:h-[550px] lg:h-[600px]">
                                 <img
                                     src={promoImageUrl}
                                     alt="Dashboard promotion"
-                                    className="w-full h-full min-h-[280px] md:min-h-[360px] object-cover bg-transparent"
+                                    className="w-full h-full object-cover bg-transparent"
                                     loading="lazy"
                                 />
                             </div>
                         </Card>
-
-                        <div className="grid grid-cols-2 gap-3">
-                            {isVisible('kpiLowStock') && <KpiBox label="Low Stock" value={lowStockCount} color="border-red-600" onClick={() => onKpiClick('lowStock')}/>}
-                            {isVisible('kpiAudits') && <KpiBox label="Audits" value={0} color="border-indigo-600" onClick={() => onKpiClick('physicalInventory')}/>}
-                            {isVisible('statPurchases') && <KpiBox label="Purchases" value={purchases.length} color="border-emerald-600" onClick={() => onKpiClick('purchaseHistory')}/>}
-                            {isVisible('kpiReturns') && <KpiBox label="Returns" value={0} color="border-orange-600" onClick={() => onKpiClick('returns')}/>}
-                        </div>
                     </div>
 
-                    <div className="lg:col-span-3 flex justify-end">
-                        <Card className="w-full lg:w-[80%] p-0 tally-border !rounded-none bg-gray-100 dark:bg-zinc-800 shadow-xl overflow-hidden">
+                    {/* Sidebar Shortcuts */}
+                    <div className="lg:col-span-3 flex justify-center lg:justify-end order-2 lg:order-2">
+                        <Card className="w-full sm:max-w-md lg:w-full p-0 tally-border !rounded-none bg-gray-100 dark:bg-zinc-800 shadow-xl overflow-hidden">
                             <div className="bg-primary px-3 py-2 text-white text-[12px] font-bold text-center uppercase tracking-[0.2em] border-b-2 border-gray-700">
                                 MDXERA ENTERPRISE ERP
                             </div>
-                            <div className="p-2 space-y-1">
+                            <div className="p-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-1">
                                 {activeShortcuts.map((shortcut, idx) => (
                                     <button
                                         key={shortcut.id}
                                         onClick={() => onKpiClick(shortcut.id)}
                                         onMouseEnter={() => setFocusedShortcutIndex(idx)}
-                                        className={`w-full text-center py-2 px-2 leading-tight transition-colors text-[15px] font-semibold border border-gray-400 outline-none ${
+                                        className={`w-full text-center py-2.5 px-2 leading-tight transition-colors text-[14px] sm:text-[15px] font-semibold border border-gray-400 outline-none ${
                                             focusedShortcutIndex === idx
                                                 ? 'bg-accent text-black border-primary'
                                                 : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
@@ -271,7 +260,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
                                     <button
                                         onClick={() => onKpiClick('configuration')}
                                         onMouseEnter={() => setFocusedShortcutIndex(activeShortcuts.length)}
-                                        className={`w-full text-center py-2 px-2 leading-tight transition-colors text-[15px] font-semibold border border-gray-400 outline-none ${
+                                        className={`w-full text-center py-2.5 px-2 leading-tight transition-colors text-[14px] sm:text-[15px] font-semibold border border-gray-400 outline-none ${
                                             focusedShortcutIndex === activeShortcuts.length
                                                 ? 'bg-accent text-black border-primary'
                                                 : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
@@ -281,7 +270,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations: init
                                     </button>
                                 )}
                             </div>
-                            <div className="px-2 py-2 bg-gray-200 border-t border-gray-400 text-center">
+                            <div className="px-2 py-2 bg-gray-200 border-t border-gray-400 text-center hidden sm:block">
                                 <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wide">Use ↑ ↓ + Enter</span>
                             </div>
                         </Card>

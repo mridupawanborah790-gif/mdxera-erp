@@ -267,23 +267,36 @@ export const navigation: NavItem[] = [
 export const settingsNavigation: NavItem[] = [];
 
 export const MASTER_SHORTCUT_OPTIONS = [
-    { id: 'pos', label: 'Sale Entry (POS Sales)', color: 'text-green-600', icon: <POSIcon /> },
-    { id: 'salesChallans', label: 'Sale Delivery Note', color: 'text-blue-600', icon: <ChallanIcon /> },
-    { id: 'automatedPurchaseEntry', label: 'Automated Purchase Entry', color: 'text-indigo-600', icon: <PurchaseIcon /> }, 
-    { id: 'inventory', label: 'Current Inventory', color: 'text-orange-600', icon: <InventoryIcon /> },
-    { id: 'accountPayable', label: 'Accounts Payable', color: 'text-red-600', icon: <PaymentIcon /> },
-    { id: 'accountReceivable', label: 'Accounts Receivable', color: 'text-blue-600', icon: <PaymentIcon /> },
-    { id: 'medicineMasterList', label: 'Material Master Data', color: 'text-purple-600', icon: <MedicineIcon /> },
-    { id: 'salesHistory', label: 'Sales History Register', color: 'text-gray-600', icon: <SalesHistoryIcon /> },
-    { id: 'configuration', label: 'Settings Control', color: 'text-slate-600', icon: <ConfigIcon /> }, 
-    { id: 'physicalInventory', label: 'Stock Audit', color: 'text-amber-600', icon: <AuditIcon /> },
-    { id: 'gst', label: 'GST Center', color: 'text-emerald-600', icon: <GstIcon /> },
-    { id: 'suppliers', label: 'Suppliers', color: 'text-cyan-600', icon: <SuppliersIcon /> },
-    { id: 'customers', label: 'Customers', color: 'text-teal-600', icon: <CustomersIcon /> },
-    { id: 'substituteFinder', label: 'Substitutes', color: 'text-rose-500', icon: <SubstituteIcon /> },
-    { id: 'promotions', label: 'Promotions', color: 'text-pink-600', icon: <PromotionIcon /> },
-    { id: 'salesReturns', label: 'Sales Return Entry', color: 'text-amber-700', icon: <ReturnsIcon /> }, 
-    { id: 'classification', label: 'Product Categories', color: 'text-orange-500', icon: <CategoryIcon /> }, 
+    { id: 'pos', label: 'POS Sales', group: 'Sales', color: 'text-green-600', icon: <POSIcon /> },
+    { id: 'manualSalesEntry', label: 'Manual Sales Entry', group: 'Sales', color: 'text-green-700', icon: <FileTextIcon /> },
+    { id: 'salesChallans', label: 'Sales Challan', group: 'Sales', color: 'text-blue-600', icon: <ChallanIcon /> },
+    { id: 'salesReturns', label: 'Sales Return', group: 'Sales', color: 'text-amber-700', icon: <ReturnsIcon /> },
+    { id: 'salesHistory', label: 'Sales History', group: 'Sales', color: 'text-gray-600', icon: <SalesHistoryIcon /> },
+
+    { id: 'automatedPurchaseEntry', label: 'Automated Purchase Entry', group: 'Purchase', color: 'text-indigo-600', icon: <PurchaseIcon /> },
+    { id: 'manualPurchaseEntry', label: 'Manual Purchase Entry', group: 'Purchase', color: 'text-indigo-700', icon: <FileTextIcon /> },
+    { id: 'manualSupplierInvoice', label: 'Manual Supplier Invoice', group: 'Purchase', color: 'text-violet-600', icon: <FileTextIcon /> },
+    { id: 'deliveryChallans', label: 'Purchase Challan', group: 'Purchase', color: 'text-sky-600', icon: <ChallanIcon /> },
+    { id: 'purchaseOrders', label: 'Purchase Orders', group: 'Purchase', color: 'text-blue-700', icon: <PurchaseIcon /> },
+    { id: 'purchaseHistory', label: 'Purchase History', group: 'Purchase', color: 'text-cyan-700', icon: <SalesHistoryIcon /> },
+    { id: 'purchaseReturn', label: 'Purchase Return', group: 'Purchase', color: 'text-amber-800', icon: <ReturnsIcon /> },
+    { id: 'inventory', label: 'Inventory', group: 'Purchase', color: 'text-orange-600', icon: <InventoryIcon /> },
+
+    { id: 'physicalInventory', label: 'Stock Audit', group: 'Stock Audit', color: 'text-amber-600', icon: <AuditIcon /> },
+
+    { id: 'nonGstPos', label: 'Estimate Billing', group: 'Billing', color: 'text-lime-700', icon: <POSIcon /> },
+
+    { id: 'accountReceivable', label: 'Account Receivable', group: 'Accounts', color: 'text-blue-600', icon: <PaymentIcon /> },
+    { id: 'accountPayable', label: 'Account Payable', group: 'Accounts', color: 'text-red-600', icon: <PaymentIcon /> },
+
+    { id: 'suppliers', label: 'Suppliers', group: 'Masters', color: 'text-cyan-600', icon: <SuppliersIcon /> },
+    { id: 'customers', label: 'Customers', group: 'Masters', color: 'text-teal-600', icon: <CustomersIcon /> },
+    { id: 'medicineMasterList', label: 'Material Master Data', group: 'Masters', color: 'text-purple-600', icon: <MedicineIcon /> },
+    { id: 'vendorNomenclature', label: 'Vendor Nomenclature', group: 'Masters', color: 'text-fuchsia-700', icon: <SuppliersIcon /> },
+    { id: 'bulkUtility', label: 'Bulk Utility', group: 'Masters', color: 'text-slate-700', icon: <UploadIcon_Internal /> },
+
+    { id: 'substituteFinder', label: 'Substitute Finder', group: 'Utilities', color: 'text-rose-500', icon: <SubstituteIcon /> },
+    { id: 'promotions', label: 'Promotions', group: 'Utilities', color: 'text-pink-600', icon: <PromotionIcon /> },
 ];
 
 export const BASE_UNITS = ['Tablet', 'Capsule', 'Bottle', 'Injection', 'Cream', 'Gel', 'Sachet', 'Piece', 'Unit', 'kg', 'g', 'ml', 'L'];
@@ -319,10 +332,10 @@ export const configurableModules = [
       { id: 'colPQty', name: 'P. Qty' },
       { id: 'colLQty', name: 'L. Qty' },
       { id: 'colFree', name: 'Free' },
-      { id: 'colRate', name: 'Rate' },
+      { id: 'colRate', name: 'Line Item Column: Rate' },
       { id: 'colDisc', name: 'Disc %' },
       { id: 'colGst', name: 'GST %' },
-      { id: 'colSch', name: 'Sch %' },
+      { id: 'colSch', name: 'Line Item Column: Scheme (SCH)' },
       { id: 'colAmount', name: 'Amount' },
       { id: 'optPrescription', name: 'Prescription Management' },
       { id: 'optBillingCategory', name: 'Billing Category' },

@@ -143,7 +143,8 @@ export interface AppConfigurations {
     deliveryChallanConfig?: InvoiceNumberConfig;
     salesChallanConfig?: InvoiceNumberConfig;
     medicineMasterConfig?: InvoiceNumberConfig;
-    masterShortcuts?: string[]; 
+    masterShortcuts?: string[];
+    masterShortcutOrder?: { [shortcutId: string]: number };
     sidebar?: {
         isSidebarCollapsed?: boolean;
         isSidebarHidden?: boolean;
@@ -277,6 +278,8 @@ export interface BillItem {
     schemeValue?: number;
     schemeDiscountAmount?: number;
     schemeDiscountPercent?: number;
+    schemeDisplayPercent?: number;
+    schemeBaseRate?: number;
     amount?: number;
     finalAmount?: number;
     manufacturer?: string;
@@ -873,6 +876,10 @@ export interface ReturnsProps {
     addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
     defaultTab: 'sales' | 'purchase';
     isFixedMode: boolean;
+    prefillSalesInvoiceId?: string | null;
+    prefillPurchaseInvoiceId?: string | null;
+    onPrefillSalesInvoiceHandled?: () => void;
+    onPrefillPurchaseInvoiceHandled?: () => void;
 }
 
 export interface EWayBill {

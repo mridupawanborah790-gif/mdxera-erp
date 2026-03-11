@@ -96,11 +96,11 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
 
   return (
     <div className="flex flex-col border-b border-gray-400 bg-[#e1e1e1] dark:bg-zinc-900 select-none print:hidden">
-      {/* Top Bar */}
-      <div className="flex items-center h-9 px-2 bg-primary text-white text-[13px] font-bold" ref={menuRef}>
-        <div className="flex items-center gap-0.5 h-full">
+      {/* Top Bar - Restored to non-scrollable */}
+      <div className="flex items-center h-9 bg-primary text-white text-[12px] sm:text-[13px] font-bold" ref={menuRef}>
+        <div className="flex items-center h-full px-2">
             <div className="px-3 bg-white/10 h-full flex items-center mr-2">
-                <span className="tracking-widest uppercase">MDXERA ERP</span>
+                <span className="tracking-widest uppercase text-[11px] sm:text-[13px]">MDXERA ERP</span>
             </div>
             <button
                 onClick={onToggleSidebar}
@@ -114,17 +114,16 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                 <div key={item.id} className="relative h-full">
                     <button 
                         onClick={() => setActiveMenu(activeMenu === item.id ? null : item.id)}
-                        className={`h-full px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 ${activeMenu === item.id ? 'bg-white/20' : ''}`}
+                        className={`h-full px-3 sm:px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 ${activeMenu === item.id ? 'bg-white/20' : ''} whitespace-nowrap`}
                         dangerouslySetInnerHTML={{ __html: item.label }}
                     />
-                    {/* Fix: removed reference to non-existent 'taxation' variable */}
                     {activeMenu === item.id && (
-                        <div className="absolute top-full left-0 w-56 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl z-[100] py-1">
+                        <div className="absolute top-full left-0 w-48 sm:w-56 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl z-[100] py-1">
                             {item.children.map(child => (
                                 <button
                                     key={child.id}
                                     onClick={() => { onNavigate(child.id); setActiveMenu(null); }}
-                                    className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[12px] font-bold"
+                                    className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold"
                                 >
                                     {child.label}
                                 </button>
@@ -136,22 +135,22 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
             <button 
                 onClick={onReload}
                 disabled={isReloading}
-                className={`h-full px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 gap-2 ${isReloading ? 'opacity-50' : ''}`}
+                className={`h-full px-3 sm:px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 gap-2 ${isReloading ? 'opacity-50' : ''}`}
             >
                 {isReloading ? (
                     <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                ) : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
-                <span><u>R</u>eload</span>
+                ) : <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
+                <span className="whitespace-nowrap font-bold"><u>R</u>eload</span>
             </button>
             <div className="relative h-full">
                 <button
                     onClick={() => setActiveMenu(activeMenu === dailyReportsMenu.id ? null : dailyReportsMenu.id)}
-                    className={`h-full px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 ${activeMenu === dailyReportsMenu.id ? 'bg-white/20' : ''}`}
+                    className={`h-full px-3 sm:px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 whitespace-nowrap ${activeMenu === dailyReportsMenu.id ? 'bg-white/20' : ''}`}
                 >
                     {dailyReportsMenu.label}
                 </button>
                 {activeMenu === dailyReportsMenu.id && (
-                    <div className="absolute top-full left-0 w-72 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl z-[100] py-1">
+                    <div className="absolute top-full left-0 w-64 sm:w-72 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl z-[100] py-1 overflow-y-auto max-h-[70vh]">
                         {dailyReportsMenu.children.map(child => (
                             <div key={child.id} className="group relative">
                                 <button
@@ -161,18 +160,18 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                                             setActiveMenu(null);
                                         }
                                     }}
-                                    className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[12px] font-bold flex justify-between items-center"
+                                    className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold flex justify-between items-center"
                                 >
                                     {child.label}
                                     {'children' in child && child.children ? <span>▸</span> : null}
                                 </button>
                                 {'children' in child && child.children && (
-                                    <div className="absolute top-0 left-full w-80 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl hidden group-hover:block z-[110] py-1">
+                                    <div className="absolute top-0 left-full w-64 sm:w-80 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl hidden group-hover:block z-[110] py-1">
                                         {child.children.map(grandChild => (
                                             <button
                                                 key={grandChild.id}
                                                 onClick={() => { onNavigate(grandChild.id); setActiveMenu(null); }}
-                                                className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[12px] font-bold"
+                                                className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold"
                                             >
                                                 {grandChild.label}
                                             </button>
@@ -187,17 +186,17 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
             <div className="relative h-full">
                 <button
                     onClick={() => setActiveMenu(activeMenu === utilitiesSetupMenu.id ? null : utilitiesSetupMenu.id)}
-                    className={`h-full px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 ${activeMenu === utilitiesSetupMenu.id ? 'bg-white/20' : ''}`}
+                    className={`h-full px-3 sm:px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 whitespace-nowrap ${activeMenu === utilitiesSetupMenu.id ? 'bg-white/20' : ''}`}
                 >
                     {utilitiesSetupMenu.label}
                 </button>
                 {activeMenu === utilitiesSetupMenu.id && (
-                    <div className="absolute top-full left-0 w-72 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl z-[100] py-1">
+                    <div className="absolute top-full left-0 w-64 sm:w-72 bg-white dark:bg-zinc-800 border border-gray-400 shadow-xl z-[100] py-1">
                         {utilitiesSetupMenu.children.map(child => (
                             <button
                                 key={child.id}
                                 onClick={() => { onNavigate(child.id); setActiveMenu(null); }}
-                                className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[12px] font-bold"
+                                className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold"
                             >
                                 {child.label}
                             </button>
@@ -205,19 +204,19 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                     </div>
                 )}
             </div>
-        </div>
-        
-        <div className="ml-auto flex items-center gap-3 h-full">
-             <div className="flex items-center gap-2 px-2 border-l border-white/10 h-full text-accent">
-                 <span className="text-[11px] uppercase">{currentUser?.pharmacy_name}</span>
-             </div>
-             <button onClick={onLogout} className="px-3 hover:bg-red-700 h-full transition-colors font-bold text-[11px] uppercase">Quit</button>
+            
+            <div className="ml-auto flex items-center gap-3 h-full pr-2">
+                <div className="flex items-center gap-2 px-2 border-l border-white/10 h-full text-accent">
+                    <span className="text-[10px] sm:text-[11px] uppercase truncate max-w-[100px] sm:max-w-none">{currentUser?.pharmacy_name}</span>
+                </div>
+                <button onClick={onLogout} className="px-3 hover:bg-red-700 h-full transition-colors font-bold text-[10px] sm:text-[11px] uppercase">Quit</button>
+            </div>
         </div>
       </div>
 
       {/* Button Toolbar - Only visible on Dashboard */}
       {currentPage === 'dashboard' && (
-        <div className="flex items-center h-10 px-2 gap-1.5 bg-[#f1f1f1] dark:bg-zinc-800 overflow-x-auto no-scrollbar border-b border-gray-300">
+        <div className="flex items-center h-10 px-2 gap-1.5 bg-[#f1f1f1] dark:bg-zinc-800 border-b border-gray-300">
             <ToolbarButton label="F2: Date" onClick={() => {}} />
             <ToolbarButton label="F3: Company" onClick={() => onNavigate('settings')} />
             <ToolbarButton label="F4: Stock" onClick={() => onNavigate('inventory')} />

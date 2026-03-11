@@ -11,12 +11,21 @@ interface SupplierSearchModalProps {
     onClose: () => void;
     suppliers: Supplier[];
     onSelect: (supplier: Supplier) => void;
+    onQuickCreateSupplier?: (supplierName: string) => void;
     initialSearch?: string;
 }
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
-const SupplierSearchModal: React.FC<SupplierSearchModalProps> = ({ isOpen, onClose, suppliers, onSelect, initialSearch = '' }) => {
+const normalizeSupplierKey = (value: string): string => (
+    (value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+);
+
+const SupplierSearchModal: React.FC<SupplierSearchModalProps> = ({ isOpen, onClose, suppliers, onSelect, onQuickCreateSupplier, initialSearch = '' }) => {
     const [searchTerm, setSearchTerm] = useState(initialSearch);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
@@ -55,6 +64,21 @@ const SupplierSearchModal: React.FC<SupplierSearchModalProps> = ({ isOpen, onClo
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (isLedgerModalOpen) return;
 
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            const normalizedInput = normalizeSupplierKey(searchTerm);
+            if (!normalizedInput) return;
+
+            const exactMatch = suppliers.find(supplier => normalizeSupplierKey(supplier.name || '') === normalizedInput);
+            if (exactMatch) {
+                onSelect(exactMatch);
+                return;
+            }
+
+            onQuickCreateSupplier?.(searchTerm.trim());
+            return;
+        }
+
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             setSelectedIndex(prev => (prev + 1) % Math.max(1, filtered.length));
@@ -87,7 +111,7 @@ const SupplierSearchModal: React.FC<SupplierSearchModalProps> = ({ isOpen, onClo
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" /><path d="m3 9 2.45-4.9A2 2 0 0 1 7.24 3h9.52a2 2 0 0 1 1.8 1.1L21 9" /><path d="M12 3v6" /></svg>
                         <span className="text-xs font-black uppercase tracking-[0.2em]">Supplier Selection Matrix</span>
                     </div>
-                    <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | F4 Ledger | Enter Select | Esc Close</span>
+                    <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Ctrl+Enter New Supplier | F4 Ledger | Enter Select | Esc Close</span>
                 </div>
 
                 <div className="p-2 bg-white dark:bg-zinc-900 border-b-2 border-primary/10">

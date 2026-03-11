@@ -1,20 +1,16 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
-import type { InventoryItem, PhysicalInventorySession, PhysicalInventoryCountItem } from '../types';
+import type { InventoryItem, Medicine, PhysicalInventorySession, PhysicalInventoryCountItem } from '../types';
 import { PhysicalInventoryStatus } from '../types';
 import { fuzzyMatch } from '../utils/search';
-import { resolveUnitsPerStrip } from '../utils/pack';
+import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
 
-const TrashIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-);
+const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
-const EyeIcon = (props: React.SVGProps<SVGSVGElement>) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-);
-
+// Fix: Added missing PHYSICAL_COUNT_REASONS constant for the audit goal dropdown
 const PHYSICAL_COUNT_REASONS = [
     "Monthly Audit",
     "Damaged/Leakage Check",
@@ -36,17 +32,17 @@ const formatStockDisplay = (totalUnits: number, unitsPerPack: number) => {
     return `${sign}${mainPart} (${totalUnits})`;
 };
 
-const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) => {
+const debounce = (func: Function, waitFor: number) => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
-    const debounced = (...args: Parameters<F>) => {
+    return (...args: any[]) => {
       if (timeout !== null) clearTimeout(timeout);
       timeout = setTimeout(() => func(...args), waitFor);
     };
-    return debounced as (...args: Parameters<F>) => void;
 };
 
 interface PhysicalInventoryPageProps {
     inventory: InventoryItem[];
+    medicines: Medicine[];
     physicalInventorySessions: PhysicalInventorySession[];
     onStartNewCount: () => void;
     onUpdateCount: (session: PhysicalInventorySession) => void;
@@ -54,15 +50,13 @@ interface PhysicalInventoryPageProps {
     onCancelCount: (session: PhysicalInventorySession) => void;
 }
 
-const PhysicalInventoryPage: React.FC<PhysicalInventoryPageProps> = ({ inventory, physicalInventorySessions, onStartNewCount, onUpdateCount, onFinalizeCount, onCancelCount }) => {
+const PhysicalInventoryPage: React.FC<PhysicalInventoryPageProps> = ({ inventory, medicines, physicalInventorySessions, onStartNewCount, onUpdateCount, onFinalizeCount, onCancelCount }) => {
     const [selectedSessionForView, setSelectedSessionForView] = useState<PhysicalInventorySession | null>(null);
-    
     const sessions = useMemo(() => Array.isArray(physicalInventorySessions) ? physicalInventorySessions : [], [physicalInventorySessions]);
-
     const activeSession = useMemo(() => sessions.find(s => s.status === PhysicalInventoryStatus.IN_PROGRESS), [sessions]);
 
     if (activeSession) {
-        return <CountingView key={activeSession.id} session={activeSession} inventory={inventory} onUpdate={onUpdateCount} onFinalize={onFinalizeCount} onCancel={onCancelCount} />;
+        return <CountingView key={activeSession.id} session={activeSession} inventory={inventory} medicines={medicines} onUpdate={onUpdateCount} onFinalize={onFinalizeCount} onCancel={onCancelCount} />;
     }
 
     return (
@@ -131,7 +125,7 @@ const HistoryView: React.FC<{
         <div className="flex-1 p-4 overflow-y-auto bg-app-bg">
             <div className="flex justify-end mb-4">
                 <button onClick={onStartNew} className="px-6 py-2 tally-button-primary text-[10px] shadow-lg flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="mr-2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="mr-2"><line x1="12" cy="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     F2: Create Audit
                 </button>
             </div>
@@ -154,7 +148,7 @@ const HistoryView: React.FC<{
             <Card className="mt-4 p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white">
                 <div className="overflow-x-auto">
                     <table className="min-w-full border-collapse text-sm">
-                        <thead className="sticky top-0 bg-gray-100 border-b border-gray-400">
+                        <thead className="bg-gray-100 sticky top-0 border-b border-gray-400">
                             <tr className="text-[10px] font-black uppercase text-gray-600">
                                 <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
                                 <th className="p-2 border-r border-gray-400 text-left">Session ID</th>
@@ -167,7 +161,7 @@ const HistoryView: React.FC<{
                         <tbody className="divide-y divide-gray-200">
                             {completedSessions.map((s, idx) => (
                                 <tr key={s.id} className="hover:bg-accent transition-colors cursor-pointer" onClick={() => onViewSession(s)}>
-                                    <td className="p-2 border-r border-gray-200 font-bold text-gray-400 text-center">{idx + 1}</td>
+                                    <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">{idx + 1}</td>
                                     <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary uppercase">{s.id}</td>
                                     <td className="p-2 border-r border-gray-200 uppercase font-bold text-gray-700">{s.reason || 'Manual Audit'}</td>
                                     <td className="p-2 border-r border-gray-200 uppercase text-[10px] font-black">{s.performedByName}</td>
@@ -190,48 +184,141 @@ const HistoryView: React.FC<{
 const CountingView: React.FC<{ 
     session: PhysicalInventorySession; 
     inventory: InventoryItem[]; 
+    medicines: Medicine[];
     onUpdate: (s: PhysicalInventorySession) => void; 
     onFinalize: (s: PhysicalInventorySession) => void; 
     onCancel: (s: PhysicalInventorySession) => void;
-}> = ({ session, inventory, onUpdate, onFinalize, onCancel }) => {
-    
+}> = ({ session, inventory, medicines, onUpdate, onFinalize, onCancel }) => {
     const [countedItems, setCountedItems] = useState<PhysicalInventoryCountItem[]>(session.items || []);
     const [reason, setReason] = useState(session.reason || '');
-    const [searchTerm, setSearchTerm] = useState('');
+    const [isDiscoveryModalOpen, setIsDiscoveryModalOpen] = useState(false);
+    const [modalSearchTerm, setModalSearchTerm] = useState('');
+    const [selectedDiscoveryIndex, setSelectedDiscoveryIndex] = useState(0);
+    const searchResultsRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        setSelectedDiscoveryIndex(0);
+    }, [modalSearchTerm]);
+
+    useEffect(() => {
+        if (isDiscoveryModalOpen && searchResultsRef.current) {
+            const timer = setTimeout(() => {
+                const selectedRow = searchResultsRef.current?.querySelector(`[data-index="${selectedDiscoveryIndex}"]`);
+                if (selectedRow) {
+                    selectedRow.scrollIntoView({
+                        block: 'nearest',
+                        behavior: 'auto'
+                    });
+                }
+            }, 0);
+            return () => clearTimeout(timer);
+        }
+    }, [selectedDiscoveryIndex, isDiscoveryModalOpen]);
+
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isReviewOpen, setIsReviewOpen] = useState(false);
-    
+    const [addProductQuery, setAddProductQuery] = useState('');
     const isEndingRef = useRef(false);
+    const discoveryListRef = useRef<HTMLDivElement>(null);
+    const discoverySearchInputRef = useRef<HTMLInputElement>(null);
+    const addProductInputRef = useRef<HTMLInputElement>(null);
 
-    const onUpdateRef = useRef(onUpdate);
-    useEffect(() => { onUpdateRef.current = onUpdate; }, [onUpdate]);
+    const totalVarianceValue = useMemo(() => {
+        return countedItems.reduce((sum, item) => sum + (item.variance * item.cost), 0);
+    }, [countedItems]);
 
-    const debouncedUpdate = useMemo(() => debounce((s: PhysicalInventorySession) => {
+    const debouncedUpdate = useMemo(() => debounce((updatedSession: PhysicalInventorySession) => {
         if (!isEndingRef.current) {
-            onUpdateRef.current(s);
+            onUpdate(updatedSession);
         }
-    }, 1500), []);
+    }, 2000), [onUpdate]);
 
     useEffect(() => {
         if (!isEndingRef.current) {
-            debouncedUpdate({ ...session, items: countedItems, reason: reason });
+            debouncedUpdate({ 
+                ...session, 
+                items: countedItems, 
+                reason: reason,
+                totalVarianceValue: totalVarianceValue
+            });
         }
-    }, [countedItems, reason, session, debouncedUpdate]);
+    }, [countedItems, reason, session, debouncedUpdate, totalVarianceValue]);
 
-    const searchResults = useMemo(() => {
-        if (!searchTerm) return [];
-        return inventory.filter(i => 
-            fuzzyMatch(i.name, searchTerm) ||
-            (i.barcode && fuzzyMatch(i.barcode, searchTerm))
-        ).slice(0, 10);
-    }, [searchTerm, inventory]);
+    const discoveryResults = useMemo(() => {
+        const term = modalSearchTerm.trim();
+
+        const grouped = new Map<string, InventoryItem>();
+
+        inventory.forEach(i => {
+            const invPolicy = getInventoryPolicy(i, medicines);
+            if (!invPolicy.inventorised) return;
+            if (
+                !term ||
+                fuzzyMatch(i.name, term) ||
+                (i.barcode && fuzzyMatch(i.barcode, term)) ||
+                (i.code && fuzzyMatch(i.code, term))
+            ) {
+                grouped.set(`${i.name.toLowerCase()}|${(i.brand || '').toLowerCase()}`, i);
+            }
+        });
+
+        medicines.forEach(m => {
+            const medPolicy = getResolvedMedicinePolicy(m);
+            if (!medPolicy.inventorised) return;
+            if (
+                !term ||
+                fuzzyMatch(m.name, term) ||
+                (m.barcode && fuzzyMatch(m.barcode, term)) ||
+                (m.materialCode && fuzzyMatch(m.materialCode, term))
+            ) {
+                const key = `${m.name.toLowerCase()}|${(m.brand || '').toLowerCase()}`;
+                if (!grouped.has(key)) {
+                    grouped.set(key, {
+                        id: `mm-${m.id}`,
+                        organization_id: m.organization_id || '',
+                        name: m.name,
+                        code: m.materialCode,
+                        brand: m.brand || '',
+                        category: 'Medicine',
+                        manufacturer: m.manufacturer || '',
+                        stock: 0,
+                        unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '1', 10),
+                        minStockLimit: 0,
+                        batch: medPolicy.inventorised ? 'UNTRACKED' : '',
+                        expiry: medPolicy.inventorised ? 'N/A' : '',
+                        purchasePrice: 0,
+                        mrp: parseFloat(m.mrp || '0'),
+                        gstPercent: m.gstRate || 0,
+                        hsnCode: m.hsnCode || '',
+                        composition: m.composition || '',
+                        barcode: m.barcode || '',
+                        is_active: true,
+                    });
+                }
+            }
+        });
+
+        return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }, [modalSearchTerm, inventory, medicines]);
+
+    useEffect(() => {
+        if (!isDiscoveryModalOpen) return;
+        setTimeout(() => discoverySearchInputRef.current?.focus(), 50);
+    }, [isDiscoveryModalOpen]);
+
+    useEffect(() => {
+        const activeRow = discoveryListRef.current?.querySelector(`[data-index="${selectedDiscoveryIndex}"]`);
+        if (activeRow) {
+            activeRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }, [selectedDiscoveryIndex]);
 
     const addItemToCount = (item: InventoryItem, increment = false) => {
         setCountedItems(prev => {
             const existingIndex = prev.findIndex(ci => ci.inventoryItemId === item.id);
             if (existingIndex >= 0) {
+                const existing = prev[existingIndex];
                 if (increment) {
-                    const existing = prev[existingIndex];
                     const newPhysicalCount = existing.physicalCount + 1;
                     const updatedItems = [...prev];
                     updatedItems[existingIndex] = {
@@ -241,7 +328,11 @@ const CountingView: React.FC<{
                     };
                     return updatedItems;
                 }
-                setTimeout(() => document.getElementById(`count-packs-${item.id}`)?.focus(), 100);
+                setTimeout(() => {
+                    const input = document.getElementById(`count-packs-${item.id}`) as HTMLInputElement;
+                    input?.focus();
+                    input?.select();
+                }, 50);
                 return prev;
             }
             
@@ -255,17 +346,96 @@ const CountingView: React.FC<{
                 physicalCount: increment ? 1 : 0, 
                 variance: (increment ? 1 : 0) - item.stock, 
                 cost: item.cost || (item.purchasePrice / (item.unitsPerPack || 1)),
+                unitsPerPack: item.unitsPerPack || 1,
             };
+            
+            setTimeout(() => {
+                const input = document.getElementById(`count-packs-${item.id}`) as HTMLInputElement;
+                input?.focus();
+                input?.select();
+            }, 50);
+
             return [newItem, ...prev];
         });
-        setSearchTerm('');
     };
+
+    const addItemFromDiscovery = (item: InventoryItem) => {
+        addItemToCount(item);
+        setAddProductQuery('');
+        setIsDiscoveryModalOpen(false);
+    };
+
+    const openDiscoveryModal = (initialSearchTerm = '') => {
+        setModalSearchTerm(initialSearchTerm);
+        setSelectedDiscoveryIndex(0);
+        setIsDiscoveryModalOpen(true);
+    };
+
+    const moveToNextRowAndOpenDiscovery = () => {
+        setAddProductQuery('');
+        setTimeout(() => {
+            addProductInputRef.current?.focus();
+            openDiscoveryModal('');
+        }, 0);
+    };
+
+    const handleAddProductRowKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            openDiscoveryModal(addProductQuery.trim());
+        }
+    };
+
+    const handleActualCountKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, itemId: string, field: 'packs' | 'loose') => {
+        if (e.key !== 'Enter') return;
+
+        e.preventDefault();
+
+        if (field === 'packs') {
+            const looseInput = document.getElementById(`count-loose-${itemId}`) as HTMLInputElement | null;
+            looseInput?.focus();
+            looseInput?.select();
+            return;
+        }
+
+        moveToNextRowAndOpenDiscovery();
+    };
+
+    const handleDiscoveryKeyDown = (e: React.KeyboardEvent) => {
+        if (!isDiscoveryModalOpen) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedDiscoveryIndex(prev => Math.min(prev + 1, Math.max(discoveryResults.length - 1, 0)));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedDiscoveryIndex(prev => Math.max(prev - 1, 0));
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const target = discoveryResults[selectedDiscoveryIndex] || discoveryResults[0];
+            if (target) {
+                addItemFromDiscovery(target);
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setIsDiscoveryModalOpen(false);
+        }
+    };
+
+    useEffect(() => {
+        setSelectedDiscoveryIndex(0);
+    }, [modalSearchTerm]);
+
+    useEffect(() => {
+        if (!isDiscoveryModalOpen) {
+            setModalSearchTerm('');
+        }
+    }, [isDiscoveryModalOpen]);
     
     const handleCountChange = (itemId: string, packs: number, loose: number) => {
+        const existingItem = countedItems.find(i => i.inventoryItemId === itemId);
         const inventoryItem = inventory.find(i => i.id === itemId);
-        if (!inventoryItem) return;
-        
-        const unitsPerPack = resolveUnitsPerStrip(inventoryItem.unitsPerPack, inventoryItem.packType);
+        const unitsPerPack = existingItem?.unitsPerPack || inventoryItem?.unitsPerPack || 1;
         const totalPhysical = (packs * unitsPerPack) + loose;
 
         setCountedItems(prev => prev.map(item => {
@@ -295,15 +465,17 @@ const CountingView: React.FC<{
     };
 
     const handleCancelClick = () => {
-        if (window.confirm("Are you sure you want to cancel this session?")) {
+        if (window.confirm("Discard audit session? Stock levels will not be changed.")) {
+            // CRITICAL: Set ending flag before firing callback to prevent late syncs
             isEndingRef.current = true;
             onCancel(session);
         }
     };
 
     const handleFinalizeClick = () => {
+        // Set ending flag before firing callback
         isEndingRef.current = true;
-        onFinalize({...session, items: countedItems, reason: reason});
+        onFinalize({...session, items: countedItems, reason: reason, totalVarianceValue});
     };
 
     return (
@@ -316,26 +488,6 @@ const CountingView: React.FC<{
             <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
                 <div className="flex justify-between items-end gap-4 px-2">
                     <div className="flex gap-4 items-end flex-1">
-                        <div className="flex-1 max-w-sm relative">
-                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Item Discovery</label>
-                            <input 
-                                type="text" 
-                                value={searchTerm}
-                                onChange={e => setSearchTerm(e.target.value)}
-                                placeholder="Type name or Scan..."
-                                className="w-full p-2 border border-gray-400 rounded-none bg-input-bg text-sm font-bold focus:bg-yellow-50 outline-none"
-                            />
-                            {searchTerm && (
-                                <ul className="absolute z-[100] w-full mt-1 bg-white border border-gray-400 shadow-2xl divide-y divide-gray-100">
-                                    {searchResults.map(item => (
-                                        <li key={item.id} onClick={() => addItemToCount(item)} className="p-2 hover:bg-primary hover:text-white cursor-pointer flex justify-between text-xs font-bold uppercase">
-                                            <span>{item.name}</span>
-                                            <span className="opacity-50">Batch: {item.batch}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
                         <div className="w-48">
                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Audit Goal</label>
                             <select 
@@ -347,9 +499,10 @@ const CountingView: React.FC<{
                                 {PHYSICAL_COUNT_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
                         </div>
-                        <button onClick={() => setIsScannerOpen(true)} className="p-2 border border-gray-400 bg-white hover:bg-gray-100 shadow-sm">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 7v10"/><path d="M12 7v10"/><path d="M16 7v10"/></svg>
-                        </button>
+                        <div className="px-6 py-2 bg-slate-100 border border-gray-300">
+                             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Live Variance Impact</p>
+                             <p className={`text-sm font-black ${totalVarianceValue >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>₹{Math.abs(totalVarianceValue).toFixed(2)}</p>
+                        </div>
                     </div>
                     <div className="flex gap-2">
                         <button onClick={handleCancelClick} className="px-6 py-2 tally-border bg-white text-red-600 font-bold uppercase text-[10px]">Discard</button>
@@ -361,7 +514,7 @@ const CountingView: React.FC<{
                     <div className="overflow-auto h-full">
                         <table className="min-w-full border-collapse text-sm">
                             <thead className="bg-gray-100 sticky top-0 z-10 border-b border-gray-400">
-                                <tr className="text-[10px] font-black uppercase text-gray-600">
+                                <tr className={`${uniformTextStyle} text-gray-600`}>
                                     <th className="p-2 border-r border-gray-400 text-left">Particulars</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-24">System</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-48">Actual Count</th>
@@ -372,8 +525,7 @@ const CountingView: React.FC<{
                             <tbody className="divide-y divide-gray-200">
                                 {countedItems.map(item => {
                                     const invItem = inventory.find(i => i.id === item.inventoryItemId);
-                                    if (!invItem) return null;
-                                    const uPP = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
+                                    const uPP = item.unitsPerPack || invItem?.unitsPerPack || 1;
                                     const phyPacks = Math.floor(item.physicalCount / uPP);
                                     const phyLoose = item.physicalCount % uPP;
                                     return (
@@ -382,12 +534,28 @@ const CountingView: React.FC<{
                                                 <p className="font-bold text-gray-900 uppercase">{item.name}</p>
                                                 <p className="text-[9px] text-gray-400 font-bold uppercase">Batch: {item.batch}</p>
                                             </td>
-                                            <td className="p-2 border-r border-gray-200 text-center font-bold text-gray-500">{item.systemStock}</td>
+                                            <td className="p-2 border-r border-gray-200 text-center font-bold text-gray-500">{formatStockDisplay(item.systemStock, uPP)}</td>
                                             <td className="p-2 border-r border-gray-200 text-center">
                                                 <div className="flex items-center justify-center gap-2">
-                                                    <input type="number" value={phyPacks} onChange={e => handleCountChange(item.inventoryItemId, parseInt(e.target.value) || 0, phyLoose)} className="w-16 p-1 border border-gray-400 text-center font-black no-spinner outline-none focus:bg-yellow-50" placeholder="Pkts"/>
+                                                    <input 
+                                                        id={`count-packs-${item.inventoryItemId}`}
+                                                        type="number" 
+                                                        value={phyPacks} 
+                                                        onChange={e => handleCountChange(item.inventoryItemId, parseInt(e.target.value) || 0, phyLoose)} 
+                                                        onKeyDown={e => handleActualCountKeyDown(e, item.inventoryItemId, 'packs')}
+                                                        className="w-16 p-1 border border-gray-400 text-center font-black no-spinner outline-none focus:bg-yellow-50" 
+                                                        placeholder="Pkts"
+                                                    />
                                                     <span className="font-black">:</span>
-                                                    <input type="number" value={phyLoose} onChange={e => handleCountChange(item.inventoryItemId, phyPacks, parseInt(e.target.value) || 0)} className="w-12 p-1 border border-gray-400 text-center font-bold no-spinner outline-none focus:bg-yellow-50" placeholder="Lse"/>
+                                                    <input 
+                                                        id={`count-loose-${item.inventoryItemId}`}
+                                                        type="number" 
+                                                        value={phyLoose} 
+                                                        onChange={e => handleCountChange(item.inventoryItemId, phyPacks, parseInt(e.target.value) || 0)} 
+                                                        onKeyDown={e => handleActualCountKeyDown(e, item.inventoryItemId, 'loose')}
+                                                        className="w-12 p-1 border border-gray-400 text-center font-bold no-spinner outline-none focus:bg-yellow-50" 
+                                                        placeholder="Lse"
+                                                    />
                                                 </div>
                                             </td>
                                             <td className={`p-2 border-r border-gray-200 text-right font-black ${item.variance > 0 ? 'text-green-700' : item.variance < 0 ? 'text-red-700' : ''}`}>
@@ -401,20 +569,118 @@ const CountingView: React.FC<{
                                         </tr>
                                     );
                                 })}
+                                <tr className="bg-primary/5 hover:bg-primary/10 transition-colors">
+                                    <td className="p-2 border-r border-gray-200 align-top">
+                                        <div className="grid grid-cols-[52px_minmax(0,1fr)] border border-gray-300 bg-white">
+                                            <div className="border-r border-gray-300 p-2">
+                                                <p className="text-[9px] font-black uppercase tracking-wide text-gray-500">Sl.</p>
+                                                <p className="text-sm font-black text-primary leading-none">{countedItems.length + 1}</p>
+                                            </div>
+                                            <div className="p-2">
+                                                <p className="text-[9px] font-black uppercase tracking-wide text-gray-500 mb-1">Name of Item</p>
+                                                <input
+                                                    ref={addProductInputRef}
+                                                    type="text"
+                                                    value={addProductQuery}
+                                                    onChange={(e) => setAddProductQuery(e.target.value)}
+                                                    onKeyDown={handleAddProductRowKeyDown}
+                                                    onFocus={() => setSelectedDiscoveryIndex(0)}
+                                                    placeholder="Type item name or code..."
+                                                    className="w-full border border-gray-400 px-2 py-1 text-[11px] font-black uppercase tracking-wide outline-none focus:border-primary focus:bg-yellow-50"
+                                                />
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">--</td>
+                                    <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">Press Enter to open matrix</td>
+                                    <td className="p-2 border-r border-gray-200 text-right text-gray-400 font-bold">--</td>
+                                    <td className="p-2"></td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
                 </Card>
             </div>
             <BarcodeScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScanSuccess={handleScanSuccess} />
-            <ReviewModal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} session={{...session, items: countedItems, reason: reason}} onConfirm={handleFinalizeClick} />
+            <ReviewModal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} session={{...session, items: countedItems, reason: reason, totalVarianceValue}} onConfirm={handleFinalizeClick} />
+            <Modal
+                isOpen={isDiscoveryModalOpen}
+                onClose={() => setIsDiscoveryModalOpen(false)}
+                title="Product Selection Matrix"
+            >
+                <div className="flex flex-col h-full bg-[#fffde7] font-normal outline-none" onKeyDown={handleDiscoveryKeyDown}>
+                    <div className="py-1.5 px-4 bg-primary text-white flex-shrink-0 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+                            <span className="text-xs font-black uppercase tracking-[0.2em]">Material Discovery Engine</span>
+                        </div>
+                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Enter Select</span>
+                    </div>
+
+                    <div className="p-2 bg-white border-b-2 border-primary/10">
+                        <input
+                            ref={discoverySearchInputRef}
+                            type="text"
+                            value={modalSearchTerm}
+                            onChange={e => setModalSearchTerm(e.target.value)}
+                            placeholder="Type medicine name or code..."
+                            className="w-full p-2 border-2 border-primary/20 bg-white text-base font-black focus:border-primary outline-none shadow-inner uppercase tracking-tighter"
+                        />
+                    </div>
+
+                    <div className="flex-1 overflow-auto bg-white" ref={discoveryListRef}>
+                        {discoveryResults.length > 0 ? (
+                            <table className="min-w-full border-collapse">
+                                <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-400 shadow-sm">
+                                    <tr className="text-[10px] font-black uppercase text-gray-500 tracking-widest">
+                                        <th className="p-1.5 px-3 text-left border-r border-gray-200">Description of Medicine</th>
+                                        <th className="p-1.5 px-3 text-left border-r border-gray-200 w-32 text-center">Code</th>
+                                        <th className="p-1.5 px-3 text-left border-r border-gray-200">MFR / Brand</th>
+                                        <th className="p-1.5 px-3 text-center border-r border-gray-200">Stock</th>
+                                        <th className="p-1.5 px-3 text-right">MRP</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {discoveryResults.map((item, idx) => {
+                                        const isSelected = idx === selectedDiscoveryIndex;
+                                        return (
+                                            <tr
+                                                key={item.id}
+                                                data-index={idx}
+                                                onMouseEnter={() => setSelectedDiscoveryIndex(idx)}
+                                                onClick={() => addItemFromDiscovery(item)}
+                                                className={`cursor-pointer transition-all border-b border-gray-100 ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : 'hover:bg-yellow-50'}`}
+                                            >
+                                                <td className="p-1.5 px-3 border-r border-gray-200">
+                                                    <p className={`leading-none ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
+                                                </td>
+                                                <td className={`p-1.5 px-3 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-primary'}`}>
+                                                    {item.code || '--'}
+                                                </td>
+                                                <td className={`p-1.5 px-3 border-r border-gray-200 ${uniformTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
+                                                <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${uniformTextStyle} ${isSelected ? 'text-white' : (item.stock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{formatStockDisplay(item.stock, item.unitsPerPack || 1)}</td>
+                                                <td className={`p-1.5 px-3 text-right ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <div className="h-full flex flex-col items-center justify-center opacity-20 p-20 text-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-6"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+                                <p className="text-4xl font-black uppercase tracking-widest">No Matches</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };
 
 const ReviewModal = ({ isOpen, onClose, session, onConfirm }: any) => {
     if (!isOpen) return null;
-    const totalVarianceValue = session.items.reduce((sum: number, item: any) => sum + (item.variance * item.cost), 0);
+    const totalVarianceValue = session.totalVarianceValue || 0;
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Adjustment Confirmation" widthClass="max-w-2xl">
             <div className="p-6 space-y-4">
@@ -467,7 +733,7 @@ const PhysicalInventoryDetailModal: React.FC<{ isOpen: boolean; onClose: () => v
                     {session.items.map(item => (
                         <tr key={item.inventoryItemId} className="border-b border-gray-100">
                             <td className="p-2 font-bold uppercase">{item.name} <span className="block text-[9px] text-gray-400">Batch: {item.batch}</span></td>
-                            <td className="p-2 text-center font-bold text-gray-500">{item.systemStock}</td>
+                            <td className="p-2 text-center font-bold text-gray-500">{formatStockDisplay(item.systemStock, item.unitsPerPack || 1)}</td>
                             <td className="p-2 text-center font-black text-primary">{item.physicalCount}</td>
                             <td className={`p-2 text-right font-black ${item.variance > 0 ? 'text-green-700' : item.variance < 0 ? 'text-red-700' : ''}`}>{item.variance > 0 ? '+' : ''}{item.variance}</td>
                         </tr>
