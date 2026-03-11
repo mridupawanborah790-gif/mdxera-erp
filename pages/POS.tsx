@@ -17,7 +17,7 @@ import { fuzzyMatch } from '../utils/search';
 import { getOutstandingBalance, parseNumber, checkIsExpired, formatExpiryToMMYY } from '../utils/helpers';
 import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
-import { calculateBillingTotals, calculateLineNetAmount, resolveBillingSettings } from '../utils/billing';
+import { calculateBillingTotals } from '../utils/billing';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -68,6 +68,58 @@ const createBlankItem = (): BillItem => ({
     discountPercent: 0,
     itemFlatDiscount: 0,
 });
+
+const resolveProductDiscountPercent = (item?: Partial<InventoryItem> | null) => {
+    if (!item) return 0;
+    const candidateKeys: Array<keyof InventoryItem | 'discountPercent' | 'defaultDiscount' | 'saleDiscountPercent'> = ['discountPercent', 'defaultDiscount', 'saleDiscountPercent'];
+    for (const key of candidateKeys) {
+        const value = Number((item as any)?.[key]);
+        if (Number.isFinite(value) && value > 0) return value;
+    }
+    return 0;
+};
+
+
+
+const getBilledQuantity = (item: BillItem) => {
+    const unitsPerPack = item.unitsPerPack || 1;
+    return Math.max(0, (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack));
+};
+
+const recalculateSchemeFields = (item: BillItem): BillItem => {
+    if (!item.schemeMode) return item;
+
+    const billedQty = getBilledQuantity(item);
+    const baseRate = Number(item.rate || item.mrp || 0);
+    const tradeDiscountPercent = Number(item.discountPercent || 0);
+    const netRate = baseRate * (1 - tradeDiscountPercent / 100);
+    const appliedQty = Math.max(0, Number(item.schemeQty || 0));
+    const schemeValue = Math.max(0, Number(item.schemeValue || 0));
+    const schemeTotalQty = Math.max(0, Number(item.schemeTotalQty || 0));
+
+    let calculatedTotalDiscount = 0;
+    if (item.schemeMode === 'free_qty') {
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * netRate;
+    } else if (item.schemeMode === 'qty_ratio' && schemeTotalQty > 0) {
+        calculatedTotalDiscount = (billedQty * netRate) * (appliedQty / schemeTotalQty);
+    } else if (item.schemeMode === 'flat') {
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * schemeValue;
+    } else if (item.schemeMode === 'percent') {
+        calculatedTotalDiscount = Math.min(appliedQty || billedQty, billedQty) * (netRate * (schemeValue / 100));
+    } else if (item.schemeMode === 'price_override') {
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * Math.max(0, netRate - schemeValue);
+    }
+
+    const discountedSubtotal = billedQty * netRate;
+    const schemeDiscountAmount = Math.max(0, Math.min(calculatedTotalDiscount, discountedSubtotal));
+    const schemeDiscountPercent = discountedSubtotal > 0 ? (schemeDiscountAmount / discountedSubtotal) * 100 : 0;
+
+    return {
+        ...item,
+        schemeDiscountAmount,
+        schemeDiscountPercent,
+    };
+};
 
 const POS = forwardRef<any, POSProps>(({
     inventory,
@@ -151,6 +203,11 @@ const POS = forwardRef<any, POSProps>(({
     const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
     const inventoryWithPolicy = useMemo(() => inventory.map(item => ({ item, policy: getInventoryPolicy(item, medicines) })), [inventory, medicines]);
+    const applicableLineDiscountPercent = useMemo(() => {
+        const rules = configurations?.discountRules || [];
+        const firstApplicablePercentRule = rules.find(rule => rule.enabled && rule.level === 'line' && (rule.type === 'percentage' || rule.type === 'trade'));
+        return Math.max(0, Number(firstApplicablePercentRule?.value || 0));
+    }, [configurations]);
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
 
@@ -387,7 +444,7 @@ const POS = forwardRef<any, POSProps>(({
                             looseQuantity: loose,
                             unit: 'pack',
                             gstPercent: match.gstPercent,
-                            discountPercent: selectedCustomer?.defaultDiscount || 0,
+                            discountPercent: resolveProductDiscountPercent(match) || applicableLineDiscountPercent || selectedCustomer?.defaultDiscount || 0,
                             itemFlatDiscount: 0,
                             batch: match.batch,
                             expiry: match.expiry,
@@ -687,7 +744,7 @@ const POS = forwardRef<any, POSProps>(({
             freeQuantity: 0,
             unit: 'pack',
             gstPercent: batch.gstPercent,
-            discountPercent: selectedCustomer?.defaultDiscount || 0,
+            discountPercent: resolveProductDiscountPercent(batch) || applicableLineDiscountPercent || selectedCustomer?.defaultDiscount || 0,
             itemFlatDiscount: 0,
             batch: policy.inventorised && ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (policy.inventorised ? (batch.batch || '') : ''),
             expiry: policy.inventorised ? (batch.expiry ? String(batch.expiry) : 'N/A') : '',
@@ -724,13 +781,13 @@ const POS = forwardRef<any, POSProps>(({
     const handleUpdateCartItem = (id: string, field: keyof BillItem, value: any) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === id) {
-                const updated = { ...item, [field]: value };
+                const updated = { ...item, [field]: value } as BillItem;
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
                     (updated as any)[field] = value === '' ? 0 : (parseFloat(value) || 0);
                 }
 
                 if (field === 'looseQuantity') {
-                    const enteredLooseQty = Math.max(0, Math.floor(Number((updated as BillItem).looseQuantity) || 0));
+                    const enteredLooseQty = Math.max(0, Math.floor(Number(updated.looseQuantity) || 0));
                     const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
                     const isPackBasedItem = unitsPerPack > 1 && !isLiquidOrWeightPack(item.packType);
 
@@ -740,6 +797,10 @@ const POS = forwardRef<any, POSProps>(({
                     } else {
                         updated.looseQuantity = enteredLooseQty;
                     }
+                }
+
+                if (['quantity', 'looseQuantity', 'rate', 'discountPercent', 'schemeQty', 'schemeTotalQty', 'schemeValue', 'schemeMode'].includes(field as string)) {
+                    return recalculateSchemeFields(updated);
                 }
 
                 return updated;
@@ -1050,7 +1111,7 @@ const POS = forwardRef<any, POSProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
-                                    const lineAmount = calculateLineNetAmount(item, configurations);
+                                    const lineAmount = ((item.quantity || 0) + ((item.looseQuantity || 0) / (item.unitsPerPack || 1))) * (item.rate || 0);
 
                                     return (
                                         <tr
