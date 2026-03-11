@@ -119,6 +119,12 @@ const getBilledQuantity = (item: BillItem): number => {
     return Math.max(0, (item.quantity || 0) + ((item.looseQuantity || 0) / (unitsPerPack || 1)));
 };
 
+const getDisplaySchemePercent = (item?: Partial<BillItem> | null): number => {
+    if (!item) return 0;
+    if (typeof item.schemeDisplayPercent === 'number') return item.schemeDisplayPercent;
+    return Number(item.schemeDiscountPercent || 0);
+};
+
 const recalculateSchemeFields = (item: BillItem): BillItem => {
     if (!item.schemeMode) return item;
 
@@ -1566,10 +1572,19 @@ const POS = forwardRef<any, POSProps>(({
                                                 </td>
                                             )}
                                             {isFieldVisible('colSch') && (
-                                                <td className={`p-2 border-r border-gray-400 text-center ${uniformTextStyle}`}>
+                                                <td
+                                                    className={`p-2 border-r border-gray-400 text-center ${uniformTextStyle}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (isReadOnly) return;
+                                                        handleRowFocus(idx);
+                                                        setSchemeItem(item);
+                                                    }}
+                                                >
                                                     <button
                                                         id={`scheme-${item.id}`}
-                                                        onClick={() => {
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
                                                             if (isReadOnly) return;
                                                             handleRowFocus(idx);
                                                             setSchemeItem(item);
@@ -1585,10 +1600,10 @@ const POS = forwardRef<any, POSProps>(({
                                                                 handleRowKeyNavigation(e, item.id);
                                                             }
                                                         }}
-                                                        className={`px-2 py-0.5 text-[10px] font-normal uppercase rounded border border-dashed transition-all ${item.schemeMode ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-gray-50 text-gray-400 border-gray-300 hover:text-primary hover:border-primary'}`}
+                                                        className={`w-full px-2 py-0.5 text-[10px] font-normal uppercase rounded border border-dashed transition-all ${item.schemeMode ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-gray-50 text-gray-400 border-gray-300 hover:text-primary hover:border-primary'}`}
                                                         disabled={isReadOnly}
                                                     >
-                                                        {(item.schemeDisplayPercent ?? item.schemeDiscountPercent ?? 0).toFixed(1)}%
+                                                        {getDisplaySchemePercent(item).toFixed(1)}%
                                                     </button>
                                                 </td>
                                             )}
@@ -1652,7 +1667,7 @@ const POS = forwardRef<any, POSProps>(({
                             {activeLineTotals && (
                                 <>
                                     <div className="flex items-center justify-between text-blue-800"><span>Unit Rate</span> <span className="font-mono text-[10px]">₹{(activeBillItem?.rate || 0).toFixed(2)}</span></div>
-                                    <div className="flex items-center justify-between text-emerald-700"><span>Scheme %</span> <span className="font-mono text-[10px]">{(activeBillItem?.schemeDisplayPercent ?? activeBillItem?.schemeDiscountPercent ?? 0).toFixed(2)}%</span></div>
+                                    <div className="flex items-center justify-between text-emerald-700"><span>Scheme %</span> <span className="font-mono text-[10px]">{getDisplaySchemePercent(activeBillItem).toFixed(2)}%</span></div>
                                 </>
                             )}
                             <div className="flex justify-between"><span>MRP Value</span><span>₹{(activeLineTotals?.gross ?? totals.gross ?? 0).toFixed(2)}</span></div>
