@@ -31,10 +31,14 @@ const parseSchemeRule = (value: string): { freeQty: number; requiredQty: number 
     return null;
 };
 
-const calculateSchemeDisplayPercent = (params: { mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio'; value: number; schemeQty: number; schemeTotalQty?: number; billedQty: number; }): number => {
-    const { mode, value, schemeQty, schemeTotalQty, billedQty } = params;
+const calculateSchemeDisplayPercent = (params: { mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio'; value: number; schemeQty: number; schemeTotalQty?: number; billedQty: number; discountPercent: number; }): number => {
+    const { mode, value, schemeQty, schemeTotalQty, billedQty, discountPercent } = params;
 
     if (mode === 'percent') return Math.max(0, value);
+
+    if (mode === 'flat') {
+        return Math.max(0, Number(discountPercent || 0));
+    }
 
     if (mode === 'qty_ratio') {
         const totalQty = Math.max(0, Number(schemeTotalQty || 0));
@@ -133,6 +137,7 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
             schemeQty: computed.schemeQty,
             schemeTotalQty: computed.schemeTotalQty,
             billedQty,
+            discountPercent: computed.discountPercent,
         })
         : 0;
 
