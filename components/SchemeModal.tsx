@@ -31,6 +31,18 @@ const parseSchemeRule = (value: string): { freeQty: number; requiredQty: number 
     return null;
 };
 
+const parsePercentRule = (value: string): number | null => {
+    const normalized = value.toLowerCase().trim();
+    if (!normalized) return null;
+
+    const percentMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*%\s*(scheme)?$/);
+    if (!percentMatch) return null;
+
+    const percent = Number(percentMatch[1]);
+    if (percent <= 0) return null;
+    return percent;
+};
+
 const calculateSchemeDisplayPercent = (params: { mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio'; value: number; schemeQty: number; schemeTotalQty?: number; billedQty: number; discountPercent: number; }): number => {
     const { mode, value, schemeQty, schemeTotalQty, billedQty, discountPercent } = params;
 
@@ -96,6 +108,7 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
     const lineSubtotal = billedQty * netRate;
 
     const parsedRule = parseSchemeRule(schemeRule);
+    const parsedPercentRule = parsePercentRule(schemeRule);
 
     const computed = (() => {
         if (schemeRate > 0) {
@@ -105,10 +118,19 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
             return { mode: 'flat' as const, discountPercent, discountAmount, schemeQty: billedQty, schemeTotalQty: undefined, value: schemeRate, freeQuantity };
         }
 
-        if (schemePercent > 0) {
-            const discountAmount = Math.min(lineSubtotal, lineSubtotal * (schemePercent / 100));
+        if (schemePercent > 0 || (parsedPercentRule || 0) > 0) {
+            const resolvedPercent = schemePercent > 0 ? schemePercent : (parsedPercentRule || 0);
+            const discountAmount = Math.min(lineSubtotal, lineSubtotal * (resolvedPercent / 100));
             const freeQuantity = netRate > 0 ? discountAmount / netRate : 0;
-            return { mode: 'percent' as const, discountPercent: schemePercent, discountAmount, schemeQty: billedQty, schemeTotalQty: undefined, value: schemePercent, freeQuantity };
+            return {
+                mode: 'percent' as const,
+                discountPercent: resolvedPercent,
+                discountAmount,
+                schemeQty: billedQty,
+                schemeTotalQty: undefined,
+                value: resolvedPercent,
+                freeQuantity,
+            };
         }
 
         if (parsedRule) {
@@ -142,7 +164,7 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
         : 0;
 
     const handleApply = () => {
-        if (!computed.mode || computed.discountAmount <= 0) {
+        if (!computed.mode) {
             onClear(item.id);
             onClose();
             return;
