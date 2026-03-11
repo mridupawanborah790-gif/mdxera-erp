@@ -214,10 +214,13 @@ interface PurchaseFormProps {
 const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     onAddPurchase, onUpdatePurchase, inventory, suppliers, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, onClearDraft, currentUser, onAddMedicineMaster, onAddsupplier, onSaveMapping, onCancel, onPrint, title, className, configurations, addNotification, isReadOnly = false,
     isManualEntry = false, isChallan = false, disableAIInput = false, mobileSyncSessionId, setMobileSyncSessionId,
-    organizationId,
+    organizationId, config,
 }, ref) => {
     const isEditing = !!purchaseToEdit;
-    const isFieldVisible = useCallback((fieldId: string) => configurations.modules?.purchase?.fields?.[fieldId] !== false, [configurations.modules]);
+    const isFieldVisible = useCallback((fieldId: string) => {
+        if (config?.fields) return config.fields[fieldId] !== false;
+        return configurations.modules?.['purchase']?.fields?.[fieldId] !== false;
+    }, [config, configurations.modules]);
 
     // Standard State
     const [supplier, setSupplier] = useState('');

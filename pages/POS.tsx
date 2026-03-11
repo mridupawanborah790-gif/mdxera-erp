@@ -209,7 +209,10 @@ const POS = forwardRef<any, POSProps>(({
         return Math.max(0, Number(firstApplicablePercentRule?.value || 0));
     }, [configurations]);
 
-    const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
+    const isFieldVisible = useCallback((fieldId: string) => {
+        if (config?.fields) return config.fields[fieldId] !== false;
+        return configurations.modules?.['pos']?.fields?.[fieldId] !== false;
+    }, [config, configurations.modules]);
 
     useEffect(() => {
         const handleGlobalKeyDown = () => {

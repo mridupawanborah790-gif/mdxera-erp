@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Card from '../components/Card';
 import AddMedicineModal from '../components/AddMedicineModal';
-import { InventoryItem, Medicine, Purchase, PurchaseItem, RegisteredPharmacy, Supplier } from '../types';
+import { AppConfigurations, InventoryItem, Medicine, Purchase, PurchaseItem, RegisteredPharmacy, Supplier } from '../types';
 import { fuzzyMatch } from '../utils/search';
 import { handleEnterToNextField } from '../utils/navigation';
+import { useCallback } from 'react';
 
 interface ManualPurchaseProps {
   currentUser: RegisteredPharmacy | null;
@@ -11,6 +12,7 @@ interface ManualPurchaseProps {
   inventory: InventoryItem[];
   medicines: Medicine[];
   purchases: Purchase[];
+  configurations: AppConfigurations;
   addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
   onAddPurchase: (purchase: Purchase, supplierGst: string) => Promise<void>;
   onSaved: () => Promise<void>;
@@ -59,11 +61,15 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
   inventory,
   medicines,
   purchases,
+  configurations,
   addNotification,
   onAddPurchase,
   onSaved,
   onAddMedicineMaster,
 }) => {
+  const isFieldVisible = useCallback((fieldId: string) => {
+    return configurations.modules?.['purchase']?.fields?.[fieldId] !== false;
+  }, [configurations.modules]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [supplierId, setSupplierId] = useState('');
   const [phone, setPhone] = useState('');
