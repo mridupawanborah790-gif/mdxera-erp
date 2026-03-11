@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient';
+import { idb, STORES } from './indexedDbService';
 import type { Supplier, RegisteredPharmacy } from '../types';
-import { generateUUID } from './storageService';
+import { generateUUID, toSnake, toCamel } from './storageService';
 
 export type SupplierSaveStatus = 'created' | 'updated' | 'duplicate';
 
@@ -77,13 +78,17 @@ export const createSupplierQuick = async (
 
     const { data, error } = await supabase
         .from('suppliers')
-        .upsert(payload)
+        .upsert(toSnake(payload))
         .select('*')
         .single();
 
     if (error) throw new Error(formatSupplierApiError(error));
 
-    const saved = data as Supplier;
+    const saved = toCamel(data) as Supplier;
+    
+    // Sync with local IndexedDB immediately to prevent stale data reverts during background reload
+    await idb.put(STORES.SUPPLIERS, saved);
+
     return {
         status: supplierPayload.id ? 'updated' : 'created',
         supplier: saved,

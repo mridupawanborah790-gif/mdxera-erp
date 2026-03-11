@@ -41,7 +41,7 @@ interface SuppliersProps {
     onAddSupplier: (data: Omit<Supplier, 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<SupplierQuickResult>;
     onBulkAddSuppliers: (suppliers: any[]) => void;
     onRecordPayment: (supplierId: string, paymentAmount: number, paymentDate: string, description: string) => void;
-    onUpdateSupplier: (supplier: Supplier) => void;
+    onUpdateSupplier: (supplier: Supplier) => Promise<any>;
     config: any;
     currentUser: RegisteredPharmacy | null;
     defaultSupplierControlGlId?: string;
@@ -51,9 +51,14 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-    const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+    const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
+
+    const selectedSupplier = useMemo(() => {
+        if (!selectedSupplierId || !Array.isArray(suppliers)) return null;
+        return suppliers.find(s => s.id === selectedSupplierId) || null;
+    }, [suppliers, selectedSupplierId]);
 
     const filteredSuppliers = useMemo(() => {
         if (!Array.isArray(suppliers)) return [];
@@ -87,8 +92,24 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
 
     const handleDuplicateSupplier = (supplier: Supplier) => {
         if (!supplier) return;
-        setSelectedSupplier(supplier);
+        setSelectedSupplierId(supplier.id);
         setIsEditModalOpen(true);
+    };
+
+    const handleAdd = async (data: any, balance: number, date: string) => {
+        const result = await onAddSupplier(data, balance, date);
+        if (result && result.supplier) {
+            setSelectedSupplierId(result.supplier.id);
+        }
+        return result;
+    };
+
+    const handleUpdate = async (supplier: Supplier) => {
+        const result = await onUpdateSupplier(supplier);
+        if (result && result.supplier) {
+            setSelectedSupplierId(result.supplier.id);
+        }
+        return result;
     };
 
     const selectedSupplierExtra = selectedSupplier as (Supplier & Record<string, any>) | null;
@@ -119,7 +140,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                     </div>
                     <div className="flex-1 overflow-y-auto divide-y divide-gray-200">
                         {filteredSuppliers.map(s => (
-                            <button key={s.id} type="button" onClick={() => setSelectedSupplier(s)} className={`w-full text-left p-3 transition-all border-l-[6px] ${selectedSupplier?.id === s.id ? 'bg-accent text-black border-primary' : 'border-transparent hover:bg-gray-100'}`}>
+                            <button key={s.id} type="button" onClick={() => setSelectedSupplierId(s.id)} className={`w-full text-left p-3 transition-all border-l-[6px] ${selectedSupplierId === s.id ? 'bg-accent text-black border-primary' : 'border-transparent hover:bg-gray-100'}`}>
                                 <p className={`${uniformTextStyle} !text-xl truncate`}>{s.name}</p>
                                 <p className="text-xs font-bold uppercase text-gray-500 truncate">GST: {s.gst_number || 'N/A'}</p>
                             </button>
@@ -225,7 +246,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                 <AddSupplierModal
                     isOpen={isAddModalOpen}
                     onClose={() => setIsAddModalOpen(false)}
-                    onAdd={onAddSupplier}
+                    onAdd={handleAdd}
                     onDuplicate={handleDuplicateSupplier}
                     defaultControlGlId={defaultSupplierControlGlId}
                     organizationId={currentUser?.organization_id || ''}
@@ -236,7 +257,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                 <EditSupplierModal
                     isOpen={isEditModalOpen}
                     onClose={() => setIsEditModalOpen(false)}
-                    onSave={onUpdateSupplier}
+                    onSave={handleUpdate}
                     supplier={selectedSupplier}
                     defaultControlGlId={defaultSupplierControlGlId}
                 />

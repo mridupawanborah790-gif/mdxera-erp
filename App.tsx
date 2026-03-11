@@ -800,16 +800,22 @@ const App: React.FC = () => {
                 defaultControlGlId: mappedControlGlId,
             });
 
-            if (result.status !== 'duplicate' && balance !== 0) {
-                await storage.addLedgerEntry({
-                    id: storage.generateUUID(),
-                    date,
-                    type: 'openingBalance',
-                    description: 'Opening Balance',
-                    debit: balance < 0 ? Math.abs(balance) : 0,
-                    credit: balance > 0 ? balance : 0,
-                    balance: 0,
-                }, { type: 'supplier', id: result.supplier.id }, currentUser);
+            if (result.status !== 'duplicate') {
+                const savedSupplier = result.supplier;
+                if (balance !== 0) {
+                    await storage.addLedgerEntry({
+                        id: storage.generateUUID(),
+                        date,
+                        type: 'openingBalance',
+                        description: 'Opening Balance',
+                        debit: balance < 0 ? Math.abs(balance) : 0,
+                        credit: balance > 0 ? balance : 0,
+                        balance: 0,
+                    }, { type: 'supplier', id: savedSupplier.id }, currentUser);
+                }
+                
+                // Immediate local state update
+                setSuppliers(prev => [savedSupplier, ...prev]);
             }
 
             await loadData(currentUser, 'background');
@@ -867,10 +873,20 @@ const App: React.FC = () => {
                 existingSuppliers: suppliers,
                 defaultControlGlId: mappedControlGlId,
             });
+
+            if (result.status !== 'duplicate') {
+                const savedSupplier = result.supplier;
+                // Immediate local state update
+                setSuppliers(prev => prev.map(s => s.id === savedSupplier.id ? savedSupplier : s));
+            }
+
             await loadData(currentUser, 'background');
             addNotification(result.message, result.status === 'duplicate' ? 'warning' : 'success');
+            return result;
         } catch (e) {
-            addNotification(formatSupplierApiError(e), 'error');
+            const message = formatSupplierApiError(e);
+            addNotification(message, 'error');
+            throw new Error(message);
         }
     };
 

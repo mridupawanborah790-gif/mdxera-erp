@@ -110,14 +110,15 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
     return payload;
 };
 
-const toCamel = (obj: any): any => {
+export const toCamel = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
     if (Array.isArray(obj)) return obj.map(toCamel);
     return Object.keys(obj).reduce((acc, key) => {
         const preservedKeys = [
             'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 
             'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
-            'full_name', 'pharmacy_name', 'manager_name', 'address_line2', 
+            'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
+            'contact_person', 'opening_balance', 'supplier_group', 'control_gl_id',
             'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 
             'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
             'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 
@@ -140,7 +141,7 @@ const toCamel = (obj: any): any => {
     }, {} as any);
 };
 
-const toSnake = (obj: any): any => {
+export const toSnake = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
     if (Array.isArray(obj)) return obj.map(toSnake);
     return Object.keys(obj).reduce((acc, key) => {
@@ -148,7 +149,8 @@ const toSnake = (obj: any): any => {
         const preservedKeys = [
             'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 
             'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
-            'full_name', 'pharmacy_name', 'manager_name', 'address_line2', 
+            'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
+            'contact_person', 'opening_balance', 'supplier_group', 'control_gl_id',
             'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 
             'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
             'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 
