@@ -15,7 +15,7 @@ import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, Regi
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
-import { calculateBillingTotals, calculateLineNetAmount, resolveBillingSettings } from '../utils/billing';
+import { calculateBillingTotals, resolveBillingSettings } from '../utils/billing';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
@@ -114,34 +114,53 @@ const createBlankItem = (): BillItem => ({
     itemFlatDiscount: 0,
 });
 
-const calculateSchemeAdjustedRate = (item: BillItem): number => {
-    const baseRate = Number(item.schemeBaseRate ?? item.rate ?? item.mrp ?? 0);
-    if (baseRate <= 0) return 0;
+const getBilledQuantity = (item: BillItem): number => {
+    const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
+    return Math.max(0, (item.quantity || 0) + ((item.looseQuantity || 0) / (unitsPerPack || 1)));
+};
 
-    const packQty = Math.max(0, Number(item.quantity || 0));
-    const mode = item.schemeMode;
+const recalculateSchemeFields = (item: BillItem): BillItem => {
+    if (!item.schemeMode) return item;
 
-    if (!mode || packQty <= 0) return parseFloat(baseRate.toFixed(2));
+    const billedQty = getBilledQuantity(item);
+    const baseRate = Number(item.rate || item.mrp || 0);
+    const tradeDiscountPercent = Number(item.discountPercent || 0);
+    const netRate = baseRate * (1 - tradeDiscountPercent / 100);
+    const appliedQty = Math.max(0, Number(item.schemeQty || 0));
+    const schemeValue = Math.max(0, Number(item.schemeValue || 0));
+    const schemeTotalQty = Math.max(0, Number(item.schemeTotalQty || 0));
 
-    if (mode === 'percent') {
-        const percent = Math.max(0, Math.min(100, Number(item.schemeValue || 0)));
-        return parseFloat((baseRate * (1 - (percent / 100))).toFixed(2));
+    let freeQuantity = 0;
+    let calculatedTotalDiscount = 0;
+
+    if (item.schemeMode === 'free_qty') {
+        freeQuantity = Math.min(appliedQty, billedQty);
+        calculatedTotalDiscount = freeQuantity * netRate;
+    } else if (item.schemeMode === 'qty_ratio' && schemeTotalQty > 0) {
+        const applications = Math.floor(billedQty / schemeTotalQty);
+        freeQuantity = applications * appliedQty;
+        calculatedTotalDiscount = freeQuantity * netRate;
+    } else if (item.schemeMode === 'flat') {
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * schemeValue;
+        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+    } else if (item.schemeMode === 'percent') {
+        calculatedTotalDiscount = Math.min(appliedQty || billedQty, billedQty) * (netRate * (schemeValue / 100));
+        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+    } else if (item.schemeMode === 'price_override') {
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * Math.max(0, netRate - schemeValue);
+        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
     }
 
-    if (mode === 'qty_ratio') {
-        const freeQty = Math.max(0, Number(item.schemeQty || 0));
-        const totalQty = Math.max(0, Number(item.schemeTotalQty || 0));
-        const paidQty = totalQty - freeQty;
+    const discountedSubtotal = billedQty * netRate;
+    const schemeDiscountAmount = Math.max(0, Math.min(calculatedTotalDiscount, discountedSubtotal));
+    const schemeDiscountPercent = discountedSubtotal > 0 ? (schemeDiscountAmount / discountedSubtotal) * 100 : 0;
 
-        if (freeQty > 0 && paidQty > 0) {
-            const earnedFreeQty = Math.floor(packQty / paidQty) * freeQty;
-            const schemeBenefit = earnedFreeQty * baseRate;
-            const effectiveRate = (packQty * baseRate - schemeBenefit) / packQty;
-            return parseFloat(Math.max(0, effectiveRate).toFixed(2));
-        }
-    }
-
-    return parseFloat(baseRate.toFixed(2));
+    return {
+        ...item,
+        freeQuantity,
+        schemeDiscountAmount,
+        schemeDiscountPercent,
+    };
 };
 
 const calculateEffectiveRateFromScheme = (originalRate: number, schemeRule: string): number | null => {
@@ -1043,16 +1062,13 @@ const POS = forwardRef<any, POSProps>(({
                     updated.rate = calculateRateExcludingGst(updated.mrp, updated.gstPercent);
                 }
 
-                if (updated.schemeMode && ['quantity', 'looseQuantity', 'schemeMode', 'schemeQty', 'schemeTotalQty', 'schemeValue'].includes(field as string)) {
-                    updated.rate = calculateSchemeAdjustedRate(updated);
+                if (updated.schemeMode && ['quantity', 'looseQuantity', 'discountPercent', 'rate', 'mrp', 'schemeMode', 'schemeQty', 'schemeTotalQty', 'schemeValue'].includes(field as string)) {
+                    return recalculateSchemeFields(updated);
                 }
 
                 if (field === 'looseQuantity' || field === 'packType' || field === 'unitsPerPack') {
                     const normalized = normalizePackConversion(updated);
-                    if (normalized.schemeMode) {
-                        normalized.rate = calculateSchemeAdjustedRate(normalized);
-                    }
-                    return normalized;
+                    return normalized.schemeMode ? recalculateSchemeFields(normalized) : normalized;
                 }
                 return updated;
             }
@@ -1080,24 +1096,20 @@ const POS = forwardRef<any, POSProps>(({
     //     }
     // }, [addNotification, isValidExpiry]);
 
-    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, schemeTotalQty?: number) => {
+    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
-                const baseRate = Number(item.schemeBaseRate ?? item.rate ?? item.mrp ?? 0);
                 const updatedItem: BillItem = {
                     ...item,
                     schemeQty,
                     schemeMode: mode,
                     schemeValue: value,
-                    schemeDiscountAmount: 0,
-                    schemeDiscountPercent: 0,
+                    freeQuantity,
+                    schemeDiscountAmount: discountAmount,
+                    schemeDiscountPercent: discountPercent,
                     schemeTotalQty,
-                    schemeBaseRate: baseRate,
                 };
-                return {
-                    ...updatedItem,
-                    rate: calculateSchemeAdjustedRate(updatedItem),
-                };
+                return recalculateSchemeFields(updatedItem);
             }
             return item;
         }));
@@ -1109,10 +1121,7 @@ const POS = forwardRef<any, POSProps>(({
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
                 const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeTotalQty, schemeBaseRate, ...rest } = item;
-                return {
-                    ...rest,
-                    rate: Number(schemeBaseRate ?? item.rate ?? item.mrp ?? 0)
-                };
+                return { ...rest };
             }
             return item;
         }));
@@ -1468,7 +1477,7 @@ const POS = forwardRef<any, POSProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
-                                    const lineAmount = calculateLineNetAmount(item, configurations);
+                                    const lineAmount = getBilledQuantity(item) * Number(item.rate || 0);
 
                                     return (
                                         <tr 
@@ -1682,7 +1691,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         className={`px-2 py-0.5 text-[10px] font-normal uppercase rounded border border-dashed transition-all ${item.schemeMode ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-gray-50 text-gray-400 border-gray-300 hover:text-primary hover:border-primary'}`}
                                                         disabled={isReadOnly}
                                                     >
-                                                        {(item.schemeDiscountPercent || item.schemeDiscountAmount) ? `${(item.schemeDiscountPercent || 0).toFixed(1)}%` : 'Apply'}
+                                                        {(item.schemeDiscountPercent || 0).toFixed(1)}%
                                                     </button>
                                                 </td>
                                             )}
