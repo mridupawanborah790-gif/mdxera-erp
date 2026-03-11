@@ -114,6 +114,36 @@ const createBlankItem = (): BillItem => ({
     itemFlatDiscount: 0,
 });
 
+const calculateSchemeAdjustedRate = (item: BillItem): number => {
+    const baseRate = Number(item.schemeBaseRate ?? item.rate ?? item.mrp ?? 0);
+    if (baseRate <= 0) return 0;
+
+    const packQty = Math.max(0, Number(item.quantity || 0));
+    const mode = item.schemeMode;
+
+    if (!mode || packQty <= 0) return parseFloat(baseRate.toFixed(2));
+
+    if (mode === 'percent') {
+        const percent = Math.max(0, Math.min(100, Number(item.schemeValue || 0)));
+        return parseFloat((baseRate * (1 - (percent / 100))).toFixed(2));
+    }
+
+    if (mode === 'qty_ratio') {
+        const freeQty = Math.max(0, Number(item.schemeQty || 0));
+        const totalQty = Math.max(0, Number(item.schemeTotalQty || 0));
+        const paidQty = totalQty - freeQty;
+
+        if (freeQty > 0 && paidQty > 0) {
+            const earnedFreeQty = Math.floor(packQty / paidQty) * freeQty;
+            const schemeBenefit = earnedFreeQty * baseRate;
+            const effectiveRate = (packQty * baseRate - schemeBenefit) / packQty;
+            return parseFloat(Math.max(0, effectiveRate).toFixed(2));
+        }
+    }
+
+    return parseFloat(baseRate.toFixed(2));
+};
+
 const calculateEffectiveRateFromScheme = (originalRate: number, schemeRule: string): number | null => {
     const safeRate = Number(originalRate);
     if (!safeRate || safeRate <= 0) return null;
@@ -1002,6 +1032,7 @@ const POS = forwardRef<any, POSProps>(({
                     if (!isValidRateInput(rateText)) return item;
                     const parsedRate = rateText === '' ? 0 : (parseFloat(rateText) || 0);
                     updated.rate = Math.min(parsedRate, 999999.99);
+                    updated.schemeBaseRate = undefined;
                     return updated;
                 }
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
@@ -1012,8 +1043,16 @@ const POS = forwardRef<any, POSProps>(({
                     updated.rate = calculateRateExcludingGst(updated.mrp, updated.gstPercent);
                 }
 
+                if (updated.schemeMode && ['quantity', 'looseQuantity', 'schemeMode', 'schemeQty', 'schemeTotalQty', 'schemeValue'].includes(field as string)) {
+                    updated.rate = calculateSchemeAdjustedRate(updated);
+                }
+
                 if (field === 'looseQuantity' || field === 'packType' || field === 'unitsPerPack') {
-                    return normalizePackConversion(updated);
+                    const normalized = normalizePackConversion(updated);
+                    if (normalized.schemeMode) {
+                        normalized.rate = calculateSchemeAdjustedRate(normalized);
+                    }
+                    return normalized;
                 }
                 return updated;
             }
@@ -1044,14 +1083,20 @@ const POS = forwardRef<any, POSProps>(({
     const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, schemeTotalQty?: number) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
-                return {
+                const baseRate = Number(item.schemeBaseRate ?? item.rate ?? item.mrp ?? 0);
+                const updatedItem: BillItem = {
                     ...item,
                     schemeQty,
                     schemeMode: mode,
                     schemeValue: value,
-                    schemeDiscountAmount: discountAmount,
-                    schemeDiscountPercent: discountPercent,
-                    schemeTotalQty
+                    schemeDiscountAmount: 0,
+                    schemeDiscountPercent: 0,
+                    schemeTotalQty,
+                    schemeBaseRate: baseRate,
+                };
+                return {
+                    ...updatedItem,
+                    rate: calculateSchemeAdjustedRate(updatedItem),
                 };
             }
             return item;
@@ -1063,8 +1108,11 @@ const POS = forwardRef<any, POSProps>(({
     const handleClearScheme = useCallback((itemId: string) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
-                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeTotalQty, ...rest } = item;
-                return rest;
+                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeTotalQty, schemeBaseRate, ...rest } = item;
+                return {
+                    ...rest,
+                    rate: Number(schemeBaseRate ?? item.rate ?? item.mrp ?? 0)
+                };
             }
             return item;
         }));
