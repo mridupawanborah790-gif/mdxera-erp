@@ -293,15 +293,15 @@ const Inventory: React.FC<InventoryProps> = ({
                     </div>
 
                     <div className="flex-1 overflow-auto bg-white">
-                        <table className="min-w-full border-collapse">
+                        <table className="min-w-full border-collapse whitespace-nowrap">
                             <thead className="bg-[#e1e1e1] sticky top-0 z-10">
                                 <tr className={`${uniformTextStyle} text-gray-700 border-b border-gray-400`}>
                                     <th className="py-1.5 px-2 border-r border-gray-400 w-10 text-center">#</th>
-                                    {isFieldVisible('colName') && <th className="py-1.5 px-2 border-r border-gray-400 text-left min-w-[200px]">Item Name</th>}
-                                    {isFieldVisible('colCategory') && <th className="py-1.5 px-2 border-r border-gray-400 text-left w-24">Category</th>}
+                                    {isFieldVisible('colName') && <th className="py-1.5 px-2 border-r border-gray-400 text-left min-w-[360px]">Item Name</th>}
+                                    {isFieldVisible('colCategory') && <th className="py-1.5 px-2 border-r border-gray-400 text-left w-20">Category</th>}
                                     {isFieldVisible('colManufacturer') && <th className="py-1.5 px-2 border-r border-gray-400 text-left w-28">Manufacturer</th>}
-                                    {isFieldVisible('colHsn') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-16">HSN</th>}
-                                    {isFieldVisible('colBarcode') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-28">Barcode</th>}
+                                    {isFieldVisible('colHsn') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">HSN</th>}
+                                    {isFieldVisible('colBarcode') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-24">Barcode</th>}
                                     {isFieldVisible('colBatch') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-20">Batch</th>}
                                     {isFieldVisible('colStrips') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">Strips</th>}
                                     {isFieldVisible('colLoose') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">Loose</th>}
