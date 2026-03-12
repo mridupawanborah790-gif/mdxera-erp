@@ -267,8 +267,13 @@ const POS = forwardRef<any, POSProps>(({
 
     const normalizeExpiryInput = useCallback((value: string) => {
         const digits = value.replace(/\D/g, '').slice(0, 4);
-        if (digits.length <= 2) return digits;
-        return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+        if (digits.length <= 2) {
+            if (digits.length === 2 && parseInt(digits) > 12) return digits[0];
+            return digits;
+        }
+        const month = digits.slice(0, 2);
+        if (parseInt(month) > 12) return month[0];
+        return `${month}/${digits.slice(2)}`;
     }, []);
 
     const isValidRateInput = useCallback((value: string) => {
