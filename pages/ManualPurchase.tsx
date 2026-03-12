@@ -460,12 +460,12 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
           </table>
         </div>
 
-        <div className="bg-gray-100 border border-gray-300 px-3 py-2 text-xs font-bold flex flex-wrap gap-4 justify-end flex-shrink-0">
-          <div>Subtotal: <span className="text-gray-800">{metrics.subTotal.toFixed(2)}</span></div>
-          <div>Total Discount: <span className="text-gray-800">{metrics.totalDiscount.toFixed(2)}</span></div>
-          <div>Total GST: <span className="text-gray-800">{metrics.totalGst.toFixed(2)}</span></div>
-          <div>Round Off: <span className="text-gray-800">{metrics.roundOff.toFixed(2)}</span></div>
-          <div className="text-primary">Grand Total: {metrics.grandTotal.toFixed(2)}</div>
+        <div className="bg-gray-100 border border-gray-300 px-3 py-2 text-xs xl:text-sm font-bold flex flex-wrap gap-4 xl:gap-8 justify-end flex-shrink-0 uppercase">
+          <div>Subtotal: <span className="text-gray-800">₹{metrics.subTotal.toFixed(2)}</span></div>
+          <div>Total Discount: <span className="text-gray-800">₹{metrics.totalDiscount.toFixed(2)}</span></div>
+          <div>Total GST: <span className="text-gray-800">₹{metrics.totalGst.toFixed(2)}</span></div>
+          <div>Round Off: <span className="text-gray-800">₹{metrics.roundOff.toFixed(2)}</span></div>
+          <div className="text-primary text-sm xl:text-base font-black">Grand Total: ₹{metrics.grandTotal.toFixed(2)}</div>
         </div>
 
         <div className="flex gap-2 justify-end flex-shrink-0">

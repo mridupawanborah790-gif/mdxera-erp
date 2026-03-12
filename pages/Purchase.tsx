@@ -327,6 +327,31 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         };
     }, [activeRowId, items]);
 
+    const activeRowCalculations = useMemo(() => {
+        const p = items.find(item => item.id === activeRowId) || items.find(item => (item.name || '').trim() !== '');
+        if (!p || !(p.name || '').trim()) return null;
+
+        const gross = (p.purchasePrice || 0) * (p.quantity || 0);
+        const tradeDisc = gross * ((p.discountPercent || 0) / 100);
+        const afterTrade = gross - tradeDisc;
+        const schemeDiscPercentAmount = afterTrade * ((p.schemeDiscountPercent || 0) / 100);
+        const schemeDisc = p.schemeDiscountAmount > 0 ? p.schemeDiscountAmount : schemeDiscPercentAmount;
+        const taxable = afterTrade - schemeDisc;
+        const gst = taxable * ((p.gstPercent || 0) / 100);
+        const total = taxable + gst;
+
+        return {
+            grossAmount: gross,
+            taxableValue: taxable,
+            sgst: gst / 2,
+            cgst: gst / 2,
+            totalGst: gst,
+            discount: tradeDisc + schemeDisc,
+            netAmount: total,
+            gstPercent: p.gstPercent || 0
+        };
+    }, [activeRowId, items]);
+
     const vendorSnapshot = useMemo(() => {
         if (!currentDistributor) {
             return {
@@ -627,33 +652,38 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </Card>
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-2 flex-shrink-0">
-                    <div className="md:col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px] flex flex-col justify-center">
-                        <div className="text-[11px] font-bold uppercase space-y-1">
-                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Item :</span> <span className="text-primary truncate">{activeItemDetails.item}</span></div>
-                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Batch :</span> <span className="text-primary">{activeItemDetails.batch}</span></div>
-                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Expiry :</span> <span className="text-primary">{activeItemDetails.expiry}</span></div>
-                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Stock :</span> <span className="text-primary">{activeItemDetails.stock}</span></div>
-                            <div className="flex"><span className="w-16 text-gray-500">MRP :</span> <span className="text-primary">₹{activeItemDetails.mrp.toFixed(2)}</span></div>
+                    <div className="md:col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px] xl:min-h-[140px] flex flex-col justify-center">
+                        <div className="text-[11px] xl:text-[14px] font-bold uppercase space-y-1 xl:space-y-2">
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 xl:w-24 text-gray-500">Item :</span> <span className="text-primary truncate">{activeItemDetails.item}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 xl:w-24 text-gray-500">Batch :</span> <span className="text-primary">{activeItemDetails.batch}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 xl:w-24 text-gray-500">Expiry :</span> <span className="text-primary">{activeItemDetails.expiry}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 xl:w-24 text-gray-500">Stock :</span> <span className="text-primary">{activeItemDetails.stock}</span></div>
+                            <div className="flex"><span className="w-16 xl:w-24 text-gray-500">MRP :</span> <span className="text-primary">₹{activeItemDetails.mrp.toFixed(2)}</span></div>
                         </div>
                     </div>
 
-                    <div className="md:col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px]">
-                        <div className="space-y-1 text-[11px] font-bold uppercase">
-                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>MRP Value</span><span>₹{calculatedTotals.grossAmount.toFixed(2)}</span></div>
-                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Value of Goods</span><span>₹{calculatedTotals.subtotal.toFixed(2)}</span></div>
-                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span className="text-[9px]">SGST / CGST</span><span>₹{(calculatedTotals.totalGst / 2).toFixed(2)} x 2</span></div>
-                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Discount</span><span className="text-red-600">- ₹{(calculatedTotals.totalItemDiscount + calculatedTotals.totalItemSchemeDiscount + calculatedTotals.billDiscount).toFixed(2)}</span></div>
-                            <div className="flex justify-between font-black text-blue-900 pt-1"><span>Total Payable</span><span>₹{calculatedTotals.grandTotal.toFixed(2)}</span></div>
+                    <div className="md:col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px] xl:min-h-[140px]">
+                        <div className="text-[10px] xl:text-[12px] font-black uppercase text-gray-500 mb-1 border-b border-gray-200 pb-1">Line Item Details</div>
+                        <div className="grid grid-cols-1 xl:grid-cols-2 xl:gap-x-8 xl:gap-y-2 text-[11px] xl:text-[14px] font-bold uppercase">
+                            <div className="space-y-1">
+                                <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>MRP Value</span><span>₹{calculatedTotals.grossAmount.toFixed(2)}</span></div>
+                                <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Value of Goods</span><span>₹{calculatedTotals.subtotal.toFixed(2)}</span></div>
+                                <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Discount</span><span className="text-red-600">- ₹{(calculatedTotals.totalItemDiscount + calculatedTotals.totalItemSchemeDiscount + calculatedTotals.billDiscount).toFixed(2)}</span></div>
+                            </div>
+                            <div className="space-y-1">
+                                <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>SGST / CGST</span><span>₹{(calculatedTotals.totalGst / 2).toFixed(2)} x 2</span></div>
+                                <div className="flex justify-between font-black text-blue-900 pt-1"><span>Total Payable</span><span>₹{calculatedTotals.grandTotal.toFixed(2)}</span></div>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="md:col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm min-h-[100px]">
-                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1 border-b border-gray-200 pb-1 flex justify-between"><span>Vendor Info</span> <span className="text-[8px] text-primary bg-primary/10 px-1">ACTIVE</span></div>
-                        <div className="text-[11px] font-bold uppercase space-y-0.5">
+                    <div className="md:col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm min-h-[100px] xl:min-h-[140px]">
+                        <div className="text-[10px] xl:text-[12px] font-black uppercase text-gray-500 mb-1 border-b border-gray-200 pb-1 flex justify-between"><span>Vendor Info</span> <span className="text-[8px] xl:text-[10px] text-primary bg-primary/10 px-1">ACTIVE</span></div>
+                        <div className="text-[11px] xl:text-[14px] font-bold uppercase space-y-0.5 xl:space-y-1">
                             <div className="truncate">Area: <span className="text-gray-600">{vendorSnapshot.area}</span></div>
                             <div className="truncate">Route: <span className="text-gray-600">{vendorSnapshot.route}</span></div>
                             <div className="truncate">Terms: <span className="text-gray-600">{vendorSnapshot.collectionDays}</span></div>
-                            <div className="text-[9px] mt-1 text-gray-400">Avg Pay: {vendorSnapshot.avgPayDays}</div>
+                            <div className="text-[9px] xl:text-[11px] mt-1 text-gray-400">Avg Pay: {vendorSnapshot.avgPayDays}</div>
                         </div>
                     </div>
                 </div>
