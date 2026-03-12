@@ -1732,64 +1732,72 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             </div>
             <div className="p-2 flex-1 flex flex-col gap-2 overflow-hidden">
                 <div className="sticky top-0 z-30 p-2 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-12 gap-2 items-end flex-shrink-0 min-h-[84px]">
-                    <div className="md:col-span-2">
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Date</label>
-                        <input
-                            ref={dateInputRef}
-                            type="date"
-                            value={date}
-                            onChange={(e) => setDate(e.target.value)}
-                            className="w-full border border-gray-400 p-2 text-sm font-bold outline-none"
-                        />
-                    </div>
-                    <div className="md:col-span-2">
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Invoice #</label>
-                        <input
-                            ref={invoiceNumberInputRef}
-                            type="text"
-                            value={invoiceNumber}
-                            onChange={(e) => { setInvoiceNumber(e.target.value); setInvoiceNumberError(null); }}
-                            className={`w-full border p-2 text-sm font-bold uppercase outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
-                            placeholder="Supplier Inv #..."
-                        />
-                    </div>
-                    <div className="md:col-span-6 relative">
-                        <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Particulars (Supplier Name)</label>
-                        <input
-                            ref={supplierNameInputRef}
-                            type="text"
-                            value={supplier}
-                            autoComplete="off"
-                            onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
-                            onKeyDown={handleSupplierKeyDown}
-                            className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
-                            placeholder="Enter for selection, Esc to skip..."
-                        />
-                        {isSupplierDropdownOpen && supplier.length > 0 && (
-                            <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
-                                {suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10).map((d, sIdx) => (
-                                    <div
-                                        key={d.id}
-                                        onClick={() => handleSupplierSelect(d)}
-                                        onMouseEnter={() => setSelectedSupplierIndex(sIdx)}
-                                        className={`p-3 cursor-pointer flex justify-between items-center border-b border-gray-100 ${sIdx === selectedSupplierIndex ? 'bg-primary text-white' : 'hover:bg-gray-50'}`}
-                                    >
-                                        <span className="text-xs font-bold uppercase">{d.name}</span>
-                                        <span className={`text-[9px] font-black ${sIdx === selectedSupplierIndex ? 'text-white' : 'text-primary opacity-50'}`}>Balance: ₹{(getOutstandingBalance(d) || 0).toFixed(2)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    <div className="md:col-span-2">
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Phone</label>
-                        <input
-                            type="text"
-                            value={supplierPhoneDisplay}
-                            readOnly
-                            className="w-full border p-2 text-sm font-bold outline-none border-gray-400 bg-gray-50 truncate"
-                        />
-                    </div>
+                    {isFieldVisible('fieldDate') && (
+                        <div className="md:col-span-2">
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Date</label>
+                            <input
+                                ref={dateInputRef}
+                                type="date"
+                                value={date}
+                                onChange={(e) => setDate(e.target.value)}
+                                className="w-full border border-gray-400 p-2 text-sm font-bold outline-none"
+                            />
+                        </div>
+                    )}
+                    {isFieldVisible('fieldInvoiceNo') && (
+                        <div className="md:col-span-2">
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Invoice #</label>
+                            <input
+                                ref={invoiceNumberInputRef}
+                                type="text"
+                                value={invoiceNumber}
+                                onChange={(e) => { setInvoiceNumber(e.target.value); setInvoiceNumberError(null); }}
+                                className={`w-full border p-2 text-sm font-bold uppercase outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
+                                placeholder="Supplier Inv #..."
+                            />
+                        </div>
+                    )}
+                    {isFieldVisible('fieldSupplier') && (
+                        <div className="md:col-span-6 relative">
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Particulars (Supplier Name)</label>
+                            <input
+                                ref={supplierNameInputRef}
+                                type="text"
+                                value={supplier}
+                                autoComplete="off"
+                                onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
+                                onKeyDown={handleSupplierKeyDown}
+                                className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
+                                placeholder="Enter for selection, Esc to skip..."
+                            />
+                            {isSupplierDropdownOpen && supplier.length > 0 && (
+                                <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
+                                    {suppliers.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10).map((d, sIdx) => (
+                                        <div
+                                            key={d.id}
+                                            onClick={() => handleSupplierSelect(d)}
+                                            onMouseEnter={() => setSelectedSupplierIndex(sIdx)}
+                                            className={`p-3 cursor-pointer flex justify-between items-center border-b border-gray-100 ${sIdx === selectedSupplierIndex ? 'bg-primary text-white' : 'hover:bg-gray-50'}`}
+                                        >
+                                            <span className="text-xs font-bold uppercase">{d.name}</span>
+                                            <span className={`text-[9px] font-black ${sIdx === selectedSupplierIndex ? 'text-white' : 'text-primary opacity-50'}`}>Balance: ₹{(getOutstandingBalance(d) || 0).toFixed(2)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {isFieldVisible('fieldSupplier') && (
+                        <div className="md:col-span-2">
+                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Phone</label>
+                            <input
+                                type="text"
+                                value={supplierPhoneDisplay}
+                                readOnly
+                                className="w-full border p-2 text-sm font-bold outline-none border-gray-400 bg-gray-50 truncate"
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {!isEditing && !disableAIInput && !isManualEntry && (
@@ -1843,19 +1851,19 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                             <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400 z-10">
                                 <tr className="text-[10px] font-black uppercase text-gray-600 h-9">
                                     <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
-                                    <th className="p-2 border-r border-gray-400 text-left w-72">Name of Item</th>
-                                    <th className="p-2 border-r border-gray-400 text-left w-24">MFR</th>
+                                    {isFieldVisible('colName') && <th className="p-2 border-r border-gray-400 text-left w-72">Name of Item</th>}
+                                    {isFieldVisible('colBrand') && <th className="p-2 border-r border-gray-400 text-left w-24">MFR</th>}
                                     {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
-                                    <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>
-                                    <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>
+                                    {isFieldVisible('colBatch') && <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>}
+                                    {isFieldVisible('colExpiry') && <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>}
+                                    {isFieldVisible('colMrp') && <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>}
+                                    {isFieldVisible('colQty') && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
+                                    {isFieldVisible('colQty') && <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>}
                                     {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">FREE</th>}
-                                    <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>
-                                    <th className="p-2 text-right w-32">Amount</th>
+                                    {isFieldVisible('colPurRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
+                                    {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
+                                    {isFieldVisible('colGst') && <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>}
+                                    {isFieldVisible('colAmount') && <th className="p-2 text-right w-32">Amount</th>}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
@@ -1868,38 +1876,42 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             className={`hover:bg-gray-50 group h-10 cursor-pointer transition-colors ${isActive ? 'bg-blue-700 text-white shadow-md' : ''}`}
                                         >
                                             <td className={`p-1 border-r border-gray-200 text-center ${isActive ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
-                                            <td className={`p-1 border-r border-gray-200 uppercase relative min-w-[200px] ${uniformTextStyle} ${isActive ? 'text-white' : 'text-primary'}`}>
-                                                <input
-                                                    type="text"
-                                                    id={`name-${p.id}`}
-                                                    value={p.name}
-                                                    autoComplete="off"
-                                                    onChange={e => {
-                                                        const val = e.target.value;
-                                                        handleUpdateItem(p.id, 'name', val);
-                                                        openSearchModal(p.id, val);
-                                                    }}
-                                                    onFocus={() => {
-                                                        setActiveRowId(p.id);
-                                                        openSearchModal(p.id, p.name);
-                                                    }}
-                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'name')}
-                                                    className={`w-full bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
-                                            <td className={`p-1 border-r border-gray-400 ${uniformTextStyle}`}>
-                                                <input
-                                                    type="text"
-                                                    id={`mfr-${p.id}`}
-                                                    value={p.brand}
-                                                    onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)}
-                                                    onFocus={() => setActiveRowId(p.id)}
-                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'mfr')}
-                                                    className={`w-full bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
+                                            {isFieldVisible('colName') && (
+                                                <td className={`p-1 border-r border-gray-200 uppercase relative min-w-[200px] ${uniformTextStyle} ${isActive ? 'text-white' : 'text-primary'}`}>
+                                                    <input
+                                                        type="text"
+                                                        id={`name-${p.id}`}
+                                                        value={p.name}
+                                                        autoComplete="off"
+                                                        onChange={e => {
+                                                            const val = e.target.value;
+                                                            handleUpdateItem(p.id, 'name', val);
+                                                            openSearchModal(p.id, val);
+                                                        }}
+                                                        onFocus={() => {
+                                                            setActiveRowId(p.id);
+                                                            openSearchModal(p.id, p.name);
+                                                        }}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'name')}
+                                                        className={`w-full bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colBrand') && (
+                                                <td className={`p-1 border-r border-gray-400 ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="text"
+                                                        id={`mfr-${p.id}`}
+                                                        value={p.brand}
+                                                        onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'mfr')}
+                                                        className={`w-full bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
                                             {isFieldVisible('colPack') && (
                                                 <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}>
                                                     <input
@@ -1914,70 +1926,80 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                     />
                                                 </td>
                                             )}
-                                            <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}>
-                                                <input
-                                                    type="text"
-                                                    id={`batch-${p.id}`}
-                                                    value={p.batch}
-                                                    onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())}
-                                                    onFocus={() => setActiveRowId(p.id)}
-                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'batch')}
-                                                    className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
-                                            <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}>
-                                                <input
-                                                    type="text"
-                                                    id={`expiry-${p.id}`}
-                                                    value={p.expiry}
-                                                    onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)}
-                                                    onFocus={() => setActiveRowId(p.id)}
-                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'expiry')}
-                                                    placeholder="MM/YY"
-                                                    inputMode="numeric"
-                                                    maxLength={5}
-                                                    pattern="(0[1-9]|1[0-2])/[0-9]{2}"
-                                                    className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
-                                            <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}>
-                                                <input
-                                                    type="number"
-                                                    id={`mrp-${p.id}`}
-                                                    value={p.mrp || ''}
-                                                    onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)}
-                                                    onFocus={() => setActiveRowId(p.id)}
-                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'mrp')}
-                                                    className={`w-full text-right bg-transparent outline-none no-spinner focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
-                                            <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}>
-                                                <input
-                                                    type="number"
-                                                    id={`qty-${p.id}`}
-                                                    value={p.quantity || ''}
-                                                    onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)}
-                                                    onFocus={() => setActiveRowId(p.id)}
-                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'qty')}
-                                                    className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
-                                            <td className={`p-1 border-r border-gray-400 text-center ${isActive ? 'text-white/80' : 'text-gray-500'} ${uniformTextStyle}`}>
-                                                <input
-                                                    type="number"
-                                                    id={`lqty-${p.id}`}
-                                                    value={p.looseQuantity || ''}
-                                                    onChange={e => handleUpdateItem(p.id, 'looseQuantity', e.target.value)}
-                                                    onFocus={() => setActiveRowId(p.id)}
-                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'lqty')}
-                                                    className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
+                                            {isFieldVisible('colBatch') && (
+                                                <td className={`p-1 border-r border-gray-200 text-center font-mono uppercase ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="text"
+                                                        id={`batch-${p.id}`}
+                                                        value={p.batch}
+                                                        onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'batch')}
+                                                        className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colExpiry') && (
+                                                <td className={`p-1 border-r border-gray-200 text-center ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="text"
+                                                        id={`expiry-${p.id}`}
+                                                        value={p.expiry}
+                                                        onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'expiry')}
+                                                        placeholder="MM/YY"
+                                                        inputMode="numeric"
+                                                        maxLength={5}
+                                                        pattern="(0[1-9]|1[0-2])/[0-9]{2}"
+                                                        className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colMrp') && (
+                                                <td className={`p-1 border-r border-gray-400 text-right font-mono whitespace-nowrap ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="number"
+                                                        id={`mrp-${p.id}`}
+                                                        value={p.mrp || ''}
+                                                        onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'mrp')}
+                                                        className={`w-full text-right bg-transparent outline-none no-spinner focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colQty') && (
+                                                <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="number"
+                                                        id={`qty-${p.id}`}
+                                                        value={p.quantity || ''}
+                                                        onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'qty')}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colQty') && (
+                                                <td className={`p-1 border-r border-gray-400 text-center ${isActive ? 'text-white/80' : 'text-gray-500'} ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="number"
+                                                        id={`lqty-${p.id}`}
+                                                        value={p.looseQuantity || ''}
+                                                        onChange={e => handleUpdateItem(p.id, 'looseQuantity', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'lqty')}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
                                             {isFieldVisible('colFree') && (
                                                 <td className={`p-1 border-r border-gray-400 text-center font-bold ${isActive ? 'text-emerald-300' : 'text-emerald-600'} ${uniformTextStyle}`}>
                                                     <input
@@ -1992,46 +2014,52 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                     />
                                                 </td>
                                             )}
-                                            <td className={`p-1 border-r border-gray-400 text-right font-bold ${isActive ? 'text-white' : 'text-blue-900'} ${uniformTextStyle}`}>
-                                                <input
-                                                    type="number"
-                                                    id={`rate-${p.id}`}
-                                                    value={p.purchasePrice || ''}
-                                                    onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)}
-                                                    onFocus={() => setActiveRowId(p.id)}
-                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'rate')}
-                                                    className={`w-full text-right bg-transparent outline-none no-spinner font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
-                                            <td className={`p-1 border-r border-gray-200 text-center ${isActive ? 'text-red-300' : 'text-red-600'} ${uniformTextStyle}`}>
-                                                <input
-                                                    type="number"
-                                                    id={`disc-${p.id}`}
-                                                    value={p.discountPercent || ''}
-                                                    onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)}
-                                                    onFocus={() => setActiveRowId(p.id)}
-                                                    onKeyDown={(e) => handleGridKeyDown(e, p.id, 'disc')}
-                                                    className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
-                                            <td className={`p-1 border-r border-gray-400 text-center ${isActive ? 'text-red-300' : 'text-red-600'} ${uniformTextStyle}`}>
-                                                <input
-                                                    type="number"
-                                                    id={`sch-${p.id}`}
-                                                    value={p.gstPercent || ''}
-                                                    onChange={e => handleUpdateItem(p.id, 'gstPercent', e.target.value)}
-                                                    onFocus={() => setActiveRowId(p.id)}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter') handleRateTierLastFieldEnter(e, p.id);
-                                                        else handleGridKeyDown(e, p.id, 'sch');
-                                                    }}
-                                                    className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
-                                                    disabled={isReadOnly || !supplier.trim()}
-                                                />
-                                            </td>
-                                            <td className={`p-1 text-right font-black font-mono whitespace-nowrap ${isActive ? 'text-white' : 'text-gray-950'} ${uniformTextStyle}`}>₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.discountPercent || 0) / 100) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>
+                                            {isFieldVisible('colPurRate') && (
+                                                <td className={`p-1 border-r border-gray-400 text-right font-bold ${isActive ? 'text-white' : 'text-blue-900'} ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="number"
+                                                        id={`rate-${p.id}`}
+                                                        value={p.purchasePrice || ''}
+                                                        onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'rate')}
+                                                        className={`w-full text-right bg-transparent outline-none no-spinner font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colDisc') && (
+                                                <td className={`p-1 border-r border-gray-200 text-center ${isActive ? 'text-red-300' : 'text-red-600'} ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="number"
+                                                        id={`disc-${p.id}`}
+                                                        value={p.discountPercent || ''}
+                                                        onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'disc')}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colSch') && (
+                                                <td className={`p-1 border-r border-gray-400 text-center ${isActive ? 'text-red-300' : 'text-red-600'} ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="number"
+                                                        id={`sch-${p.id}`}
+                                                        value={p.gstPercent || ''}
+                                                        onChange={e => handleUpdateItem(p.id, 'gstPercent', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') handleRateTierLastFieldEnter(e, p.id);
+                                                            else handleGridKeyDown(e, p.id, 'sch');
+                                                        }}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colAmount') && <td className={`p-1 text-right font-black font-mono whitespace-nowrap ${isActive ? 'text-white' : 'text-gray-950'} ${uniformTextStyle}`}>₹{((p.purchasePrice || 0) * (p.quantity || 0) * (1 - (p.discountPercent || 0) / 100) * (1 - (p.schemeDiscountPercent || 0) / 100)).toFixed(2)}</td>}
                                         </tr>
                                     );
                                 })}
@@ -2110,18 +2138,46 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         
                         <div className="ml-auto flex items-center gap-6 pr-2">
                             <div className="flex gap-4 border-r border-white/20 pr-6">
-                                <div className="text-right">
-                                    <div className="text-[9px] uppercase font-bold opacity-80">SGST</div>
-                                    <div className="text-sm font-black">₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</div>
-                                </div>
-                                <div className="text-right">
-                                    <div className="text-[9px] uppercase font-bold opacity-80">CGST</div>
-                                    <div className="text-sm font-black">₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</div>
-                                </div>
-                                <div className="text-right">
-                                    <div className="text-[9px] uppercase font-bold opacity-80">Total GST</div>
-                                    <div className="text-sm font-black">₹{(calculatedTotals.totalGst || 0).toFixed(2)}</div>
-                                </div>
+                                {isFieldVisible('sumGross') && (
+                                    <div className="text-right">
+                                        <div className="text-[9px] uppercase font-bold opacity-80">Gross</div>
+                                        <div className="text-sm font-black">₹{(calculatedTotals.grossAmount || 0).toFixed(2)}</div>
+                                    </div>
+                                )}
+                                {isFieldVisible('sumTradeDisc') && (
+                                    <div className="text-right">
+                                        <div className="text-[9px] uppercase font-bold opacity-80">Trade Disc</div>
+                                        <div className="text-sm font-black text-red-300">₹{(calculatedTotals.totalItemDiscount || 0).toFixed(2)}</div>
+                                    </div>
+                                )}
+                                {isFieldVisible('sumSchDisc') && (
+                                    <div className="text-right">
+                                        <div className="text-[9px] uppercase font-bold opacity-80">Sch Disc</div>
+                                        <div className="text-sm font-black text-red-300">₹{(calculatedTotals.totalItemSchemeDiscount || 0).toFixed(2)}</div>
+                                    </div>
+                                )}
+                                {isFieldVisible('sumTaxable') && (
+                                    <div className="text-right">
+                                        <div className="text-[9px] uppercase font-bold opacity-80">Taxable</div>
+                                        <div className="text-sm font-black">₹{(calculatedTotals.subtotal || 0).toFixed(2)}</div>
+                                    </div>
+                                )}
+                                {isFieldVisible('sumGst') && (
+                                    <>
+                                        <div className="text-right">
+                                            <div className="text-[9px] uppercase font-bold opacity-80">SGST</div>
+                                            <div className="text-sm font-black">₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-[9px] uppercase font-bold opacity-80">CGST</div>
+                                            <div className="text-sm font-black">₹{((calculatedTotals.totalGst || 0) / 2).toFixed(2)}</div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-[9px] uppercase font-bold opacity-80">Total GST</div>
+                                            <div className="text-sm font-black">₹{(calculatedTotals.totalGst || 0).toFixed(2)}</div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                             <div className="text-right">
                                 <div className="text-[11px] uppercase font-bold">Purchase Total</div>
