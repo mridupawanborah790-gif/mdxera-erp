@@ -95,8 +95,10 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
         setError(null);
 
         try {
-            const deviceId = getOrCreateMobileDeviceId();
-            const userId = sessionId;
+            // Priority: Query params (from QR) > localStorage > random
+            const effectiveDeviceId = deviceId || getOrCreateMobileDeviceId();
+            const effectiveUserId = userId || sessionId; 
+
             const syncPayload = {
                 type: 'invoice-upload',
                 invoiceId,
@@ -108,8 +110,8 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
                 })),
                 metadata: {
                     organizationId: orgId,
-                    userId,
-                    deviceId,
+                    userId: effectiveUserId,
+                    deviceId: effectiveDeviceId,
                     sessionId,
                 },
             };
@@ -117,16 +119,25 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
             await createMobileSyncedBill({
                 session_id: sessionId,
                 organization_id: orgId,
-                user_id: userId,
-                device_id: deviceId,
+                user_id: effectiveUserId,
+                device_id: effectiveDeviceId,
                 invoice_id: invoiceId,
                 payload: syncPayload,
             });
             await broadcastSyncMessage(sessionId, syncPayload);
             setUploadState('synced');
         } catch (err: any) {
+            console.error('Upload error details:', err);
             setUploadState('failed');
-            setError(err instanceof Error ? err.message : 'Upload failed. Please check network and retry.');
+            
+            let detailedError = 'Upload failed. Please check network and retry.';
+            if (err && typeof err === 'object') {
+                detailedError = err.message || err.details || err.hint || JSON.stringify(err);
+            } else if (typeof err === 'string') {
+                detailedError = err;
+            }
+            
+            setError(detailedError);
         }
     };
 
