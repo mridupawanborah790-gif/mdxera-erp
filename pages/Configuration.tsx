@@ -9,7 +9,6 @@ import {
     parseCustomerCsv, parsePurchaseCsv, parseSalesCsv, parseMedicineMasterCsv, parseNomenclatureCsv 
 } from '../utils/csv';
 import ImportPreviewModal from '../components/ImportPreviewModal';
-import ImageCropModal from '../components/ImageCropModal';
 import DistributorImportPreviewModal from '../components/DistributorImportPreviewModal';
 import CustomerImportPreviewModal from '../components/CustomerImportPreviewModal';
 import PurchaseBillImportPreviewModal from '../components/PurchaseBillImportPreviewModal';
@@ -315,11 +314,6 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const pharmacyLogoInputRef = useRef<HTMLInputElement>(null);
     const dashboardLogoInputRef = useRef<HTMLInputElement>(null);
 
-    // Image Cropping State
-    const [isCropModalOpen, setIsCropModalOpen] = useState(false);
-    const [selectedImage, setSelectedImage] = useState<string>('');
-    const [cropTarget, setCropTarget] = useState<'pharmacy_logo_url' | 'dashboard_logo_url'>('pharmacy_logo_url');
-
     const [demoBusinessType, setDemoBusinessType] = useState<DemoBusinessType>('RETAIL');
     const [duplicateHandlingMode, setDuplicateHandlingMode] = useState<DuplicateHandlingMode>('SKIP');
     const [demoPreviewRows, setDemoPreviewRows] = useState<PharmacyDemoMaterial[]>([]);
@@ -619,9 +613,19 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
         if (!dataUrl) return;
 
-        setCropTarget(target);
-        setSelectedImage(dataUrl);
-        setIsCropModalOpen(true);
+        // Directly update the configuration
+        setLocalConfigs(prev => {
+            const currentDisplayOptions = (prev.displayOptions || {}) as any;
+            const updatedDisplayOptions = { ...currentDisplayOptions, [target]: dataUrl };
+            const updated = { ...prev, displayOptions: updatedDisplayOptions, _isDirty: true };
+            
+            // Perform the actual persistence
+            onUpdateConfigurations(updated);
+            
+            return updated;
+        });
+        
+        addNotification(`${target === 'pharmacy_logo_url' ? 'Pharmacy logo' : 'Dashboard logo'} updated and saved.`, 'success');
         e.target.value = '';
     };
 
@@ -1356,32 +1360,6 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
             {importType === 'sales' && previewData.length > 0 && <SalesBillImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddSales(d); setImportType(null); setPreviewData([]); addNotification("Sales data imported", 'success'); }} data={previewData} inventory={inventory} customers={customers} />}
             {importType === 'master' && previewData.length > 0 && <MedicineMasterImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddMedicines(d); setImportType(null); setPreviewData([]); addNotification("Master Data Updated", 'success'); }} data={previewData} />}
             {importType === 'nomenclature' && previewData.length > 0 && <MappingImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddMappings(d); setImportType(null); setPreviewData([]); addNotification("Nomenclature Rules Updated", 'success'); }} data={previewData} distributors={distributors} medicines={medicines} mappings={mappings} />}
-
-            <ImageCropModal 
-                isOpen={isCropModalOpen} 
-                onClose={() => { setIsCropModalOpen(false); setSelectedImage(''); }} 
-                imageSrc={selectedImage} 
-                aspectRatio={2} 
-                title={`Crop ${cropTarget === 'pharmacy_logo_url' ? 'Pharmacy' : 'Dashboard'} Logo`}
-                onCropComplete={(cropped) => {
-                    // Update the configuration in memory and save to database immediately.
-                    // We need the LATEST localConfigs to ensure other settings aren't lost.
-                    setLocalConfigs(prev => {
-                        const currentDisplayOptions = (prev.displayOptions || {}) as any;
-                        const updatedDisplayOptions = { ...currentDisplayOptions, [cropTarget]: cropped };
-                        const updated = { ...prev, displayOptions: updatedDisplayOptions, _isDirty: true };
-                        
-                        // Perform the actual persistence
-                        onUpdateConfigurations(updated);
-                        
-                        return updated;
-                    });
-                    
-                    addNotification(`${cropTarget === 'pharmacy_logo_url' ? 'Pharmacy logo' : 'Dashboard logo'} updated and saved.`, 'success');
-                    setIsCropModalOpen(false);
-                    setSelectedImage('');
-                }}
-            />
         </div>
     );
 };

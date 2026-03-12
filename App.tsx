@@ -128,6 +128,8 @@ const App: React.FC = () => {
 
     const [authView, setAuthView] = useState<'auth' | 'forgot' | 'reset'>(resolveAuthViewFromLocation);
 
+    const [activeDashboardMenu, setActiveDashboardMenu] = useState<'left' | 'right'>('right');
+
     // Robust recovery detection on initial load
     useEffect(() => {
         if (window.location.hash.includes('type=recovery') || window.location.href.includes('recovery')) {
@@ -266,6 +268,12 @@ const App: React.FC = () => {
         setActiveScreenScope(currentPage);
 
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Tab' && currentPage === 'dashboard') {
+                e.preventDefault();
+                setActiveDashboardMenu(prev => prev === 'left' ? 'right' : 'left');
+                return;
+            }
+
             if (!shouldHandleScreenShortcut(e, currentPage, { allowWhenInputFocused: true })) return;
 
             if (e.key === 'Escape') {
@@ -286,7 +294,7 @@ const App: React.FC = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [currentPage]);
+    }, [currentPage, activeDashboardMenu]);
 
     const handleEscSave = async () => {
         setShowEscSavePrompt(false);
@@ -1016,6 +1024,7 @@ const App: React.FC = () => {
                         transactions={transactions} purchases={purchases} medicines={medicines}
                         customers={customers} distributors={suppliers} onKpiClick={handleNavigate}
                         brandName="MDXERA" lastRefreshed={lastRefreshed} onReload={handleReload} isReloading={isReloading}
+                        isKeyboardActive={activeDashboardMenu === 'right'}
                     />;
                 case 'pos':
                 case 'nonGstPos':
@@ -1324,6 +1333,7 @@ const App: React.FC = () => {
                         transactions={transactions} purchases={purchases} medicines={medicines}
                         customers={customers} distributors={suppliers} onKpiClick={handleNavigate}
                         brandName="MDXERA" lastRefreshed={lastRefreshed} onReload={handleReload} isReloading={isReloading}
+                        isKeyboardActive={activeDashboardMenu === 'right'}
                     />;
             }
         } catch (e) {
@@ -1413,6 +1423,7 @@ const App: React.FC = () => {
                         configurations={configurations}
                         onToggleMasterExplorer={toggleSidebar}
                         brandName="MDXERA"
+                        isKeyboardActive={activeDashboardMenu === 'left'}
                     />
                 )}
                 <div className="flex-1 relative overflow-hidden flex flex-col">
