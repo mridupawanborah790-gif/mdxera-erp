@@ -76,10 +76,14 @@ const formatExpiryToMMYY = (value?: string | null): string => {
 };
 
 const normalizeExpiryInput = (rawValue: string): string => {
-    const cleaned = rawValue.replace(/[^\d/]/g, '');
-    const digits = cleaned.replace(/\D/g, '').slice(0, 4);
-    if (digits.length <= 2) return digits;
-    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    const digits = rawValue.replace(/\D/g, '').slice(0, 4);
+    if (digits.length <= 2) {
+        if (digits.length === 2 && parseInt(digits) > 12) return digits[0];
+        return digits;
+    }
+    const month = digits.slice(0, 2);
+    if (parseInt(month) > 12) return month[0];
+    return `${month}/${digits.slice(2)}`;
 };
 
 const normalizeSupplierKey = (value: string): string => (
@@ -946,7 +950,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [handleGlobalKeyDown]);
 
     const handleGridKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowId: string, field: string) => {
-        const fields = ['name', 'mfr', 'pack', 'batch', 'expiry', 'mrp', 'qty', 'lqty', 'free', 'rate', 'disc', 'sch'];
+        const fields = ['name', 'mfr', 'pack', 'batch', 'expiry', 'mrp', 'qty', 'lqty', 'free', 'rate', 'disc', 'sch', 'gst'];
         const currentIndex = fields.indexOf(field);
         const rowIndex = items.findIndex(p => p.id === rowId);
 
@@ -1861,6 +1865,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">FREE</th>}
                                     {isFieldVisible('colPurRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
                                     {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
+                                    {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-16">SCH%</th>}
                                     {isFieldVisible('colGst') && <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>}
                                     {isFieldVisible('colAmount') && <th className="p-2 text-right w-32">Amount</th>}
                                 </tr>
@@ -1872,7 +1877,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         <tr 
                                             key={p.id} 
                                             onClick={() => setActiveRowId(p.id)}
-                                            className={`hover:bg-gray-50 group h-10 cursor-pointer transition-colors ${isActive ? 'bg-blue-700 text-white shadow-md' : ''}`}
+                                            className={`hover:bg-gray-50 group h-10 cursor-pointer transition-colors ${isActive ? 'bg-primary text-white shadow-md' : ''}`}
                                         >
                                             <td className={`p-1 border-r border-gray-200 text-center ${isActive ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (
@@ -1892,7 +1897,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                             openSearchModal(p.id, p.name);
                                                         }}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'name')}
-                                                        className={`w-full bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -1906,7 +1911,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'mfr')}
-                                                        className={`w-full bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -1920,7 +1925,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'pack')}
-                                                        className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-center bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -1934,7 +1939,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'batch')}
-                                                        className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-center bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -1952,7 +1957,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         inputMode="numeric"
                                                         maxLength={5}
                                                         pattern="(0[1-9]|1[0-2])/[0-9]{2}"
-                                                        className={`w-full text-center bg-transparent outline-none focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-center bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -1966,7 +1971,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'mrp')}
-                                                        className={`w-full text-right bg-transparent outline-none no-spinner focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-right bg-transparent outline-none no-spinner ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -1980,7 +1985,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'qty')}
-                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -1994,7 +1999,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => handleUpdateItem(p.id, 'looseQuantity', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'lqty')}
-                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -2008,7 +2013,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'free')}
-                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -2022,7 +2027,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'rate')}
-                                                        className={`w-full text-right bg-transparent outline-none no-spinner font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-right bg-transparent outline-none no-spinner font-mono ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -2036,24 +2041,38 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'disc')}
-                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
                                             )}
                                             {isFieldVisible('colSch') && (
-                                                <td className={`p-1 border-r border-gray-400 text-center ${isActive ? 'text-red-300' : 'text-red-600'} ${uniformTextStyle}`}>
+                                                <td className={`p-1 border-r border-gray-200 text-center ${isActive ? 'text-red-300' : 'text-red-600'} ${uniformTextStyle}`}>
                                                     <input
                                                         type="number"
                                                         id={`sch-${p.id}`}
+                                                        value={p.schemeDiscountPercent || ''}
+                                                        onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)}
+                                                        onFocus={() => setActiveRowId(p.id)}
+                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'sch')}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
+                                                        disabled={isReadOnly || !supplier.trim()}
+                                                    />
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colGst') && (
+                                                <td className={`p-1 border-r border-gray-400 text-center ${isActive ? 'text-gray-300' : 'text-gray-600'} ${uniformTextStyle}`}>
+                                                    <input
+                                                        type="number"
+                                                        id={`gst-${p.id}`}
                                                         value={p.gstPercent || ''}
                                                         onChange={e => handleUpdateItem(p.id, 'gstPercent', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => {
                                                             if (e.key === 'Enter') handleRateTierLastFieldEnter(e, p.id);
-                                                            else handleGridKeyDown(e, p.id, 'sch');
+                                                            else handleGridKeyDown(e, p.id, 'gst');
                                                         }}
-                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono focus:bg-yellow-100 focus:text-gray-900 ${uniformTextStyle}`}
+                                                        className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
