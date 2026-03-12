@@ -811,7 +811,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     useImperativeHandle(ref, () => ({
         handleSubmit,
-        items
+        items,
+        isDirty: items.length > 0 || supplier.trim() !== '' || invoiceNumber.trim() !== ''
     }));
 
     const deduplicatedSearchInventory = useMemo(() => {

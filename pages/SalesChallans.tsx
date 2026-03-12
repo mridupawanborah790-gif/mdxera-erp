@@ -24,14 +24,20 @@ interface SalesChallansProps {
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
 }
 
-const SalesChallans: React.FC<SalesChallansProps> = ({
+const SalesChallans = React.forwardRef<any, SalesChallansProps>(({
     salesChallans, inventory, medicines, purchases, customers, currentUser, configurations,
     onAddChallan, onUpdateChallan, onCancelChallan, onConvertToInvoice, addNotification, onAddMedicineMaster
-}) => {
+}, ref) => {
     const [activeTab, setActiveTab] = useState<'create' | 'list'>('list');
     const [selectedChallanIds, setSelectedChallanIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<SalesChallanStatus | 'all'>(SalesChallanStatus.OPEN);
     const [selectedChallanForView, setSelectedChallanForView] = useState<SalesChallan | null>(null);
+
+    const posRef = React.useRef<any>(null);
+
+    React.useImperativeHandle(ref, () => ({
+        isDirty: activeTab === 'create' && (posRef.current?.isDirty ?? false)
+    }));
 
     const visibleChallans = useMemo(() => {
         let list = [...salesChallans];
@@ -129,6 +135,7 @@ const SalesChallans: React.FC<SalesChallansProps> = ({
                 {activeTab === 'create' ? (
                     <div className="flex-1 overflow-hidden">
                         <POS 
+                            ref={posRef}
                             inventory={inventory}
                             /* Fix: Pass missing purchases prop to POS component */
                             purchases={purchases}
@@ -232,6 +239,6 @@ const SalesChallans: React.FC<SalesChallansProps> = ({
             )}
         </main>
     );
-};
+});
 
 export default SalesChallans;

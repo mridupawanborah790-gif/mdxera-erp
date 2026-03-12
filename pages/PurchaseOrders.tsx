@@ -25,7 +25,7 @@ interface PurchaseOrdersProps {
   currentUserOrgId?: string;
 }
 
-const PurchaseOrdersPage: React.FC<PurchaseOrdersProps> = ({ 
+const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({ 
     distributors, 
     inventory, 
     purchaseOrders, 
@@ -41,7 +41,7 @@ const PurchaseOrdersPage: React.FC<PurchaseOrdersProps> = ({
     currentUserPharmacyName, 
     currentUserEmail,
     currentUserOrgId
-}) => {
+}, ref) => {
     const [view, setView] = useState<'list' | 'create'>('list');
 
     // List State
@@ -58,6 +58,10 @@ const PurchaseOrdersPage: React.FC<PurchaseOrdersProps> = ({
     const [isSaving, setIsSaving] = useState(false);
     const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
+
+    React.useImperativeHandle(ref, () => ({
+        isDirty: view === 'create' && (items.length > 0 || selectedDistributorId !== '' || remarks !== '')
+    }));
 
     const supplierSelectRef = useRef<HTMLSelectElement>(null);
     const itemSearchRef = useRef<HTMLInputElement>(null);
@@ -459,6 +463,6 @@ const PurchaseOrdersPage: React.FC<PurchaseOrdersProps> = ({
             )}
         </main>
     );
-};
+});
 
 export default PurchaseOrdersPage;

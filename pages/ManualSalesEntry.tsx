@@ -53,7 +53,7 @@ const recalcLine = (line: ManualLine): ManualLine => {
   return { ...line, amount, discount, taxAmount, lineTotal: round2(taxable + taxAmount) };
 };
 
-const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, customers, inventory, configurations, addNotification, onSaved }) => {
+const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ currentUser, customers, inventory, configurations, addNotification, onSaved }, ref) => {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [customerId, setCustomerId] = useState('');
   const [phone, setPhone] = useState('');
@@ -71,6 +71,10 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
   const [taxOptions, setTaxOptions] = useState<GlOption[]>([]);
   const [expenseOptions, setExpenseOptions] = useState<GlOption[]>([]);
   const [searchText, setSearchText] = useState('');
+
+  React.useImperativeHandle(ref, () => ({
+    isDirty: lines.some(l => l.description.trim() !== '' || l.rate > 0) || customerId !== '' || narration !== ''
+  }));
 
   const activeLine = useMemo(() => {
     if (hoveredLineId) return lines.find(l => l.id === hoveredLineId);
@@ -525,6 +529,6 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
       </div>
     </div>
   );
-};
+});
 
 export default ManualSalesEntry;

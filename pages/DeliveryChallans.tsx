@@ -29,7 +29,7 @@ interface DeliveryChallansPageProps {
     mappings: SupplierProductMap[];
 }
 
-const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
+const DeliveryChallansPage = React.forwardRef<any, DeliveryChallansPageProps>(({
     deliveryChallans,
     inventory,
     distributors,
@@ -45,9 +45,8 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
     onAddDistributor,
     onSaveMapping,
     addNotification,
-    // Destructure mappings from props
     mappings,
-}) => {
+}, ref) => {
     const [activeTab, setActiveTab] = useState<'create' | 'list'>('list');
     const [selectedChallanIds, setSelectedChallanIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<'active_only' | 'all' | DeliveryChallanStatus>('active_only');
@@ -57,6 +56,12 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
 
     const [challanToEdit, setChallanToEdit] = useState<DeliveryChallan | null>(null);
     const [selectedChallanForView, setSelectedChallanForView] = useState<DeliveryChallan | null>(null);
+
+    const purchaseFormRef = React.useRef<any>(null);
+
+    React.useImperativeHandle(ref, () => ({
+        isDirty: activeTab === 'create' && (purchaseFormRef.current?.isDirty ?? false)
+    }));
 
     const visibleChallans = useMemo(() => {
         let list = [...deliveryChallans];
@@ -217,6 +222,7 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
                 {activeTab === 'create' ? (
                     <div className="flex-1 min-h-0">
                         <PurchaseForm
+                            ref={purchaseFormRef}
                             onAddPurchase={handleChallanSave}
                             onUpdatePurchase={handleChallanSave}
                             onAddInventoryItem={onAddInventoryItem}
@@ -298,6 +304,6 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
             {selectedChallanForView && <ChallanDetailModal isOpen={!!selectedChallanForView} onClose={() => setSelectedChallanForView(null)} challan={selectedChallanForView} />}
         </main>
     );
-};
+});
 
 export default DeliveryChallansPage;

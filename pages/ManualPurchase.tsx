@@ -55,7 +55,7 @@ const recalcLine = (line: ManualLine): ManualLine => {
   return { ...line, amount, discount, taxAmount, lineTotal: round2(taxable + taxAmount) };
 };
 
-const ManualPurchase: React.FC<ManualPurchaseProps> = ({
+const ManualPurchase = React.forwardRef<any, ManualPurchaseProps>(({
   currentUser,
   suppliers,
   inventory,
@@ -66,7 +66,7 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
   onAddPurchase,
   onSaved,
   onAddMedicineMaster,
-}) => {
+}, ref) => {
   const isFieldVisible = useCallback((fieldId: string) => {
     return configurations.modules?.['purchase']?.fields?.[fieldId] !== false;
   }, [configurations.modules]);
@@ -79,6 +79,10 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
   const [lines, setLines] = useState<ManualLine[]>([newLine()]);
   const [searchText, setSearchText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  React.useImperativeHandle(ref, () => ({
+    isDirty: lines.some(l => l.description.trim() !== '' || l.rate > 0) || supplierId !== '' || supplierInvoiceNumber !== '' || grnNumber !== ''
+  }));
 
   const [isAddMasterOpen, setIsAddMasterOpen] = useState(false);
   const [newMaterialName, setNewMaterialName] = useState('');
@@ -486,6 +490,6 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
       )}
     </div>
   );
-};
+});
 
 export default ManualPurchase;
