@@ -21,7 +21,7 @@ const MedicineSortableHeader: React.FC<{
   return (
     <th 
       scope="col" 
-      className={`py-1.5 px-2 border-r border-gray-400 text-left cursor-pointer hover:bg-gray-200 transition-colors ${uniformTextStyle}`} 
+      className={`py-1.5 px-2 border-r border-gray-400 text-left cursor-pointer hover:bg-gray-200 transition-colors whitespace-nowrap w-[45%] ${uniformTextStyle}`} 
       onClick={() => requestSort(sortKey)}
     >
       <div className="flex items-center justify-between">
@@ -220,25 +220,22 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                         <tr className={`${uniformTextStyle} text-gray-700`}>
                                             <th className="py-1.5 px-2 border-r border-gray-400 w-8 text-center">#</th>
                                             <MedicineSortableHeader label="Item Description" sortKey="name" sortConfig={medSortConfig} requestSort={(k) => setMedSortConfig({key: k, direction: medSortConfig.direction === 'ascending' ? 'descending' : 'ascending'})} />
-                                            <th className="py-1.5 px-2 border-r border-gray-400 text-left w-24">Code</th>
-                                            <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">Pack</th>
-                                            <th className="py-1.5 px-2 border-r border-gray-400 text-right w-16">MRP</th>
-                                            <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">GST%</th>
-                                            <th className="py-1.5 px-2 border-r border-gray-400 text-center w-8">Rx</th>
-                                            <th className="py-1.5 px-2 text-right w-16">Action</th>
+                                            <th className="py-1.5 px-2 border-r border-gray-400 text-left w-20 whitespace-nowrap">Code</th>
+                                            <th className="py-1.5 px-2 border-r border-gray-400 text-center w-10 whitespace-nowrap">Pack</th>
+                                            <th className="py-1.5 px-2 border-r border-gray-400 text-right w-14 whitespace-nowrap">MRP</th>
+                                            <th className="py-1.5 px-2 border-r border-gray-400 text-center w-10 whitespace-nowrap">GST%</th>
+                                            <th className="py-1.5 px-2 border-r border-gray-400 text-center w-7 whitespace-nowrap">Rx</th>
+                                            <th className="py-1.5 px-2 text-right w-14 whitespace-nowrap">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                         {paginatedMedicines.map((med, idx) => (
                                             <tr key={med.id} className="hover:bg-accent transition-colors cursor-pointer group h-12" onClick={() => handleOpenEditModal(med)}>
                                                 <td className={`py-1.5 px-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-gray-900`}>
-                                                    <div className="flex flex-col">
-                                                        <span className={`leading-none ${uniformTextStyle}`}>{med.name}</span>
-                                                        <span className="text-[11px] text-gray-400 normal-case italic font-bold mt-1 line-clamp-1 leading-none">{med.composition}</span>
-                                                    </div>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-gray-900 w-[45%]`}>
+                                                    <span className={`block whitespace-nowrap overflow-hidden text-ellipsis leading-none ${uniformTextStyle}`} title={med.name}>{med.name}</span>
                                                 </td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 font-mono font-bold text-gray-700 ${uniformTextStyle}`}>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 font-mono font-bold text-gray-700 whitespace-nowrap ${uniformTextStyle}`}>
                                                     {med.materialCode}
                                                 </td>
                                                 <td className={`py-1.5 px-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>{med.pack || '—'}</td>
