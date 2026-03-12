@@ -1068,6 +1068,7 @@ const App: React.FC = () => {
                         title="AI-Powered Automated Purchase"
                         isManualEntry={false}
                         configurations={configurations}
+                        config={configurations.modules?.['purchase']}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
                         organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
                         onPrint={setViewPurchase}
@@ -1086,6 +1087,7 @@ const App: React.FC = () => {
                         title="Manual Purchase Entry"
                         isManualEntry={true}
                         configurations={configurations}
+                        config={configurations.modules?.['purchase']}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
                         organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
                         onPrint={setViewPurchase}
@@ -1098,6 +1100,7 @@ const App: React.FC = () => {
                         inventory={inventory}
                         medicines={medicines}
                         purchases={purchases}
+                        configurations={configurations}
                         addNotification={addNotification}
                         onAddPurchase={handleAddPurchase}
                         onSaved={async () => handleNavigate('purchaseHistory', true)}

@@ -90,7 +90,7 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const productSearchInputRef = useRef<HTMLInputElement>(null);
 
-  const canEditRate = configurations.modules?.manualSalesEntry?.fields?.allowRateEdit !== false;
+  const canEditRate = configurations.modules?.['pos']?.fields?.allowRateEdit !== false;
   const defaultRateTier = configurations.displayOptions?.defaultRateTier || 'mrp';
 
   const matchingItems = useMemo(() => {

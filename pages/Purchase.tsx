@@ -124,7 +124,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     organizationId,
 }, ref) => {
     const isEditing = !!purchaseToEdit;
-    const isFieldVisible = useCallback((fieldId: string) => configurations.modules?.purchase?.fields?.[fieldId] !== false, [configurations.modules]);
+    const isFieldVisible = useCallback((fieldId: string) => configurations.modules?.['automatedPurchaseEntry']?.fields?.[fieldId] !== false, [configurations.modules]);
 
     // Standard State
     const [supplier, setSupplier] = useState('');

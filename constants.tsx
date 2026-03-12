@@ -363,6 +363,7 @@ export const configurableModules = [
       { id: 'colPurRate', name: 'Pur. Rate' },
       { id: 'colDisc', name: 'Disc %' },
       { id: 'colSch', name: 'Sch %' },
+      { id: 'colGst', name: 'GST %' },
       { id: 'colAmount', name: 'Amount' },
       { id: 'sumGross', name: 'Summary: Gross Amount' },
       { id: 'sumTradeDisc', name: 'Summary: Trade Discount' },

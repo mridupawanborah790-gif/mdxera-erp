@@ -236,8 +236,7 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
                             onClearDraft={() => { }}
                             currentUser={currentUser}
                             configurations={configurations}
-                            // Added missing 'visible' property to ModuleConfig object
-                            config={{ visible: true, fields: {} }}
+                            config={configurations.modules?.['purchase']}
                             setIsDirty={() => { }}
                             title={challanToEdit ? "Alter Delivery Challan" : "Create Delivery Challan"}
                             isChallan={true}
