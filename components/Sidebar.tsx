@@ -11,15 +11,30 @@ interface SidebarProps {
   configurations: AppConfigurations;
   onToggleMasterExplorer: () => void;
   brandName: string;
+  isKeyboardActive?: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationItems, configurations, onToggleMasterExplorer, brandName }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationItems, configurations, onToggleMasterExplorer, brandName, isKeyboardActive = true }) => {
   const isSidebarCollapsed = configurations.sidebar?.isSidebarCollapsed ?? false;
-  const expandedSidebarWidthClass = 'w-[16.8rem]';
+  const expandedSidebarWidthClass = 'w-[17.6rem]';
   const expandedItemPaddingClass = 'px-2';
   const [openMenus, setOpenMenus] = useState<string[]>([]);
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll focused item into view
+  useEffect(() => {
+    if (focusedIndex >= 0 && scrollContainerRef.current) {
+      const focusedElement = scrollContainerRef.current.querySelector(`[data-index="${focusedIndex}"]`);
+      if (focusedElement) {
+        focusedElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
+      }
+    }
+  }, [focusedIndex]);
 
   useEffect(() => {
     // Automatically open parent menus if the current page is a child
@@ -66,6 +81,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
   // Keyboard navigation handler for Sidebar
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isKeyboardActive) return;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '')) return;
       if (document.querySelector('[role="dialog"]')) return;
 
@@ -88,7 +104,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [visibleItems, focusedIndex, openMenus, onNavigate]);
+  }, [visibleItems, focusedIndex, openMenus, onNavigate, isKeyboardActive]);
 
   // Reset focus when navigation changes
   useEffect(() => {
@@ -119,6 +135,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
           <button
             onClick={handleItemClick}
             onMouseEnter={() => setFocusedIndex(flatIndex)}
+            data-index={flatIndex}
             className={`w-full flex items-center gap-2.5 py-2 px-2 ${isSidebarCollapsed ? 'px-4' : expandedItemPaddingClass} transition-all text-left outline-none border border-gray-400 group min-h-[42px] ${
               isActive 
               ? 'bg-accent text-black border-primary shadow-sm font-semibold'
@@ -196,7 +213,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-2 bg-gray-100 custom-scrollbar">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto py-2 bg-gray-100 custom-scrollbar">
         <nav className="space-y-1 px-2">
           {renderMenuItems(navigationItems)}
           {!isSidebarCollapsed && <div className="h-px bg-gray-400 my-3 mx-0"></div>}
