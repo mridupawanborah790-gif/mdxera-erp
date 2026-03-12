@@ -34,8 +34,15 @@ const KpiBox = ({ label, value, color, onClick }: { label: string, value: any, c
 );
 
 const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, transactions, inventory, purchases, medicines, customers, distributors, onKpiClick, brandName, lastRefreshed, onReload, isReloading, isKeyboardActive = true }) => {
-    const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(0);
+    const [focusedShortcutIndex, setFocusedShortcutIndex] = useState<number>(-1);
     const [expiryFilter, setExpiryFilter] = useState<'expired' | 'nearExpiry'>('expired');
+
+    // Reset focus when menu becomes inactive
+    useEffect(() => {
+        if (!isKeyboardActive) {
+            setFocusedShortcutIndex(-1);
+        }
+    }, [isKeyboardActive]);
 
     const promoImageUrl = configurations.displayOptions?.dashboard_logo_url || 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
 
