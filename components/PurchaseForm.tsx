@@ -1568,8 +1568,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         const channel = listenForSyncMessage(mobileSyncSessionId, (payload: MobileSyncInvoicePayload) => {
             setMobileSyncStatus('uploading');
             setMobileSyncError(null);
-            setMobilePageCount(Array.isArray(payload.pages) ? payload.pages.length : (payload.image ? 1 : 0));
+            const pageCount = Array.isArray(payload.pages) ? payload.pages.length : (payload.image ? 1 : 0);
+            setMobilePageCount(pageCount);
             setMobileInvoiceId(payload.invoiceId || null);
+            
+            // Automatically start processing the payload
+            if (pageCount > 0) {
+                processMobileSyncPayload(payload).catch(err => {
+                    console.error('Auto-sync error:', err);
+                });
+            }
         });
 
         return () => {
