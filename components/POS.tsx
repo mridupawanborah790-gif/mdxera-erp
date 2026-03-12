@@ -638,7 +638,8 @@ const POS = forwardRef<any, POSProps>(({
     useImperativeHandle(ref, () => ({
         handleSave,
         setCartItems,
-        cartItems
+        cartItems,
+        isDirty: cartItems.length > 0 || customerPhone.trim() !== '' || referredBy.trim() !== ''
     }));
 
 

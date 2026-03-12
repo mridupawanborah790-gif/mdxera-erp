@@ -18,7 +18,7 @@ const RETURN_REASONS = [
     'Customer Return', 'Stock Adjustment', 'Manufacturer Recall', 'Other'
 ];
 
-const Returns: React.FC<ReturnsProps> = ({ 
+const Returns = React.forwardRef<any, ReturnsProps>(({ 
     currentUser, 
     transactions, 
     inventory, 
@@ -34,7 +34,7 @@ const Returns: React.FC<ReturnsProps> = ({
     prefillPurchaseInvoiceId,
     onPrefillSalesInvoiceHandled,
     onPrefillPurchaseInvoiceHandled
-}) => {
+}, ref) => {
     const [view, setView] = useState<'list' | 'create'>('list');
     const [activeTab, setActiveTab] = useState<'sales' | 'purchase'>(defaultTab);
     const [searchInvoiceId, setSearchInvoiceId] = useState('');
@@ -43,6 +43,10 @@ const Returns: React.FC<ReturnsProps> = ({
     const [isProcessing, setIsProcessing] = useState(false);
     const [returnReason, setReturnReason] = useState('');
     const [returnDate, setReturnDate] = useState(new Date().toISOString().split('T')[0]);
+
+    React.useImperativeHandle(ref, () => ({
+        isDirty: view === 'create' && (selectedInvoice !== null || searchInvoiceId !== '' || returnReason !== '' || returnItems.some(i => (i.returnQuantity || 0) > 0))
+    }));
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -408,6 +412,6 @@ const Returns: React.FC<ReturnsProps> = ({
             </div>
         </main>
     );
-};
+});
 
 export default Returns;

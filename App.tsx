@@ -61,7 +61,7 @@ import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from
 const DATA_ENTRY_SCREENS = [
     'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
     'manualSalesEntry', 'physicalInventory', 'deliveryChallans', 'salesChallans', 'purchaseOrders',
-    'customers', 'suppliers', 'inventory', 'materialMaster'
+    'customers', 'suppliers', 'inventory', 'materialMaster', 'returns', 'salesReturns', 'purchaseReturn'
 ];
 
 const App: React.FC = () => {
@@ -259,6 +259,16 @@ const App: React.FC = () => {
 
     const shouldPromptBeforeLeaving = useCallback((fromPage: string, toPage?: string) => {
         if (!DATA_ENTRY_SCREENS.includes(fromPage)) return false;
+        
+        // Check if the current component is "dirty" (has unsaved data)
+        let isDirty = false;
+        if (fromPage === 'pos' || fromPage === 'nonGstPos') {
+            isDirty = posRef.current?.isDirty ?? false;
+        } else if (['automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice', 'manualSalesEntry', 'deliveryChallans', 'salesChallans', 'purchaseOrders', 'returns', 'salesReturns', 'purchaseReturn'].includes(fromPage)) {
+            isDirty = purchaseFormRef.current?.isDirty ?? false;
+        }
+        
+        if (!isDirty) return false;
         if (!toPage) return true;
         return fromPage !== toPage;
     }, []);
@@ -283,10 +293,10 @@ const App: React.FC = () => {
                 if (currentPage === 'dashboard') return;
 
                 // Entry screens that require save/discard confirmation
-                if (DATA_ENTRY_SCREENS.includes(currentPage)) {
+                if (shouldPromptBeforeLeaving(currentPage)) {
                     setShowEscSavePrompt(true);
                 } else {
-                    // Navigation screens, just go home
+                    // Navigation screens or clean entry screens, just go home
                     setCurrentPage('dashboard');
                 }
             }
@@ -1055,6 +1065,7 @@ const App: React.FC = () => {
                     />;
                 case 'manualSalesEntry':
                     return <ManualSalesEntry
+                        ref={purchaseFormRef}
                         currentUser={currentUser}
                         customers={customers}
                         inventory={inventory}
@@ -1104,6 +1115,7 @@ const App: React.FC = () => {
 
                 case 'manualSupplierInvoice':
                     return <ManualPurchase
+                        ref={purchaseFormRef}
                         currentUser={currentUser}
                         suppliers={suppliers}
                         inventory={inventory}
@@ -1274,59 +1286,10 @@ const App: React.FC = () => {
                         onUpdateSubCategory={(d) => storage.saveData('sub_categories', d, currentUser).then(() => loadData(currentUser!, 'background'))}
                         onDeleteSubCategory={(id) => storage.deleteData('sub_categories', id).then(() => loadData(currentUser!, 'background'))}
                     />;
-                case 'deliveryChallans':
-                    return <DeliveryChallans
-                        deliveryChallans={deliveryChallans} inventory={inventory} distributors={suppliers}
-                        medicines={medicines} currentUser={currentUser} configurations={configurations}
-                        onAddChallan={(d) => storage.saveData('delivery_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                        onUpdateChallan={(d) => storage.saveData('delivery_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                        onCancelChallan={(id) => storage.updateChallanStatus(id, DeliveryChallanStatus.CANCELLED, currentUser!).then(() => loadData(currentUser!, 'background'))}
-                        onConvertToPurchase={handleConvertToPurchase} onAddInventoryItem={handleAddInventoryItem}
-                        onAddMedicineMaster={handleAddMedicineMaster} onAddDistributor={handleAddDistributor}
-                        onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} addNotification={addNotification} mappings={mappings}
-                    />;
-                case 'salesChallans':
-                    return <SalesChallans
-                        salesChallans={salesChallans} inventory={inventory} medicines={medicines}
-                        purchases={purchases} customers={customers} currentUser={currentUser} configurations={configurations}
-                        onAddChallan={(d) => storage.saveData('sales_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                        onUpdateChallan={(d) => storage.saveData('sales_challans', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                        onCancelChallan={(id) => storage.updateSalesChallanStatus(id, SalesChallanStatus.CANCELLED, currentUser!).then(() => loadData(currentUser!, 'background'))}
-                        onConvertToInvoice={handleConvertToInvoice} addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
-                    />;
-                case 'purchaseOrders':
-                    return <PurchaseOrders
-                        distributors={suppliers} inventory={inventory} purchaseOrders={purchaseOrders}
-                        onAddPurchaseOrder={async (d) => {
-                            const reserved = await storage.reserveVoucherNumber('purchase-order', currentUser!);
-                            const payload = { ...d, serialId: reserved.documentNumber };
-                            await storage.saveData('purchase_orders', payload, currentUser);
-                            await loadData(currentUser!, 'background');
-                        }}
-                        onUpdatePurchaseOrder={(d) => storage.saveData('purchase_orders', d, currentUser).then(() => loadData(currentUser!, 'background'))}
-                        onCreatePurchaseEntry={() => { }} onPrintPurchaseOrder={setPrintPO as any}
-                        onCancelPurchaseOrder={(id) => storage.deleteData('purchase_orders', id).then(() => loadData(currentUser!, 'background'))}
-                        draftItems={null} onClearDraft={() => { }} setIsDirty={() => { }}
-                        currentUserPharmacyName={currentUser?.pharmacy_name || ''} currentUserEmail={currentUser?.email || ''}
-                        currentUserOrgId={currentUser?.organization_id}
-                    />;
                 case 'accountReceivable':
                     return <AccountReceivable customers={customers} transactions={transactions} bankOptions={bankOptions as any} onRecordPayment={handleRecordCustomerPaymentWithAccounting} currentUser={currentUser} />;
                 case 'accountPayable':
                     return <AccountPayable distributors={suppliers} purchases={purchases} bankOptions={bankOptions as any} onRecordPayment={handleRecordSupplierPaymentWithAccounting} currentUser={currentUser} />;
-                case 'salesReturns':
-                case 'purchaseReturn':
-                    return <Returns
-                        currentUser={currentUser} transactions={transactions} inventory={inventory}
-                        salesReturns={salesReturns} purchaseReturns={purchaseReturns} purchases={purchases}
-                        onAddSalesReturn={(r) => storage.saveData('sales_returns', r, currentUser).then(async () => { await storage.syncSalesReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
-                        onAddPurchaseReturn={(r) => storage.saveData('purchase_returns', r, currentUser).then(async () => { await storage.syncPurchaseReturnLedger(r, currentUser!); return loadData(currentUser!, 'background'); })}
-                        addNotification={addNotification} defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'} isFixedMode={true}
-                        prefillSalesInvoiceId={salesReturnPrefillInvoiceId}
-                        prefillPurchaseInvoiceId={purchaseReturnPrefillInvoiceId}
-                        onPrefillSalesInvoiceHandled={() => setSalesReturnPrefillInvoiceId(null)}
-                        onPrefillPurchaseInvoiceHandled={() => setPurchaseReturnPrefillInvoiceId(null)}
-                    />;
                 default:
                     return <Dashboard
                         currentUser={currentUser} configurations={configurations} inventory={inventory}
