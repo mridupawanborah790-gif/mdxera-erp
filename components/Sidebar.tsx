@@ -36,6 +36,13 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
     }
   }, [focusedIndex]);
 
+  // Reset focus when menu becomes inactive
+  useEffect(() => {
+    if (!isKeyboardActive) {
+      setFocusedIndex(-1);
+    }
+  }, [isKeyboardActive]);
+
   useEffect(() => {
     // Automatically open parent menus if the current page is a child
     const findParents = (items: NavItem[], targetId: string, parents: string[] = []): string[] | null => {
