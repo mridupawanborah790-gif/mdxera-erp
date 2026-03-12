@@ -508,14 +508,14 @@ const ManualSalesEntry: React.FC<ManualSalesEntryProps> = ({ currentUser, custom
           <input className="h-8 border border-gray-300 p-1 text-xs font-bold bg-gray-100" value={customerControlGlId} readOnly placeholder="Customer/Receivable GL" />
         </div>
 
-        <div className="bg-gray-100 border border-gray-300 px-3 py-2 text-[10px] font-bold flex flex-wrap gap-4 justify-end flex-shrink-0 uppercase tracking-tight">
+        <div className="bg-gray-100 border border-gray-300 px-3 py-2 text-[10px] xl:text-[13px] font-bold flex flex-wrap gap-4 xl:gap-8 justify-end flex-shrink-0 uppercase tracking-tight">
           <div>Sub Total: <span className="text-gray-800">₹{metrics.subTotal.toFixed(2)}</span></div>
           <div>SGST: <span className="text-blue-700">₹{(metrics.tax / 2).toFixed(2)}</span></div>
           <div>CGST: <span className="text-blue-700">₹{(metrics.tax / 2).toFixed(2)}</span></div>
           <div>GST Amount: <span className="text-gray-800">₹{metrics.tax.toFixed(2)}</span></div>
           <div>Total Discount: <span className="text-red-600">₹{metrics.totalDiscount.toFixed(2)}</span></div>
           <div>Taxable Value: <span className="text-gray-800">₹{metrics.taxableValue.toFixed(2)}</span></div>
-          <div className="text-primary font-black text-xs">Grand Total: ₹{metrics.grandTotal.toFixed(2)}</div>
+          <div className="text-primary font-black text-xs xl:text-base">Grand Total: ₹{metrics.grandTotal.toFixed(2)}</div>
         </div>
 
         <div className="flex gap-2 justify-end flex-shrink-0">

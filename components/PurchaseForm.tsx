@@ -870,8 +870,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [modalSearchTerm, inventory, medicines]);
 
     const activeRowCalculations = useMemo(() => {
-        if (!activeRowId) return null;
-        const p = items.find(item => item.id === activeRowId);
+        const p = items.find(item => item.id === activeRowId) || items.find(item => (item.name || '').trim() !== '');
         if (!p || !p.name.trim()) return null;
 
         const gross = (p.purchasePrice || 0) * (p.quantity || 0);
@@ -2069,35 +2068,39 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </Card>
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-2 flex-shrink-0">
-                    <div className="md:col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px] flex flex-col justify-center">
-                        <div className="text-[11px] font-bold uppercase space-y-1">
-                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Item :</span> <span className="text-primary truncate">{activeIntelItem?.name || '-'}</span></div>
-                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Batch :</span> <span className="text-primary">{activeIntelItem?.batch || '-'}</span></div>
-                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Expiry :</span> <span className="text-primary">{activeIntelItem?.expiry || '-'}</span></div>
-                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 text-gray-500">Stock :</span> <span className="text-primary">{activeIntelItem?.stock ?? 0}</span></div>
-                            <div className="flex"><span className="w-16 text-gray-500">MRP :</span> <span className="text-primary">₹{(activeIntelItem?.mrp || 0).toFixed(2)}</span></div>
+                    <div className="md:col-span-4 lg:col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px] xl:min-h-[140px] flex flex-col justify-center">
+                        <div className="text-[11px] xl:text-[14px] font-bold uppercase space-y-1 xl:space-y-2">
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 xl:w-24 text-gray-500">Item :</span> <span className="text-primary truncate">{activeIntelItem?.name || '-'}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 xl:w-24 text-gray-500">Batch :</span> <span className="text-primary">{activeIntelItem?.batch || '-'}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 xl:w-24 text-gray-500">Expiry :</span> <span className="text-primary">{activeIntelItem?.expiry || '-'}</span></div>
+                            <div className="flex border-b border-gray-300 pb-0.5"><span className="w-16 xl:w-24 text-gray-500">Stock :</span> <span className="text-primary">{activeIntelItem?.stock ?? 0}</span></div>
+                            <div className="flex"><span className="w-16 xl:w-24 text-gray-500">MRP :</span> <span className="text-primary">₹{(activeIntelItem?.mrp || 0).toFixed(2)}</span></div>
                         </div>
                     </div>
 
-                    <div className="md:col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px]">
-                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1 border-b border-gray-200 pb-1">Line Item Details</div>
-                        <div className="space-y-1 text-[11px] font-bold uppercase">
-                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>MRP Value</span><span>₹{(activeRowCalculations?.grossAmount || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Taxable Value</span><span>₹{(activeRowCalculations?.taxableValue || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>SGST ({(activeRowCalculations?.gstPercent || 0) / 2}%)</span><span>₹{(activeRowCalculations?.sgst || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>CGST ({(activeRowCalculations?.gstPercent || 0) / 2}%)</span><span>₹{(activeRowCalculations?.cgst || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Discount</span><span className="text-red-600">- ₹{(activeRowCalculations?.discount || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between font-black text-blue-900 pt-1"><span>Line Net Amt</span><span>₹{(activeRowCalculations?.netAmount || 0).toFixed(2)}</span></div>
+                    <div className="md:col-span-5 lg:col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm min-h-[100px] xl:min-h-[140px]">
+                        <div className="text-[10px] xl:text-[12px] font-black uppercase text-gray-500 mb-1 border-b border-gray-200 pb-1">Line Item Details</div>
+                        <div className="grid grid-cols-1 xl:grid-cols-2 xl:gap-x-8 xl:gap-y-2 text-[11px] xl:text-[14px] font-bold uppercase">
+                            <div className="space-y-1">
+                                <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>MRP Value</span><span>₹{(activeRowCalculations?.grossAmount || 0).toFixed(2)}</span></div>
+                                <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Taxable Value</span><span>₹{(activeRowCalculations?.taxableValue || 0).toFixed(2)}</span></div>
+                                <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>Discount</span><span className="text-red-600">- ₹{(activeRowCalculations?.discount || 0).toFixed(2)}</span></div>
+                            </div>
+                            <div className="space-y-1">
+                                <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>SGST ({(activeRowCalculations?.gstPercent || 0) / 2}%)</span><span>₹{(activeRowCalculations?.sgst || 0).toFixed(2)}</span></div>
+                                <div className="flex justify-between border-b border-gray-300 pb-0.5"><span>CGST ({(activeRowCalculations?.gstPercent || 0) / 2}%)</span><span>₹{(activeRowCalculations?.cgst || 0).toFixed(2)}</span></div>
+                                <div className="flex justify-between font-black text-blue-900 pt-1"><span>Line Net Amt</span><span>₹{(activeRowCalculations?.netAmount || 0).toFixed(2)}</span></div>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="md:col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm min-h-[100px]">
-                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1 border-b border-gray-200 pb-1 flex justify-between"><span>Supplier Info</span> <span className="text-[8px] text-primary bg-primary/10 px-1">ACTIVE</span></div>
-                        <div className="text-[11px] font-bold uppercase space-y-0.5">
+                    <div className="md:col-span-3 lg:col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm min-h-[100px] xl:min-h-[140px]">
+                        <div className="text-[10px] xl:text-[12px] font-black uppercase text-gray-500 mb-1 border-b border-gray-200 pb-1 flex justify-between"><span>Supplier Info</span> <span className="text-[8px] xl:text-[10px] text-primary bg-primary/10 px-1">ACTIVE</span></div>
+                        <div className="text-[11px] xl:text-[14px] font-bold uppercase space-y-0.5 xl:space-y-1">
                             <div className="truncate">Area: <span className="text-gray-600">{currentsupplier?.area || '-'}</span></div>
                             <div className="truncate">Route: <span className="text-gray-600">{currentsupplier?.city || '-'}</span></div>
                             <div className="truncate">Last Purchase: <span className="text-gray-600">{lastPurchaseDate}</span></div>
-                            <div className="text-[9px] mt-1 text-gray-400">Last Payment: {lastPaymentDate}</div>
+                            <div className="text-[9px] xl:text-[11px] mt-1 text-gray-400">Last Payment: {lastPaymentDate}</div>
                         </div>
                     </div>
 
