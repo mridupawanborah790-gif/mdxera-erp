@@ -60,8 +60,14 @@ export const parseNetworkAndApiError = (error: any): string => {
     if (message.includes('safety') || message.includes('candidate')) {
         return "AI filtering: The AI declined this content for safety/content reasons. Adjust your input.";
     }
+
+    // Generic HTTP errors
     if (message.includes('400') || message.includes('bad request')) {
-        return "Invalid request: The AI model could not process the input. Ensure it's clear and valid.";
+        // Only return the AI error if it's explicitly about an AI model/extraction
+        if (message.includes('ai') || message.includes('model') || message.includes('extract') || message.includes('ocr')) {
+            return "Invalid request: The AI model could not process the input. Ensure it's clear and valid.";
+        }
+        return `Request failed (400): ${rawMessage}`;
     }
     if (message.includes('401') || message.includes('unauthorized')) {
         return "Authentication failed: AI service access denied.";

@@ -599,6 +599,11 @@ const POS = forwardRef<any, POSProps>(({
         try {
             await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, reservedNextNumber ?? undefined);
             if (onPrintBill) onPrintBill(transaction);
+            
+            // Stats will refresh automatically via useEffect dependency on selectedCustomer change,
+            // but we call it explicitly to be sure and to update global stats.
+            fetchStats();
+
             setCartItems([]);
             setPrescriptions([]);
             setSelectedCustomer(null);
@@ -615,7 +620,7 @@ const POS = forwardRef<any, POSProps>(({
             } else if (reservedNextNumber) {
                 setNextVoucherNumberHint(reservedNextNumber);
             }
-            addNotification("Bill Saved Successfully", "success");
+            // App.tsx handleSaveOrUpdateTransaction already shows a success notification.
         } catch (e: any) {
             addNotification("Failed to save: " + e.message, "error");
         } finally {
