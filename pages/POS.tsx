@@ -10,6 +10,7 @@ import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 import ProductInsightsPanel from '../components/ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
+import { supabase } from '../services/supabaseClient';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
@@ -165,6 +166,50 @@ const POS = forwardRef<any, POSProps>(({
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
+    const [stats, setStats] = useState({ monthTotal: 0, todayTotal: 0, monthCount: 0 });
+
+    const fetchStats = useCallback(async () => {
+        if (!currentUser) return;
+        try {
+            const today = new Date().toISOString().slice(0, 10);
+            const startOfMonth = new Date();
+            startOfMonth.setDate(1);
+            const startOfMonthStr = startOfMonth.toISOString().slice(0, 10);
+
+            const { data: monthData } = await supabase
+                .from('sales_bill')
+                .select('total, date')
+                .eq('organization_id', currentUser.organization_id)
+                .gte('date', startOfMonthStr);
+
+            if (monthData) {
+                const monthTotal = monthData.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+                const todayTotal = monthData
+                    .filter(s => s.date === today)
+                    .reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+                setStats({
+                    monthTotal,
+                    todayTotal,
+                    monthCount: monthData.length
+                });
+            }
+
+            const { data: recent } = await supabase
+                .from('sales_bill')
+                .select('*')
+                .eq('organization_id', currentUser.organization_id)
+                .order('created_at', { ascending: false })
+                .limit(20);
+            if (recent) setSalesHistory(recent.map(r => storage.toCamel(r)));
+        } catch (e) {
+            console.error('Error fetching stats:', e);
+        }
+    }, [currentUser]);
+
+    useEffect(() => {
+        fetchStats();
+    }, [fetchStats]);
+
     const [isInsightsLoading, setIsInsightsLoading] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
@@ -328,6 +373,7 @@ const POS = forwardRef<any, POSProps>(({
             setLumpsumDiscount(0);
             setReferredBy('');
             addNotification(`Bill saved successfully. Bill No: ${transaction.id}`, "success");
+            fetchStats();
         } catch (e: any) {
             const errorMessage = e?.message || String(e) || "Unknown error";
             addNotification(`Failed to save bill: ${errorMessage}`, "error");
@@ -1010,7 +1056,8 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     return (
-        <div className="flex flex-col h-full bg-app-bg overflow-hidden" onKeyDown={handleEnterToNextField}>
+        <div className="flex flex-row h-full bg-app-bg overflow-hidden">
+            <div className="flex-1 flex flex-col h-full overflow-hidden border-r border-gray-300" onKeyDown={handleEnterToNextField}>
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
                 <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black uppercase tracking-widest">
@@ -1703,7 +1750,56 @@ const POS = forwardRef<any, POSProps>(({
                 onChange={handleFileChange}
             />
         </div>
-    );
+
+        <div className="w-80 h-full bg-white flex flex-col overflow-hidden shadow-xl shrink-0">
+            <div className="bg-gray-800 text-white h-7 flex items-center px-4 shrink-0">
+                <span className="text-[10px] font-black uppercase tracking-widest">Sales Insights & History</span>
+            </div>
+            
+            <div className="p-3 border-b border-gray-200 bg-gray-50 grid grid-cols-2 gap-2">
+                <div className="bg-white p-2 border border-gray-300 shadow-sm">
+                    <div className="text-[9px] font-bold text-gray-500 uppercase">This Month</div>
+                    <div className="text-sm font-black text-primary">₹{stats.monthTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                </div>
+                <div className="bg-white p-2 border border-gray-300 shadow-sm">
+                    <div className="text-[9px] font-bold text-gray-500 uppercase">Today</div>
+                    <div className="text-sm font-black text-emerald-600">₹{stats.todayTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                </div>
+                <div className="bg-white p-2 border border-gray-300 shadow-sm col-span-2">
+                    <div className="text-[9px] font-bold text-gray-500 uppercase">Orders Count (MTD)</div>
+                    <div className="text-sm font-black text-gray-800">{stats.monthCount}</div>
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 bg-gray-50/50">
+                <div className="text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Last 20 Sales</div>
+                <div className="space-y-1.5">
+                    {salesHistory.map((sale) => (
+                        <div key={sale.id} className="p-2 bg-white border border-gray-200 hover:border-primary/50 hover:bg-sky-50 transition-colors cursor-pointer text-[11px] shadow-sm">
+                            <div className="flex justify-between items-start mb-1">
+                                <span className="font-black text-gray-800 uppercase truncate pr-2" title={sale.customerName}>{sale.customerName}</span>
+                                <span className="shrink-0 font-black text-primary">₹{sale.total.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-gray-500 font-bold uppercase">
+                                <span>{sale.id}</span>
+                                <span>{sale.date}</span>
+                            </div>
+                            <div className="mt-1 flex items-center gap-2">
+                                <span className={`px-1.5 py-0.5 rounded-sm text-[8px] font-black ${sale.paymentMode === 'Credit' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {sale.paymentMode}
+                                </span>
+                                <span className="text-[9px] text-gray-400">{sale.createdAt ? new Date(sale.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                            </div>
+                        </div>
+                    ))}
+                    {salesHistory.length === 0 && (
+                        <div className="text-center py-10 text-gray-400 text-xs italic">No recent sales found</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    </div>
+);
 });
 
 export default POS;
