@@ -57,33 +57,47 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
         const stream = videoRef.current?.srcObject as MediaStream;
         stream?.getTracks().forEach((t) => t.stop());
     };
+const handleCapture = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
 
-    const handleCapture = () => {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        if (!video || !canvas) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
 
-        const context = canvas.getContext('2d');
-        if (!context) return;
+    // Downscale to max side of 1800 to prevent large payloads
+    const MAX_SIDE = 1800;
+    let width = video.videoWidth;
+    let height = video.videoHeight;
 
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        context.drawImage(video, 0, 0);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        const base64 = dataUrl.split(',')[1];
-        const nextPage = capturedPages.length + 1;
+    if (width > MAX_SIDE || height > MAX_SIDE) {
+        if (width > height) {
+            height = Math.round((height * MAX_SIDE) / width);
+            width = MAX_SIDE;
+        } else {
+            width = Math.round((width * MAX_SIDE) / height);
+            height = MAX_SIDE;
+        }
+    }
 
-        setCapturedPages(prev => ([...prev, {
-            id: crypto.randomUUID(),
-            image: base64,
-            mimeType: 'image/jpeg',
-            pageNumber: nextPage,
-            capturedAt: new Date().toISOString(),
-        }]));
-        setPreviewUrl(dataUrl);
-        setUploadState('pending');
-        setError(null);
-    };
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(video, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const base64 = dataUrl.split(',')[1];
+    const nextPage = capturedPages.length + 1;
+
+    setCapturedPages(prev => ([...prev, {
+        id: crypto.randomUUID(),
+        image: base64,
+        mimeType: 'image/jpeg',
+        pageNumber: nextPage,
+        capturedAt: new Date().toISOString(),
+    }]));
+    setPreviewUrl(dataUrl);
+    setUploadState('pending');
+    setError(null);
+};
 
     const handleRemovePage = (id: string) => {
         setCapturedPages(prev => prev.filter(p => p.id !== id).map((p, index) => ({ ...p, pageNumber: index + 1 })));
