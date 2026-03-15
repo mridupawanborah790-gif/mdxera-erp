@@ -10,8 +10,7 @@ export const handleEnterToNextField = (e: React.KeyboardEvent<HTMLElement>) => {
     if (
       target.tagName === 'BUTTON' || 
       target.tagName === 'A' || 
-      target.tagName === 'TEXTAREA' ||
-      target.tagName === 'SELECT'
+      target.tagName === 'TEXTAREA'
     ) {
       return;
     }

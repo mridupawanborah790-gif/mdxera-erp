@@ -335,6 +335,7 @@ export interface Transaction {
     linkedChallans?: string[];
     companyCodeId?: string;
     setOfBooksId?: string;
+    sync_status?: 'synced' | 'pending' | 'failed';
 }
 
 export type DetailedBill = Transaction & { pharmacy: RegisteredPharmacy; customerDetails?: Customer; };

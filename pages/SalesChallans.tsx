@@ -176,22 +176,24 @@ const SalesChallans = React.forwardRef<any, SalesChallansProps>(({
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200">
-                                    {visibleChallans.map(c => (
-                                        <tr key={c.id} className={`hover:bg-accent transition-colors ${selectedChallanIds.has(c.id) ? 'bg-accent/50' : ''}`} onClick={() => handleSelectChallan(c)}>
-                                            <td className="p-2 border-r border-gray-200 text-center">
-                                                <input type="checkbox" disabled={c.status !== SalesChallanStatus.OPEN} checked={selectedChallanIds.has(c.id)} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
-                                            </td>
-                                            <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary">{c.challanSerialId}</td>
-                                            <td className="p-2 border-r border-gray-200">{new Date(c.date).toLocaleDateString('en-GB')}</td>
-                                            <td className="p-2 border-r border-gray-200 font-black uppercase">{c.customerName}</td>
-                                            <td className="p-2 border-r border-gray-200 text-center font-bold">{c.items.length}</td>
-                                            <td className="p-2 border-r border-gray-200 text-right font-black">₹{c.totalAmount.toFixed(2)}</td>
-                                            <td className="p-2 border-r border-gray-200 text-center">{getStatusBadge(c.status)}</td>
+                                    {visibleChallans.map(c => {
+                                        const isSelected = selectedChallanIds.has(c.id);
+                                        return (
+                                            <tr key={c.id} className={`transition-colors ${isSelected ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'}`} onClick={() => handleSelectChallan(c)}>
+                                                <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : ''}`}>
+                                                    <input type="checkbox" disabled={c.status !== SalesChallanStatus.OPEN} checked={isSelected} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
+                                                </td>
+                                                <td className={`p-2 border-r border-gray-200 font-mono font-bold ${isSelected ? 'text-white' : 'text-primary'}`}>{c.challanSerialId}</td>
+                                                <td className="p-2 border-r border-gray-200">{new Date(c.date).toLocaleDateString('en-GB')}</td>
+                                                <td className="p-2 border-r border-gray-200 font-black uppercase">{c.customerName}</td>
+                                                <td className="p-2 border-r border-gray-200 text-center font-bold">{c.items.length}</td>
+                                                <td className="p-2 border-r border-gray-200 text-right font-black">₹{c.totalAmount.toFixed(2)}</td>                                            <td className="p-2 border-r border-gray-200 text-center">{getStatusBadge(c.status)}</td>
                                             <td className="p-2 text-right">
                                                 <button onClick={() => setSelectedChallanForView(c)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
                                             </td>
                                         </tr>
-                                    ))}
+                                    );
+                                })}
                                 </tbody>
                             </table>
                         </div>
