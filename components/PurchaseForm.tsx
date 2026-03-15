@@ -403,6 +403,36 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         return suppliers.find(d => fuzzyMatch(normalizeSupplierKey(d.name || ''), supplierKey)) || null;
     }, [suppliers, supplier]);
 
+    const stats = useMemo(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        const startOfMonthStr = startOfMonth.toISOString().slice(0, 10);
+
+        let filtered = purchases.filter(p => p.status !== 'cancelled');
+        if (currentsupplier?.name) {
+            filtered = filtered.filter(p => normalizeSupplierKey(p.supplier || '') === normalizeSupplierKey(currentsupplier.name));
+        }
+
+        const monthData = filtered.filter(p => p.date >= startOfMonthStr);
+        const monthTotal = monthData.reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0);
+        const todayTotal = filtered.filter(p => p.date === today).reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0);
+
+        return {
+            monthTotal,
+            todayTotal,
+            monthCount: monthData.length
+        };
+    }, [purchases, currentsupplier]);
+
+    const historyItems = useMemo(() => {
+        let filtered = [...purchases];
+        if (currentsupplier?.name) {
+            filtered = filtered.filter(p => normalizeSupplierKey(p.supplier || '') === normalizeSupplierKey(currentsupplier.name));
+        }
+        return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 20);
+    }, [purchases, currentsupplier]);
+
     const canOpenJournalEntry = Boolean(purchaseToEdit?.id);
     const isPostedVoucher = (purchaseToEdit?.status || '') === 'completed';
     const supplierPhoneDisplay = currentsupplier?.mobile || currentsupplier?.phone || '';
@@ -636,8 +666,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setRateTierHandledRows(new Set());
         } else {
             resetFormForNewEntry();
-            // Focus Supplier name on new voucher
-            setTimeout(() => supplierNameInputRef.current?.focus(), 200);
+            // Focus Date on new voucher
+            setTimeout(() => dateInputRef.current?.focus(), 200);
         }
     }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink, resetFormForNewEntry, lockImportUIReset, purchaseVoucherDraft, voucherScreenOpen]);
 
@@ -1725,7 +1755,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     };
 
     return (
-        <div className={`flex flex-col h-full bg-app-bg overflow-hidden relative ${className || ''}`} onKeyDown={handleEnterToNextField}>
+        <div className="flex h-full overflow-hidden bg-app-bg">
+            <div className={`flex-1 flex flex-col min-w-0 overflow-hidden relative ${className || ''}`} onKeyDown={handleEnterToNextField}>
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
                 <div className="flex items-center gap-3">
                     <span className="text-[10px] font-black uppercase tracking-widest">{isChallan ? 'Delivery Challan Entry' : 'Purchase Voucher Creation'}</span>
@@ -2505,6 +2536,51 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 isPosted={isPostedVoucher}
             />
         </div>
+
+        <div className="w-64 h-full bg-white flex flex-col overflow-hidden shadow-xl shrink-0 border-l border-gray-200">
+            <div className="bg-gray-800 text-white h-7 flex items-center px-4 shrink-0">
+                <span className="text-[10px] font-black uppercase tracking-widest">Purchase Insights</span>
+            </div>
+            
+            <div className="p-3 border-b border-gray-200 bg-gray-50 flex flex-col gap-2">
+                <div className="flex gap-2">
+                    <div className="flex-1 bg-white p-2 border border-gray-300 shadow-sm">
+                        <div className="text-[9px] font-bold text-gray-500 uppercase">This Month</div>
+                        <div className="text-xs font-black text-primary">₹{stats.monthTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div className="flex-1 bg-white p-2 border border-gray-300 shadow-sm">
+                        <div className="text-[9px] font-bold text-gray-500 uppercase">Today</div>
+                        <div className="text-xs font-black text-emerald-600">₹{stats.todayTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                </div>
+                <div className="bg-white p-2 border border-gray-300 shadow-sm flex justify-between items-center">
+                    <div className="text-[9px] font-bold text-gray-500 uppercase">Bills Count (MTD)</div>
+                    <div className="text-sm font-black text-gray-800">{stats.monthCount}</div>
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 bg-gray-50/50">
+                <div className="text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">{currentsupplier ? 'Supplier History' : 'Last 20 Purchases'}</div>
+                <div className="space-y-1.5">
+                    {historyItems.map((pur) => (
+                        <div key={pur.id} className="p-2 bg-white border border-gray-200 hover:border-primary/50 hover:bg-emerald-50 transition-colors cursor-pointer text-[11px] shadow-sm">
+                            <div className="flex justify-between items-start mb-0.5">
+                                <span className="font-black text-gray-800 uppercase truncate pr-2 flex-1" title={pur.supplier}>{pur.supplier}</span>
+                                <span className="shrink-0 font-black text-primary">₹{(pur.totalAmount || 0).toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-[9px] text-gray-400 font-bold uppercase">
+                                <span>{pur.invoiceNumber || pur.purchaseSerialId}</span>
+                                <span>{(pur.date || '').split('T')[0]}</span>
+                            </div>
+                        </div>
+                    ))}
+                    {historyItems.length === 0 && (
+                        <div className="text-center py-10 text-gray-400 text-xs italic">No recent purchases</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    </div>
     );
 });
 

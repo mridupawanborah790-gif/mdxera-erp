@@ -331,20 +331,20 @@ const Inventory: React.FC<InventoryProps> = ({
                                             data-row-index={idx}
                                             className={`transition-all group cursor-pointer border-b border-gray-100 ${
                                                 isSelected 
-                                                ? 'bg-accent/60 shadow-inner ring-1 ring-primary/20' 
+                                                ? 'bg-primary text-white shadow-md' 
                                                 : isLow 
                                                 ? 'bg-red-50/20' 
-                                                : 'hover:bg-accent/30'
+                                                : 'hover:bg-gray-50'
                                             }`} 
                                             onClick={() => {
                                                 setSelectedIndex(idx);
                                             }}
                                         >
-                                            <td className={`py-1.5 px-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
+                                            <td className={`py-1.5 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
                                             
                                             {isFieldVisible('colName') && (
                                                 <td className="py-1 px-2 border-r border-gray-200">
-                                                    <div className={`text-gray-900 leading-tight ${uniformTextStyle}`}>{item.name}</div>
+                                                    <div className={`${isSelected ? 'text-white' : 'text-gray-900'} leading-tight ${uniformTextStyle}`}>{item.name}</div>
                                                 </td>
                                             )}
 

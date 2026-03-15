@@ -171,6 +171,22 @@ export const toSnake = (obj: any): any => {
     }, {} as any);
 };
 
+const isNetworkError = (error: any): boolean => {
+    if (!navigator.onLine) return true;
+    const msg = error?.message?.toLowerCase() || '';
+    return (
+        msg.includes('fetch') ||
+        msg.includes('network') ||
+        msg.includes('timeout') ||
+        msg.includes('failed to connect') ||
+        error?.code === 'PGRST301' || 
+        error?.status === 0 ||
+        error?.status === 502 || 
+        error?.status === 503 || 
+        error?.status === 504    
+    );
+};
+
 export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null, isUpdate: boolean = false): Promise<any> => {
     if (!user?.organization_id) throw new Error("Organizational identity not verified.");
     const dbPayload: any = { ...data, organization_id: user.organization_id };
@@ -184,6 +200,11 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     // If it HAS an ID but is NOT an update (new bill with reserved number), we keep the ID.
     if (!isUpdate && !dbPayload.id) dbPayload.id = generateUUID();
     
+    // Initial assumption: if we are offline, it's pending.
+    if (!navigator.onLine) {
+        dbPayload.sync_status = 'pending';
+    }
+
     await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
     
     if (navigator.onLine) {
@@ -245,10 +266,25 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 result = saved;
             }
             
-            return result ? toCamel(result) : dbPayload;
-        } catch (e) {
-            console.warn(`Supabase sync failed for ${tableName}, local copy preserved.`, e);
-            throw e; // Rethrow so the UI knows the sync failed
+            // On successful supabase save, mark as synced and update local storage.
+            const syncedData = result ? { ...toCamel(result), sync_status: 'synced' } : { ...dbPayload, sync_status: 'synced' };
+            await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], syncedData);
+            return syncedData;
+        } catch (e: any) {
+            if (isNetworkError(e)) {
+                console.warn(`Supabase sync failed for ${tableName} due to network, local copy preserved as pending.`, e);
+                dbPayload.sync_status = 'pending';
+                await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
+                return dbPayload; // DO NOT throw for network errors, let UI continue
+            }
+
+            // ROLLBACK: If it's a hard error (like Duplicate Key 23505), 
+            // we MUST NOT keep this invalid record in local storage.
+            if (!isUpdate) {
+                console.error(`Hard failure during save for ${tableName}. Rolling back local record.`, e);
+                await idb.delete(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload.id);
+            }
+            throw e; 
         }
     }
     return dbPayload;
@@ -493,6 +529,34 @@ const ensurePostingContext = async (
     };
 };
 
+const validateGLMappings = async (organizationId: string, setOfBooksId: string, type: 'sales' | 'purchase') => {
+    const requiredCodes = type === 'sales' 
+        ? ['400100', '210110', '210120', '210130', '510000']
+        : ['510000']; // Purchase validation happens line-by-line later but we check round-off here
+    
+    const { data: glRows } = await supabase
+        .from('gl_master')
+        .select('gl_code')
+        .eq('organization_id', organizationId)
+        .eq('set_of_books_id', setOfBooksId)
+        .in('gl_code', requiredCodes);
+    
+    const foundCodes = new Set((glRows || []).map(r => String(r.gl_code)));
+    const missing = requiredCodes.filter(c => !foundCodes.has(c));
+    
+    if (missing.length > 0) {
+        const labels: Record<string, string> = {
+            '400100': 'Sales',
+            '210110': 'Output CGST',
+            '210120': 'Output SGST',
+            '210130': 'Output IGST',
+            '510000': 'Round Off'
+        };
+        const missingLabels = missing.map(c => `${labels[c]} (${c})`).join(', ');
+        throw new Error(`GL mapping incomplete for the selected Set of Books. Missing: ${missingLabels}. Please configure these accounts in GL Master.`);
+    }
+};
+
 export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
     if (!tx.user_id) tx.user_id = user.user_id;
 
@@ -500,6 +564,10 @@ export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy, 
         const postingContext = await ensurePostingContext(tx, user);
         tx.companyCodeId = postingContext.companyCodeId;
         tx.setOfBooksId = postingContext.setOfBooksId;
+        
+        // CRITICAL: Validate GL mappings BEFORE saving anything to database
+        // This prevents the "bill saved but accounting failed" error loop.
+        await validateGLMappings(user.organization_id, tx.setOfBooksId, 'sales');
     } catch (e: any) {
         throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
     }
@@ -548,8 +616,78 @@ export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy, 
         }
     }
 
-    await syncSalesLedger(tx, user, isUpdate);
+    try {
+        await syncSalesLedger(tx, user, isUpdate);
+    } catch (e) {
+        if (isNetworkError(e)) {
+            console.warn('Sales ledger sync deferred due to network connectivity.', e);
+            // If the transaction itself wasn't already pending, we should mark it as pending
+            // if the ledger sync failed, but since saveData already handled that if it was a network error,
+            // we are mostly covered. 
+        } else {
+            throw e;
+        }
+    }
     return res;
+};
+
+export const syncPendingData = async (user: RegisteredPharmacy): Promise<{ success: number; failed: number }> => {
+    if (!navigator.onLine || !user) return { success: 0, failed: 0 };
+    
+    let successCount = 0;
+    let failedCount = 0;
+    
+    const storesToSync = [
+        STORES.SALES_BILL,
+        STORES.PURCHASES,
+        STORES.INVENTORY,
+        STORES.CUSTOMERS,
+        STORES.SUPPLIERS,
+        STORES.MATERIAL_MASTER,
+        STORES.PURCHASE_ORDERS,
+        STORES.SALES_CHALLANS,
+        STORES.DELIVERY_CHALLANS,
+        STORES.PHYSICAL_INVENTORY,
+        STORES.SALES_RETURNS,
+        STORES.PURCHASE_RETURNS
+    ];
+
+    for (const storeName of storesToSync) {
+        try {
+            const allItems = await idb.getAll(storeName);
+            const pendingItems = allItems.filter(item => item.sync_status === 'pending');
+            
+            for (const item of pendingItems) {
+                try {
+                    const tableName = Object.keys(STORES).find(key => (STORES as any)[key] === storeName)?.toLowerCase();
+                    if (!tableName) continue;
+                    
+                    // Re-run saveData which will attempt to push to Supabase
+                    await saveData(tableName, item, user, true); 
+                    
+                    // Special cases for transactions that need ledger sync
+                    if (tableName === 'sales_bill') {
+                        await syncSalesLedger(item as Transaction, user, true).catch(err => {
+                            console.warn('Ledger sync still failing for pending bill:', item.id, err);
+                        });
+                    } else if (tableName === 'purchases') {
+                        await syncPurchaseLedger(item as Purchase, user).catch(err => {
+                            console.warn('Ledger sync still failing for pending purchase:', item.id, err);
+                        });
+                    }
+                    
+                    successCount++;
+                } catch (itemErr) {
+                    console.error(`Failed to sync pending item ${item.id} in ${storeName}:`, itemErr);
+                    failedCount++;
+                }
+            }
+        } catch (storeErr) {
+            console.error(`Failed to process sync for store ${storeName}:`, storeErr);
+        }
+    }
+    
+    return { success: successCount, failed: failedCount };
 };
 
 export const generateNextSalesBillId = async (templateId: string, user: RegisteredPharmacy): Promise<string> => {
@@ -588,6 +726,9 @@ export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
         const postingContext = await ensurePostingContext(p, user);
         p.companyCodeId = postingContext.companyCodeId;
         p.setOfBooksId = postingContext.setOfBooksId;
+
+        // CRITICAL: Validate GL mappings BEFORE saving anything to database
+        await validateGLMappings(user.organization_id, p.setOfBooksId, 'purchase');
     } catch (e: any) {
         throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
     }

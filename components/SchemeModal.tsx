@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Modal from './Modal';
 import type { BillItem } from '../types';
+import { handleEnterToNextField } from '../utils/navigation';
 
 interface SchemeModalProps {
     isOpen: boolean;
@@ -75,6 +76,7 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
     const [selectedRule, setSelectedRule] = useState('custom');
     const [schemePercent, setSchemePercent] = useState<number>(0);
     const [schemeRate, setSchemeRate] = useState<number>(0);
+    const firstInputRef = useRef<HTMLSelectElement>(null);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -84,21 +86,23 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
             setSelectedRule('custom');
             setSchemePercent(0);
             setSchemeRate(0);
-            return;
-        }
-
-        if (item.schemeMode === 'percent' && (item.schemeValue || 0) > 0) {
+        } else if (item.schemeMode === 'percent' && (item.schemeValue || 0) > 0) {
             setSchemePercent(item.schemeValue || 0);
             setSchemeRule('');
             setSelectedRule('custom');
             setSchemeRate(0);
-            return;
+        } else {
+            setSchemeRule('');
+            setSelectedRule('custom');
+            setSchemePercent(item.schemeDiscountPercent || 0);
+            setSchemeRate(0);
         }
 
-        setSchemeRule('');
-        setSelectedRule('custom');
-        setSchemePercent(item.schemeDiscountPercent || 0);
-        setSchemeRate(0);
+        // Auto focus the select box on open
+        const timer = setTimeout(() => {
+            firstInputRef.current?.focus();
+        }, 150);
+        return () => clearTimeout(timer);
     }, [isOpen, item]);
 
     const unitsPerPack = item.unitsPerPack || 1;
@@ -163,7 +167,12 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
         })
         : 0;
 
-    const handleApply = () => {
+    const handleApply = (e?: React.FormEvent) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
         if (!computed.mode) {
             onClear(item.id);
             onClose();
@@ -186,102 +195,124 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Scheme Rule" widthClass="max-w-md">
-            <div className="space-y-4 p-2">
-                <div className="text-xs text-gray-500 uppercase">{item.name}</div>
+            <form onSubmit={handleApply} onKeyDown={handleEnterToNextField} className="flex flex-col h-full">
+                <div className="space-y-4 p-4 flex-1 overflow-y-auto">
+                    <div className="text-xs text-gray-500 uppercase font-bold">{item.name}</div>
 
-                <div>
-                    <label className="block text-xs font-semibold mb-1">Quick Scheme</label>
-                    <select
-                        value={selectedRule}
-                        onChange={(e) => {
-                            const nextRule = e.target.value;
-                            setSelectedRule(nextRule);
-                            if (nextRule === 'custom') return;
-                            setSchemeRule(nextRule.includes('%') ? '' : nextRule);
-                            setSchemePercent(nextRule.includes('%') ? Number(nextRule.replace('%', '')) : 0);
-                            setSchemeRate(0);
-                        }}
-                        className="w-full p-2 border border-app-border bg-input-bg"
+                    <div>
+                        <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Quick Scheme</label>
+                        <select
+                            ref={firstInputRef}
+                            value={selectedRule}
+                            onChange={(e) => {
+                                const nextRule = e.target.value;
+                                setSelectedRule(nextRule);
+                                if (nextRule === 'custom') return;
+                                setSchemeRule(nextRule.includes('%') ? '' : nextRule);
+                                setSchemePercent(nextRule.includes('%') ? Number(nextRule.replace('%', '')) : 0);
+                                setSchemeRate(0);
+                            }}
+                            className="w-full p-2 border border-gray-300 bg-white focus:bg-yellow-50 outline-none text-sm font-bold"
+                        >
+                            <option value="custom">Custom (Manual Entry)</option>
+                            <option value="10+1">10+1 (Free Qty)</option>
+                            <option value="1 in 10">1 in 10 (Ratio)</option>
+                            <option value="100%">100% scheme</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Scheme format</label>
+                        <input
+                            type="text"
+                            value={schemeRule}
+                            onChange={(e) => {
+                                setSchemeRule(e.target.value);
+                                if (e.target.value.trim()) {
+                                    setSchemePercent(0);
+                                    setSchemeRate(0);
+                                    setSelectedRule('custom');
+                                }
+                            }}
+                            placeholder="e.g. 1 in 10 or 10+1"
+                            className="w-full p-2 border border-gray-300 bg-white focus:bg-yellow-50 outline-none text-sm font-bold uppercase"
+                        />
+                    </div>
+
+                    <div className="text-center text-[10px] font-black text-gray-300">--- OR ---</div>
+
+                    <div>
+                        <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Scheme %</label>
+                        <input
+                            type="number"
+                            value={schemePercent === 0 ? '' : schemePercent}
+                            onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                setSchemePercent(Math.max(0, value));
+                                if (value > 0) {
+                                    setSchemeRule('');
+                                    setSchemeRate(0);
+                                    setSelectedRule('custom');
+                                }
+                            }}
+                            placeholder="5"
+                            className="w-full p-2 border border-gray-300 bg-white focus:bg-yellow-50 outline-none text-sm font-bold"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Scheme Rate (₹ per unit)</label>
+                        <input
+                            type="number"
+                            value={schemeRate === 0 ? '' : schemeRate}
+                            onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                setSchemeRate(Math.max(0, value));
+                                if (value > 0) {
+                                    setSchemePercent(0);
+                                    setSchemeRule('');
+                                    setSelectedRule('custom');
+                                }
+                            }}
+                            placeholder="0.00"
+                            className="w-full p-2 border border-gray-300 bg-white focus:bg-yellow-50 outline-none text-sm font-bold"
+                        />
+                    </div>
+
+                    <div className="rounded border border-dashed border-emerald-300 bg-emerald-50 p-3 text-xs font-bold space-y-1">
+                        <div className="flex justify-between text-emerald-800"><span>SCH% BENEFIT</span><span>{schemeDisplayPercent.toFixed(2)}%</span></div>
+                        <div className="flex justify-between text-emerald-800"><span>FREE QUANTITY</span><span>{computed.freeQuantity.toFixed(2)}</span></div>
+                        <div className="flex justify-between text-emerald-900 font-black"><span>TOTAL BENEFIT</span><span>₹{computed.discountAmount.toFixed(2)}</span></div>
+                    </div>
+                </div>
+
+                <div className="flex justify-between items-center p-4 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+                    <button 
+                        type="button" 
+                        tabIndex={-1} 
+                        onClick={() => { onClear(item.id); onClose(); }} 
+                        className="px-4 py-2 text-[10px] font-black uppercase text-red-600 hover:bg-red-50 transition-colors"
                     >
-                        <option value="custom">Custom</option>
-                        <option value="10+1">10+1</option>
-                        <option value="1 in 10">1 in 10</option>
-                        <option value="100%">100% scheme</option>
-                    </select>
+                        Clear Scheme
+                    </button>
+                    <div className="flex gap-2">
+                        <button 
+                            type="button" 
+                            tabIndex={-1} 
+                            onClick={onClose} 
+                            className="px-4 py-2 text-[10px] font-black uppercase text-gray-500 hover:bg-gray-100 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit" 
+                            className="px-6 py-2 bg-primary text-white text-[10px] font-black uppercase shadow-md hover:bg-primary-dark transition-all active:scale-95"
+                        >
+                            Apply (Enter)
+                        </button>
+                    </div>
                 </div>
-
-                <div>
-                    <label className="block text-xs font-semibold mb-1">Scheme format</label>
-                    <input
-                        type="text"
-                        value={schemeRule}
-                        onChange={(e) => {
-                            setSchemeRule(e.target.value);
-                            if (e.target.value.trim()) {
-                                setSchemePercent(0);
-                                setSchemeRate(0);
-                                setSelectedRule('custom');
-                            }
-                        }}
-                        placeholder="1 in 10 or 10+1"
-                        className="w-full p-2 border border-app-border bg-input-bg"
-                    />
-                </div>
-
-                <div className="text-center text-xs text-gray-400">OR</div>
-
-                <div>
-                    <label className="block text-xs font-semibold mb-1">Scheme %</label>
-                    <input
-                        type="number"
-                        value={schemePercent === 0 ? '' : schemePercent}
-                        onChange={(e) => {
-                            const value = parseFloat(e.target.value) || 0;
-                            setSchemePercent(Math.max(0, value));
-                            if (value > 0) {
-                                setSchemeRule('');
-                                setSchemeRate(0);
-                                setSelectedRule('custom');
-                            }
-                        }}
-                        placeholder="5"
-                        className="w-full p-2 border border-app-border bg-input-bg"
-                    />
-                </div>
-
-                <div>
-                    <label className="block text-xs font-semibold mb-1">Scheme Rate (₹ per billed qty)</label>
-                    <input
-                        type="number"
-                        value={schemeRate === 0 ? '' : schemeRate}
-                        onChange={(e) => {
-                            const value = parseFloat(e.target.value) || 0;
-                            setSchemeRate(Math.max(0, value));
-                            if (value > 0) {
-                                setSchemePercent(0);
-                                setSchemeRule('');
-                                setSelectedRule('custom');
-                            }
-                        }}
-                        placeholder="0"
-                        className="w-full p-2 border border-app-border bg-input-bg"
-                    />
-                </div>
-
-                <div className="rounded border border-dashed border-emerald-300 bg-emerald-50 p-3 text-sm">
-                    <div className="flex justify-between"><span>SCH%</span><span>{schemeDisplayPercent.toFixed(2)}%</span></div>
-                    <div className="flex justify-between"><span>FREE Qty</span><span>{computed.freeQuantity.toFixed(2)}</span></div>
-                    <div className="flex justify-between"><span>Benefit</span><span>₹{computed.discountAmount.toFixed(2)}</span></div>
-                </div>
-            </div>
-
-            <div className="flex justify-between items-center p-4 border-t border-app-border bg-gray-50">
-                <button onClick={() => { onClear(item.id); onClose(); }} className="px-4 py-2 text-xs text-red-600">Clear</button>
-                <div className="flex gap-2">
-                    <button onClick={onClose} className="px-4 py-2 text-xs">Cancel</button>
-                    <button onClick={handleApply} className="px-4 py-2 bg-primary text-white text-xs">Apply</button>
-                </div>
-            </div>
+            </form>
         </Modal>
     );
 };

@@ -464,6 +464,35 @@ const App: React.FC = () => {
         }
     }, [configurations, currentUser]);
 
+    useEffect(() => {
+        if (!currentUser) return;
+        
+        const runSync = async () => {
+            if (!navigator.onLine) return;
+            try {
+                const result = await storage.syncPendingData(currentUser);
+                if (result.success > 0) {
+                    console.log(`Background sync completed: ${result.success} items synced.`);
+                    // Optional: Refresh local data if something was synced
+                    loadData(currentUser, 'background');
+                }
+            } catch (err) {
+                console.warn('Background sync cycle failed:', err);
+            }
+        };
+
+        // Run sync every 60 seconds
+        const interval = setInterval(runSync, 60000);
+        // Also run immediately on mount or when coming online
+        runSync();
+        
+        window.addEventListener('online', runSync);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('online', runSync);
+        };
+    }, [currentUser, loadData]);
+
     const handleLogin = (user: RegisteredPharmacy) => {
         setCurrentPage('dashboard');
         setConfigurations(prev => ({
@@ -1024,7 +1053,8 @@ const App: React.FC = () => {
     };
 
     const renderPage = () => {
-        const config: ModuleConfig = { visible: true, fields: configurations.modules?.[currentPage]?.fields || {} };
+        const configId = currentPage === 'nonGstPos' ? 'pos' : currentPage;
+        const config: ModuleConfig = { visible: true, fields: configurations.modules?.[configId]?.fields || {} };
 
         try {
             switch (currentPage) {
@@ -1051,6 +1081,7 @@ const App: React.FC = () => {
                             handleNavigate('dashboard');
                         }}
                         transactionToEdit={editingSale}
+                        onRefreshConfig={() => loadData(currentUser!, 'background')}
                     />;
                 case 'salesHistory':
                     return <SalesHistory
@@ -1072,6 +1103,150 @@ const App: React.FC = () => {
                         configurations={configurations}
                         addNotification={addNotification}
                         onSaved={() => loadData(currentUser!, 'background')}
+                    />;
+                case 'salesChallans':
+                    return <SalesChallans
+                        salesChallans={salesChallans}
+                        inventory={inventory}
+                        medicines={medicines}
+                        purchases={purchases}
+                        customers={customers}
+                        currentUser={currentUser}
+                        configurations={configurations}
+                        onAddChallan={async (challan) => {
+                            await storage.saveData('sales_challans', challan, currentUser!);
+                            await loadData(currentUser!, 'background');
+                        }}
+                        onUpdateChallan={async (challan) => {
+                            await storage.saveData('sales_challans', challan, currentUser!);
+                            await loadData(currentUser!, 'background');
+                        }}
+                        onCancelChallan={async (id) => {
+                            const challan = salesChallans.find(c => c.id === id);
+                            if (challan) {
+                                await storage.saveData('sales_challans', { ...challan, status: SalesChallanStatus.CANCELLED }, currentUser!);
+                                await storage.markVoucherCancelled('sales-challan', currentUser!, challan.id, challan.id);
+                                await loadData(currentUser!, 'background');
+                            }
+                        }}
+                        onConvertToInvoice={handleConvertToInvoice}
+                        addNotification={addNotification}
+                        onAddMedicineMaster={handleAddMedicineMaster}
+                    />;
+                case 'deliveryChallans':
+                    return <DeliveryChallans
+                        deliveryChallans={deliveryChallans}
+                        inventory={inventory}
+                        distributors={suppliers}
+                        medicines={medicines}
+                        currentUser={currentUser}
+                        configurations={configurations}
+                        onAddChallan={async (challan) => {
+                            await storage.saveData('delivery_challans', challan, currentUser!);
+                            await loadData(currentUser!, 'background');
+                        }}
+                        onUpdateChallan={async (challan) => {
+                            await storage.saveData('delivery_challans', challan, currentUser!);
+                            await loadData(currentUser!, 'background');
+                        }}
+                        onCancelChallan={async (id) => {
+                            const challan = deliveryChallans.find(c => c.id === id);
+                            if (challan) {
+                                await storage.saveData('delivery_challans', { ...challan, status: DeliveryChallanStatus.CANCELLED }, currentUser!);
+                                await storage.markVoucherCancelled('delivery-challan', currentUser!, challan.id, challan.id);
+                                await loadData(currentUser!, 'background');
+                            }
+                        }}
+                        onConvertToPurchase={handleConvertToPurchase}
+                        onAddInventoryItem={handleAddInventoryItem}
+                        onAddMedicineMaster={handleAddMedicineMaster}
+                        onAddDistributor={handleAddDistributor}
+                        onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser!).then(() => loadData(currentUser!, 'background'))}
+                        addNotification={addNotification}
+                        mappings={mappings}
+                    />;
+                case 'salesReturns':
+                case 'purchaseReturn':
+                    return <Returns
+                        ref={purchaseFormRef}
+                        currentUser={currentUser}
+                        transactions={transactions}
+                        inventory={inventory}
+                        salesReturns={salesReturns}
+                        purchaseReturns={purchaseReturns}
+                        purchases={purchases}
+                        onAddSalesReturn={async (sr) => {
+                            await storage.saveData('sales_returns', sr, currentUser!);
+                            await loadData(currentUser!, 'background');
+                            addNotification('Sales return recorded.', 'success');
+                        }}
+                        onAddPurchaseReturn={async (pr) => {
+                            await storage.saveData('purchase_returns', pr, currentUser!);
+                            await loadData(currentUser!, 'background');
+                            addNotification('Purchase return recorded.', 'success');
+                        }}
+                        addNotification={addNotification}
+                        defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'}
+                        isFixedMode={true}
+                        prefillSalesInvoiceId={salesReturnPrefillInvoiceId || undefined}
+                        prefillPurchaseInvoiceId={purchaseReturnPrefillInvoiceId || undefined}
+                        onPrefillSalesInvoiceHandled={() => setSalesReturnPrefillInvoiceId(null)}
+                        onPrefillPurchaseInvoiceHandled={() => setPurchaseReturnPrefillInvoiceId(null)}
+                    />;
+                case 'purchaseOrders':
+                    return <PurchaseOrders
+                        ref={purchaseFormRef}
+                        distributors={suppliers}
+                        inventory={inventory}
+                        purchaseOrders={purchaseOrders}
+                        onAddPurchaseOrder={async (po) => {
+                            const newPO = await storage.saveData('purchase_orders', po, currentUser!);
+                            await loadData(currentUser!, 'background');
+                            addNotification(`Purchase Order ${newPO.serialId} saved.`, 'success');
+                        }}
+                        onUpdatePurchaseOrder={async (po) => {
+                            await storage.saveData('purchase_orders', po, currentUser!);
+                            await loadData(currentUser!, 'background');
+                        }}
+                        onCreatePurchaseEntry={(po) => {
+                            const items: PurchaseItem[] = po.items.map(item => ({
+                                id: storage.generateUUID(),
+                                name: item.name,
+                                brand: item.brand || '',
+                                category: 'General',
+                                batch: '',
+                                expiry: item.expiry || '',
+                                quantity: item.quantity,
+                                freeQuantity: item.freeQuantity || 0,
+                                mrp: item.mrp || 0,
+                                purchasePrice: item.purchasePrice || 0,
+                                discountPercent: 0,
+                                schemeDiscountPercent: 0,
+                                gstPercent: item.gstPercent || 0,
+                                amount: 0,
+                                packType: item.packType || '',
+                                looseQuantity: 0,
+                                hsnCode: item.hsnCode || '',
+                                schemeDiscountAmount: 0
+                            }));
+                            setSourceChallansForPurchase({ items, supplier: po.distributorId, ids: [po.id] });
+                            handleNavigate('manualSupplierInvoice');
+                        }}
+                        onPrintPurchaseOrder={setPrintPO as any}
+                        onCancelPurchaseOrder={async (id) => {
+                            const po = purchaseOrders.find(p => p.id === id);
+                            if (po) {
+                                await storage.saveData('purchase_orders', { ...po, status: PurchaseOrderStatus.CANCELLED }, currentUser!);
+                                await storage.markVoucherCancelled('purchase-order', currentUser!, po.serialId, po.id);
+                                await loadData(currentUser!, 'background');
+                            }
+                        }}
+                        draftItems={null}
+                        onClearDraft={() => {}}
+                        setIsDirty={() => {}}
+                        currentUserPharmacyName={currentUser?.pharmacy_name || ''}
+                        currentUserEmail={currentUser?.email || ''}
+                        currentUserOrgId={currentUser?.organization_id}
                     />;
                 case 'automatedPurchaseEntry':
                     return <PurchaseForm

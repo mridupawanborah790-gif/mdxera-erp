@@ -274,12 +274,13 @@ const DeliveryChallansPage = React.forwardRef<any, DeliveryChallansPageProps>(({
                                     <tbody className="divide-y divide-gray-200">
                                         {visibleChallans.map(c => {
                                             const isSelectable = c.status === DeliveryChallanStatus.OPEN;
+                                            const isSelected = selectedChallanIds.has(c.id);
                                             return (
-                                                <tr key={c.id} className={`transition-colors ${isSelectable ? 'cursor-pointer hover:bg-accent' : 'bg-gray-50/50'} ${selectedChallanIds.has(c.id) ? 'bg-accent/50' : ''}`} onClick={() => handleSelectChallan(c)}>
-                                                    <td className="p-2 border-r border-gray-200 text-center" onClick={e => e.stopPropagation()}>
-                                                        <input type="checkbox" disabled={!isSelectable} checked={selectedChallanIds.has(c.id)} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
+                                                <tr key={c.id} className={`transition-colors ${isSelectable ? 'cursor-pointer' : 'bg-gray-50/50'} ${isSelected ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'}`} onClick={() => handleSelectChallan(c)}>
+                                                    <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : ''}`} onClick={e => e.stopPropagation()}>
+                                                        <input type="checkbox" disabled={!isSelectable} checked={isSelected} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
                                                     </td>
-                                                    <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary">{c.challanSerialId}</td>
+                                                    <td className={`p-2 border-r border-gray-200 font-mono font-bold ${isSelected ? 'text-white' : 'text-primary'}`}>{c.challanSerialId}</td>
                                                     <td className="p-2 border-r border-gray-200">{new Date(c.date).toLocaleDateString('en-IN')}</td>
                                                     <td className="p-2 border-r border-gray-200 font-black uppercase">{c.supplier}</td>
                                                     <td className="p-2 border-r border-gray-200 font-mono text-[10px]">{c.challanNumber}</td>

@@ -406,10 +406,10 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                                     <tr
                                         key={p.id}
                                         onClick={() => handleSelectRow(p.id)}
-                                        className={`cursor-pointer transition-colors ${selectedPurchaseId === p.id ? 'bg-lime-100' : 'hover:bg-accent'} ${p.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}
+                                        className={`cursor-pointer transition-colors ${selectedPurchaseId === p.id ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'} ${p.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}
                                     >
-                                        <td className="p-2 border-r border-gray-200 font-bold text-gray-400 text-center">{idx + 1}</td>
-                                        <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary">{p.purchaseSerialId}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-bold text-center ${selectedPurchaseId === p.id ? 'text-white' : 'text-gray-400'}`}>{idx + 1}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedPurchaseId === p.id ? 'text-white' : 'text-primary'}`}>{p.purchaseSerialId}</td>
                                         <td className="p-2 border-r border-gray-200 font-bold uppercase">{p.invoiceNumber}</td>
                                         <td className="p-2 border-r border-gray-200">{new Date(p.date).toLocaleDateString('en-IN')}</td>
                                         <td className="p-2 border-r border-gray-200 font-bold uppercase">{p.supplier}</td>

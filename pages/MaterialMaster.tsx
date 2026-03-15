@@ -192,25 +192,25 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                         {paginatedMedicines.map((med, idx) => (
-                                            <tr key={med.id} className="hover:bg-accent transition-colors cursor-pointer group" onClick={() => handleOpenEditModal(med)}>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-gray-900`}>
+                                            <tr key={med.id} className="hover:bg-primary hover:text-white transition-colors cursor-pointer group" onClick={() => handleOpenEditModal(med)}>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center group-hover:text-white text-gray-400 ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 group-hover:text-white text-gray-900`}>
                                                     <div className="flex flex-col">
                                                         <span className={`leading-none ${uniformTextStyle}`}>{med.name}</span>
-                                                        <span className="text-[11px] text-gray-400 normal-case italic font-bold mt-1 line-clamp-1 leading-none">{med.composition}</span>
+                                                        <span className="text-[11px] group-hover:text-white/70 text-gray-400 normal-case italic font-bold mt-1 line-clamp-1 leading-none">{med.composition}</span>
                                                     </div>
                                                 </td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 font-mono font-bold text-gray-700 ${uniformTextStyle}`}>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 font-mono font-bold group-hover:text-white text-gray-700 ${uniformTextStyle}`}>
                                                     {med.materialCode}
                                                 </td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>{med.pack || '—'}</td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-right text-primary ${uniformTextStyle}`}>₹{parseFloat(med.mrp || '0').toFixed(2)}</td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center text-gray-600 ${uniformTextStyle}`}>{med.gstRate}%</td>
-                                                <td className="py-1.5 px-2 border-r border-gray-400 text-center">
-                                                    {med.isPrescriptionRequired && <span className="text-red-600 font-black text-[10px] px-1.5 py-0.5 bg-red-50 border border-red-100 rounded">H</span>}
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center group-hover:text-white ${uniformTextStyle}`}>{med.pack || '—'}</td>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-right group-hover:text-white text-primary ${uniformTextStyle}`}>₹{parseFloat(med.mrp || '0').toFixed(2)}</td>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center group-hover:text-white text-gray-600 ${uniformTextStyle}`}>{med.gstRate}%</td>
+                                                <td className="py-1.5 px-2 border-r border-gray-400 text-center group-hover:text-white">
+                                                    {med.isPrescriptionRequired && <span className="text-red-600 font-black text-[10px] px-1.5 py-0.5 bg-red-50 border border-red-100 rounded group-hover:bg-red-600 group-hover:text-white group-hover:border-red-700">H</span>}
                                                 </td>
-                                                <td className="py-1.5 px-2 text-right">
-                                                    <button className="text-primary font-black uppercase text-[10px] px-2 py-0.5 bg-primary/5 border border-primary/20 hover:bg-primary hover:text-white transition-all">Alter</button>
+                                                <td className="py-1.5 px-2 text-right group-hover:text-white">
+                                                    <button className="text-primary font-black uppercase text-[10px] px-2 py-0.5 bg-primary/5 border border-primary/20 hover:bg-white hover:text-primary transition-all group-hover:bg-white group-hover:text-primary">Alter</button>
                                                 </td>
                                             </tr>
                                         ))}
