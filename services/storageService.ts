@@ -42,6 +42,59 @@ const buildSequentialSalesBillId = (templateId: string, latestId?: string | null
     return `${templateId.slice(0, templateNumberPart.startIndex)}${paddedNext}${templateId.slice(templateNumberPart.endIndex)}`;
 };
 
+const MATERIAL_CODE_START = 10000000;
+const MATERIAL_CODE_LENGTH = 8;
+
+const parseMaterialCodeNumber = (value: unknown): number | null => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!/^\d{8}$/.test(trimmed)) return null;
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed < MATERIAL_CODE_START) return null;
+    return parsed;
+};
+
+const getHighestLocalMaterialCode = async (organizationId: string): Promise<number> => {
+    const localRows = await idb.getAll(STORES.MATERIAL_MASTER);
+    return localRows.reduce((max, row) => {
+        if (row?.organization_id !== organizationId) return max;
+        const parsed = parseMaterialCodeNumber(row?.materialCode);
+        return parsed !== null && parsed > max ? parsed : max;
+    }, MATERIAL_CODE_START - 1);
+};
+
+const getHighestRemoteMaterialCode = async (organizationId: string): Promise<number> => {
+    const { data, error } = await supabase
+        .from('material_master')
+        .select('material_code')
+        .eq('organization_id', organizationId)
+        .order('material_code', { ascending: false })
+        .limit(200);
+
+    if (error) throw error;
+
+    return (data || []).reduce((max, row: any) => {
+        const parsed = parseMaterialCodeNumber(row?.material_code);
+        return parsed !== null && parsed > max ? parsed : max;
+    }, MATERIAL_CODE_START - 1);
+};
+
+const getNextMaterialCode = async (organizationId: string): Promise<string> => {
+    const localHighest = await getHighestLocalMaterialCode(organizationId);
+    let remoteHighest = MATERIAL_CODE_START - 1;
+
+    if (navigator.onLine) {
+        try {
+            remoteHighest = await getHighestRemoteMaterialCode(organizationId);
+        } catch {
+            // Fallback to local sequence when remote read fails.
+        }
+    }
+
+    const next = Math.max(localHighest, remoteHighest) + 1;
+    return String(next).padStart(MATERIAL_CODE_LENGTH, '0');
+};
+
 const SALES_BILL_ALLOWED_FIELDS = [
     'id', 'organization_id', 'user_id', 'date',
     'customerName', 'customerId', 'customerPhone', 'referredBy',
@@ -195,6 +248,10 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     if (ownershipTrackingTables.includes(tableName) && currentUserId && !dbPayload.user_id) {
         dbPayload.user_id = currentUserId;
     }
+
+    if (tableName === 'material_master' && !isUpdate) {
+        dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+    }
     
     // If it's not an update and has no ID, generate one. 
     // If it HAS an ID but is NOT an update (new bill with reserved number), we keep the ID.
@@ -250,16 +307,29 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             let result;
             // Use .insert() for new records to ensure we don't accidentally overwrite existing data
             // Use .upsert() only when explicitly requested as an update
-            if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders'].includes(tableName)) {
-                const { data: saved, error } = await supabase.from(tableName).insert(snakeData).select().single();
-                if (error) {
-                    // If insert fails due to duplicate ID, it means the number was already used
-                    if (error.code === '23505') {
+            if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders', 'material_master'].includes(tableName)) {
+                const maxAttempts = tableName === 'material_master' ? 5 : 1;
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                    const { data: saved, error } = await supabase.from(tableName).insert(snakeData).select().single();
+                    if (!error) {
+                        result = saved;
+                        break;
+                    }
+
+                    if (error.code !== '23505') throw error;
+
+                    if (tableName !== 'material_master') {
                         throw new Error(`Voucher number ${dbPayload.id} already exists in database. Please refresh and try again.`);
                     }
-                    throw error;
+
+                    dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+                    await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
+                    snakeData.material_code = dbPayload.materialCode;
+
+                    if (attempt === maxAttempts) {
+                        throw new Error('Unable to generate a unique Material Code. Please try again.');
+                    }
                 }
-                result = saved;
             } else {
                 const { data: saved, error } = await supabase.from(tableName).upsert(snakeData).select().single();
                 if (error) throw error;
