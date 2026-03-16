@@ -1568,6 +1568,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setMobileSyncStatus('imported');
             addNotification(`Imported ${orderedPages.length} mobile page(s) into draft purchase voucher.`, 'success');
 
+            // Auto-close modal after successful import
+            setTimeout(() => {
+                setMobileSyncSessionId(null);
+            }, 1500);
+
             const unresolvedCount = (extractionResult?.linkedItems || []).filter(item => item.matchStatus !== 'matched').length;
             if (unresolvedCount === 0) {
                 addNotification('All imported items were auto-mapped. Opening draft purchase voucher directly.', 'success');
@@ -1584,6 +1589,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
     }, [addNotification, processAiExtraction]);
 
+    const processMobileSyncPayloadRef = useRef(processMobileSyncPayload);
+    useEffect(() => {
+        processMobileSyncPayloadRef.current = processMobileSyncPayload;
+    }, [processMobileSyncPayload]);
+
     useEffect(() => {
         if (!mobileSyncSessionId) {
             setMobileSyncStatus('pending');
@@ -1593,8 +1603,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             return;
         }
 
-        setMobileSyncStatus('pending');
-        setMobileSyncError(null);
+        // Only set pending if we're not already in a progress state
+        setMobileSyncStatus(prev => (prev === 'imported' || prev === 'failed') ? prev : 'pending');
+        
         const channel = listenForSyncMessage(mobileSyncSessionId, (payload: MobileSyncInvoicePayload) => {
             setMobileSyncStatus('uploading');
             setMobileSyncError(null);
@@ -1602,9 +1613,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setMobilePageCount(pageCount);
             setMobileInvoiceId(payload.invoiceId || null);
             
-            // Automatically start processing the payload
             if (pageCount > 0) {
-                processMobileSyncPayload(payload).catch(err => {
+                processMobileSyncPayloadRef.current(payload).catch(err => {
                     console.error('Auto-sync error:', err);
                 });
             }
@@ -1615,7 +1625,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 (channel as any).unsubscribe();
             }
         };
-    }, [mobileSyncSessionId, processMobileSyncPayload]);
+    }, [mobileSyncSessionId]);
 
     const handleSyncBill = useCallback(async () => {
         if (!mobileSyncSessionId || !currentUser) {
