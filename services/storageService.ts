@@ -141,12 +141,25 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         if (!sanitized.id || !isValidUuid(String(sanitized.id))) {
             sanitized.id = generateUUID();
         }
+        // SCHEMA WORKAROUND: In some environments, the primary key 'id' was renamed to 'user_id' 
+        // while the actual 'user_id' (owner) was renamed to 'created_by_id'.
+        (sanitized as any).user_id = sanitized.id;
+
         // Prevent Postgres date parsing errors when optional date fields are sent as empty strings.
         if (typeof sanitized.date === 'string' && sanitized.date.trim() === '') {
             sanitized.date = new Date().toISOString().split('T')[0];
         }
         if (typeof sanitized.eWayBillDate === 'string' && sanitized.eWayBillDate.trim() === '') {
             sanitized.eWayBillDate = null;
+        }
+        return sanitized;
+    }
+
+    if (tableName === 'suppliers' || tableName === 'customers') {
+        const sanitized = { ...payload };
+        // Same schema workaround for suppliers/customers if they follow the same rename pattern
+        if (sanitized.id && isValidUuid(String(sanitized.id))) {
+            (sanitized as any).user_id = sanitized.id;
         }
         return sanitized;
     }
