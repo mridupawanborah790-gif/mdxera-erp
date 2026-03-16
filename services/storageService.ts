@@ -613,17 +613,19 @@ const ensurePostingContext = async (
 };
 
 const validateGLMappings = async (organizationId: string, setOfBooksId: string, type: 'sales' | 'purchase') => {
-    const requiredCodes = type === 'sales' 
+    if (!setOfBooksId || !isValidUuid(setOfBooksId) || !isValidUuid(organizationId)) {
+        return; // Skip validation for legacy/incomplete configurations
+    }
+    const requiredCodes = type === 'sales'
         ? ['400100', '210110', '210120', '210130', '510000']
         : ['510000']; // Purchase validation happens line-by-line later but we check round-off here
-    
+
     const { data: glRows } = await supabase
         .from('gl_master')
         .select('gl_code')
         .eq('organization_id', organizationId)
         .eq('set_of_books_id', setOfBooksId)
         .in('gl_code', requiredCodes);
-    
     const foundCodes = new Set((glRows || []).map(r => String(r.gl_code)));
     const missing = requiredCodes.filter(c => !foundCodes.has(c));
     
@@ -1510,6 +1512,11 @@ const postJournal = async (
 ) => {
     if (!navigator.onLine) return;
 
+    if (!isValidUuid(args.setOfBooksId) || !isValidUuid(args.companyCodeId) || !isValidUuid(user.organization_id)) {
+        console.warn('Skipping journal post: Invalid UUID in posting context', { setOfBooksId: args.setOfBooksId, companyCodeId: args.companyCodeId });
+        return;
+    }
+
     const { data: setOfBooks, error: sobError } = await supabase
         .from('set_of_books')
         .select('id, set_of_books_id, company_code_id, default_customer_gl_id, default_supplier_gl_id')
@@ -1777,6 +1784,11 @@ export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPha
     const postingContext = await ensurePostingContext(purchase, user);
     purchase.companyCodeId = postingContext.companyCodeId;
     purchase.setOfBooksId = postingContext.setOfBooksId;
+
+    if (!isValidUuid(purchase.setOfBooksId) || !isValidUuid(user.organization_id)) {
+        console.warn('Skipping purchase ledger sync: Invalid UUID in posting context', { setOfBooksId: purchase.setOfBooksId });
+        return;
+    }
 
     const { data: assignments, error: assignmentError } = await supabase
         .from('gl_assignments')
