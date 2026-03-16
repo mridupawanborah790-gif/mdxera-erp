@@ -109,9 +109,14 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         return map;
     }, [scannedItems, medicines, mappings, supplier.id]);
 
+    const prevIsOpenRef = useRef(false);
     useEffect(() => {
-        if (isOpen) {
-            setReconciledItems(scannedItems.filter(i => (i.name || "").trim()).map(i => ({ ...i, extractedName: (i as any).extractedName || i.name } as any)));
+        if (isOpen && !prevIsOpenRef.current) {
+            setReconciledItems(scannedItems.filter(i => (i.name || "").trim()).map(i => ({ 
+                ...i, 
+                extractedName: (i as any).extractedName || i.name 
+            } as any)));
+            
             const firstPending = scannedItems.findIndex(i => isUnresolved(i));
             const initialIdx = firstPending !== -1 ? firstPending : 0;
             setActiveScannedIndex(initialIdx);
@@ -119,8 +124,9 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             setSearchTerm('');
             setStatusToast(null);
             setCloseWarning(null);
-            setTimeout(() => scannedListRef.current?.focus(), 150);
+            setTimeout(() => searchInputRef.current?.focus(), 150);
         }
+        prevIsOpenRef.current = isOpen;
     }, [isOpen, scannedItems]);
 
     useEffect(() => {
@@ -178,7 +184,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         const activeItem = reconciledItems[activeScannedIndex];
         if (!activeItem) return;
 
-        const rawNomenclatureName = activeItem.name;
+        const rawNomenclatureName = (activeItem as any).extractedName || activeItem.name;
 
         // Create mapping in DB (handled in background)
         if (supplier.id && supplier.id !== 'temp') {
@@ -199,7 +205,8 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
 
         // Update current session's reconciledItems for ALL instances of this raw nomenclature
         const updatedItems = reconciledItems.map((item) => {
-            if (item.name.toLowerCase().trim() === rawNomenclatureName.toLowerCase().trim()) {
+            const itemOriginalName = (item as any).extractedName || item.name;
+            if (itemOriginalName.toLowerCase().trim() === rawNomenclatureName.toLowerCase().trim()) {
                 const unitsMatch = masterMed.pack?.match(/\d+/);
                 const units = unitsMatch ? parseInt(unitsMatch[0], 10) : 10;
 
@@ -340,9 +347,10 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
             if (isUnresolved(item) && suggestions[item.id]) {
                 const match = suggestions[item.id]!;
 
+                const itemOriginalName = (item as any).extractedName || item.name;
                 const existingMap = (mappings || []).find(m =>
                     m.supplier_id === supplier.id &&
-                    m.supplier_product_name.toLowerCase().trim() === item.name.toLowerCase().trim()
+                    m.supplier_product_name.toLowerCase().trim() === itemOriginalName.toLowerCase().trim()
                 );
 
                 const unitsMatch = match.pack?.match(/\d+/);
@@ -366,7 +374,7 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
                         id: existingMap ? existingMap.id : crypto.randomUUID(),
                         organization_id: organizationId,
                         supplier_id: supplier.id,
-                        supplier_product_name: item.name,
+                        supplier_product_name: itemOriginalName,
                         master_medicine_id: match.id,
                         auto_apply: true
                     }).catch(console.error);
@@ -398,8 +406,13 @@ const LinkToMasterModal: React.FC<LinkToMasterModalProps> = ({
         setIsAddMedicineSubModalOpen(false);
         try {
             const newMed = await onAddMedicineMaster(newMedData);
-            handleMapItem(newMed);
-        } catch (error) { console.error("Failed to create master SKU", error); }
+            if (newMed) {
+                handleMapItem(newMed);
+                return newMed;
+            }
+        } catch (error) { 
+            console.error("Failed to create master SKU", error); 
+        }
     };
 
     if (!isOpen) return null;
