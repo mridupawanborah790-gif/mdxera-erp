@@ -15,7 +15,7 @@ interface AddMedicineModalProps {
 
 const initialState: Omit<Medicine, 'id' | 'created_at' | 'updated_at'> = {
     name: '', 
-    materialCode: '',
+    materialCode: 'Auto-generated on save',
     brand: '', 
     pack: '', 
     hsnCode: '', 
@@ -61,10 +61,6 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
             newErrors.name = "Product Name is required.";
         }
 
-        if (!formState.materialCode.trim()) {
-            newErrors.materialCode = "Material Code is required.";
-        }
-        
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     }, [formState, organizationId]);
@@ -108,7 +104,14 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
     
     const materialPolicy = getResolvedMedicinePolicy(formState);
 
-    const renderInput = (name: keyof typeof initialState, label: string, type = 'text', isOptional = true, placeholder = "") => (
+    const renderInput = (
+        name: keyof typeof initialState,
+        label: string,
+        type = 'text',
+        isOptional = true,
+        placeholder = "",
+        options?: { readOnly?: boolean }
+    ) => (
         <div>
             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">{label} {!isOptional && '*'}</label>
             <input 
@@ -117,7 +120,8 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
                 value={formState[name] as string | number} 
                 onChange={handleChange} 
                 placeholder={placeholder}
-                className={`mt-1 block w-full p-2 border border-gray-400 font-bold text-sm bg-input-bg text-app-text-primary ${errors[name] ? 'border-red-500' : 'focus:bg-yellow-50 outline-none'}`} 
+                readOnly={options?.readOnly}
+                className={`mt-1 block w-full p-2 border border-gray-400 font-bold text-sm bg-input-bg text-app-text-primary ${options?.readOnly ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''} ${errors[name] ? 'border-red-500' : 'focus:bg-yellow-50 outline-none'}`} 
             />
             {errors[name] && <p className="text-[10px] text-red-500 mt-1 uppercase font-bold">{errors[name]}</p>}
         </div>
@@ -129,7 +133,7 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
                 <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-[var(--modal-bg-light)] dark:bg-[var(--modal-bg-dark)]">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {renderInput('name', 'Product Name', 'text', false)}
-                        {renderInput('materialCode', 'Material Code', 'text', false)}
+                        {renderInput('materialCode', 'Material Code', 'text', false, '', { readOnly: true })}
                         {renderInput('barcode', 'Barcode')}
                         {renderInput('brand', 'Brand Name')}
                         {renderInput('manufacturer', 'Manufacturer')}
