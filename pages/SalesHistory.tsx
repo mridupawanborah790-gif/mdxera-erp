@@ -371,18 +371,25 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                                     <tr
                                         key={tx.id}
                                         onClick={() => handleSelectRow(tx.id)}
-                                        className={`cursor-pointer transition-colors ${selectedTransactionId === tx.id ? 'bg-lime-100' : 'hover:bg-accent'} ${tx.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}
+                                        className={`cursor-pointer transition-colors ${selectedTransactionId === tx.id ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'} ${tx.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}
                                     >
-                                        <td className="p-2 border-r border-gray-200 font-bold text-gray-400 text-center">{idx + 1}</td>
-                                        <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary">{tx.id}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-bold text-center ${selectedTransactionId === tx.id ? 'text-white' : 'text-gray-400'}`}>{idx + 1}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedTransactionId === tx.id ? 'text-white' : 'text-primary'}`}>{tx.id}</td>
                                         <td className="p-2 border-r border-gray-200">{new Date(tx.date).toLocaleDateString('en-IN')}</td>
                                         <td className="p-2 border-r border-gray-200 font-bold uppercase">{tx.customerName}</td>
                                         <td className="p-2 border-r border-gray-200 text-center font-bold">{(tx.items || []).length}</td>
                                         <td className="p-2 border-r border-gray-400 text-right font-black">₹{(tx.total || 0).toFixed(2)}</td>
                                         <td className="p-2 border-r border-gray-200 text-center">
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${tx.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
-                                                {tx.status === 'cancelled' ? 'Cancelled' : 'Completed'}
-                                            </span>
+                                            <div className="flex flex-col gap-1 items-center">
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${tx.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                                                    {tx.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+                                                </span>
+                                                {tx.sync_status === 'pending' && (
+                                                    <span className="text-[8px] font-black text-amber-600 bg-amber-50 px-1 border border-amber-200 uppercase animate-pulse">
+                                                        Sync Pending
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

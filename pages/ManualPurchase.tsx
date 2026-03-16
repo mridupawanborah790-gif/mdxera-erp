@@ -55,7 +55,7 @@ const recalcLine = (line: ManualLine): ManualLine => {
   return { ...line, amount, discount, taxAmount, lineTotal: round2(taxable + taxAmount) };
 };
 
-const ManualPurchase: React.FC<ManualPurchaseProps> = ({
+const ManualPurchase = React.forwardRef<any, ManualPurchaseProps>(({
   currentUser,
   suppliers,
   inventory,
@@ -66,19 +66,24 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
   onAddPurchase,
   onSaved,
   onAddMedicineMaster,
-}) => {
+}, ref) => {
   const isFieldVisible = useCallback((fieldId: string) => {
     return configurations.modules?.['purchase']?.fields?.[fieldId] !== false;
   }, [configurations.modules]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [supplierId, setSupplierId] = useState('');
   const [phone, setPhone] = useState('');
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState('');
   const [grnNumber, setGrnNumber] = useState('');
   const [purchaseNo, setPurchaseNo] = useState('AUTO');
   const [lines, setLines] = useState<ManualLine[]>([newLine()]);
   const [searchText, setSearchText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  React.useImperativeHandle(ref, () => ({
+    isDirty: lines.some(l => l.description.trim() !== '' || l.rate > 0) || supplierId !== '' || supplierInvoiceNumber !== '' || grnNumber !== ''
+  }));
 
   const [isAddMasterOpen, setIsAddMasterOpen] = useState(false);
   const [newMaterialName, setNewMaterialName] = useState('');
@@ -434,26 +439,26 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
             </thead>
             <tbody>
               {lines.map((line, i) => (
-                <tr key={line.id} className="border-b border-gray-200 h-10 text-xs font-bold uppercase">
-                  <td className="p-2 border-r border-gray-200 text-center text-gray-500">{i + 1}</td>
+                <tr key={line.id} className={`border-b border-gray-200 h-10 text-xs font-bold uppercase transition-all ${activeRowId === line.id ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'}`}>
+                  <td className={`p-2 border-r border-gray-200 text-center ${activeRowId === line.id ? 'text-white' : 'text-gray-500'}`}>{i + 1}</td>
                   <td className="p-2 border-r border-gray-200">
-                    <input className="w-full bg-transparent outline-none" value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })} placeholder="Item description" />
+                    <input className={`w-full bg-transparent outline-none ${activeRowId === line.id ? 'text-white placeholder:text-white/50' : ''}`} value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })} onFocus={() => setActiveRowId(line.id)} placeholder="Item description" />
                   </td>
                   <td className="p-2 border-r border-gray-200">
-                    <input id={`qty-${line.id}`} className="w-full text-center bg-transparent outline-none" type="number" min={0} value={line.qty || ''} onChange={(e) => updateLine(line.id, { qty: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                    <input id={`qty-${line.id}`} className={`w-full text-center bg-transparent outline-none ${activeRowId === line.id ? 'text-white' : ''}`} type="number" min={0} value={line.qty || ''} onChange={(e) => updateLine(line.id, { qty: Number(e.target.value) })} onFocus={() => setActiveRowId(line.id)} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
                   </td>
                   <td className="p-2 border-r border-gray-200">
-                    <input id={`rate-${line.id}`} className="w-full text-right bg-transparent outline-none" type="number" min={0} value={line.rate || ''} onChange={(e) => updateLine(line.id, { rate: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                    <input id={`rate-${line.id}`} className={`w-full text-right bg-transparent outline-none ${activeRowId === line.id ? 'text-white' : ''}`} type="number" min={0} value={line.rate || ''} onChange={(e) => updateLine(line.id, { rate: Number(e.target.value) })} onFocus={() => setActiveRowId(line.id)} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
                   </td>
-                  <td className="p-2 border-r border-gray-200 text-right text-gray-700">{line.amount.toFixed(2)}</td>
+                  <td className={`p-2 border-r border-gray-200 text-right ${activeRowId === line.id ? 'text-white' : 'text-gray-700'}`}>{line.amount.toFixed(2)}</td>
                   <td className="p-2 border-r border-gray-200">
-                    <input id={`discount-${line.id}`} className="w-full text-right bg-transparent outline-none" type="number" min={0} value={line.discount || ''} onChange={(e) => updateLine(line.id, { discount: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                    <input id={`discount-${line.id}`} className={`w-full text-right bg-transparent outline-none ${activeRowId === line.id ? 'text-white' : ''}`} type="number" min={0} value={line.discount || ''} onChange={(e) => updateLine(line.id, { discount: Number(e.target.value) })} onFocus={() => setActiveRowId(line.id)} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
                   </td>
                   <td className="p-2 border-r border-gray-200">
-                    <input id={`tax-${line.id}`} className="w-full text-center bg-transparent outline-none" type="number" min={0} value={line.taxPercent || ''} onChange={(e) => updateLine(line.id, { taxPercent: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                    <input id={`tax-${line.id}`} className={`w-full text-center bg-transparent outline-none ${activeRowId === line.id ? 'text-white' : ''}`} type="number" min={0} value={line.taxPercent || ''} onChange={(e) => updateLine(line.id, { taxPercent: Number(e.target.value) })} onFocus={() => setActiveRowId(line.id)} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
                   </td>
-                  <td className="p-2 border-r border-gray-200 text-right text-gray-700">{line.taxAmount.toFixed(2)}</td>
-                  <td className="p-2 text-right font-black text-gray-800">{line.lineTotal.toFixed(2)}</td>
+                  <td className={`p-2 border-r border-gray-200 text-right ${activeRowId === line.id ? 'text-white' : 'text-gray-700'}`}>{line.taxAmount.toFixed(2)}</td>
+                  <td className={`p-2 text-right font-black ${activeRowId === line.id ? 'text-white' : 'text-gray-800'}`}>{line.lineTotal.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -486,6 +491,6 @@ const ManualPurchase: React.FC<ManualPurchaseProps> = ({
       )}
     </div>
   );
-};
+});
 
 export default ManualPurchase;

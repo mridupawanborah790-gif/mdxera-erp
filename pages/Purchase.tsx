@@ -44,8 +44,13 @@ const formatSignedCurrency = (value: number, sign: '+' | '-' = '-') => {
 
 const normalizeExpiryInput = (value: string) => {
     const digitsOnly = value.replace(/\D/g, '').slice(0, 4);
-    if (digitsOnly.length <= 2) return digitsOnly;
-    return `${digitsOnly.slice(0, 2)}/${digitsOnly.slice(2)}`;
+    if (digitsOnly.length <= 2) {
+        if (digitsOnly.length === 2 && parseInt(digitsOnly) > 12) return digitsOnly[0];
+        return digitsOnly;
+    }
+    const month = digitsOnly.slice(0, 2);
+    if (parseInt(month) > 12) return month[0];
+    return `${month}/${digitsOnly.slice(2)}`;
 };
 
 const isExpiryComplete = (value: string) => /^((0[1-9])|(1[0-2]))\/(\d{2})$/.test(value);

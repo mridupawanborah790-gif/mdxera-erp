@@ -57,33 +57,47 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
         const stream = videoRef.current?.srcObject as MediaStream;
         stream?.getTracks().forEach((t) => t.stop());
     };
+const handleCapture = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
 
-    const handleCapture = () => {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        if (!video || !canvas) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
 
-        const context = canvas.getContext('2d');
-        if (!context) return;
+    // Downscale to max side of 1800 to prevent large payloads
+    const MAX_SIDE = 1800;
+    let width = video.videoWidth;
+    let height = video.videoHeight;
 
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        context.drawImage(video, 0, 0);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        const base64 = dataUrl.split(',')[1];
-        const nextPage = capturedPages.length + 1;
+    if (width > MAX_SIDE || height > MAX_SIDE) {
+        if (width > height) {
+            height = Math.round((height * MAX_SIDE) / width);
+            width = MAX_SIDE;
+        } else {
+            width = Math.round((width * MAX_SIDE) / height);
+            height = MAX_SIDE;
+        }
+    }
 
-        setCapturedPages(prev => ([...prev, {
-            id: crypto.randomUUID(),
-            image: base64,
-            mimeType: 'image/jpeg',
-            pageNumber: nextPage,
-            capturedAt: new Date().toISOString(),
-        }]));
-        setPreviewUrl(dataUrl);
-        setUploadState('pending');
-        setError(null);
-    };
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(video, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const base64 = dataUrl.split(',')[1];
+    const nextPage = capturedPages.length + 1;
+
+    setCapturedPages(prev => ([...prev, {
+        id: crypto.randomUUID(),
+        image: base64,
+        mimeType: 'image/jpeg',
+        pageNumber: nextPage,
+        capturedAt: new Date().toISOString(),
+    }]));
+    setPreviewUrl(dataUrl);
+    setUploadState('pending');
+    setError(null);
+};
 
     const handleRemovePage = (id: string) => {
         setCapturedPages(prev => prev.filter(p => p.id !== id).map((p, index) => ({ ...p, pageNumber: index + 1 })));
@@ -95,8 +109,10 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
         setError(null);
 
         try {
-            const deviceId = getOrCreateMobileDeviceId();
-            const userId = sessionId;
+            // Priority: Query params (from QR) > localStorage > random
+            const effectiveDeviceId = deviceId || getOrCreateMobileDeviceId();
+            const effectiveUserId = userId || sessionId; 
+
             const syncPayload = {
                 type: 'invoice-upload',
                 invoiceId,
@@ -108,8 +124,8 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
                 })),
                 metadata: {
                     organizationId: orgId,
-                    userId,
-                    deviceId,
+                    userId: effectiveUserId,
+                    deviceId: effectiveDeviceId,
                     sessionId,
                 },
             };
@@ -117,16 +133,25 @@ const MobileCaptureView: React.FC<MobileCaptureViewProps> = ({ sessionId, orgId 
             await createMobileSyncedBill({
                 session_id: sessionId,
                 organization_id: orgId,
-                user_id: userId,
-                device_id: deviceId,
+                user_id: effectiveUserId,
+                device_id: effectiveDeviceId,
                 invoice_id: invoiceId,
                 payload: syncPayload,
             });
             await broadcastSyncMessage(sessionId, syncPayload);
             setUploadState('synced');
         } catch (err: any) {
+            console.error('Upload error details:', err);
             setUploadState('failed');
-            setError(err instanceof Error ? err.message : 'Upload failed. Please check network and retry.');
+            
+            let detailedError = 'Upload failed. Please check network and retry.';
+            if (err && typeof err === 'object') {
+                detailedError = err.message || err.details || err.hint || JSON.stringify(err);
+            } else if (typeof err === 'string') {
+                detailedError = err;
+            }
+            
+            setError(detailedError);
         }
     };
 

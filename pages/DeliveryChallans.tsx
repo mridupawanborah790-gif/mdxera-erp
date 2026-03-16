@@ -29,7 +29,7 @@ interface DeliveryChallansPageProps {
     mappings: SupplierProductMap[];
 }
 
-const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
+const DeliveryChallansPage = React.forwardRef<any, DeliveryChallansPageProps>(({
     deliveryChallans,
     inventory,
     distributors,
@@ -45,9 +45,8 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
     onAddDistributor,
     onSaveMapping,
     addNotification,
-    // Destructure mappings from props
     mappings,
-}) => {
+}, ref) => {
     const [activeTab, setActiveTab] = useState<'create' | 'list'>('list');
     const [selectedChallanIds, setSelectedChallanIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<'active_only' | 'all' | DeliveryChallanStatus>('active_only');
@@ -57,6 +56,12 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
 
     const [challanToEdit, setChallanToEdit] = useState<DeliveryChallan | null>(null);
     const [selectedChallanForView, setSelectedChallanForView] = useState<DeliveryChallan | null>(null);
+
+    const purchaseFormRef = React.useRef<any>(null);
+
+    React.useImperativeHandle(ref, () => ({
+        isDirty: activeTab === 'create' && (purchaseFormRef.current?.isDirty ?? false)
+    }));
 
     const visibleChallans = useMemo(() => {
         let list = [...deliveryChallans];
@@ -217,6 +222,7 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
                 {activeTab === 'create' ? (
                     <div className="flex-1 min-h-0">
                         <PurchaseForm
+                            ref={purchaseFormRef}
                             onAddPurchase={handleChallanSave}
                             onUpdatePurchase={handleChallanSave}
                             onAddInventoryItem={onAddInventoryItem}
@@ -268,12 +274,13 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
                                     <tbody className="divide-y divide-gray-200">
                                         {visibleChallans.map(c => {
                                             const isSelectable = c.status === DeliveryChallanStatus.OPEN;
+                                            const isSelected = selectedChallanIds.has(c.id);
                                             return (
-                                                <tr key={c.id} className={`transition-colors ${isSelectable ? 'cursor-pointer hover:bg-accent' : 'bg-gray-50/50'} ${selectedChallanIds.has(c.id) ? 'bg-accent/50' : ''}`} onClick={() => handleSelectChallan(c)}>
-                                                    <td className="p-2 border-r border-gray-200 text-center" onClick={e => e.stopPropagation()}>
-                                                        <input type="checkbox" disabled={!isSelectable} checked={selectedChallanIds.has(c.id)} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
+                                                <tr key={c.id} className={`transition-colors ${isSelectable ? 'cursor-pointer' : 'bg-gray-50/50'} ${isSelected ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'}`} onClick={() => handleSelectChallan(c)}>
+                                                    <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : ''}`} onClick={e => e.stopPropagation()}>
+                                                        <input type="checkbox" disabled={!isSelectable} checked={isSelected} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
                                                     </td>
-                                                    <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary">{c.challanSerialId}</td>
+                                                    <td className={`p-2 border-r border-gray-200 font-mono font-bold ${isSelected ? 'text-white' : 'text-primary'}`}>{c.challanSerialId}</td>
                                                     <td className="p-2 border-r border-gray-200">{new Date(c.date).toLocaleDateString('en-IN')}</td>
                                                     <td className="p-2 border-r border-gray-200 font-black uppercase">{c.supplier}</td>
                                                     <td className="p-2 border-r border-gray-200 font-mono text-[10px]">{c.challanNumber}</td>
@@ -298,6 +305,6 @@ const DeliveryChallansPage: React.FC<DeliveryChallansPageProps> = ({
             {selectedChallanForView && <ChallanDetailModal isOpen={!!selectedChallanForView} onClose={() => setSelectedChallanForView(null)} challan={selectedChallanForView} />}
         </main>
     );
-};
+});
 
 export default DeliveryChallansPage;

@@ -11,6 +11,7 @@ import JournalEntryViewerModal from './JournalEntryViewerModal';
 import ProductInsightsPanel from './ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
+import { supabase } from '../services/supabaseClient';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
@@ -35,6 +36,7 @@ interface POSProps {
     isReadOnly?: boolean;
     onCancel?: () => void;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
+    onRefreshConfig?: () => void;
 }
 
 interface UploadedFile {
@@ -184,7 +186,8 @@ const POS = forwardRef<any, POSProps>(({
     transactionToEdit,
     isReadOnly,
     onCancel,
-    onAddMedicineMaster
+    onAddMedicineMaster,
+    onRefreshConfig
 }, ref) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -207,6 +210,7 @@ const POS = forwardRef<any, POSProps>(({
     const [prescriptions, setPrescriptions] = useState<UploadedFile[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [reservedVoucherNumber, setReservedVoucherNumber] = useState<string | null>(null);
+    const [isReservedPreview, setIsReservedPreview] = useState<boolean>(true);
     const [nextVoucherNumberHint, setNextVoucherNumberHint] = useState<number | null>(null);
     const lastReservedType = useRef<'sales-gst' | 'sales-non-gst' | null>(null);
     const [isProcessingRx, setIsProcessingRx] = useState(false);
@@ -216,6 +220,62 @@ const POS = forwardRef<any, POSProps>(({
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
+    const [stats, setStats] = useState({ monthTotal: 0, todayTotal: 0, monthCount: 0 });
+
+    const fetchStats = useCallback(async () => {
+        if (!currentUser) return;
+        try {
+            const today = new Date().toISOString().slice(0, 10);
+            const startOfMonth = new Date();
+            startOfMonth.setDate(1);
+            const startOfMonthStr = startOfMonth.toISOString().slice(0, 10);
+
+            let monthQuery = supabase
+                .from('sales_bill')
+                .select('total, date')
+                .eq('organization_id', currentUser.organization_id)
+                .gte('date', startOfMonthStr);
+
+            if (selectedCustomer?.id) {
+                monthQuery = monthQuery.eq('customer_id', selectedCustomer.id);
+            }
+
+            const { data: monthData } = await monthQuery;
+
+            if (monthData) {
+                const monthTotal = monthData.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+                const todayTotal = monthData
+                    .filter(s => s.date === today)
+                    .reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+                setStats({
+                    monthTotal,
+                    todayTotal,
+                    monthCount: monthData.length
+                });
+            }
+
+            let historyQuery = supabase
+                .from('sales_bill')
+                .select('*')
+                .eq('organization_id', currentUser.organization_id)
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            if (selectedCustomer?.id) {
+                historyQuery = historyQuery.eq('customer_id', selectedCustomer.id);
+            }
+
+            const { data: recent } = await historyQuery;
+            if (recent) setSalesHistory(recent.map(r => storage.toCamel(r)));
+        } catch (e) {
+            console.error('Error fetching stats:', e);
+        }
+    }, [currentUser, selectedCustomer?.id]);
+
+    useEffect(() => {
+        fetchStats();
+    }, [fetchStats]);
+
     const [isInsightsLoading, setIsInsightsLoading] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
@@ -267,8 +327,13 @@ const POS = forwardRef<any, POSProps>(({
 
     const normalizeExpiryInput = useCallback((value: string) => {
         const digits = value.replace(/\D/g, '').slice(0, 4);
-        if (digits.length <= 2) return digits;
-        return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+        if (digits.length <= 2) {
+            if (digits.length === 2 && parseInt(digits) > 12) return digits[0];
+            return digits;
+        }
+        const month = digits.slice(0, 2);
+        if (parseInt(month) > 12) return month[0];
+        return `${month}/${digits.slice(2)}`;
     }, []);
 
     const isValidRateInput = useCallback((value: string) => {
@@ -428,7 +493,7 @@ const POS = forwardRef<any, POSProps>(({
         
         // Prevent redundant reservation/preview if we already have a valid one for this type
         // However, if we're moving from preview to real reservation, we must force it
-        if (!force && reservedVoucherNumber && lastReservedType.current === docType) {
+        if (!force && reservedVoucherNumber && lastReservedType.current === docType && isReservedPreview === isPreview) {
             return { documentNumber: reservedVoucherNumber, nextNumber: nextVoucherNumberHint || 0 };
         }
 
@@ -436,14 +501,22 @@ const POS = forwardRef<any, POSProps>(({
             const reservation = await storage.reserveVoucherNumber(docType, currentUser, isPreview);
             setReservedVoucherNumber(reservation.documentNumber);
             setNextVoucherNumberHint(reservation.nextNumber);
+            setIsReservedPreview(isPreview);
             lastReservedType.current = docType;
+
+            // If we just reserved a real number, we need to refresh the global config 
+            // so other parts of the app know the counter has incremented.
+            if (!isPreview && onRefreshConfig) {
+                onRefreshConfig();
+            }
+
             return { documentNumber: reservation.documentNumber, nextNumber: reservation.nextNumber };
-        } catch (reservationError) {
-            const errorMessage = reservationError instanceof Error ? reservationError.message : 'Voucher reservation failed';
+        } catch (reservationError: any) {
+            const errorMessage = reservationError?.message || 'Voucher reservation failed';
             addNotification(`Unable to reserve voucher number. ${errorMessage}`, 'error');
             return null;
         }
-    }, [transactionToEdit, currentUser, isNonGst, addNotification, reservedVoucherNumber, nextVoucherNumberHint]);
+    }, [transactionToEdit, currentUser, isNonGst, addNotification, reservedVoucherNumber, nextVoucherNumberHint, isReservedPreview, onRefreshConfig]);
 
     // Initial reservation and handling type switches - ALWAYS use preview mode here
     useEffect(() => {
@@ -537,6 +610,11 @@ const POS = forwardRef<any, POSProps>(({
         try {
             await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, reservedNextNumber ?? undefined);
             if (onPrintBill) onPrintBill(transaction);
+            
+            // Stats will refresh automatically via useEffect dependency on selectedCustomer change,
+            // but we call it explicitly to be sure and to update global stats.
+            fetchStats();
+
             setCartItems([]);
             setPrescriptions([]);
             setSelectedCustomer(null);
@@ -553,8 +631,14 @@ const POS = forwardRef<any, POSProps>(({
             } else if (reservedNextNumber) {
                 setNextVoucherNumberHint(reservedNextNumber);
             }
-            addNotification("Bill Saved Successfully", "success");
+            // App.tsx handleSaveOrUpdateTransaction already shows a success notification.
         } catch (e: any) {
+            console.error("POS Save failure:", e);
+            if (e.message?.includes('already exists')) {
+                setReservedVoucherNumber(null);
+                setNextVoucherNumberHint(null);
+                lastReservedType.current = null;
+            }
             addNotification("Failed to save: " + e.message, "error");
         } finally {
             setIsSaving(false);
@@ -563,6 +647,8 @@ const POS = forwardRef<any, POSProps>(({
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (isCustomerSearchModalOpen || schemeItem || pendingBatchSelection || isSearchModalOpen) return;
+            
             if (!shouldHandleScreenShortcut(e, ['pos', 'nonGstPos'], { allowWhenInputFocused: true })) return;
             if (e.ctrlKey && e.key.toLowerCase() === 's') {
                 e.preventDefault();
@@ -628,12 +714,13 @@ const POS = forwardRef<any, POSProps>(({
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleSave, cartItems, inventory, customerSearch, customerPhone, billMode, billCategory, invoiceDate, referredBy, addNotification]);
+    }, [handleSave, cartItems, inventory, customerSearch, customerPhone, billMode, billCategory, invoiceDate, referredBy, addNotification, isCustomerSearchModalOpen, schemeItem, pendingBatchSelection, isSearchModalOpen]);
 
     useImperativeHandle(ref, () => ({
         handleSave,
         setCartItems,
-        cartItems
+        cartItems,
+        isDirty: cartItems.length > 0 || customerPhone.trim() !== '' || referredBy.trim() !== ''
     }));
 
 
@@ -831,21 +918,6 @@ const POS = forwardRef<any, POSProps>(({
             if (selectedWrapper) triggerBatchSelection(selectedWrapper);
         }
     };
-
-    useEffect(() => {
-        if (!isInsightsOpen || !currentUser || salesHistory.length > 0) return;
-        let isMounted = true;
-        setIsInsightsLoading(true);
-        storage.fetchTransactions(currentUser)
-            .then((rows) => {
-                if (!isMounted) return;
-                setSalesHistory((rows || []).filter((row: Transaction) => row.organization_id === currentUser.organization_id));
-            })
-            .finally(() => {
-                if (isMounted) setIsInsightsLoading(false);
-            });
-        return () => { isMounted = false; };
-    }, [isInsightsOpen, currentUser, salesHistory.length]);
 
     const handleDateKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
@@ -1127,6 +1199,8 @@ const POS = forwardRef<any, POSProps>(({
         const firstEditableField = [
             `name-${rowId}`,
             `batch-${rowId}`,
+            `expiry-${rowId}`,
+            `mrp-${rowId}`,
             `qty-p-${rowId}`,
             `qty-l-${rowId}`,
             `free-${rowId}`,
@@ -1156,7 +1230,7 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const handleRowKeyNavigation = useCallback((e: React.KeyboardEvent, id: string) => {
-        const fieldPrefixes = ['name', 'batch', 'qty-p', 'qty-l', 'free', 'rate', 'disc', 'gst', 'scheme'];
+        const fieldPrefixes = ['name', 'batch', 'expiry', 'mrp', 'qty-p', 'qty-l', 'free', 'rate', 'disc', 'gst', 'scheme'];
         const target = e.target as HTMLElement;
         const activeElement = target.closest('input, button') as HTMLElement | null;
         const currentId = activeElement?.id || target.id || '';
@@ -1166,6 +1240,8 @@ const POS = forwardRef<any, POSProps>(({
             [
                 `name-${rowId}`,
                 `batch-${rowId}`,
+                `expiry-${rowId}`,
+                `mrp-${rowId}`,
                 `qty-p-${rowId}`,
                 `qty-l-${rowId}`,
                 `free-${rowId}`,
@@ -1281,7 +1357,8 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     return (
-        <div className="flex flex-col h-full bg-app-bg overflow-hidden" onKeyDown={handleEnterToNextField}>
+        <div className="flex flex-row h-full bg-app-bg overflow-hidden">
+            <div className="flex-1 flex flex-col h-full overflow-hidden border-r border-gray-300" onKeyDown={handleEnterToNextField}>
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
                 <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black uppercase tracking-widest">
@@ -1301,7 +1378,7 @@ const POS = forwardRef<any, POSProps>(({
             </div>
 
             <div className="p-2 flex-1 flex flex-col gap-2 overflow-hidden">
-                <Card className="p-1.5 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-5 gap-2 items-end flex-shrink-0">
+                <Card className="p-1.5 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-6 gap-2 items-end flex-shrink-0">
                     {isFieldVisible('colDate') && (
                         <div>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Date</label>
@@ -1363,6 +1440,50 @@ const POS = forwardRef<any, POSProps>(({
                             />
                         </div>
                     )}
+                    {isFieldVisible('optBillingCategory') && (
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Billing Category</label>
+                            <select
+                                ref={billCategorySelectRef}
+                                value={billCategory}
+                                onChange={e => setBillCategory(e.target.value as any)}
+                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50"
+                                disabled={isReadOnly}
+                            >
+                                <option value="Cash Bill">Cash Bill</option>
+                                <option value="Credit Bill">Credit Bill</option>
+                            </select>
+                        </div>
+                    )}
+                    {isFieldVisible('optPrescription') && (
+                        <div className="flex gap-1 h-8">
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="flex-1 bg-gray-100 hover:bg-gray-200 border border-gray-400 text-[10px] font-black uppercase flex items-center justify-center gap-1"
+                                title="Upload Prescription"
+                                disabled={isReadOnly || isProcessingRx}
+                            >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                RX
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsWebcamOpen(true)}
+                                className="flex-1 bg-gray-100 hover:bg-gray-200 border border-gray-400 text-[10px] font-black uppercase flex items-center justify-center gap-1"
+                                title="Scan Prescription"
+                                disabled={isReadOnly || isProcessingRx}
+                            >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                CAM
+                            </button>
+                            {prescriptions.length > 0 && (
+                                <div className="flex items-center px-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[9px] font-black">
+                                    {prescriptions.length} ATTACHED
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </Card>
 
                 <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
@@ -1373,14 +1494,16 @@ const POS = forwardRef<any, POSProps>(({
                                     <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
                                     {isFieldVisible('colName') && <th className="p-2 border-r border-gray-400 text-left w-72">Name of Item</th>}
                                     {isFieldVisible('colBatch') && <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>}
+                                    {isFieldVisible('colExpiry') && <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>}
                                     {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
+                                    {isFieldVisible('colMrp') && <th className="p-2 border-r border-gray-400 text-right w-20">MRP</th>}
                                     {isFieldVisible('colPQty') && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
                                     {isFieldVisible('colLQty') && <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>}
                                     {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">Free</th>}
-                                    <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>
-                                    <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>
+                                    {isFieldVisible('colRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
+                                    {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
                                     {isFieldVisible('colGst') && <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>}
-                                    <th className="p-2 border-r border-gray-400 text-center w-20">Sch%</th>
+                                    {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-20">Sch%</th>}
                                     {isFieldVisible('colAmount') && <th className="p-2 text-right w-32">Amount</th>}
                                 </tr>
                             </thead>
@@ -1398,11 +1521,11 @@ const POS = forwardRef<any, POSProps>(({
                                                 focusFirstEditableFieldInRow(item.id);
                                             }}
                                             onFocusCapture={() => setSelectedRowIndex(idx)}
-                                            className={`group h-10 cursor-pointer ${selectedRowIndex === idx ? 'bg-sky-100' : 'hover:bg-gray-50'}`}
+                                            className={`group h-10 cursor-pointer transition-all ${selectedRowIndex === idx ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'}`}
                                         >
-                                            <td className={`p-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{idx + 1}</td>
+                                            <td className={`p-2 border-r border-gray-200 text-center ${selectedRowIndex === idx ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (
-                                                <td className={`p-2 border-r border-gray-200 text-primary uppercase w-72 truncate ${uniformTextStyle}`} title={item.name}>
+                                                <td className={`p-2 border-r border-gray-200 uppercase w-72 truncate ${uniformTextStyle} ${selectedRowIndex === idx ? 'text-white' : 'text-primary'}`} title={item.name}>
                                                     <input
                                                         id={`name-${item.id}`}
                                                         type="text"
@@ -1413,7 +1536,7 @@ const POS = forwardRef<any, POSProps>(({
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className={`w-full bg-transparent border-none outline-none ${uniformTextStyle}`}
+                                                        className={`w-full bg-transparent border-none outline-none ${selectedRowIndex === idx ? 'text-white placeholder:text-white/50' : 'text-primary placeholder:text-gray-400'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
@@ -1448,12 +1571,48 @@ const POS = forwardRef<any, POSProps>(({
                                                     </button>
                                                 </td>
                                             )}
+                                            {isFieldVisible('colExpiry') && (
+                                                <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>
+                                                    <input
+                                                        id={`expiry-${item.id}`}
+                                                        type="text"
+                                                        value={item.expiry}
+                                                        onChange={e => handleUpdateCartItem(item.id, 'expiry', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
+                                                        onBlur={(e) => handleExpiryBlur(item.id, e.target.value)}
+                                                        onKeyDown={e => {
+                                                            handleItemKeyDown(e, item.id, idx);
+                                                            handleRowKeyNavigation(e, item.id);
+                                                        }}
+                                                        placeholder="MM/YY"
+                                                        className="w-full text-center bg-transparent outline-none"
+                                                        disabled={isReadOnly}
+                                                    />
+                                                </td>
+                                            )}
                                             {isFieldVisible('colPack') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>
                                                     {(() => {
                                                         const inventoryPack = inventory.find(inv => inv.id === item.inventoryItemId)?.packType?.trim();
                                                         return item.packType?.trim() || inventoryPack || '—';
                                                     })()}
+                                                </td>
+                                            )}
+                                            {isFieldVisible('colMrp') && (
+                                                <td className={`p-2 border-r border-gray-200 text-right ${uniformTextStyle}`}>
+                                                    <input
+                                                        id={`mrp-${item.id}`}
+                                                        type="number"
+                                                        value={item.mrp === 0 ? '' : item.mrp}
+                                                        onChange={e => handleUpdateCartItem(item.id, 'mrp', e.target.value)}
+                                                        onFocus={() => handleRowFocus(idx)}
+                                                        onKeyDown={e => {
+                                                            handleItemKeyDown(e, item.id, idx);
+                                                            handleRowKeyNavigation(e, item.id);
+                                                        }}
+                                                        className="w-full text-right bg-transparent outline-none"
+                                                        disabled={isReadOnly}
+                                                    />
                                                 </td>
                                             )}
                                             {isFieldVisible('colPQty') && (
@@ -2011,7 +2170,53 @@ const POS = forwardRef<any, POSProps>(({
                 onChange={handleFileChange}
             />
         </div>
-    );
+
+        <div className="w-64 h-full bg-white flex flex-col overflow-hidden shadow-xl shrink-0">
+            <div className="bg-gray-800 text-white h-7 flex items-center px-4 shrink-0">
+                <span className="text-[10px] font-black uppercase tracking-widest">Sales Insights</span>
+            </div>
+            
+            <div className="p-3 border-b border-gray-200 bg-gray-50 flex flex-col gap-2">
+                <div className="flex gap-2">
+                    <div className="flex-1 bg-white p-2 border border-gray-300 shadow-sm">
+                        <div className="text-[9px] font-bold text-gray-500 uppercase">This Month</div>
+                        <div className="text-xs font-black text-primary">₹{stats.monthTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div className="flex-1 bg-white p-2 border border-gray-300 shadow-sm">
+                        <div className="text-[9px] font-bold text-gray-500 uppercase">Today</div>
+                        <div className="text-xs font-black text-emerald-600">₹{stats.todayTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                </div>
+                <div className="bg-white p-2 border border-gray-300 shadow-sm flex justify-between items-center">
+                    <div className="text-[9px] font-bold text-gray-500 uppercase">Orders Count (MTD)</div>
+                    <div className="text-sm font-black text-gray-800">{stats.monthCount}</div>
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 bg-gray-50/50">
+                <div className="text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Last 20 Sales</div>
+                <div className="space-y-1.5">
+                    {salesHistory.map((sale) => (
+                        <div key={sale.id} className="p-2 bg-white border border-gray-200 hover:border-primary/50 hover:bg-sky-50 transition-colors cursor-pointer text-[11px] shadow-sm">
+                            <div className="flex justify-between items-start mb-0.5">
+                                <span className="font-black text-gray-800 uppercase truncate pr-2 flex-1" title={sale.customerName}>{sale.customerName}</span>
+                                <span className="shrink-0 font-black text-primary">₹{sale.total.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-[9px] text-gray-400 font-bold uppercase">
+                                <span>{sale.id}</span>
+                                <span>{(sale.date || '').split('T')[0]}</span>
+                            </div>
+                        </div>
+                    ))}
+                    {salesHistory.length === 0 && (
+                        <div className="text-center py-10 text-gray-400 text-xs italic">No recent sales</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    </div>
+);
+
 });
 
 export default POS;

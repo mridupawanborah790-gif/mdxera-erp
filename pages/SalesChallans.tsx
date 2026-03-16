@@ -24,14 +24,20 @@ interface SalesChallansProps {
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
 }
 
-const SalesChallans: React.FC<SalesChallansProps> = ({
+const SalesChallans = React.forwardRef<any, SalesChallansProps>(({
     salesChallans, inventory, medicines, purchases, customers, currentUser, configurations,
     onAddChallan, onUpdateChallan, onCancelChallan, onConvertToInvoice, addNotification, onAddMedicineMaster
-}) => {
+}, ref) => {
     const [activeTab, setActiveTab] = useState<'create' | 'list'>('list');
     const [selectedChallanIds, setSelectedChallanIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<SalesChallanStatus | 'all'>(SalesChallanStatus.OPEN);
     const [selectedChallanForView, setSelectedChallanForView] = useState<SalesChallan | null>(null);
+
+    const posRef = React.useRef<any>(null);
+
+    React.useImperativeHandle(ref, () => ({
+        isDirty: activeTab === 'create' && (posRef.current?.isDirty ?? false)
+    }));
 
     const visibleChallans = useMemo(() => {
         let list = [...salesChallans];
@@ -129,6 +135,7 @@ const SalesChallans: React.FC<SalesChallansProps> = ({
                 {activeTab === 'create' ? (
                     <div className="flex-1 overflow-hidden">
                         <POS 
+                            ref={posRef}
                             inventory={inventory}
                             /* Fix: Pass missing purchases prop to POS component */
                             purchases={purchases}
@@ -169,22 +176,24 @@ const SalesChallans: React.FC<SalesChallansProps> = ({
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200">
-                                    {visibleChallans.map(c => (
-                                        <tr key={c.id} className={`hover:bg-accent transition-colors ${selectedChallanIds.has(c.id) ? 'bg-accent/50' : ''}`} onClick={() => handleSelectChallan(c)}>
-                                            <td className="p-2 border-r border-gray-200 text-center">
-                                                <input type="checkbox" disabled={c.status !== SalesChallanStatus.OPEN} checked={selectedChallanIds.has(c.id)} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
-                                            </td>
-                                            <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary">{c.challanSerialId}</td>
-                                            <td className="p-2 border-r border-gray-200">{new Date(c.date).toLocaleDateString('en-GB')}</td>
-                                            <td className="p-2 border-r border-gray-200 font-black uppercase">{c.customerName}</td>
-                                            <td className="p-2 border-r border-gray-200 text-center font-bold">{c.items.length}</td>
-                                            <td className="p-2 border-r border-gray-200 text-right font-black">₹{c.totalAmount.toFixed(2)}</td>
-                                            <td className="p-2 border-r border-gray-200 text-center">{getStatusBadge(c.status)}</td>
+                                    {visibleChallans.map(c => {
+                                        const isSelected = selectedChallanIds.has(c.id);
+                                        return (
+                                            <tr key={c.id} className={`transition-colors ${isSelected ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'}`} onClick={() => handleSelectChallan(c)}>
+                                                <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : ''}`}>
+                                                    <input type="checkbox" disabled={c.status !== SalesChallanStatus.OPEN} checked={isSelected} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
+                                                </td>
+                                                <td className={`p-2 border-r border-gray-200 font-mono font-bold ${isSelected ? 'text-white' : 'text-primary'}`}>{c.challanSerialId}</td>
+                                                <td className="p-2 border-r border-gray-200">{new Date(c.date).toLocaleDateString('en-GB')}</td>
+                                                <td className="p-2 border-r border-gray-200 font-black uppercase">{c.customerName}</td>
+                                                <td className="p-2 border-r border-gray-200 text-center font-bold">{c.items.length}</td>
+                                                <td className="p-2 border-r border-gray-200 text-right font-black">₹{c.totalAmount.toFixed(2)}</td>                                            <td className="p-2 border-r border-gray-200 text-center">{getStatusBadge(c.status)}</td>
                                             <td className="p-2 text-right">
                                                 <button onClick={() => setSelectedChallanForView(c)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
                                             </td>
                                         </tr>
-                                    ))}
+                                    );
+                                })}
                                 </tbody>
                             </table>
                         </div>
@@ -232,6 +241,6 @@ const SalesChallans: React.FC<SalesChallansProps> = ({
             )}
         </main>
     );
-};
+});
 
 export default SalesChallans;

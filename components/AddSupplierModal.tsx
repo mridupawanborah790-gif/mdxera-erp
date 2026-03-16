@@ -1,6 +1,6 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Modal from './Modal';
+import ConfirmModal from './ConfirmModal';
 import type { Supplier } from '../types';
 import type { SupplierQuickResult } from '../services/supplierService';
 import { handleEnterToNextField } from '../utils/navigation';
@@ -59,23 +59,44 @@ export const AddSupplierModal: React.FC<{
     prefillData?: Partial<Supplier>;
     defaultControlGlId?: string;
 }> = ({ isOpen, onClose, onAdd, onDuplicate, organizationId, prefillData, defaultControlGlId }) => {
-    const [form, setForm] = useState(createInitialState());
+    const initialState = useMemo(() => ({
+        ...createInitialState(),
+        control_gl_id: defaultControlGlId || '',
+        ...prefillData,
+        address_line1: prefillData?.address_line1 || prefillData?.address || '',
+        address: prefillData?.address_line1 || prefillData?.address || '',
+    }), [prefillData, defaultControlGlId]);
+
+    const [form, setForm] = useState(initialState);
     const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
     const [isSaving, setIsSaving] = useState(false);
     const [isPincodeLoading, setIsPincodeLoading] = useState(false);
+    const [showConfirmClose, setShowConfirmClose] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
-            setForm({
-                ...createInitialState(),
-                control_gl_id: defaultControlGlId || '',
-                ...prefillData,
-                address_line1: prefillData?.address_line1 || prefillData?.address || '',
-                address: prefillData?.address_line1 || prefillData?.address || '',
-            });
+            setForm(initialState);
             setAsOfDate(new Date().toISOString().split('T')[0]);
         }
-    }, [isOpen, prefillData, defaultControlGlId]);
+    }, [isOpen, initialState]);
+
+    const isDirty = useMemo(() => {
+        return (
+            form.name !== initialState.name ||
+            form.phone !== initialState.phone ||
+            form.address_line1 !== initialState.address_line1 ||
+            form.gst_number !== initialState.gst_number ||
+            form.opening_balance !== initialState.opening_balance
+        );
+    }, [form, initialState]);
+
+    const handleCloseAttempt = () => {
+        if (isDirty) {
+            setShowConfirmClose(true);
+        } else {
+            onClose();
+        }
+    };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value, type } = e.target;
@@ -137,139 +158,154 @@ export const AddSupplierModal: React.FC<{
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Register New Supplier Ledger" widthClass="max-w-4xl">
-            <div className="p-6 overflow-y-auto max-h-[75vh] space-y-6" onKeyDown={handleEnterToNextField}>
-                <section className="space-y-4">
-                    <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Core Identity</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="md:col-span-2">
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Trade Name *</label>
-                            <input type="text" name="name" value={form.name} onChange={handleChange} autoFocus className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="e.g. GLOBAL PHARMA DISTRIBUTORS" />
+        <>
+            <Modal isOpen={isOpen} onClose={handleCloseAttempt} title="Register New Supplier Ledger" widthClass="max-w-4xl">
+                <div className="p-6 overflow-y-auto max-h-[75vh] space-y-6" onKeyDown={handleEnterToNextField}>
+                    <section className="space-y-4">
+                        <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Core Identity</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="md:col-span-2">
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Trade Name *</label>
+                                <input type="text" name="name" value={form.name} onChange={handleChange} autoFocus className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="e.g. GLOBAL PHARMA DISTRIBUTORS" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Contact Person</label>
+                                <input type="text" name="contact_person" value={form.contact_person || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Category</label>
+                                <select name="category" value={form.category} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
+                                    {supplierCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Group *</label>
+                                <select name="supplier_group" value={form.supplier_group || 'Sundry Creditors'} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
+                                    {supplierGroupOptions.map(group => <option key={group} value={group}>{group}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Control GL</label>
+                                <input type="text" readOnly value={form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Contact Person</label>
-                            <input type="text" name="contact_person" value={form.contact_person || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Category</label>
-                            <select name="category" value={form.category} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
-                                {supplierCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Group *</label>
-                            <select name="supplier_group" value={form.supplier_group || 'Sundry Creditors'} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
-                                {supplierGroupOptions.map(group => <option key={group} value={group}>{group}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Control GL</label>
-                            <input type="text" readOnly value={form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
-                        </div>
-                    </div>
-                </section>
+                    </section>
 
-                <section className="space-y-4">
-                    <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Contact & Communication</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Office Phone</label>
-                            <input type="text" name="phone" value={form.phone || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                    <section className="space-y-4">
+                        <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Contact & Communication</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Office Phone</label>
+                                <input type="text" name="phone" value={form.phone || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Mobile No.</label>
+                                <input type="text" name="mobile" value={form.mobile || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Email ID</label>
+                                <input type="email" name="email" value={form.email || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">GSTIN</label>
+                                <input type="text" name="gst_number" value={form.gst_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Mobile No.</label>
-                            <input type="text" name="mobile" value={form.mobile || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Email ID</label>
-                            <input type="email" name="email" value={form.email || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">GSTIN</label>
-                            <input type="text" name="gst_number" value={form.gst_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
-                        </div>
-                    </div>
-                </section>
+                    </section>
 
-                <section className="space-y-4">
-                    <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Address Information</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="md:col-span-2">
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Address Line 1</label>
-                            <input type="text" name="address_line1" value={form.address_line1 || form.address || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Building / Street / Landmark" />
+                    <section className="space-y-4">
+                        <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Address Information</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="md:col-span-2">
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Address Line 1</label>
+                                <input type="text" name="address_line1" value={form.address_line1 || form.address || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Building / Street / Landmark" />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Address Line 2</label>
+                                <input type="text" name="address_line2" value={form.address_line2 || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Additional address details" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Area / Locality</label>
+                                <input type="text" name="area" value={form.area || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Area / Locality" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1 flex items-center">Pincode
+                                    {isPincodeLoading && <svg className="animate-spin ml-2 h-3 w-3 text-primary" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>}
+                                </label>
+                                <input type="text" name="pincode" value={form.pincode || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" placeholder="6 digit pincode" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">District</label>
+                                <select name="district" value={form.district || ''} onChange={handleChange} disabled={!form.state} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none disabled:bg-gray-100">
+                                    <option value="">Select District</option>
+                                    {form.state && STATE_DISTRICT_MAP[form.state]?.map(d => <option key={d} value={d}>{d}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">State</label>
+                                <select name="state" value={form.state || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
+                                    <option value="">Select State</option>
+                                    {states.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            </div>
                         </div>
-                        <div className="md:col-span-2">
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Address Line 2</label>
-                            <input type="text" name="address_line2" value={form.address_line2 || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Additional address details" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Area / Locality</label>
-                            <input type="text" name="area" value={form.area || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" placeholder="Area / Locality" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1 flex items-center">Pincode
-                                {isPincodeLoading && <svg className="animate-spin ml-2 h-3 w-3 text-primary" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>}
-                            </label>
-                            <input type="text" name="pincode" value={form.pincode || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" placeholder="6 digit pincode" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">District</label>
-                            <select name="district" value={form.district || ''} onChange={handleChange} disabled={!form.state} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none disabled:bg-gray-100">
-                                <option value="">Select District</option>
-                                {form.state && STATE_DISTRICT_MAP[form.state]?.map(d => <option key={d} value={d}>{d}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">State</label>
-                            <select name="state" value={form.state || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none">
-                                <option value="">Select State</option>
-                                {states.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                        </div>
-                    </div>
-                </section>
+                    </section>
 
-                <section className="space-y-4">
-                    <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Banking & Settlements</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">UPI ID for QR</label>
-                            <input type="text" name="payment_details.upi_id" value={form.payment_details?.upi_id || ''} onChange={handleChange} placeholder="e.g. supplier@upi" className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                    <section className="space-y-4">
+                        <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Banking & Settlements</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">UPI ID for QR</label>
+                                <input type="text" name="payment_details.upi_id" value={form.payment_details?.upi_id || ''} onChange={handleChange} placeholder="e.g. supplier@upi" className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Bank Name</label>
+                                <input type="text" name="payment_details.bank_name" value={form.payment_details?.bank_name || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">A/c Number</label>
+                                <input type="text" name="payment_details.account_number" value={form.payment_details?.account_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">IFSC Code</label>
+                                <input type="text" name="payment_details.ifsc_code" value={form.payment_details?.ifsc_code || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Bank Name</label>
-                            <input type="text" name="payment_details.bank_name" value={form.payment_details?.bank_name || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">A/c Number</label>
-                            <input type="text" name="payment_details.account_number" value={form.payment_details?.account_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">IFSC Code</label>
-                            <input type="text" name="payment_details.ifsc_code" value={form.payment_details?.ifsc_code || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
-                        </div>
-                    </div>
-                </section>
+                    </section>
 
-                <section className="p-4 bg-primary/5 border border-primary/10">
-                    <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] mb-4">Opening Balance Information</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Opening Amount (₹)</label>
-                            <input type="number" name="opening_balance" value={form.opening_balance || 0} onChange={handleChange} className="w-full border border-gray-400 p-2 font-black text-base text-red-700 outline-none focus:bg-yellow-50" />
+                    <section className="p-4 bg-primary/5 border border-primary/10">
+                        <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] mb-4">Opening Balance Information</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Opening Amount (₹)</label>
+                                <input type="number" name="opening_balance" value={form.opening_balance || 0} onChange={handleChange} className="w-full border border-gray-400 p-2 font-black text-base text-red-700 outline-none focus:bg-yellow-50" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Opening Date</label>
+                                <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)} className="w-full border border-gray-400 p-2 font-bold text-sm outline-none" />
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Opening Date</label>
-                            <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)} className="w-full border border-gray-400 p-2 font-bold text-sm outline-none" />
-                        </div>
-                    </div>
-                </section>
-            </div>
-            <div className="flex justify-end p-5 bg-gray-100 border-t border-gray-300 gap-3">
-                <button onClick={onClose} className="px-6 py-2 text-[10px] font-black uppercase border border-gray-400 bg-white hover:bg-red-50 text-red-600 transition-colors">Discard</button>
-                <button onClick={handleSubmit} disabled={isSaving} className="px-14 py-2 tally-button-primary shadow-xl tracking-widest text-[11px] disabled:opacity-50">{isSaving ? 'Saving…' : 'Create Ledger'}</button>
-            </div>
-        </Modal>
+                    </section>
+                </div>
+                <div className="flex justify-end p-5 bg-gray-100 border-t border-gray-300 gap-3">
+                    <button onClick={handleCloseAttempt} className="px-6 py-2 text-[10px] font-black uppercase border border-gray-400 bg-white hover:bg-red-50 text-red-600 transition-colors">Discard</button>
+                    <button onClick={handleSubmit} disabled={isSaving} className="px-14 py-2 tally-button-primary shadow-xl tracking-widest text-[11px] disabled:opacity-50">{isSaving ? 'Saving…' : 'Create Ledger'}</button>
+                </div>
+            </Modal>
+
+            <ConfirmModal
+                isOpen={showConfirmClose}
+                onClose={() => setShowConfirmClose(false)}
+                onConfirm={() => {
+                    setShowConfirmClose(false);
+                    onClose();
+                }}
+                title="Discard Changes"
+                message="You have unsaved supplier data. Are you sure you want to close? All entered data will be lost."
+                confirmLabel="Yes, Discard"
+                cancelLabel="No, Stay"
+            />
+        </>
     );
 };
 
