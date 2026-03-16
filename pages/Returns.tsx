@@ -18,6 +18,70 @@ const RETURN_REASONS = [
     'Customer Return', 'Stock Adjustment', 'Manufacturer Recall', 'Other'
 ];
 
+const getPurchaseReturnItemKey = (item: any): string => {
+    const materialId = String(item?.inventoryItemId || item?.materialId || item?.sku || item?.id || '').trim().toLowerCase();
+    const batch = String(item?.batch || '').trim().toLowerCase();
+    const packType = String(item?.packType || '').trim().toLowerCase();
+    const unit = String(item?.unitOfMeasurement || item?.selectedUnit || '').trim().toLowerCase();
+    const name = String(item?.name || '').trim().toLowerCase();
+    return [materialId, name, batch, packType, unit].join('|');
+};
+
+const getPurchaseItemBaseQuantity = (item: any): number => {
+    const packQty = Number(item?.quantity || 0);
+    const looseQty = Number(item?.looseQuantity || 0);
+    const unitsPerPack = Number(item?.unitsPerPack || 0);
+
+    if (unitsPerPack > 0) {
+        return (packQty * unitsPerPack) + looseQty;
+    }
+    if (looseQty > 0) {
+        return packQty + looseQty;
+    }
+    return packQty;
+};
+
+const buildPurchaseReturnItems = (purchase: Purchase, purchaseReturns: PurchaseReturn[]): PurchaseReturnItem[] => {
+    const returnedQtyMap = new Map<string, number>();
+
+    (purchaseReturns || [])
+        .filter(ret => ret.originalPurchaseInvoiceId === purchase.purchaseSerialId)
+        .flatMap(ret => ret.items || [])
+        .forEach((retItem: any) => {
+            const key = getPurchaseReturnItemKey(retItem);
+            const current = returnedQtyMap.get(key) || 0;
+            returnedQtyMap.set(key, current + Number(retItem.returnQuantity || 0));
+        });
+
+    return (purchase.items || []).map(item => {
+        const key = getPurchaseReturnItemKey(item);
+        const originalQuantity = getPurchaseItemBaseQuantity(item);
+        const alreadyReturnedQuantity = returnedQtyMap.get(key) || 0;
+        const availableReturnableQuantity = Math.max(0, originalQuantity - alreadyReturnedQuantity);
+
+        return {
+            id: item.id,
+            name: item.name,
+            brand: item.brand,
+            purchasePrice: item.purchasePrice,
+            returnQuantity: 0,
+            reason: RETURN_REASONS[0],
+            quantity: availableReturnableQuantity,
+            originalQuantity,
+            alreadyReturnedQuantity,
+            batch: item.batch,
+            expiry: item.expiry,
+            gstPercent: item.gstPercent,
+            hsnCode: item.hsnCode,
+            packType: item.packType,
+            unitOfMeasurement: item.unitOfMeasurement,
+            selectedUnit: item.selectedUnit,
+            unitsPerPack: item.unitsPerPack,
+            inventoryItemId: item.inventoryItemId,
+        } as PurchaseReturnItem;
+    });
+};
+
 const Returns = React.forwardRef<any, ReturnsProps>(({ 
     currentUser, 
     transactions, 
@@ -99,25 +163,17 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
 
         const foundPur = purchases.find(p => p.invoiceNumber === prefillPurchaseInvoiceId || p.purchaseSerialId === prefillPurchaseInvoiceId);
         if (foundPur) {
-            const totalReturnedQty = (purchaseReturns || [])
-                .filter(ret => ret.originalPurchaseInvoiceId === foundPur.purchaseSerialId)
-                .flatMap(ret => ret.items || [])
-                .reduce((sum, item) => sum + Number(item.returnQuantity || 0), 0);
-            const totalPurchasedQty = (foundPur.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+            const mappedItems = buildPurchaseReturnItems(foundPur, purchaseReturns || []);
+            const totalReturnedQty = mappedItems.reduce((sum, item: any) => sum + Number(item.alreadyReturnedQuantity || 0), 0);
+            const totalPurchasedQty = mappedItems.reduce((sum, item: any) => sum + Number(item.originalQuantity || 0), 0);
+            const totalAvailableQty = mappedItems.reduce((sum, item: any) => sum + Number(item.quantity || 0), 0);
 
             if (foundPur.status !== 'completed') {
                 addNotification('Selected bill is not eligible for purchase return.', 'warning');
-            } else if (totalPurchasedQty > 0 && totalReturnedQty >= totalPurchasedQty) {
+            } else if (totalPurchasedQty > 0 && totalReturnedQty >= totalPurchasedQty || totalAvailableQty <= 0) {
                 addNotification('Purchase return already completed for this bill.', 'warning');
             } else {
-                setReturnItems((foundPur.items || []).map(item => ({
-                    id: item.id,
-                    name: item.name,
-                    brand: item.brand,
-                    purchasePrice: item.purchasePrice,
-                    returnQuantity: 0,
-                    reason: RETURN_REASONS[0],
-                } as PurchaseReturnItem)));
+                setReturnItems(mappedItems);
                 setSelectedInvoice(foundPur);
                 addNotification('Source Bill Identified.', 'success');
             }
@@ -164,14 +220,20 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
         } else {
             const foundPur = purchases.find(p => p.invoiceNumber.toLowerCase() === lowerSearchId || p.purchaseSerialId.toLowerCase() === lowerSearchId);
             if (foundPur) {
-                setReturnItems((foundPur.items || []).map(item => ({
-                    id: item.id, 
-                    name: item.name,
-                    brand: item.brand,
-                    purchasePrice: item.purchasePrice,
-                    returnQuantity: 0,
-                    reason: RETURN_REASONS[0],
-                } as PurchaseReturnItem)));
+                const mappedItems = buildPurchaseReturnItems(foundPur, purchaseReturns || []);
+                const totalAvailableQty = mappedItems.reduce((sum, item: any) => sum + Number(item.quantity || 0), 0);
+
+                if (foundPur.status !== 'completed') {
+                    addNotification('Selected bill is not eligible for purchase return.', 'warning');
+                    return;
+                }
+
+                if (totalAvailableQty <= 0) {
+                    addNotification('Purchase return already completed for this bill.', 'warning');
+                    return;
+                }
+
+                setReturnItems(mappedItems);
                 setSelectedInvoice(foundPur as Purchase);
                 addNotification("Source Bill Identified.", "success");
             } else {
@@ -185,7 +247,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
             if (item.id === itemId) {
                 let updatedValue = value;
                 if (field === 'returnQuantity') {
-                    const originalQty = (item as any).quantity || 9999;
+                    const originalQty = Number((item as any).quantity || 0);
                     updatedValue = Math.min(originalQty, Math.max(0, parseInt(value, 10) || 0));
                 }
                 return { ...item, [field]: updatedValue };
