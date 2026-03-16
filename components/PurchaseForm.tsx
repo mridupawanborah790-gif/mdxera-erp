@@ -1754,6 +1754,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
     };
 
+    const memoizedScannedItems = useMemo(() => 
+        (pendingReconciliationItems || items).filter(i => (i.name || "").trim()),
+        [pendingReconciliationItems, items]
+    );
+
     return (
         <div className="flex h-full overflow-hidden bg-app-bg">
             <div className={`flex-1 flex flex-col min-w-0 overflow-hidden relative ${className || ''}`} onKeyDown={handleEnterToNextField}>
