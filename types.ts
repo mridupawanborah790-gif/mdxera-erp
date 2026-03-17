@@ -697,6 +697,7 @@ export interface SalesReturn {
     customerId?: string | null;
     items: SalesReturnItem[];
     totalRefund: number;
+    remarks?: string;
 }
 
 export interface PurchaseReturnItem {
@@ -716,6 +717,7 @@ export interface PurchaseReturn {
     originalPurchaseInvoiceId: string;
     items: PurchaseReturnItem[];
     totalValue: number;
+    remarks?: string;
 }
 
 export interface CustomerPriceListEntry {
