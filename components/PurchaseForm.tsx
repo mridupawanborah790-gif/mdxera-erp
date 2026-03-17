@@ -801,7 +801,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 date,
                 items: calculatedTotals.itemsWithCalculations.map(item => ({
                     ...item,
-                    expiry: normalizeImportDate(item.expiry) || ''
+                    expiry: normalizeImportDate(item.expiry) || undefined
                 })),
                 subtotal: calculatedTotals.subtotal,
                 totalGst: calculatedTotals.totalGst,
