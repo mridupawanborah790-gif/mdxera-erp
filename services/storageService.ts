@@ -96,7 +96,7 @@ const getNextMaterialCode = async (organizationId: string): Promise<string> => {
 };
 
 const SALES_BILL_ALLOWED_FIELDS = [
-    'id', 'organization_id', 'user_id', 'date',
+    'id', 'organization_id', 'user_id', 'created_by_id', 'date',
     'customerName', 'customerId', 'customerPhone', 'referredBy',
     'items', 'item_count',
     'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'roundOff', 'total', 'amountReceived',
@@ -106,7 +106,7 @@ const SALES_BILL_ALLOWED_FIELDS = [
 ];
 
 const PURCHASES_ALLOWED_FIELDS = [
-    'id', 'organization_id', 'user_id',
+    'id', 'organization_id', 'user_id', 'created_by_id',
     'purchaseSerialId', 'supplier', 'invoiceNumber', 'date',
     'subtotal', 'totalGst', 'totalItemDiscount', 'totalItemSchemeDiscount', 'schemeDiscount', 'roundOff', 'totalAmount',
     'items',
@@ -114,7 +114,8 @@ const PURCHASES_ALLOWED_FIELDS = [
     'createdAt', 'updatedAt'
 ];
 
-const isValidUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+const isValidUuid = (value: any): boolean => 
+    typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 const pickFields = (payload: Record<string, any>, allowedFields: string[]) => {
     return allowedFields.reduce((acc, key) => {
@@ -126,54 +127,73 @@ const pickFields = (payload: Record<string, any>, allowedFields: string[]) => {
 };
 
 const getSupabasePayload = (tableName: string, payload: Record<string, any>): Record<string, any> => {
+    // 1. Start with a copy of the payload
+    let sanitized: Record<string, any> = { ...payload };
+
+    // 2. Define tables that underwent the UUID refactoring (id -> user_id PK, user_id -> created_by_id Owner)
+    const pkRenamedTables = ['purchases', 'suppliers', 'customers', 'inventory', 'material_master', 'medicine_master', 'sales_bill'];
+    const ownerRenamedTables = ['purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 'sales_returns', 'purchase_returns'];
+
+    // 3. Apply Mappings
+    if (pkRenamedTables.includes(tableName)) {
+        // Special case for sales_bill: id is voucher number (text), user_id is the new UUID PK.
+        if (tableName === 'sales_bill') {
+            sanitized.voucher_no = payload.id;
+            // For sales_bill, we often don't have the UUID PK in the app yet.
+            // If we have one in a hidden field, use it, otherwise let DB generate or match by voucher_no.
+            if (payload.record_uuid && isValidUuid(payload.record_uuid)) {
+                sanitized.user_id = payload.record_uuid;
+            } else {
+                delete sanitized.user_id; // Don't send app's owner ID as PK
+            }
+        } else {
+            // Standard mapping: app.id (UUID) -> db.user_id (PK UUID)
+            if (payload.id && isValidUuid(payload.id)) {
+                sanitized.user_id = payload.id;
+            } else if (!payload.user_id || !isValidUuid(payload.user_id)) {
+                // For tables like purchases/inventory, we MUST have a UUID PK.
+                sanitized.user_id = generateUUID();
+            }
+        }
+        delete sanitized.id; // Always remove 'id' as it no longer exists or was renamed
+    }
+
+    if (ownerRenamedTables.includes(tableName)) {
+        // Map app's 'user_id' (owner auth ID) to db's 'created_by_id'
+        if (payload.user_id && isValidUuid(payload.user_id)) {
+            sanitized.created_by_id = payload.user_id;
+        }
+        
+        // If this table is NOT in pkRenamedTables (meaning user_id is NOT the PK),
+        // we should remove user_id to avoid confusion, but here sales_bill IS in both.
+        // The pkRenamedTables logic above already handled removing or mapping user_id.
+    }
+
+    // 4. Table-specific sanitizations
     if (tableName === 'sales_bill') {
-        const sanitized = pickFields(payload, SALES_BILL_ALLOWED_FIELDS);
-        // Some deployments enforce `sales_bill.customer_id` as UUID.
-        // Keep POS save resilient when walk-in / imported customers use numeric IDs (e.g. "1000").
-        if (sanitized.customerId && !isValidUuid(String(sanitized.customerId))) {
+        // Keep POS save resilient when walk-in / imported customers use numeric IDs
+        if (sanitized.customerId && !isValidUuid(sanitized.customerId)) {
             sanitized.customerId = null;
         }
-        return sanitized;
     }
 
     if (tableName === 'purchases') {
-        const sanitized = pickFields(payload, PURCHASES_ALLOWED_FIELDS);
-        if (!sanitized.id || !isValidUuid(String(sanitized.id))) {
-            sanitized.id = generateUUID();
-        }
-        // SCHEMA WORKAROUND: In some environments, the primary key 'id' was renamed to 'user_id' 
-        // while the actual 'user_id' (owner) was renamed to 'created_by_id'.
-        (sanitized as any).user_id = sanitized.id;
-
-        // Prevent Postgres date parsing errors when optional date fields are sent as empty strings.
+        // Prevent Postgres date parsing errors
         if (typeof sanitized.date === 'string' && sanitized.date.trim() === '') {
             sanitized.date = new Date().toISOString().split('T')[0];
         }
         if (typeof sanitized.eWayBillDate === 'string' && sanitized.eWayBillDate.trim() === '') {
             sanitized.eWayBillDate = null;
         }
-        return sanitized;
-    }
-
-    if (tableName === 'suppliers' || tableName === 'customers') {
-        const sanitized = { ...payload };
-        // Same schema workaround for suppliers/customers if they follow the same rename pattern
-        if (sanitized.id && isValidUuid(String(sanitized.id))) {
-            (sanitized as any).user_id = sanitized.id;
-        }
-        return sanitized;
     }
 
     if (tableName === 'inventory') {
-        const sanitized = { ...payload };
-        // Expiry can be left blank while creating purchase lines; send null instead of empty string.
         if (typeof sanitized.expiry === 'string' && sanitized.expiry.trim() === '') {
             sanitized.expiry = null;
         }
-        return sanitized;
     }
 
-    return payload;
+    return sanitized;
 };
 
 export const toCamel = (obj: any): any => {
