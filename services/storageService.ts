@@ -135,7 +135,8 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
     const humanIdTables = ['sales_bill', 'physical_inventory'];
     
     // 3. Define tables that use 'created_by_id' for ownership tracking in the database
-    const ownerTrackingTables = ['purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 'sales_returns', 'purchase_returns', 'material_master'];
+    // Most tables now have both or are being migrated to created_by_id for audit.
+    const ownerTrackingTables = ['purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 'sales_returns', 'purchase_returns', 'material_master', 'purchase_orders', 'sales_challans', 'delivery_challans', 'physical_inventory'];
 
     // 4. Apply Primary Key Mappings
     if (humanIdTables.includes(tableName)) {
@@ -168,11 +169,16 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         if (!humanIdTables.includes(tableName)) {
             if (payload.user_id && isValidUuid(payload.user_id)) {
                 sanitized.created_by_id = payload.user_id;
+                // If the table has a user_id column that is NOT the PK, 
+                // we should only delete user_id if it's NOT a valid UUID 
+                // (e.g. it contains a clerk name string).
+                if (!isValidUuid(payload.user_id)) {
+                    delete sanitized.user_id;
+                }
+            } else if (payload.user_id && !isValidUuid(payload.user_id)) {
+                // If it's a string (clerk name), it MUST be deleted to avoid uuid=text error
+                delete sanitized.user_id;
             }
-            // CRITICAL: Always delete sanitized.user_id here because in the DB, 
-            // the column is either a PK (handled above) or we want to use created_by_id.
-            // Keeping it as a string/clerk-name would cause "uuid = text" errors.
-            delete sanitized.user_id;
         }
     }
 
@@ -196,6 +202,9 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         if (typeof sanitized.expiry === 'string' && sanitized.expiry.trim() === '') {
             sanitized.expiry = null;
         }
+        // Ensure linked IDs are valid UUIDs
+        if (sanitized.supplierId && !isValidUuid(sanitized.supplierId)) delete sanitized.supplierId;
+        if (sanitized.masterMedicineId && !isValidUuid(sanitized.masterMedicineId)) delete sanitized.masterMedicineId;
     }
 
     return sanitized;
