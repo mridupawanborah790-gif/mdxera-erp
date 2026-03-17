@@ -956,6 +956,10 @@
 
             if (existingInv) {
                 existingInv.stock = Number(existingInv.stock || 0) + change.units;
+                // Normalize expiry if present in purchase item
+                if (change.item.expiry) {
+                    existingInv.expiry = normalizeImportDate(change.item.expiry) || existingInv.expiry;
+                }
                 applyTierRates(existingInv, change.item);
                 await saveData('inventory', existingInv, user);
             } else {
@@ -969,7 +973,7 @@
                     stock: change.units,
                     unitsPerPack: uPP,
                     batch: change.item.batch || 'UNSET',
-                    expiry: change.item.expiry,
+                    expiry: normalizeImportDate(change.item.expiry) || '',
                     purchasePrice: change.item.purchasePrice,
                     mrp: change.item.mrp,
                     gstPercent: change.item.gstPercent || 0,
@@ -1044,6 +1048,10 @@
 
             if (invItem) {
                 invItem.stock = Number(invItem.stock || 0) + diff;
+                // Normalize expiry if present in purchase item
+                if (data.item.expiry) {
+                    invItem.expiry = normalizeImportDate(data.item.expiry) || invItem.expiry;
+                }
                 applyTierRates(invItem, data.item);
                 await saveData('inventory', invItem, user);
             } else if (diff > 0) {
@@ -1058,7 +1066,7 @@
                     stock: diff,
                     unitsPerPack: uPP,
                     batch: data.item.batch || 'UNSET',
-                    expiry: data.item.expiry,
+                    expiry: normalizeImportDate(data.item.expiry) || '',
                     purchasePrice: data.item.purchasePrice,
                     mrp: data.item.mrp,
                     gstPercent: data.item.gstPercent || 0,
