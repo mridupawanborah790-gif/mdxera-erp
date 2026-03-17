@@ -169,20 +169,16 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         if (!humanIdTables.includes(tableName)) {
             if (payload.user_id && isValidUuid(payload.user_id)) {
                 sanitized.created_by_id = payload.user_id;
-                // If the table has a user_id column that is NOT the PK, 
-                // we should only delete user_id if it's NOT a valid UUID 
-                // (e.g. it contains a clerk name string).
-                if (!isValidUuid(payload.user_id)) {
-                    delete sanitized.user_id;
-                }
-            } else if (payload.user_id && !isValidUuid(payload.user_id)) {
-                // If it's a string (clerk name), it MUST be deleted to avoid uuid=text error
-                delete sanitized.user_id;
             }
+            // CRITICAL: Always delete sanitized.user_id here. 
+            // In the DB, the column is either a PK (handled above in humanIdTables)
+            // or we want to use created_by_id for audit. Keeping a string/name 
+            // in user_id causes "uuid = text" errors.
+            delete sanitized.user_id;
         }
     }
 
-    // 6. Table-specific sanitizations
+    // 6. Table-specific sanitizations (Foreign Key UUID Guards)
     if (tableName === 'sales_bill') {
         if (sanitized.customerId && !isValidUuid(sanitized.customerId)) {
             sanitized.customerId = null;
@@ -195,6 +191,10 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         }
         if (typeof sanitized.eWayBillDate === 'string' && sanitized.eWayBillDate.trim() === '') {
             sanitized.eWayBillDate = null;
+        }
+        // Guard foreign keys
+        if (sanitized.supplierId && !isValidUuid(sanitized.supplierId)) {
+            delete sanitized.supplierId;
         }
     }
 
