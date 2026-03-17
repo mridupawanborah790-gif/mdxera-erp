@@ -377,7 +377,27 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                                         <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedTransactionId === tx.id ? 'text-white' : 'text-primary'}`}>{tx.id}</td>
                                         <td className="p-2 border-r border-gray-200">{new Date(tx.date).toLocaleDateString('en-IN')}</td>
                                         <td className="p-2 border-r border-gray-200 font-bold uppercase">{tx.customerName}</td>
-                                        <td className="p-2 border-r border-gray-200 text-center font-bold">{(tx.items || []).length}</td>
+                                        <td className="p-2 border-r border-gray-200 text-center font-bold">
+                                            {(() => {
+                                                const originalCount = (tx.items || []).length;
+                                                const returnedItemIds = new Set(
+                                                    (salesReturns || [])
+                                                        .filter(ret => ret.originalInvoiceId === tx.id)
+                                                        .flatMap(ret => (ret.items || []).map(item => item.inventoryItemId || item.id || item.name))
+                                                );
+                                                const netCount = Math.max(0, originalCount - returnedItemIds.size);
+                                                
+                                                if (returnedItemIds.size > 0) {
+                                                    return (
+                                                        <div className="flex flex-col items-center leading-none">
+                                                            <span className="text-xs">{netCount}</span>
+                                                            <span className="text-[8px] text-red-500 font-black mt-0.5 uppercase">({returnedItemIds.size} Ret)</span>
+                                                        </div>
+                                                    );
+                                                }
+                                                return originalCount;
+                                            })()}
+                                        </td>
                                         <td className="p-2 border-r border-gray-400 text-right font-black">₹{(tx.total || 0).toFixed(2)}</td>
                                         <td className="p-2 border-r border-gray-200 text-center">
                                             <div className="flex flex-col gap-1 items-center">

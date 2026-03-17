@@ -1,8 +1,8 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import Modal from './Modal';
 import JournalEntryViewerModal from './JournalEntryViewerModal';
-import type { Transaction, BillItem, Customer, RegisteredPharmacy } from '../types';
+import type { Transaction, BillItem, Customer, RegisteredPharmacy, SalesReturn } from '../types';
 
 interface TransactionDetailModalProps {
     isOpen: boolean;
@@ -13,10 +13,41 @@ interface TransactionDetailModalProps {
     onProcessReturn: (invoiceId: string) => void;
     pharmacyName?: string;
     currentUser?: RegisteredPharmacy | null;
+    salesReturns?: SalesReturn[];
 }
 
-const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen, onClose, transaction, customer, onPrintBill, onProcessReturn, pharmacyName, currentUser }) => {
+const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ 
+    isOpen, 
+    onClose, 
+    transaction, 
+    customer, 
+    onPrintBill, 
+    onProcessReturn, 
+    pharmacyName, 
+    currentUser,
+    salesReturns = []
+}) => {
     const [isJournalOpen, setIsJournalOpen] = React.useState(false);
+
+    // Calculate returned quantities per item
+    const returnedQtyMap = useMemo(() => {
+        const map = new Map<string, number>();
+        if (!transaction) return map;
+
+        const relevantReturns = salesReturns.filter(r => 
+            r.originalInvoiceId === transaction.id
+        );
+
+        relevantReturns.forEach(ret => {
+            (ret.items || []).forEach(item => {
+                const key = item.inventoryItemId || item.id || item.name;
+                const current = map.get(key) || 0;
+                map.set(key, current + (item.returnQuantity || 0));
+            });
+        });
+        return map;
+    }, [transaction, salesReturns]);
+
     if (!isOpen || !transaction) return null;
 
     const getItemDisplayName = (item: BillItem) => {
@@ -36,6 +67,12 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen,
     } = transaction;
 
     const items = Array.isArray(transaction.items) ? transaction.items : [];
+
+    const totalReturnRefund = useMemo(() => {
+        return salesReturns
+            .filter(r => r.originalInvoiceId === transaction.id)
+            .reduce((sum, ret) => sum + (ret.totalRefund || 0), 0);
+    }, [transaction, salesReturns]);
 
     const allPrescriptions = [
         ...(prescriptionUrl ? [prescriptionUrl] : []),
@@ -90,6 +127,13 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen,
                 {transaction.status === 'cancelled' && (
                     <div className="bg-red-600 text-white p-2 font-normal text-center text-xs uppercase tracking-widest shadow-inner">
                         DOCUMENT STATUS: CANCELLED / VOID
+                    </div>
+                )}
+                {totalReturnRefund > 0 && (
+                    <div className="bg-amber-500 text-black p-2 font-black text-center text-[10px] uppercase tracking-widest shadow-inner flex items-center justify-center gap-4">
+                        <span>CREDIT NOTE ISSUED: ₹{totalReturnRefund.toFixed(2)}</span>
+                        <div className="h-3 w-[1px] bg-black/20" />
+                        <span>ADJUSTED TOTAL: ₹{(total - totalReturnRefund).toFixed(2)}</span>
                     </div>
                 )}
                 
@@ -166,29 +210,45 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen,
                               <th className="py-4 px-6 text-right font-normal uppercase text-[10px] tracking-[0.2em] text-gray-900 w-40">Amount</th>
                           </tr></thead>
                           <tbody className="divide-y divide-gray-200 bg-white">
-                              {items.map(item => (
-                                  <tr key={item.id} className="hover:bg-[var(--modal-content-bg-light)]/[var(--modal-opacity-low)] transition-colors font-normal">
-                                      <td className="p-6">
-                                          <span className="text-gray-950 block text-base leading-none mb-1">{getItemDisplayName(item)}</span>
-                                          <div className="text-[11px] text-gray-400 font-normal uppercase tracking-widest flex items-center gap-2">
-                                            <span className="px-1.5 py-0.5 bg-slate-100 rounded border border-slate-200 text-slate-500 font-mono">BATCH: {item.batch}</span>
-                                            <span className="px-1.5 py-0.5 bg-blue-50 rounded border border-blue-100 text-blue-500">EXP: {item.expiry}</span>
-                                          </div>
-                                      </td>
-                                      <td className="p-2 text-center text-base text-gray-900">{item.quantity}</td>
-                                      <td className="p-2 text-center text-base text-gray-500">{item.looseQuantity || 0}</td>
-                                      <td className="p-2 text-right text-gray-600 text-base">₹{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)).toFixed(2)}</td>
-                                      <td className="p-2 text-center text-blue-600 text-sm">{(item.discountPercent || 0)}%</td>
-                                      <td className="p-6 text-right text-lg text-gray-950">
-                                        ₹{(() => {
-                                            const uPP = item.unitsPerPack || 1;
-                                            const tU = (item.quantity * uPP) + (item.looseQuantity || 0);
-                                            const uR = (item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)) / uPP;
-                                            return (uR * tU * (1 - (item.discountPercent || 0) / 100));
-                                        })().toFixed(2)}
-                                      </td>
-                                  </tr>
-                              ))}
+                              {items.map(item => {
+                                  const key = item.inventoryItemId || item.id || item.name;
+                                  const returnedQty = returnedQtyMap.get(key) || 0;
+                                  const originalQty = item.quantity;
+                                  const netQty = Math.max(0, originalQty - returnedQty);
+
+                                  return (
+                                    <tr key={item.id} className="hover:bg-[var(--modal-content-bg-light)]/[var(--modal-opacity-low)] transition-colors font-normal">
+                                        <td className="p-6">
+                                            <span className="text-gray-950 block text-base leading-none mb-1">{getItemDisplayName(item)}</span>
+                                            <div className="text-[11px] text-gray-400 font-normal uppercase tracking-widest flex items-center gap-2">
+                                                <span className="px-1.5 py-0.5 bg-slate-100 rounded border border-slate-200 text-slate-500 font-mono">BATCH: {item.batch}</span>
+                                                <span className="px-1.5 py-0.5 bg-blue-50 rounded border border-blue-100 text-blue-500">EXP: {item.expiry}</span>
+                                            </div>
+                                        </td>
+                                        <td className="p-2 text-center">
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-base text-gray-900">{netQty}</span>
+                                                {returnedQty > 0 && (
+                                                    <span className="text-[9px] font-black text-red-500 uppercase">
+                                                        ({originalQty} - {returnedQty} Ret)
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="p-2 text-center text-base text-gray-500">{item.looseQuantity || 0}</td>
+                                        <td className="p-2 text-right text-gray-600 text-base">₹{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)).toFixed(2)}</td>
+                                        <td className="p-2 text-center text-blue-600 text-sm">{(item.discountPercent || 0)}%</td>
+                                        <td className="p-6 text-right text-lg text-gray-950">
+                                            ₹{(() => {
+                                                const uPP = item.unitsPerPack || 1;
+                                                const tU = (netQty * uPP) + (item.looseQuantity || 0);
+                                                const uR = (item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)) / uPP;
+                                                return (uR * tU * (1 - (item.discountPercent || 0) / 100));
+                                            })().toFixed(2)}
+                                        </td>
+                                    </tr>
+                                  );
+                              })}
                               {items.length === 0 && (
                                   <tr>
                                       <td colSpan={6} className="p-12 text-center text-gray-400 font-normal uppercase tracking-widest">No items found in this invoice</td>
@@ -238,7 +298,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ isOpen,
                         <div><span className="block text-[10px] font-normal text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">Base Value</span><span className="text-gray-900 dark:text-white text-lg">₹{(displaySubtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
                         <div><span className="block text-[10px] font-normal text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">GST (Tax)</span><span className="text-gray-900 dark:text-white text-lg">₹{(displayGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
                         <div><span className="block text-[10px] font-normal text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">Savings</span><span className="text-emerald-600 text-lg">₹{(displayItemDiscount + (schemeDiscount || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-                        <div className="flex items-baseline gap-4 md:col-span-1 pt-0"><span className="text-[10px] font-normal text-gray-400 uppercase tracking-widest opacity-60">Net Payable</span><span className="text-4xl font-normal text-[var(--modal-header-bg-light)] dark:text-[var(--modal-header-bg-dark)] leading-none tracking-tighter">₹{(total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+                        <div className="flex items-baseline gap-4 md:col-span-1 pt-0"><span className="text-[10px] font-normal text-gray-400 uppercase tracking-widest opacity-60">Net Payable</span><span className="text-4xl font-normal text-[var(--modal-header-bg-light)] dark:text-[var(--modal-header-bg-dark)] leading-none tracking-tighter">₹{(total - totalReturnRefund || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
                     </div>
                     <div className="flex items-center space-x-3 w-full md:w-auto flex-shrink-0">
                         {transaction.customerPhone && (

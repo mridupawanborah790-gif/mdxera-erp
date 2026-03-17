@@ -651,7 +651,7 @@ const App: React.FC = () => {
         try {
             // 1. Mark status as cancelled
             const cancelledPurchase = { ...purchase, status: 'cancelled' as const };
-            await storage.saveData('purchases', cancelledPurchase, currentUser);
+            await storage.saveData('purchases', cancelledPurchase, currentUser, true);
             await storage.syncPurchaseLedger(cancelledPurchase, currentUser);
             await storage.markVoucherCancelled('purchase-entry', currentUser, cancelledPurchase.purchaseSerialId, cancelledPurchase.id);
 
@@ -671,7 +671,7 @@ const App: React.FC = () => {
                         ...inventoryMatch,
                         stock: Math.max(0, Number(inventoryMatch.stock || 0) - unitsToRemove)
                     };
-                    await storage.saveData('inventory', updatedInv, currentUser);
+                    await storage.saveData('inventory', updatedInv, currentUser, true);
                 }
             }
 
@@ -1007,7 +1007,7 @@ const App: React.FC = () => {
         const tx = transactions.find(t => t.id === id);
         if (tx) {
             const cancelledTx = { ...tx, status: 'cancelled' as const };
-            await storage.saveData('sales_bill', cancelledTx, currentUser);
+            await storage.saveData('sales_bill', cancelledTx, currentUser, true);
             await storage.syncSalesLedger(cancelledTx, currentUser);
             await storage.markVoucherCancelled(cancelledTx.billType === 'non-gst' ? 'sales-non-gst' : 'sales-gst', currentUser, cancelledTx.id, cancelledTx.id);
             for (const item of tx.items) {
@@ -1015,7 +1015,7 @@ const App: React.FC = () => {
                 if (inv) {
                     const policy = getInventoryPolicy(inv, medicines);
                     if (!policy.inventorised) continue;
-                    await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0)) }, currentUser);
+                    await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0)) }, currentUser, true);
                 }
             }
             loadData(currentUser, 'background');
@@ -1176,12 +1176,12 @@ const App: React.FC = () => {
                         purchaseReturns={purchaseReturns}
                         purchases={purchases}
                         onAddSalesReturn={async (sr) => {
-                            await storage.saveData('sales_returns', sr, currentUser!);
+                            await storage.addSalesReturn(sr, currentUser!);
                             await loadData(currentUser!, 'background');
                             addNotification('Sales return recorded.', 'success');
                         }}
                         onAddPurchaseReturn={async (pr) => {
-                            await storage.saveData('purchase_returns', pr, currentUser!);
+                            await storage.addPurchaseReturn(pr, currentUser!);
                             await loadData(currentUser!, 'background');
                             addNotification('Purchase return recorded.', 'success');
                         }}
@@ -1306,8 +1306,8 @@ const App: React.FC = () => {
                     return <PurchaseHistory
                         purchases={purchases} distributors={suppliers} onViewDetails={setViewPurchase}
                         onCancelPurchase={handleCancelPurchase} inventory={inventory} medicines={medicines}
-                        onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualSupplierInvoice'); }}
-                        onCreateReturn={(p) => { setPurchaseReturnPrefillInvoiceId(p.purchaseSerialId); handleNavigate('purchaseReturn'); }}
+                        onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualPurchaseEntry'); }}
+                        onCreateReturn={(p) => { setPurchaseReturnPrefillInvoiceId(p.id); handleNavigate('purchaseReturn'); }}
                         purchaseReturns={purchaseReturns}
                         onRefresh={async () => loadData(currentUser!, 'background')}
                         onAddInventoryItem={handleAddInventoryItem}
@@ -1580,8 +1580,27 @@ const App: React.FC = () => {
             <NotificationSystem notifications={notifications} removeNotification={removeNotification} />
 
             {printBill && <PrintBillModal isOpen={!!printBill} onClose={() => setPrintBill(null)} bill={printBill} medicines={medicines} />}
-            {viewTransaction && <TransactionDetailModal isOpen={!!viewTransaction} onClose={() => setViewTransaction(null)} transaction={viewTransaction} customer={customers.find(c => c.id === viewTransaction.customerId)} onPrintBill={setPrintBill as any} onProcessReturn={() => { }} currentUser={currentUser} />}
-            {viewPurchase && <PurchaseDetailModal isOpen={!!viewPurchase} onClose={() => setViewPurchase(null)} purchase={viewPurchase} currentUser={currentUser} />}
+            {viewTransaction && (
+                <TransactionDetailModal 
+                    isOpen={!!viewTransaction} 
+                    onClose={() => setViewTransaction(null)} 
+                    transaction={viewTransaction} 
+                    customer={customers.find(c => c.id === viewTransaction.customerId)} 
+                    onPrintBill={setPrintBill as any} 
+                    onProcessReturn={() => { }} 
+                    currentUser={currentUser} 
+                    salesReturns={salesReturns}
+                />
+            )}
+            {viewPurchase && (
+                <PurchaseDetailModal 
+                    isOpen={!!viewPurchase} 
+                    onClose={() => setViewPurchase(null)} 
+                    purchase={viewPurchase} 
+                    purchaseReturns={purchaseReturns}
+                    currentUser={currentUser} 
+                />
+            )}
             {printPO && <PrintPurchaseOrderModal isOpen={!!printPO} onClose={() => setPrintPO(null)} purchaseOrder={printPO as any} pharmacy={currentUser} />}
             {viewReport && <PrintableReportModal isOpen={!!viewReport} onClose={() => setViewReport(null)} {...viewReport} pharmacyDetails={currentUser} />}
             {showLogoutPrompt && <TallyPrompt isOpen={showLogoutPrompt} title="Quit Application" message="Are you sure you want to exit Medimart ERP?" onAccept={handleLogout} onDiscard={() => setShowLogoutPrompt(false)} onCancel={() => setShowLogoutPrompt(false)} />}

@@ -55,7 +55,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [distributorFilter, setDistributorFilter] = useState('all');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('completed');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
     const [sortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' }>({ key: 'date', direction: 'descending' });
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [purchaseToCancel, setPurchaseToCancel] = useState<string | null>(null);
@@ -397,6 +397,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                                     <th className="p-2 border-r border-gray-400 text-left">Supplier Bill ID</th>
                                     <th className="p-2 border-r border-gray-400 text-left">Date</th>
                                     <th className="p-2 border-r border-gray-400 text-left">Supplier</th>
+                                    <th className="p-2 border-r border-gray-400 text-center w-24">Items</th>
                                     <th className="p-2 border-r border-gray-400 text-right w-32">Amount</th>
                                     <th className="p-2 border-r border-gray-400 text-center w-28">Status</th>
                                 </tr>
@@ -413,6 +414,27 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                                         <td className="p-2 border-r border-gray-200 font-bold uppercase">{p.invoiceNumber}</td>
                                         <td className="p-2 border-r border-gray-200">{new Date(p.date).toLocaleDateString('en-IN')}</td>
                                         <td className="p-2 border-r border-gray-200 font-bold uppercase">{p.supplier}</td>
+                                        <td className="p-2 border-r border-gray-200 text-center font-bold">
+                                            {(() => {
+                                                const originalCount = (p.items || []).length;
+                                                const returnedItemIds = new Set(
+                                                    (purchaseReturns || [])
+                                                        .filter(ret => ret.originalPurchaseInvoiceId === p.purchaseSerialId)
+                                                        .flatMap(ret => (ret.items || []).map(item => item.inventoryItemId || item.id || item.name))
+                                                );
+                                                const netCount = Math.max(0, originalCount - returnedItemIds.size);
+                                                
+                                                if (returnedItemIds.size > 0) {
+                                                    return (
+                                                        <div className="flex flex-col items-center leading-none">
+                                                            <span className="text-xs">{netCount}</span>
+                                                            <span className="text-[8px] text-red-500 font-black mt-0.5 uppercase">({returnedItemIds.size} Ret)</span>
+                                                        </div>
+                                                    );
+                                                }
+                                                return originalCount;
+                                            })()}
+                                        </td>
                                         <td className="p-2 border-r border-gray-200 text-right font-black">₹{(p.totalAmount || 0).toFixed(2)}</td>
                                         <td className="p-2 border-r border-gray-200 text-center">
                                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${p.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>

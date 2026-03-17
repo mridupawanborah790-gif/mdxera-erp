@@ -82,6 +82,35 @@ const buildPurchaseReturnItems = (purchase: Purchase, purchaseReturns: PurchaseR
     });
 };
 
+const buildSalesReturnItems = (transaction: Transaction, salesReturns: SalesReturn[]): SalesReturnItem[] => {
+    const returnedQtyMap = new Map<string, number>();
+
+    (salesReturns || [])
+        .filter(ret => ret.originalInvoiceId === transaction.id)
+        .flatMap(ret => ret.items || [])
+        .forEach((retItem: any) => {
+            const key = retItem.inventoryItemId || retItem.id;
+            const current = returnedQtyMap.get(key) || 0;
+            returnedQtyMap.set(key, current + Number(retItem.returnQuantity || 0));
+        });
+
+    return (transaction.items || []).map(item => {
+        const key = item.inventoryItemId || item.id;
+        const originalQuantity = Number(item.quantity || 0); // Sales quantity is in packs/main units
+        const alreadyReturnedQuantity = returnedQtyMap.get(key) || 0;
+        const availableReturnableQuantity = Math.max(0, originalQuantity - alreadyReturnedQuantity);
+
+        return {
+            ...item,
+            returnQuantity: 0,
+            reason: RETURN_REASONS[0],
+            quantity: availableReturnableQuantity, // Store available quantity in the item's quantity field for UI
+            originalQuantity, // Keep track of original for reference
+            alreadyReturnedQuantity,
+        } as any; // Cast to any because SalesReturnItem might not have these extra fields but we need them for UI
+    });
+};
+
 const Returns = React.forwardRef<any, ReturnsProps>(({ 
     currentUser, 
     transactions, 
@@ -141,17 +170,24 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
 
         const foundTx = transactions.find(tx => tx.id === prefillSalesInvoiceId);
         if (foundTx) {
-            setReturnItems((foundTx.items || []).map(item => ({
-                ...item,
-                returnQuantity: 0,
-                reason: RETURN_REASONS[0],
-            } as SalesReturnItem)));
-            setSelectedInvoice(foundTx);
-            addNotification('Source Invoice Identified.', 'success');
+            const mappedItems = buildSalesReturnItems(foundTx, salesReturns || []);
+            const totalReturnedQty = mappedItems.reduce((sum, item: any) => sum + Number(item.alreadyReturnedQuantity || 0), 0);
+            const totalSoldQty = mappedItems.reduce((sum, item: any) => sum + Number(item.originalQuantity || 0), 0);
+            const totalAvailableQty = mappedItems.reduce((sum, item: any) => sum + Number(item.quantity || 0), 0);
+
+            if (foundTx.status !== 'completed') {
+                addNotification('Selected invoice is not eligible for return.', 'warning');
+            } else if (totalSoldQty > 0 && totalReturnedQty >= totalSoldQty || totalAvailableQty <= 0) {
+                addNotification('Return already completed for this invoice.', 'warning');
+            } else {
+                setReturnItems(mappedItems);
+                setSelectedInvoice(foundTx);
+                addNotification('Source Invoice Identified.', 'success');
+            }
         }
 
         onPrefillSalesInvoiceHandled?.();
-    }, [prefillSalesInvoiceId, transactions, addNotification, onPrefillSalesInvoiceHandled]);
+    }, [prefillSalesInvoiceId, transactions, salesReturns, addNotification, onPrefillSalesInvoiceHandled]);
 
 
     useEffect(() => {
@@ -161,7 +197,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
         setView('create');
         setSearchInvoiceId(prefillPurchaseInvoiceId);
 
-        const foundPur = purchases.find(p => p.invoiceNumber === prefillPurchaseInvoiceId || p.purchaseSerialId === prefillPurchaseInvoiceId);
+        const foundPur = purchases.find(p => p.id === prefillPurchaseInvoiceId || p.invoiceNumber === prefillPurchaseInvoiceId || p.purchaseSerialId === prefillPurchaseInvoiceId);
         if (foundPur) {
             const mappedItems = buildPurchaseReturnItems(foundPur, purchaseReturns || []);
             const totalReturnedQty = mappedItems.reduce((sum, item: any) => sum + Number(item.alreadyReturnedQuantity || 0), 0);
@@ -193,32 +229,28 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
         if (activeTab === 'sales') {
             const foundTx = transactions.find(t => t.id.toLowerCase() === lowerSearchId);
             if (foundTx) {
-                const totalReturnedQty = (salesReturns || [])
-                    .filter(ret => ret.originalInvoiceId === foundTx.id)
-                    .flatMap(ret => ret.items || [])
-                    .reduce((sum, item) => sum + Number(item.returnQuantity || 0), 0);
-                const totalSoldQty = (foundTx.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+                const mappedItems = buildSalesReturnItems(foundTx, salesReturns || []);
+                const totalReturnedQty = mappedItems.reduce((sum, item: any) => sum + Number(item.alreadyReturnedQuantity || 0), 0);
+                const totalSoldQty = mappedItems.reduce((sum, item: any) => sum + Number(item.originalQuantity || 0), 0);
+                const totalAvailableQty = mappedItems.reduce((sum, item: any) => sum + Number(item.quantity || 0), 0);
+
                 if (foundTx.status !== 'completed') {
                     addNotification('Selected invoice is not eligible for return.', 'warning');
                     return;
                 }
-                if (totalSoldQty > 0 && totalReturnedQty >= totalSoldQty) {
+                if (totalSoldQty > 0 && totalReturnedQty >= totalSoldQty || totalAvailableQty <= 0) {
                     addNotification('Return already completed for this invoice.', 'warning');
                     return;
                 }
 
-                setReturnItems((foundTx.items || []).map(item => ({
-                    ...item,
-                    returnQuantity: 0,
-                    reason: RETURN_REASONS[0],
-                } as SalesReturnItem)));
+                setReturnItems(mappedItems);
                 setSelectedInvoice(foundTx as Transaction);
                 addNotification("Source Invoice Identified.", "success");
             } else {
                 addNotification("Invoice not found in Sales Register.", "error");
             }
         } else {
-            const foundPur = purchases.find(p => p.invoiceNumber.toLowerCase() === lowerSearchId || p.purchaseSerialId.toLowerCase() === lowerSearchId);
+            const foundPur = purchases.find(p => p.id.toLowerCase() === lowerSearchId || p.invoiceNumber.toLowerCase() === lowerSearchId || p.purchaseSerialId.toLowerCase() === lowerSearchId);
             if (foundPur) {
                 const mappedItems = buildPurchaseReturnItems(foundPur, purchaseReturns || []);
                 const totalAvailableQty = mappedItems.reduce((sum, item: any) => sum + Number(item.quantity || 0), 0);
@@ -259,13 +291,22 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
     const totalReturnRefundValue = useMemo(() => {
         return returnItems.reduce((sum, item) => {
             const quantity = item.returnQuantity || 0;
-            let itemValue = 0;
-            if (activeTab === 'sales' && 'rate' in item) {
-                itemValue = (item as SalesReturnItem).rate || (item as SalesReturnItem).mrp || 0;
-            } else if (activeTab === 'purchase' && 'purchasePrice' in item) {
-                itemValue = (item as PurchaseReturnItem).purchasePrice || 0;
+            if (quantity <= 0) return sum;
+
+            let perItemValue = 0;
+            if (activeTab === 'sales') {
+                const sItem = item as SalesReturnItem;
+                const rate = sItem.rate || sItem.mrp || 0;
+                const disc = sItem.discountPercent || 0;
+                const tax = sItem.gstPercent || 0;
+                
+                // Net value after discount and adding tax
+                const afterDisc = rate * (1 - disc / 100);
+                perItemValue = afterDisc * (1 + tax / 100);
+            } else {
+                perItemValue = (item as PurchaseReturnItem).purchasePrice || 0;
             }
-            return sum + (quantity * itemValue);
+            return sum + (quantity * perItemValue);
         }, 0);
     }, [returnItems, activeTab]);
 
@@ -407,26 +448,53 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                                                     <thead className="bg-gray-100 border-b-2 border-black font-black uppercase text-gray-600 text-[9px]">
                                                         <tr>
                                                             <th className="p-2 text-left">Item Description</th>
-                                                            <th className="p-2 text-center w-24">Orig. Qty</th>
-                                                            <th className="p-2 text-center w-28">Return Qty</th>
+                                                            <th className="p-2 text-center w-28">Available Qty</th>
+                                                            <th className="p-2 text-center w-32">Return Qty</th>
+                                                            <th className="p-2 text-right w-24">Net Rate</th>
                                                             <th className="p-2 text-right w-32">Refund Value</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-gray-100 font-bold">
                                                         {returnItems.map(item => {
-                                                            const originalQuantity = (item as any).quantity || 0;
-                                                            const rate = activeTab === 'sales' ? ((item as SalesReturnItem).rate || (item as SalesReturnItem).mrp || 0) : ((item as PurchaseReturnItem).purchasePrice || 0);
+                                                            const availableQuantity = (item as any).quantity || 0;
+                                                            const originalQuantity = (item as any).originalQuantity || (item as any).quantity || 0;
+                                                            
+                                                            let netRate = 0;
+                                                            if (activeTab === 'sales') {
+                                                                const sItem = item as SalesReturnItem;
+                                                                const rate = sItem.rate || sItem.mrp || 0;
+                                                                const disc = sItem.discountPercent || 0;
+                                                                const tax = sItem.gstPercent || 0;
+                                                                const afterDisc = rate * (1 - disc / 100);
+                                                                netRate = afterDisc * (1 + tax / 100);
+                                                            } else {
+                                                                netRate = (item as PurchaseReturnItem).purchasePrice || 0;
+                                                            }
+
                                                             return (
                                                                 <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                                                                     <td className="p-2 uppercase text-gray-800">
                                                                         <p className="font-black leading-tight">{item.name}</p>
-                                                                        <span className="text-[9px] text-gray-400 font-mono">{('batch' in item && item.batch) ? `B: ${item.batch}` : ''}</span>
+                                                                        <div className="flex items-center gap-2 mt-0.5">
+                                                                            <span className="text-[9px] text-gray-400 font-mono">{('batch' in item && item.batch) ? `B: ${item.batch}` : ''}</span>
+                                                                            {originalQuantity > availableQuantity && (
+                                                                                <span className="text-[8px] bg-amber-100 text-amber-700 px-1 border border-amber-200">Partially Returned ({originalQuantity - availableQuantity} Prev)</span>
+                                                                            )}
+                                                                        </div>
                                                                     </td>
-                                                                    <td className="p-2 text-center text-gray-400 font-black">{originalQuantity}</td>
+                                                                    <td className="p-2 text-center text-gray-400 font-black">
+                                                                        <div className="flex flex-col leading-none">
+                                                                            <span className="text-sm text-primary">{availableQuantity}</span>
+                                                                            <span className="text-[8px] uppercase mt-0.5 tracking-tighter">Of {originalQuantity} Total</span>
+                                                                        </div>
+                                                                    </td>
                                                                     <td className="p-2 text-center">
-                                                                        <input type="number" min="0" max={originalQuantity} value={item.returnQuantity || ''} onChange={e => handleUpdateReturnItem(item.id, 'returnQuantity', e.target.value)} className="w-20 p-1.5 border-2 border-gray-400 text-center text-sm font-black no-spinner focus:bg-yellow-50 outline-none" placeholder="0" />
+                                                                        <div className="flex items-center justify-center gap-2">
+                                                                            <input type="number" min="0" max={availableQuantity} value={item.returnQuantity || ''} onChange={e => handleUpdateReturnItem(item.id, 'returnQuantity', e.target.value)} className={`w-20 p-1.5 border-2 text-center text-sm font-black no-spinner focus:bg-yellow-50 outline-none ${availableQuantity <= 0 ? 'bg-gray-100 border-gray-200 cursor-not-allowed' : 'border-gray-400'}`} placeholder="0" disabled={availableQuantity <= 0} />
+                                                                        </div>
                                                                     </td>
-                                                                    <td className="p-2 text-right font-black text-red-600 bg-gray-50/50">₹{((item.returnQuantity || 0) * rate).toFixed(2)}</td>
+                                                                    <td className="p-2 text-right font-black text-gray-500">₹{netRate.toFixed(2)}</td>
+                                                                    <td className="p-2 text-right font-black text-red-600 bg-gray-50/50">₹{((item.returnQuantity || 0) * netRate).toFixed(2)}</td>
                                                                 </tr>
                                                             );
                                                         })}

@@ -702,11 +702,18 @@ export interface SalesReturn {
 
 export interface PurchaseReturnItem {
     id: string;
+    inventoryItemId?: string;
     name: string;
     brand: string;
+    batch?: string;
+    expiry?: string;
     purchasePrice: number;
+    quantity?: number;
+    looseQuantity?: number;
     returnQuantity: number;
     reason: string;
+    unitsPerPack?: number;
+    packType?: string;
 }
 
 export interface PurchaseReturn {
