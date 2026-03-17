@@ -1009,7 +1009,11 @@ const App: React.FC = () => {
             const cancelledTx = { ...tx, status: 'cancelled' as const };
             await storage.saveData('sales_bill', cancelledTx, currentUser);
             await storage.syncSalesLedger(cancelledTx, currentUser);
-            await storage.markVoucherCancelled(cancelledTx.billType === 'non-gst' ? 'sales-non-gst' : 'sales-gst', currentUser, cancelledTx.id, cancelledTx.id);
+            try {
+                await storage.markVoucherCancelled(cancelledTx.billType === 'non-gst' ? 'sales-non-gst' : 'sales-gst', currentUser, cancelledTx.id, cancelledTx.id);
+            } catch (error) {
+                console.warn('Unable to log voucher cancellation for invoice', cancelledTx.id, error);
+            }
             for (const item of tx.items) {
                 const inv = inventory.find(i => i.id === item.inventoryItemId);
                 if (inv) {
@@ -1176,7 +1180,29 @@ const App: React.FC = () => {
                         purchaseReturns={purchaseReturns}
                         purchases={purchases}
                         onAddSalesReturn={async (sr) => {
-                            await storage.saveData('sales_returns', sr, currentUser!);
+                            const savedSalesReturn = await storage.saveData('sales_returns', sr, currentUser!);
+
+                            try {
+                                await storage.syncSalesReturnLedger(savedSalesReturn, currentUser!);
+                            } catch (error) {
+                                console.warn('Unable to sync sales return ledger for', savedSalesReturn.id, error);
+                            }
+
+                            for (const item of (savedSalesReturn.items || [])) {
+                                const inv = inventory.find(i => i.id === item.inventoryItemId);
+                                if (!inv) continue;
+                                const policy = getInventoryPolicy(inv, medicines);
+                                if (!policy.inventorised) continue;
+
+                                const returnedQty = Number(item.returnQuantity || 0);
+                                if (returnedQty <= 0) continue;
+
+                                await storage.saveData('inventory', {
+                                    ...inv,
+                                    stock: inv.stock + (returnedQty * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType))
+                                }, currentUser!);
+                            }
+
                             await loadData(currentUser!, 'background');
                             addNotification('Sales return recorded.', 'success');
                         }}
