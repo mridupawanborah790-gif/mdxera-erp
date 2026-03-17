@@ -130,43 +130,39 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
     // 1. Start with a copy of the payload
     let sanitized: Record<string, any> = { ...payload };
 
-    // 2. Define tables that underwent the UUID refactoring (id -> user_id PK, user_id -> created_by_id Owner)
-    const pkRenamedTables = ['purchases', 'suppliers', 'customers', 'inventory', 'material_master', 'medicine_master', 'sales_bill'];
+    // 2. Define tables that underwent the UUID refactoring
+    // Standard tables (id = PK UUID, user_id = Owner UUID)
+    // ONLY sales_bill uses (user_id = PK UUID, voucher_no = Human ID)
     const ownerRenamedTables = ['purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 'sales_returns', 'purchase_returns'];
 
     // 3. Apply Mappings
-    if (pkRenamedTables.includes(tableName)) {
-        // Special case for sales_bill: id is voucher number (text), user_id is the new UUID PK.
-        if (tableName === 'sales_bill') {
-            sanitized.voucher_no = payload.id;
-            // For sales_bill, we often don't have the UUID PK in the app yet.
-            // If we have one in a hidden field, use it, otherwise let DB generate or match by voucher_no.
-            if (payload.record_uuid && isValidUuid(payload.record_uuid)) {
-                sanitized.user_id = payload.record_uuid;
-            } else {
-                delete sanitized.user_id; // Don't send app's owner ID as PK
-            }
+    if (tableName === 'sales_bill') {
+        sanitized.voucher_no = payload.id;
+        // For sales_bill, db.user_id is the PK UUID.
+        if (payload.record_uuid && isValidUuid(payload.record_uuid)) {
+            sanitized.user_id = payload.record_uuid;
         } else {
-            // Standard mapping: app.id (UUID) -> db.user_id (PK UUID)
-            if (payload.id && isValidUuid(payload.id)) {
-                sanitized.user_id = payload.id;
-            } else if (!payload.user_id || !isValidUuid(payload.user_id)) {
-                // For tables like purchases/inventory, we MUST have a UUID PK.
-                sanitized.user_id = generateUUID();
+            // If we don't have a record_uuid, we might be creating a new one or it's a legacy record
+            // If it's a valid UUID already in user_id, keep it.
+            if (!isValidUuid(payload.user_id)) {
+                delete sanitized.user_id; 
             }
         }
-        delete sanitized.id; // Always remove 'id' as it no longer exists or was renamed
+        delete sanitized.id;
+    } else {
+        // Standard tables: Ensure 'id' is a valid UUID if provided, or let DB generate
+        if (payload.id && !isValidUuid(payload.id)) {
+            delete sanitized.id; 
+        }
     }
 
     if (ownerRenamedTables.includes(tableName)) {
         // Map app's 'user_id' (owner auth ID) to db's 'created_by_id'
-        if (payload.user_id && isValidUuid(payload.user_id)) {
+        // EXCEPT for sales_bill where user_id is the PK.
+        if (tableName !== 'sales_bill' && payload.user_id && isValidUuid(payload.user_id)) {
             sanitized.created_by_id = payload.user_id;
+            delete sanitized.user_id; // Remove app-side owner field so it doesn't clash with DB user_id PK if any
         }
-        
-        // If this table is NOT in pkRenamedTables (meaning user_id is NOT the PK),
-        // we should remove user_id to avoid confusion, but here sales_bill IS in both.
-        // The pkRenamedTables logic above already handled removing or mapping user_id.
     }
 
     // 4. Table-specific sanitizations
@@ -212,17 +208,17 @@ export const toCamel = (obj: any): any => {
             'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 
             'gst_number', 'pan_number'
         ];
-        
+
         // Skip key conversion for these specific metadata fields that contain IDs
         const skipValueConversionKeys = ['master_shortcuts', 'masterShortcuts', 'master_shortcut_order', 'masterShortcutOrder'];
-        
+
         let camelKey = preservedKeys.includes(key) ? key : key.replace(/_([a-z0-9])/g, (_, letter) => letter.toUpperCase());
-        
+
         // If it's one of the shortcut keys, don't recursively convert its values/keys
         acc[camelKey] = (preservedKeys.includes(key) || skipValueConversionKeys.includes(key)) 
             ? obj[key] 
             : toCamel(obj[key]);
-            
+
         return acc;
     }, {} as any);
 };
@@ -231,22 +227,13 @@ export const fromSupabase = (tableName: string, payload: Record<string, any>): a
     if (!payload) return payload;
     let normalized = toCamel(payload);
 
-    const pkRenamedTables = ['purchases', 'suppliers', 'customers', 'inventory', 'material_master', 'medicine_master', 'sales_bill'];
-    const ownerRenamedTables = ['purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 'sales_returns', 'purchase_returns'];
+    if (tableName === 'sales_bill') {
+        normalized.id = normalized.voucher_no || payload.voucher_no;
+        normalized.record_uuid = normalized.user_id || payload.user_id;
+    } else {
+        // Map db.id back to app.id (should already be done by toCamel if key is 'id')
+        if (payload.id) normalized.id = payload.id;
 
-    if (pkRenamedTables.includes(tableName)) {
-        if (tableName === 'sales_bill') {
-            normalized.id = normalized.voucher_no || payload.voucher_no;
-            normalized.record_uuid = normalized.user_id || payload.user_id;
-        } else {
-            // Map db.user_id (PK) back to app.id
-            if (payload.user_id && !normalized.id) {
-                normalized.id = payload.user_id;
-            }
-        }
-    }
-
-    if (ownerRenamedTables.includes(tableName)) {
         // Map db.created_by_id back to app.user_id (owner)
         if (payload.created_by_id && !normalized.user_id) {
             normalized.user_id = payload.created_by_id;
@@ -255,7 +242,6 @@ export const fromSupabase = (tableName: string, payload: Record<string, any>): a
 
     return normalized;
 };
-
 export const toSnake = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
     if (Array.isArray(obj)) return obj.map(toSnake);
