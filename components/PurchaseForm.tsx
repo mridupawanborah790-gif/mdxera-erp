@@ -2195,11 +2195,21 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         }
                                         if (btn === 'PRINT') {
                                             console.log('PurchaseForm: Print clicked');
+                                            
+                                            // 1. Perform local validations first
+                                            const activeItems = items.filter(p => (p.name || '').trim() !== '');
+                                            if (!supplier.trim() || !invoiceNumber.trim() || activeItems.length === 0) {
+                                                addNotification("Please complete required fields (Supplier, Invoice #, Items) before printing.", "warning");
+                                                return;
+                                            }
+
+                                            // 2. Attempt save and print
                                             const saved = await handleSubmit();
-                                            if (saved && onPrint) {
-                                                onPrint(saved);
-                                            } else if (!saved) {
-                                                addNotification("Please fix validation errors before printing.", "warning");
+                                            if (saved) {
+                                                if (onPrint) onPrint(saved);
+                                            } else {
+                                                // handleSubmit already shows detailed error notifications for save failures
+                                                console.warn('PurchaseForm: Save failed during print attempt');
                                             }
                                         }
                                         if (btn === 'RETURN') handleDiscard();
