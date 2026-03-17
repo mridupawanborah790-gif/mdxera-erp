@@ -1009,7 +1009,11 @@ const App: React.FC = () => {
             const cancelledTx = { ...tx, status: 'cancelled' as const };
             await storage.saveData('sales_bill', cancelledTx, currentUser);
             await storage.syncSalesLedger(cancelledTx, currentUser);
-            await storage.markVoucherCancelled(cancelledTx.billType === 'non-gst' ? 'sales-non-gst' : 'sales-gst', currentUser, cancelledTx.id, cancelledTx.id);
+            try {
+                await storage.markVoucherCancelled(cancelledTx.billType === 'non-gst' ? 'sales-non-gst' : 'sales-gst', currentUser, cancelledTx.id, cancelledTx.id);
+            } catch (error) {
+                console.warn('Unable to log voucher cancellation for invoice', cancelledTx.id, error);
+            }
             for (const item of tx.items) {
                 const inv = inventory.find(i => i.id === item.inventoryItemId);
                 if (inv) {
