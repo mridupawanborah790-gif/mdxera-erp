@@ -10,7 +10,7 @@
     } from '../types';
     import { parseNetworkAndApiError } from '../utils/error';
     import { normalizeImportDate } from '../utils/helpers';
-    import { deductStockLooseFirst } from '../utils/stock';
+    import { deductStockLooseFirst, normalizeUnitsPerPack } from '../utils/stock';
     import { DEFAULT_CONFIG_MISSING_MESSAGE, loadDefaultPostingContext } from './companyDefaultsService';
 
     export const generateUUID = () => crypto.randomUUID();
@@ -752,6 +752,45 @@
             throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
         }
 
+        // Handle stock reversal for updates BEFORE saving new data to IDB
+        if (isUpdate) {
+            const oldTx = await idb.get(STORES.SALES_BILL, tx.id) as Transaction | undefined;
+            if (oldTx && oldTx.items) {
+                const unitsToAddByInventoryId = new Map<string, number>();
+                for (const item of oldTx.items) {
+                    if (!item.inventoryItemId) continue;
+                    const current = unitsToAddByInventoryId.get(item.inventoryItemId) || 0;
+                    const upp = normalizeUnitsPerPack(item.unitsPerPack, item.packType);
+                    unitsToAddByInventoryId.set(
+                        item.inventoryItemId,
+                        current + ((item.quantity || 0) * upp) + (item.looseQuantity || 0)
+                    );
+                }
+
+                if (unitsToAddByInventoryId.size > 0) {
+                    const inventoryIds = Array.from(unitsToAddByInventoryId.keys());
+                    const inventoryRecords = await Promise.all(
+                        inventoryIds.map(id => idb.get(STORES.INVENTORY, id) as Promise<InventoryItem | null>)
+                    );
+
+                    const updatedInventory: InventoryItem[] = inventoryRecords
+                        .filter((inv): inv is InventoryItem => Boolean(inv))
+                        .map(inv => {
+                            const unitsToAdd = unitsToAddByInventoryId.get(inv.id) || 0;
+                            return {
+                                ...inv,
+                                stock: Number(inv.stock || 0) + unitsToAdd,
+                            };
+                        });
+
+                    if (updatedInventory.length > 0) {
+                        await idb.putBulk(STORES.INVENTORY, updatedInventory);
+                        // We don't sync to supabase yet; the deduction logic below will handle it in one batch.
+                    }
+                }
+            }
+        }
+
         const res = await saveData('sales_bill', tx, user, isUpdate);
 
         // Batch inventory updates to avoid one network/database roundtrip per line item.
@@ -993,7 +1032,7 @@
 
     export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
         const original = await idb.get(STORES.PURCHASES, p.id) as Purchase;
-        const res = await saveData('purchases', p, user);
+        const res = await saveData('purchases', p, user, true);
         if (!original) return res;
 
         // To properly adjust stock, we calculate the diff between original and new
@@ -2021,6 +2060,43 @@
             },
             true
         );
+    };
+
+    export const addSalesReturn = async (sr: SalesReturn, user: RegisteredPharmacy) => {
+        const res = await saveData('sales_returns', sr, user);
+        
+        // Update stock: Sales Return means items are coming BACK to inventory
+        for (const item of sr.items || []) {
+            if (!item.inventoryItemId) continue;
+            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            if (inv) {
+                const upp = normalizeUnitsPerPack(inv.unitsPerPack, inv.packType);
+                // Sales returnQuantity in UI is currently in PACKS (original bill quantity units)
+                const unitsToAdd = (Number(item.returnQuantity || 0) * upp);
+                await saveData('inventory', { ...inv, stock: Number(inv.stock || 0) + unitsToAdd }, user, true);
+            }
+        }
+
+        await syncSalesReturnLedger(sr, user);
+        return res;
+    };
+
+    export const addPurchaseReturn = async (pr: PurchaseReturn, user: RegisteredPharmacy) => {
+        const res = await saveData('purchase_returns', pr, user);
+
+        // Update stock: Purchase Return means items are going OUT of inventory
+        for (const item of pr.items || []) {
+            if (!item.inventoryItemId) continue;
+            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            if (inv) {
+                // Purchase returnQuantity in UI is already in TOTAL UNITS (calculated in buildPurchaseReturnItems)
+                const unitsToDeduct = Number(item.returnQuantity || 0);
+                await saveData('inventory', { ...inv, stock: Math.max(0, Number(inv.stock || 0) - unitsToDeduct) }, user, true);
+            }
+        }
+
+        await syncPurchaseReturnLedger(pr, user);
+        return res;
     };
 
     type ManualSalesPostingInput = {

@@ -2,17 +2,38 @@
 import React, { useMemo } from 'react';
 import Modal from './Modal';
 import JournalEntryViewerModal from './JournalEntryViewerModal';
-import type { Purchase, RegisteredPharmacy } from '../types';
+import type { Purchase, RegisteredPharmacy, PurchaseReturn } from '../types';
 
 interface PurchaseDetailModalProps {
     isOpen: boolean;
     onClose: () => void;
     purchase: Purchase | null;
+    purchaseReturns?: PurchaseReturn[];
     currentUser?: RegisteredPharmacy | null;
 }
 
-const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClose, purchase, currentUser }) => {
+const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClose, purchase, purchaseReturns = [], currentUser }) => {
     const [isJournalOpen, setIsJournalOpen] = React.useState(false);
+    
+    // Calculate returned quantities per item
+    const returnedQtyMap = useMemo(() => {
+        const map = new Map<string, number>();
+        if (!purchase) return map;
+
+        const relevantReturns = purchaseReturns.filter(r => 
+            r.originalPurchaseInvoiceId === purchase.purchaseSerialId
+        );
+
+        relevantReturns.forEach(ret => {
+            (ret.items || []).forEach(item => {
+                const key = item.inventoryItemId || item.id || item.name;
+                const current = map.get(key) || 0;
+                map.set(key, current + (item.returnQuantity || 0));
+            });
+        });
+        return map;
+    }, [purchase, purchaseReturns]);
+
     const items = useMemo(() => {
         if (!purchase || !purchase.items) return [];
         let rawItems: any[] = [];
@@ -28,21 +49,27 @@ const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClo
         }
 
         // Standardize item properties for the table
-        return rawItems.map(item => ({
-            id: item.id || Math.random().toString(36),
-            name: item.name || item.itemName || 'Unnamed Product',
-            brand: item.brand || item.itemBrand || 'N/A',
-            batch: item.batch || item.itemBatch || '—',
-            expiry: item.expiry || item.itemExpiry || '—',
-            quantity: Number(item.quantity || item.itemQuantity || 0),
-            freeQuantity: Number(item.freeQuantity || item.itemFreeQuantity || 0),
-            purchasePrice: Number(item.purchasePrice || item.purchase_price || item.itemPurchasePrice || 0),
-            mrp: Number(item.mrp || item.itemMrp || 0),
-            gstPercent: Number(item.gstPercent || item.gst_percent || item.itemGstPercent || 0),
-            discountPercent: Number(item.discountPercent || item.itemDiscountPercent || 0),
-            schemeDiscountAmount: Number(item.schemeDiscountAmount || item.itemSchemeDiscountAmount || 0)
-        }));
-    }, [purchase]);
+        return rawItems.map(item => {
+            const key = item.inventoryItemId || item.id || item.name;
+            const returnedQty = returnedQtyMap.get(key) || 0;
+            
+            return {
+                id: item.id || Math.random().toString(36),
+                name: item.name || item.itemName || 'Unnamed Product',
+                brand: item.brand || item.itemBrand || 'N/A',
+                batch: item.batch || item.itemBatch || '—',
+                expiry: item.expiry || item.itemExpiry || '—',
+                quantity: Number(item.quantity || item.itemQuantity || 0),
+                returnedQuantity: returnedQty,
+                freeQuantity: Number(item.freeQuantity || item.itemFreeQuantity || 0),
+                purchasePrice: Number(item.purchasePrice || item.purchase_price || item.itemPurchasePrice || 0),
+                mrp: Number(item.mrp || item.itemMrp || 0),
+                gstPercent: Number(item.gstPercent || item.gst_percent || item.itemGstPercent || 0),
+                discountPercent: Number(item.discountPercent || item.itemDiscountPercent || 0),
+                schemeDiscountAmount: Number(item.schemeDiscountAmount || item.itemSchemeDiscountAmount || 0)
+            };
+        });
+    }, [purchase, returnedQtyMap]);
 
     if (!isOpen || !purchase) return null;
 
@@ -51,12 +78,25 @@ const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClo
     const totalGst = purchase.totalGst ?? (purchase as any).total_gst ?? 0;
     const roundOff = purchase.roundOff ?? (purchase as any).round_off ?? 0;
 
+    const totalReturnVal = useMemo(() => {
+        return purchaseReturns
+            .filter(r => r.originalPurchaseInvoiceId === purchase.purchaseSerialId)
+            .reduce((sum, ret) => sum + (ret.totalValue || 0), 0);
+    }, [purchase, purchaseReturns]);
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Review Inward Bill #${purchase.purchaseSerialId}`} widthClass="max-w-4xl">
             <div className="flex-1 flex flex-col bg-[var(--modal-content-bg-light)] dark:bg-[var(--modal-content-bg-dark)] overflow-hidden">
                 {purchase.status === 'cancelled' && (
                     <div className="bg-red-600 text-white p-2 font-black text-center text-xs uppercase tracking-widest shadow-inner">
                         STATUS: CANCELLED / REVERSED
+                    </div>
+                )}
+                {totalReturnVal > 0 && (
+                    <div className="bg-amber-500 text-black p-2 font-black text-center text-[10px] uppercase tracking-widest shadow-inner flex items-center justify-center gap-4">
+                        <span>DEBIT NOTE ISSUED: ₹{totalReturnVal.toFixed(2)}</span>
+                        <div className="h-3 w-[1px] bg-black/20" />
+                        <span>NET PAYABLE: ₹{(totalAmount - totalReturnVal).toFixed(2)}</span>
                     </div>
                 )}
                 <div className="p-8 overflow-y-auto flex-1">
@@ -92,10 +132,12 @@ const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClo
                           <tbody className="divide-y divide-gray-200 bg-white">
                               {items.map((item, idx) => {
                                   const qty = item.quantity;
+                                  const returned = item.returnedQuantity;
+                                  const netQty = Math.max(0, qty - returned);
                                   const rate = item.purchasePrice;
                                   const disc = item.discountPercent;
                                   const schDisc = item.schemeDiscountAmount;
-                                  const lineTotal = (qty * rate * (1 - disc/100)) - schDisc;
+                                  const lineTotal = (netQty * rate * (1 - disc/100)) - (netQty > 0 ? schDisc : 0);
 
                                   return (
                                     <tr key={item.id || idx} className="hover:bg-slate-50 transition-colors">
@@ -108,8 +150,15 @@ const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClo
                                             <span className="text-[10px] text-gray-400 font-black uppercase">{item.expiry}</span>
                                         </td>
                                         <td className="p-2 text-center">
-                                            <span className="font-black text-base text-gray-900">{qty}</span>
-                                            {item.freeQuantity > 0 && <span className="block text-[10px] font-black text-emerald-600 uppercase">+{item.freeQuantity} FREE</span>}
+                                            <div className="flex flex-col items-center">
+                                                <span className="font-black text-base text-gray-900">{netQty}</span>
+                                                {returned > 0 && (
+                                                    <span className="text-[9px] font-black text-red-500 uppercase">
+                                                        ({qty} - {returned} Ret)
+                                                    </span>
+                                                )}
+                                                {item.freeQuantity > 0 && <span className="block text-[10px] font-black text-emerald-600 uppercase">+{item.freeQuantity} FREE</span>}
+                                            </div>
                                         </td>
                                         <td className="p-2 text-right font-bold text-gray-600 text-base">₹{rate.toFixed(2)}</td>
                                         <td className="p-2 text-center font-black text-blue-600 text-sm">{item.gstPercent}%</td>
