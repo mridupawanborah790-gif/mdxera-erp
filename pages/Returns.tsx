@@ -293,6 +293,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                     customerId: salesInv.customerId,
                     items: itemsToReturn as SalesReturnItem[],
                     totalRefund: totalReturnRefundValue,
+                    remarks: returnReason,
                 });
             } else {
                 const purchaseInv = selectedInvoice as Purchase;
@@ -304,12 +305,14 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                     originalPurchaseInvoiceId: purchaseInv.purchaseSerialId,
                     items: itemsToReturn as PurchaseReturnItem[],
                     totalValue: totalReturnRefundValue,
+                    remarks: returnReason,
                 });
             }
             handleClearSelection();
             setView('list');
         } catch (error: any) {
-            addNotification("Voucher processing failed.", "error");
+            console.error("Return processing error:", error);
+            addNotification("Voucher processing failed: " + (error?.message || "Unknown error"), "error");
         } finally {
             setIsProcessing(false);
         }
