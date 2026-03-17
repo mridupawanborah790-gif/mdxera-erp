@@ -178,34 +178,18 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
         }
     }
 
-    // 6. Table-specific sanitizations (Foreign Key UUID Guards)
-    if (tableName === 'sales_bill') {
-        if (sanitized.customerId && !isValidUuid(sanitized.customerId)) {
-            sanitized.customerId = null;
+    // 6. Generic UUID Guard for all ID fields and metadata cleanup
+    for (const field in sanitized) {
+        if (field.endsWith('Id') && sanitized[field]) {
+            if (!isValidUuid(sanitized[field])) {
+                sanitized[field] = null;
+            }
         }
     }
 
-    if (tableName === 'purchases') {
-        if (typeof sanitized.date === 'string' && sanitized.date.trim() === '') {
-            sanitized.date = new Date().toISOString().split('T')[0];
-        }
-        if (typeof sanitized.eWayBillDate === 'string' && sanitized.eWayBillDate.trim() === '') {
-            sanitized.eWayBillDate = null;
-        }
-        // Guard foreign keys
-        if (sanitized.supplierId && !isValidUuid(sanitized.supplierId)) {
-            delete sanitized.supplierId;
-        }
-    }
-
-    if (tableName === 'inventory') {
-        if (typeof sanitized.expiry === 'string' && sanitized.expiry.trim() === '') {
-            sanitized.expiry = null;
-        }
-        // Ensure linked IDs are valid UUIDs
-        if (sanitized.supplierId && !isValidUuid(sanitized.supplierId)) delete sanitized.supplierId;
-        if (sanitized.masterMedicineId && !isValidUuid(sanitized.masterMedicineId)) delete sanitized.masterMedicineId;
-    }
+    // Remove internal sync metadata — never send to DB
+    delete sanitized.sync_status;
+    delete sanitized.record_uuid;
 
     return sanitized;
 };
@@ -412,6 +396,30 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 dbPayload.sync_status = 'pending';
                 await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
                 return dbPayload; // DO NOT throw for network errors, let UI continue
+            }
+
+            // ENHANCED ERROR LOGGING:
+            // Identify which field is causing the 'uuid = text' mismatch
+            const errorMsg = e?.message || '';
+            if (errorMsg.includes('uuid = text') || errorMsg.includes('operator does not exist')) {
+                const remotePayload = getSupabasePayload(tableName, dbPayload);
+                const snakeData = toSnake(remotePayload);
+                
+                // Find potential culprit fields (fields that are expected to be UUIDs but are strings)
+                const potentialUuidFields = Object.keys(snakeData).filter(key => 
+                    key.endsWith('_id') || key === 'id' || key === 'user_id' || key === 'customer_id' || key === 'supplier_id' || key === 'master_medicine_id'
+                );
+                
+                const culprits = potentialUuidFields.map(key => `${key}: ${snakeData[key]} (${isValidUuid(snakeData[key]) ? 'VALID' : 'INVALID'})`);
+                
+                console.error(`DETAILED DATA ERROR in ${tableName}:`, {
+                    message: errorMsg,
+                    culprits,
+                    fullPayload: snakeData
+                });
+                
+                // Re-throw with more context so parseNetworkAndApiError can show it
+                throw new Error(`Data Type Mismatch in ${tableName}: ${errorMsg}. (Fields: ${culprits.join(', ')})`);
             }
 
             // ROLLBACK: If it's a hard error (like Duplicate Key 23505), 
