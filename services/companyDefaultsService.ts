@@ -34,6 +34,11 @@ const isMissingDefaultColumnsError = (error: any): boolean => {
   return message.includes('is_default') || message.includes('default_set_of_books_id');
 };
 
+const isUuidTextOperatorError = (error: any): boolean => {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('operator does not exist: uuid = text');
+};
+
 const loadLegacyFallbackPostingContext = async (organizationId: string): Promise<DefaultPostingContext> => {
   const { data: companies, error: companyError } = await supabase
     .from('company_codes')
@@ -48,14 +53,32 @@ const loadLegacyFallbackPostingContext = async (organizationId: string): Promise
   const company = (companies || [])[0] as { id: string; code: string } | undefined;
   if (!company?.id) throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
 
-  const { data: books, error: booksError } = await supabase
+  let booksQuery = supabase
     .from('set_of_books')
     .select('id, company_code_id, active_status')
     .eq('organization_id', organizationId)
-    .eq('company_code_id', company.id)
     .eq('active_status', 'Active')
-    .order('created_at', { ascending: true })
-    .limit(1);
+    .order('created_at', { ascending: true });
+
+  // Some legacy deployments store company references as text values.
+  // Adding a UUID-only filter there throws "operator does not exist: uuid = text".
+  if (isUuid(company.id)) {
+    booksQuery = booksQuery.eq('company_code_id', company.id);
+  }
+
+  let { data: books, error: booksError } = await booksQuery.limit(1);
+
+  if (booksError && isUuidTextOperatorError(booksError)) {
+    const retry = await supabase
+      .from('set_of_books')
+      .select('id, company_code_id, active_status')
+      .eq('organization_id', organizationId)
+      .eq('active_status', 'Active')
+      .order('created_at', { ascending: true })
+      .limit(1);
+    books = retry.data;
+    booksError = retry.error;
+  }
 
   if (booksError) throw booksError;
 
@@ -97,11 +120,33 @@ export const loadDefaultPostingContext = async (organizationId: string): Promise
     .eq('organization_id', organizationId)
     .eq('active_status', 'Active');
 
-  const booksQuery = isUuid(defaultSetOfBooksRef)
-    ? baseBooksQuery.eq('id', defaultSetOfBooksRef)
-    : baseBooksQuery.eq('company_code_id', defaultCompany.id).eq('set_of_books_id', defaultSetOfBooksRef);
+  let books: SetOfBooksRow[] | null = null;
+  let booksError: any = null;
 
-  const { data: books, error: booksError } = await booksQuery.limit(1);
+  if (isUuid(defaultSetOfBooksRef)) {
+    const result = await baseBooksQuery.eq('id', defaultSetOfBooksRef).limit(1);
+    books = result.data as SetOfBooksRow[] | null;
+    booksError = result.error;
+  } else if (isUuid(defaultCompany.id)) {
+    const strictResult = await baseBooksQuery
+      .eq('company_code_id', defaultCompany.id)
+      .eq('set_of_books_id', defaultSetOfBooksRef)
+      .limit(1);
+    books = strictResult.data as SetOfBooksRow[] | null;
+    booksError = strictResult.error;
+
+    if (booksError && isUuidTextOperatorError(booksError)) {
+      const relaxedResult = await baseBooksQuery
+        .eq('company_code_id', defaultCompany.id)
+        .limit(1);
+      books = relaxedResult.data as SetOfBooksRow[] | null;
+      booksError = relaxedResult.error;
+    }
+  } else {
+    const result = await baseBooksQuery.eq('set_of_books_id', defaultSetOfBooksRef).limit(1);
+    books = result.data as SetOfBooksRow[] | null;
+    booksError = result.error;
+  }
 
   if (booksError) throw booksError;
 
@@ -112,7 +157,7 @@ export const loadDefaultPostingContext = async (organizationId: string): Promise
     || defaultCompany.organization_id !== organizationId
     || defaultBook.active_status !== 'Active'
     || defaultBook.organization_id !== organizationId
-    || defaultBook.company_code_id !== defaultCompany.id
+    || (isUuid(defaultCompany.id) && defaultBook.company_code_id !== defaultCompany.id)
   ) {
     throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
   }
