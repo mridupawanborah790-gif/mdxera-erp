@@ -227,6 +227,35 @@ export const toCamel = (obj: any): any => {
     }, {} as any);
 };
 
+export const fromSupabase = (tableName: string, payload: Record<string, any>): any => {
+    if (!payload) return payload;
+    let normalized = toCamel(payload);
+
+    const pkRenamedTables = ['purchases', 'suppliers', 'customers', 'inventory', 'material_master', 'medicine_master', 'sales_bill'];
+    const ownerRenamedTables = ['purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 'sales_returns', 'purchase_returns'];
+
+    if (pkRenamedTables.includes(tableName)) {
+        if (tableName === 'sales_bill') {
+            normalized.id = normalized.voucher_no || payload.voucher_no;
+            normalized.record_uuid = normalized.user_id || payload.user_id;
+        } else {
+            // Map db.user_id (PK) back to app.id
+            if (payload.user_id && !normalized.id) {
+                normalized.id = payload.user_id;
+            }
+        }
+    }
+
+    if (ownerRenamedTables.includes(tableName)) {
+        // Map db.created_by_id back to app.user_id (owner)
+        if (payload.created_by_id && !normalized.user_id) {
+            normalized.user_id = payload.created_by_id;
+        }
+    }
+
+    return normalized;
+};
+
 export const toSnake = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
     if (Array.isArray(obj)) return obj.map(toSnake);
@@ -370,7 +399,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             }
             
             // On successful supabase save, mark as synced and update local storage.
-            const syncedData = result ? { ...toCamel(result), sync_status: 'synced' } : { ...dbPayload, sync_status: 'synced' };
+            const syncedData = result ? { ...fromSupabase(tableName, result), sync_status: 'synced' } : { ...dbPayload, sync_status: 'synced' };
             await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], syncedData);
             return syncedData;
         } catch (e: any) {
@@ -555,7 +584,7 @@ export const getData = async (tableName: string, defaultValue: any[] = [], user:
             try {
                 const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
                 if (allData.length > 0) {
-                    const normalized = allData.map(d => toCamel(d));
+                    const normalized = allData.map(d => fromSupabase(tableName, d));
                     await idb.putBulk(STORES[storeKey], normalized);
                     return normalized;
                 }
@@ -567,7 +596,7 @@ export const getData = async (tableName: string, defaultValue: any[] = [], user:
                 try {
                     const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
                     if (allData.length > 0) {
-                        const normalized = allData.map(d => toCamel(d));
+                        const normalized = allData.map(d => fromSupabase(tableName, d));
                         await idb.putBulk(STORES[storeKey], normalized);
                     }
                 } catch (e) {
@@ -609,7 +638,7 @@ export const getDataById = async <T = any>(
         if (error) throw error;
         if (!data) return null;
 
-        const normalized = toCamel(data);
+        const normalized = fromSupabase(tableName, data);
         await idb.put(STORES[storeKey], normalized);
         return normalized as T;
     } catch (e) {

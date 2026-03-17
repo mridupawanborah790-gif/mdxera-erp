@@ -685,14 +685,14 @@ const App: React.FC = () => {
     const handleAddInventoryItem = async (item: Omit<InventoryItem, 'id'>) => {
         if (!currentUser) throw new Error("Unauthorized");
         const saved = await storage.saveData('inventory', item, currentUser);
-        loadData(currentUser, 'background');
+        await loadData(currentUser, 'background');
         return saved;
     };
 
     const handleAddMedicineMaster = async (med: Omit<Medicine, 'id'>) => {
         if (!currentUser) throw new Error("Unauthorized");
         const saved = await storage.saveData('material_master', med, currentUser);
-        loadData(currentUser, 'background');
+        await loadData(currentUser, 'background');
         return saved;
     };
 
