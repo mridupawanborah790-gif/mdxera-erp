@@ -55,8 +55,22 @@ export const normalizeImportDate = (dateStr: string | undefined | null): string 
     // 3. Handle MM/YY or MM-YY (e.g., "07/26")
     const myShortMatch = cleanStr.match(/^(\d{1,2})[-/](\d{2})$/);
     if (myShortMatch) {
-        const month = parseInt(myShortMatch[1], 10);
-        const year = 2000 + parseInt(myShortMatch[2], 10);
+        let month = parseInt(myShortMatch[1], 10);
+        let year = 2000 + parseInt(myShortMatch[2], 10);
+        
+        // Basic validation: if month > 12, it might be DD/MM or DD/YY
+        // If it's DD/MM, we can't be sure of the year, so we assume current year or similar.
+        // But the most common case for 2-digit/2-digit in this app is MM/YY for expiry.
+        if (month > 12) {
+            // Swap if it looks like DD/MM
+            const day = month;
+            month = parseInt(myShortMatch[2], 10);
+            year = new Date().getFullYear();
+            if (month > 12) return null; // Still invalid
+            const lastDay = new Date(year, month, 0).getDate();
+            return `${year}-${String(month).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`;
+        }
+
         const lastDay = new Date(year, month, 0).getDate();
         return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     }
@@ -66,6 +80,7 @@ export const normalizeImportDate = (dateStr: string | undefined | null): string 
     if (myMatch) {
         const month = parseInt(myMatch[1], 10);
         const year = parseInt(myMatch[2], 10);
+        if (month < 1 || month > 12) return null;
         const lastDay = new Date(year, month, 0).getDate();
         return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     }
