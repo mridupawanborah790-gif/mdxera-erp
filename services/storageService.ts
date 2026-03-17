@@ -130,51 +130,60 @@ const getSupabasePayload = (tableName: string, payload: Record<string, any>): Re
     // 1. Start with a copy of the payload
     let sanitized: Record<string, any> = { ...payload };
 
-    // 2. Define tables that underwent the UUID refactoring
-    // Standard tables (id = PK UUID, user_id = Owner UUID)
-    // ONLY sales_bill uses (user_id = PK UUID, voucher_no = Human ID)
-    const ownerRenamedTables = ['purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 'sales_returns', 'purchase_returns'];
+    // 2. Define tables that use a non-UUID human ID as the primary key in the app
+    // These need special mapping to their actual database PK (usually 'user_id' UUID)
+    const humanIdTables = ['sales_bill', 'physical_inventory'];
+    
+    // 3. Define tables that use 'created_by_id' for ownership tracking in the database
+    const ownerTrackingTables = ['purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 'sales_returns', 'purchase_returns', 'material_master'];
 
-    // 3. Apply Mappings
-    if (tableName === 'sales_bill') {
+    // 4. Apply Primary Key Mappings
+    if (humanIdTables.includes(tableName)) {
+        // Map the human ID (e.g. INV-001) to the voucher field
         sanitized.voucher_no = payload.id;
-        // For sales_bill, db.user_id is the PK UUID.
+        
+        // For these tables, 'user_id' in the database is the actual UUID Primary Key
         if (payload.record_uuid && isValidUuid(payload.record_uuid)) {
             sanitized.user_id = payload.record_uuid;
+        } else if (isValidUuid(payload.user_id)) {
+            // If user_id already contains a UUID (and isn't the owner ID), use it
+            sanitized.user_id = payload.user_id;
         } else {
-            // If we don't have a record_uuid, we might be creating a new one or it's a legacy record
-            // If it's a valid UUID already in user_id, keep it.
-            if (!isValidUuid(payload.user_id)) {
-                delete sanitized.user_id; 
-            }
+            // Let the database generate the UUID PK or matching logic handle it
+            delete sanitized.user_id; 
         }
         delete sanitized.id;
     } else {
-        // Standard tables: Ensure 'id' is a valid UUID if provided, or let DB generate
+        // Standard tables (purchases, suppliers, etc.): 'id' is the UUID PK.
+        // Ensure 'id' is a valid UUID, otherwise delete it so DB can generate one.
         if (payload.id && !isValidUuid(payload.id)) {
             delete sanitized.id; 
         }
     }
 
-    if (ownerRenamedTables.includes(tableName)) {
-        // Map app's 'user_id' (owner auth ID) to db's 'created_by_id'
-        // EXCEPT for sales_bill where user_id is the PK.
-        if (tableName !== 'sales_bill' && payload.user_id && isValidUuid(payload.user_id)) {
-            sanitized.created_by_id = payload.user_id;
-            delete sanitized.user_id; // Remove app-side owner field so it doesn't clash with DB user_id PK if any
+    // 5. Apply Ownership Tracking Mappings
+    if (ownerTrackingTables.includes(tableName)) {
+        // Map app's 'user_id' (the logged-in user's Auth UUID) to db's 'created_by_id'
+        // EXCEPT for tables where 'user_id' is already the PK (the humanIdTables)
+        if (!humanIdTables.includes(tableName)) {
+            if (payload.user_id && isValidUuid(payload.user_id)) {
+                sanitized.created_by_id = payload.user_id;
+            }
+            // CRITICAL: Always delete sanitized.user_id here because in the DB, 
+            // the column is either a PK (handled above) or we want to use created_by_id.
+            // Keeping it as a string/clerk-name would cause "uuid = text" errors.
+            delete sanitized.user_id;
         }
     }
 
-    // 4. Table-specific sanitizations
+    // 6. Table-specific sanitizations
     if (tableName === 'sales_bill') {
-        // Keep POS save resilient when walk-in / imported customers use numeric IDs
         if (sanitized.customerId && !isValidUuid(sanitized.customerId)) {
             sanitized.customerId = null;
         }
     }
 
     if (tableName === 'purchases') {
-        // Prevent Postgres date parsing errors
         if (typeof sanitized.date === 'string' && sanitized.date.trim() === '') {
             sanitized.date = new Date().toISOString().split('T')[0];
         }
