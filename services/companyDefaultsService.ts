@@ -48,14 +48,20 @@ const loadLegacyFallbackPostingContext = async (organizationId: string): Promise
   const company = (companies || [])[0] as { id: string; code: string } | undefined;
   if (!company?.id) throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
 
-  const { data: books, error: booksError } = await supabase
+  let booksQuery = supabase
     .from('set_of_books')
     .select('id, company_code_id, active_status')
     .eq('organization_id', organizationId)
-    .eq('company_code_id', company.id)
     .eq('active_status', 'Active')
-    .order('created_at', { ascending: true })
-    .limit(1);
+    .order('created_at', { ascending: true });
+
+  // Some legacy deployments store company references as text values.
+  // Adding a UUID-only filter there throws "operator does not exist: uuid = text".
+  if (isUuid(company.id)) {
+    booksQuery = booksQuery.eq('company_code_id', company.id);
+  }
+
+  const { data: books, error: booksError } = await booksQuery.limit(1);
 
   if (booksError) throw booksError;
 
@@ -99,7 +105,9 @@ export const loadDefaultPostingContext = async (organizationId: string): Promise
 
   const booksQuery = isUuid(defaultSetOfBooksRef)
     ? baseBooksQuery.eq('id', defaultSetOfBooksRef)
-    : baseBooksQuery.eq('company_code_id', defaultCompany.id).eq('set_of_books_id', defaultSetOfBooksRef);
+    : (isUuid(defaultCompany.id)
+      ? baseBooksQuery.eq('company_code_id', defaultCompany.id).eq('set_of_books_id', defaultSetOfBooksRef)
+      : baseBooksQuery.eq('set_of_books_id', defaultSetOfBooksRef));
 
   const { data: books, error: booksError } = await booksQuery.limit(1);
 
