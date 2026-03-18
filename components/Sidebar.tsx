@@ -145,34 +145,34 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, navigationIt
             data-index={flatIndex}
             className={`w-full flex items-center gap-2.5 py-2 px-2 ${isSidebarCollapsed ? 'px-4' : expandedItemPaddingClass} transition-all text-left outline-none border border-gray-400 group min-h-[42px] ${
               isActive 
-              ? 'bg-accent text-black border-primary shadow-sm font-semibold'
+              ? 'bg-primary text-white border-gray-600 shadow-sm font-semibold'
               : isFocused 
-                ? 'bg-accent/80 text-black border-primary'
-                : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
+                ? 'bg-primary/90 text-white border-gray-600'
+                : 'bg-gray-200 text-gray-800 hover:bg-primary hover:text-white'
             } ${isSidebarCollapsed ? 'justify-center !px-0' : ''}`}
             title={isSidebarCollapsed ? item.name : undefined}
             aria-expanded={isParent ? isParentOpen : undefined}
           >
             {Icon && (
-              <div className={`flex-shrink-0 ${isActive || isFocused ? 'text-black' : 'text-gray-600 group-hover:text-black'} transition-colors`}>
+              <div className={`flex-shrink-0 ${isActive || isFocused ? 'text-white' : 'text-gray-600 group-hover:text-white'} transition-colors`}>
                 <Icon className={isSidebarCollapsed ? 'w-6 h-6' : 'w-4 h-4'} />
               </div>
             )}
             
             {!isSidebarCollapsed && (
               <>
-                <span className={`w-5 text-center font-bold font-mono text-[10px] leading-none ${isActive || isFocused ? 'text-black' : 'text-gray-500'}`}>
+                <span className={`w-5 text-center font-bold font-mono text-[10px] leading-none ${isActive || isFocused ? 'text-white' : 'text-gray-500'}`}>
                   {depth > 0 ? '•' : shortcutChar}
                 </span>
                 <span className="truncate flex-1 text-[15px] font-semibold leading-tight">
                   {depth > 0 ? (item.name) : (
-                    <><span className={`${isActive || isFocused ? 'text-black' : 'text-gray-800'} font-semibold`}>{shortcutChar}</span>{item.name.substring(1)}</>
+                    <><span className={`${isActive || isFocused ? 'text-white' : 'text-gray-800'} font-semibold`}>{shortcutChar}</span>{item.name.substring(1)}</>
                   )}
                 </span>
                 {isParent && (
                   <svg 
                     xmlns="http://www.w3.org/2000/svg" 
-                    className={`h-3.5 w-3.5 transition-transform ${isParentOpen ? 'rotate-90' : ''} ${isActive || isFocused ? 'text-black' : 'text-gray-500'}`}
+                    className={`h-3.5 w-3.5 transition-transform ${isParentOpen ? 'rotate-90' : ''} ${isActive || isFocused ? 'text-white' : 'text-gray-500'}`}
                     fill="none" 
                     viewBox="0 0 24 24" 
                     stroke="currentColor" 

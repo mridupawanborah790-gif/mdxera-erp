@@ -150,34 +150,46 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
     }, [activeSubModule, currentPage, totalPages, medicineToEdit, isAddModalOpen, isExportModalOpen]);
 
     const renderPageNumbers = () => {
-        const pages = [];
-        const maxVisiblePages = 5;
-        
-        let startPage = Math.max(1, currentPage - 2);
-        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+        const delta = 2;
+        const range = [];
+        const rangeWithDots = [];
+        let l;
 
-        if (endPage - startPage < maxVisiblePages - 1) {
-            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                range.push(i);
+            }
         }
 
-        for (let i = startPage; i <= endPage; i++) {
-            pages.push(
-                <button
-                    key={i}
-                    onClick={() => setCurrentPage(i)}
-                    className={`min-w-[32px] h-8 border border-gray-400 text-[10px] font-black uppercase transition-all ${
-                        currentPage === i 
-                        ? 'bg-primary text-white border-primary shadow-inner' 
-                        : 'bg-white text-gray-700 hover:bg-gray-50'
-                    }`}
-                >
-                    {i}
-                </button>
-            );
+        for (const i of range) {
+            if (l) {
+                if (i - l === 2) {
+                    rangeWithDots.push(l + 1);
+                } else if (i - l !== 1) {
+                    rangeWithDots.push('...');
+                }
+            }
+            rangeWithDots.push(i);
+            l = i;
         }
-        return pages;
+
+        return rangeWithDots.map((p, idx) => (
+            <button
+                key={idx}
+                disabled={p === '...'}
+                onClick={() => typeof p === 'number' && setCurrentPage(p)}
+                className={`min-w-[32px] h-8 px-2 border border-gray-400 text-[10px] font-black uppercase transition-all ${
+                    p === currentPage 
+                    ? 'bg-primary text-white border-primary shadow-inner' 
+                    : p === '...' 
+                    ? 'bg-white text-gray-400 cursor-default border-dashed' 
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+                {p}
+            </button>
+        ));
     };
-
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
@@ -230,22 +242,27 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                         {paginatedMedicines.map((med, idx) => (
-                                            <tr key={med.id} className="hover:bg-accent transition-colors cursor-pointer group h-12" onClick={() => handleOpenEditModal(med)}>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
+                                            <tr key={med.id} className="hover:bg-primary hover:text-white transition-colors cursor-pointer group h-12">
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center text-gray-400 group-hover:text-white/70 ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
                                                 <td className={`py-1.5 px-2 border-r border-gray-200 text-gray-900 w-[45%]`}>
-                                                    <span className={`block whitespace-nowrap overflow-hidden text-ellipsis leading-none ${uniformTextStyle}`} title={med.name}>{med.name}</span>
+                                                    <span className={`block whitespace-nowrap overflow-hidden text-ellipsis leading-none group-hover:text-white ${uniformTextStyle}`} title={med.name}>{med.name}</span>
                                                 </td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 font-mono font-bold text-gray-700 whitespace-nowrap ${uniformTextStyle}`}>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 font-mono font-bold text-gray-700 whitespace-nowrap group-hover:text-white ${uniformTextStyle}`}>
                                                     {med.materialCode}
                                                 </td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>{med.pack || '—'}</td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-right text-primary ${uniformTextStyle}`}>₹{parseFloat(med.mrp || '0').toFixed(2)}</td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center text-gray-600 ${uniformTextStyle}`}>{med.gstRate}%</td>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center group-hover:text-white ${uniformTextStyle}`}>{med.pack || '—'}</td>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-right text-primary group-hover:text-white ${uniformTextStyle}`}>₹{parseFloat(med.mrp || '0').toFixed(2)}</td>
+                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-center text-gray-600 group-hover:text-white ${uniformTextStyle}`}>{med.gstRate}%</td>
                                                 <td className="py-1.5 px-2 border-r border-gray-400 text-center">
                                                     {med.isPrescriptionRequired && <span className="text-red-600 font-black text-[10px] px-1.5 py-0.5 bg-red-50 border border-red-100 rounded">H</span>}
                                                 </td>
                                                 <td className="py-1.5 px-2 text-right">
-                                                    <button className="text-primary font-black uppercase text-[10px] px-2 py-0.5 bg-primary/5 border border-primary/20 hover:bg-primary hover:text-white transition-all">Alter</button>
+                                                    <button 
+                                                        onClick={() => handleOpenEditModal(med)}
+                                                        className="text-primary font-black uppercase text-[10px] px-2 py-0.5 bg-primary/5 border border-primary/20 hover:bg-white hover:text-primary transition-all group-hover:border-white/50 group-hover:text-white group-hover:hover:bg-white group-hover:hover:text-primary"
+                                                    >
+                                                        Alter
+                                                    </button>
                                                 </td>
                                             </tr>
                                         ))}

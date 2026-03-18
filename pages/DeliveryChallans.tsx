@@ -276,20 +276,24 @@ const DeliveryChallansPage = React.forwardRef<any, DeliveryChallansPageProps>(({
                                             const isSelectable = c.status === DeliveryChallanStatus.OPEN;
                                             const isSelected = selectedChallanIds.has(c.id);
                                             return (
-                                                <tr key={c.id} className={`transition-colors ${isSelectable ? 'cursor-pointer' : 'bg-gray-50/50'} ${isSelected ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'}`} onClick={() => handleSelectChallan(c)}>
-                                                    <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : ''}`} onClick={e => e.stopPropagation()}>
+                                                <tr 
+                                                    key={c.id} 
+                                                    className={`transition-colors cursor-pointer hover:bg-primary hover:text-white group ${!isSelectable && !isSelected ? 'bg-gray-50/50' : ''} ${isSelected ? 'bg-primary text-white shadow-md' : ''}`} 
+                                                    onClick={() => handleSelectChallan(c)}
+                                                >
+                                                    <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white'}`} onClick={e => e.stopPropagation()}>
                                                         <input type="checkbox" disabled={!isSelectable} checked={isSelected} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
                                                     </td>
-                                                    <td className={`p-2 border-r border-gray-200 font-mono font-bold ${isSelected ? 'text-white' : 'text-primary'}`}>{c.challanSerialId}</td>
-                                                    <td className="p-2 border-r border-gray-200">{new Date(c.date).toLocaleDateString('en-IN')}</td>
-                                                    <td className="p-2 border-r border-gray-200 font-black uppercase">{c.supplier}</td>
-                                                    <td className="p-2 border-r border-gray-200 font-mono text-[10px]">{c.challanNumber}</td>
-                                                    <td className="p-2 border-r border-gray-200 text-right font-black">₹{c.totalAmount.toFixed(2)}</td>
-                                                    <td className="p-2 border-r border-gray-200 text-center">{getStatusBadge(c.status)}</td>
+                                                    <td className={`p-2 border-r border-gray-200 font-mono font-bold ${isSelected ? 'text-white' : 'text-primary group-hover:text-white'}`}>{c.challanSerialId}</td>
+                                                    <td className={`p-2 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{new Date(c.date).toLocaleDateString('en-IN')}</td>
+                                                    <td className={`p-2 border-r border-gray-200 font-black uppercase ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{c.supplier}</td>
+                                                    <td className={`p-2 border-r border-gray-200 font-mono text-[10px] ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{c.challanNumber}</td>
+                                                    <td className={`p-2 border-r border-gray-200 text-right font-black ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>₹{c.totalAmount.toFixed(2)}</td>
+                                                    <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{getStatusBadge(c.status)}</td>
                                                     <td className="p-2 text-right">
                                                         <div className="flex justify-end gap-2" onClick={e => e.stopPropagation()}>
-                                                            <button onClick={() => setSelectedChallanForView(c)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
-                                                            {isSelectable && <button onClick={() => handleEditClick(c)} className="text-blue-700 font-black uppercase text-[10px] hover:underline">Alter</button>}
+                                                            <button onClick={() => setSelectedChallanForView(c)} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-primary group-hover:text-white'}`}>View</button>
+                                                            {isSelectable && <button onClick={() => handleEditClick(c)} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-blue-700 group-hover:text-white'}`}>Alter</button>}
                                                         </div>
                                                     </td>
                                                 </tr>

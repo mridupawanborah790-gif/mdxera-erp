@@ -142,6 +142,48 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [activeSubModule, currentPage, totalPages, medicineToEdit, isAddModalOpen]);
 
+    const renderPageNumbers = () => {
+        const delta = 2;
+        const range = [];
+        const rangeWithDots = [];
+        let l;
+
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                range.push(i);
+            }
+        }
+
+        for (const i of range) {
+            if (l) {
+                if (i - l === 2) {
+                    rangeWithDots.push(l + 1);
+                } else if (i - l !== 1) {
+                    rangeWithDots.push('...');
+                }
+            }
+            rangeWithDots.push(i);
+            l = i;
+        }
+
+        return rangeWithDots.map((p, idx) => (
+            <button
+                key={idx}
+                disabled={p === '...'}
+                onClick={() => typeof p === 'number' && setCurrentPage(p)}
+                className={`min-w-[32px] h-8 px-2 border border-gray-400 text-[10px] font-black uppercase transition-all ${
+                    p === currentPage 
+                    ? 'bg-primary text-white border-primary shadow-inner' 
+                    : p === '...' 
+                    ? 'bg-white text-gray-400 cursor-default border-dashed' 
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+                {p}
+            </button>
+        ));
+    };
+
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
@@ -192,11 +234,14 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                         {paginatedMedicines.map((med, idx) => (
-                                            <tr key={med.id} className="hover:bg-primary hover:text-white transition-colors cursor-pointer group" onClick={() => handleOpenEditModal(med)}>
+                                            <tr 
+                                                key={med.id} 
+                                                className="hover:bg-primary hover:text-white transition-colors cursor-pointer group" 
+                                            >
                                                 <td className={`py-1.5 px-2 border-r border-gray-200 text-center group-hover:text-white text-gray-400 ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 group-hover:text-white text-gray-900`}>
+                                                <td className="py-1.5 px-2 border-r border-gray-200">
                                                     <div className="flex flex-col">
-                                                        <span className={`leading-none ${uniformTextStyle}`}>{med.name}</span>
+                                                        <span className={`leading-none group-hover:text-white text-gray-900 ${uniformTextStyle}`}>{med.name}</span>
                                                         <span className="text-[11px] group-hover:text-white/70 text-gray-400 normal-case italic font-bold mt-1 line-clamp-1 leading-none">{med.composition}</span>
                                                     </div>
                                                 </td>
@@ -209,8 +254,13 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                                 <td className="py-1.5 px-2 border-r border-gray-400 text-center group-hover:text-white">
                                                     {med.isPrescriptionRequired && <span className="text-red-600 font-black text-[10px] px-1.5 py-0.5 bg-red-50 border border-red-100 rounded group-hover:bg-red-600 group-hover:text-white group-hover:border-red-700">H</span>}
                                                 </td>
-                                                <td className="py-1.5 px-2 text-right group-hover:text-white">
-                                                    <button className="text-primary font-black uppercase text-[10px] px-2 py-0.5 bg-primary/5 border border-primary/20 hover:bg-white hover:text-primary transition-all group-hover:bg-white group-hover:text-primary">Alter</button>
+                                                <td className="py-1.5 px-2 text-right">
+                                                    <button 
+                                                        onClick={() => handleOpenEditModal(med)}
+                                                        className="text-primary font-black uppercase text-[10px] px-2 py-0.5 bg-primary/5 border border-primary/20 hover:bg-white hover:text-primary transition-all group-hover:bg-white group-hover:text-primary"
+                                                    >
+                                                        Alter
+                                                    </button>
                                                 </td>
                                             </tr>
                                         ))}
@@ -235,17 +285,19 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                         <button 
                                             disabled={currentPage === 1}
                                             onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                            className="px-4 py-1 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors"
+                                            className="px-4 h-8 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors shadow-sm"
                                         >
                                             Prev
                                         </button>
-                                        <div className="px-4 py-1 border border-gray-400 bg-primary text-white text-[10px] font-black uppercase">
-                                            Page {currentPage} of {totalPages}
+                                        
+                                        <div className="flex items-center gap-1 mx-2">
+                                            {renderPageNumbers()}
                                         </div>
+
                                         <button 
                                             disabled={currentPage === totalPages}
                                             onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                            className="px-4 py-1 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors"
+                                            className="px-4 h-8 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors shadow-sm"
                                         >
                                             Next
                                         </button>

@@ -179,21 +179,26 @@ const SalesChallans = React.forwardRef<any, SalesChallansProps>(({
                                     {visibleChallans.map(c => {
                                         const isSelected = selectedChallanIds.has(c.id);
                                         return (
-                                            <tr key={c.id} className={`transition-colors ${isSelected ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'}`} onClick={() => handleSelectChallan(c)}>
-                                                <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : ''}`}>
+                                            <tr 
+                                                key={c.id} 
+                                                className={`transition-colors cursor-pointer hover:bg-primary hover:text-white group ${isSelected ? 'bg-primary text-white shadow-md' : ''}`} 
+                                                onClick={() => handleSelectChallan(c)}
+                                            >
+                                                <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white'}`} onClick={e => e.stopPropagation()}>
                                                     <input type="checkbox" disabled={c.status !== SalesChallanStatus.OPEN} checked={isSelected} onChange={() => handleSelectChallan(c)} className="w-4 h-4 text-primary" />
                                                 </td>
-                                                <td className={`p-2 border-r border-gray-200 font-mono font-bold ${isSelected ? 'text-white' : 'text-primary'}`}>{c.challanSerialId}</td>
-                                                <td className="p-2 border-r border-gray-200">{new Date(c.date).toLocaleDateString('en-GB')}</td>
-                                                <td className="p-2 border-r border-gray-200 font-black uppercase">{c.customerName}</td>
-                                                <td className="p-2 border-r border-gray-200 text-center font-bold">{c.items.length}</td>
-                                                <td className="p-2 border-r border-gray-200 text-right font-black">₹{c.totalAmount.toFixed(2)}</td>                                            <td className="p-2 border-r border-gray-200 text-center">{getStatusBadge(c.status)}</td>
-                                            <td className="p-2 text-right">
-                                                <button onClick={() => setSelectedChallanForView(c)} className="text-primary font-black uppercase text-[10px] hover:underline">View</button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
+                                                <td className={`p-2 border-r border-gray-200 font-mono font-bold ${isSelected ? 'text-white' : 'text-primary group-hover:text-white'}`}>{c.challanSerialId}</td>
+                                                <td className={`p-2 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{new Date(c.date).toLocaleDateString('en-GB')}</td>
+                                                <td className={`p-2 border-r border-gray-200 font-black uppercase ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{c.customerName}</td>
+                                                <td className={`p-2 border-r border-gray-200 text-center font-bold ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{c.items.length}</td>
+                                                <td className={`p-2 border-r border-gray-200 text-right font-black ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>₹{c.totalAmount.toFixed(2)}</td>
+                                                <td className={`p-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{getStatusBadge(c.status)}</td>
+                                                <td className="p-2 text-right">
+                                                    <button onClick={() => setSelectedChallanForView(c)} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-primary group-hover:text-white'}`}>View</button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

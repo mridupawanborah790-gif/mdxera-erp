@@ -386,14 +386,18 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                             const balance = getOutstandingBalance(d);
                             const isSelected = selectedDistributor?.id === d.id;
                             return (
-                                <button key={d.id} onClick={() => { setSelectedDistributor(d); setShowPaymentForm(false); }} className={`w-full text-left p-4 transition-all ${isSelected ? 'bg-accent text-black' : 'hover:bg-gray-100'}`}>
+                                <button 
+                                    key={d.id} 
+                                    onClick={() => { setSelectedDistributor(d); setShowPaymentForm(false); }} 
+                                    className={`w-full text-left p-4 transition-all group ${isSelected ? 'bg-primary text-white shadow-lg' : 'hover:bg-primary hover:text-white'}`}
+                                >
                                     <div className="flex justify-between items-start">
                                         <div className="min-w-0 flex-1">
-                                            <p className={`${uniformTextStyle} truncate`}>{d.name}</p>
-                                            <p className={`${uniformTextStyle} !text-base mt-1 ${isSelected ? 'opacity-60' : 'text-gray-500'}`}>{d.gst_number || 'NO GSTIN'}</p>
+                                            <p className={`${uniformTextStyle} truncate ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{d.name}</p>
+                                            <p className={`${uniformTextStyle} !text-base mt-1 ${isSelected ? 'text-white/70' : 'text-gray-500 group-hover:text-white/70'}`}>{d.gst_number || 'NO GSTIN'}</p>
                                         </div>
                                         <div className="text-right ml-2">
-                                            <p className={`${uniformTextStyle} ${balance > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                                            <p className={`${uniformTextStyle} ${isSelected ? 'text-white' : (balance > 0 ? 'text-red-700 font-black group-hover:text-white' : 'text-emerald-700 font-black group-hover:text-white')}`}>
                                                 ₹{balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                             </p>
                                         </div>

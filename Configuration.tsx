@@ -336,9 +336,9 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                             <button 
                                 key={item.id} 
                                 onClick={() => setActiveSection(item.id as ConfigSection)} 
-                                className={`w-full text-left px-4 py-2.5 text-xs font-bold uppercase border-b border-gray-50 transition-colors ${activeSection === item.id ? 'bg-accent text-black shadow-[inset_4px_0_0_0_#004242]' : 'text-gray-800 hover:bg-gray-100'}`}
+                                className={`w-full text-left px-4 py-2.5 text-xs font-bold uppercase border-b border-gray-50 transition-colors ${activeSection === item.id ? 'bg-primary text-white shadow-[inset_4px_0_0_0_#ffcc00]' : 'text-gray-800 hover:bg-primary hover:text-white'}`}
                             >
-                                <span className="mr-3 opacity-60">{item.icon}</span>{item.name}
+                                <span className={`mr-3 ${activeSection === item.id ? 'opacity-100' : 'opacity-60'}`}>{item.icon}</span>{item.name}
                             </button>
                         ))}
                     </nav>

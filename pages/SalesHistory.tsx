@@ -31,6 +31,8 @@ const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
     </svg>
 );
 
+const ITEMS_PER_PAGE = 15;
+
 const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, onViewDetails, onPrintBill, onCancelTransaction, initialFilters, onFiltersChange, currentUser, onRefresh, onViewSale, onEditSale, onCreateReturn, salesReturns }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchInput, setSearchInput] = useState('');
@@ -38,8 +40,9 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
     const [endDate, setEndDate] = useState('');
     const [rmpFilter, setRmpFilter] = useState('all');
     const [paymentModeFilter, setPaymentModeFilter] = useState('all');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('completed');
     const [sortConfig, setSortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' }>({ key: 'date', direction: 'descending' });
+    const [currentPage, setCurrentPage] = useState(1);
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [transactionToCancel, setTransactionToCancel] = useState<string | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -78,10 +81,22 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
         });
     }, [transactions, searchTerm, startDate, endDate, rmpFilter, paymentModeFilter, statusFilter, sortConfig]);
 
+    const totalPages = Math.ceil(filteredAndSortedTransactions.length / ITEMS_PER_PAGE);
+
+    const paginatedTransactions = useMemo(() => {
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        return filteredAndSortedTransactions.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    }, [filteredAndSortedTransactions, currentPage]);
+
     const selectedTransaction = useMemo(
         () => filteredAndSortedTransactions.find(tx => tx.id === selectedTransactionId) || null,
         [filteredAndSortedTransactions, selectedTransactionId]
     );
+
+    // Reset to page 1 when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, startDate, endDate, rmpFilter, paymentModeFilter, statusFilter]);
 
     useEffect(() => {
         if (selectedTransactionId && !selectedTransaction) {
@@ -200,18 +215,24 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
             if (!shouldHandleScreenShortcut(e, 'salesHistory', { allowedKeysWhenInputFocused: ['F5'] })) return;
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
-                if (filteredAndSortedTransactions.length === 0) return;
+                if (paginatedTransactions.length === 0) return;
 
                 const currentIndex = selectedTransaction
-                    ? filteredAndSortedTransactions.findIndex(tx => tx.id === selectedTransaction.id)
+                    ? paginatedTransactions.findIndex(tx => tx.id === selectedTransaction.id)
                     : -1;
                 const nextIndex = e.key === 'ArrowDown'
-                    ? Math.min(currentIndex + 1, filteredAndSortedTransactions.length - 1)
+                    ? Math.min(currentIndex + 1, paginatedTransactions.length - 1)
                     : Math.max(currentIndex - 1, 0);
-                const nextTransaction = filteredAndSortedTransactions[nextIndex];
+                const nextTransaction = paginatedTransactions[nextIndex];
                 if (nextTransaction) {
                     handleSelectRow(nextTransaction.id);
                 }
+            } else if (e.key === 'ArrowRight' && currentPage < totalPages) {
+                e.preventDefault();
+                setCurrentPage(p => p + 1);
+            } else if (e.key === 'ArrowLeft' && currentPage > 1) {
+                e.preventDefault();
+                setCurrentPage(p => p - 1);
             } else if (e.key === 'Enter') {
                 e.preventDefault();
                 handleViewSelected();
@@ -240,7 +261,49 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [filteredAndSortedTransactions, selectedTransaction, handleViewSelected, handleEditSelected, handleReturnOrderSelected, handleViewJournalSelected, handlePrintSelected, handleCancelSelected, handleExportSelected]);
+    }, [paginatedTransactions, selectedTransaction, handleViewSelected, handleEditSelected, handleReturnOrderSelected, handleViewJournalSelected, handlePrintSelected, handleCancelSelected, handleExportSelected, currentPage, totalPages]);
+
+    const renderPageNumbers = () => {
+        const delta = 2;
+        const range = [];
+        const rangeWithDots = [];
+        let l;
+
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                range.push(i);
+            }
+        }
+
+        for (const i of range) {
+            if (l) {
+                if (i - l === 2) {
+                    rangeWithDots.push(l + 1);
+                } else if (i - l !== 1) {
+                    rangeWithDots.push('...');
+                }
+            }
+            rangeWithDots.push(i);
+            l = i;
+        }
+
+        return rangeWithDots.map((p, idx) => (
+            <button
+                key={idx}
+                disabled={p === '...'}
+                onClick={() => typeof p === 'number' && setCurrentPage(p)}
+                className={`min-w-[32px] h-8 px-2 border border-gray-400 text-[10px] font-black uppercase transition-all ${
+                    p === currentPage 
+                    ? 'bg-primary text-white border-primary shadow-inner' 
+                    : p === '...' 
+                    ? 'bg-white text-gray-400 cursor-default border-dashed' 
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+                {p}
+            </button>
+        ));
+    };
 
     const handleCancelClick = (id: string) => {
         setTransactionToCancel(id);
@@ -367,17 +430,17 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
-                                {filteredAndSortedTransactions.map((tx, idx) => (
+                                {paginatedTransactions.map((tx, idx) => (
                                     <tr
                                         key={tx.id}
                                         onClick={() => handleSelectRow(tx.id)}
-                                        className={`cursor-pointer transition-colors ${selectedTransactionId === tx.id ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'} ${tx.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}
+                                        className={`cursor-pointer transition-colors group ${selectedTransactionId === tx.id ? 'bg-primary text-white shadow-md' : 'hover:bg-primary hover:text-white'} ${tx.status === 'cancelled' ? (selectedTransactionId === tx.id ? 'line-through text-white/50 bg-primary' : 'line-through text-red-500 bg-red-50/50') : ''}`}
                                     >
-                                        <td className={`p-2 border-r border-gray-200 font-bold text-center ${selectedTransactionId === tx.id ? 'text-white' : 'text-gray-400'}`}>{idx + 1}</td>
-                                        <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedTransactionId === tx.id ? 'text-white' : 'text-primary'}`}>{tx.id}</td>
-                                        <td className="p-2 border-r border-gray-200">{new Date(tx.date).toLocaleDateString('en-IN')}</td>
-                                        <td className="p-2 border-r border-gray-200 font-bold uppercase">{tx.customerName}</td>
-                                        <td className="p-2 border-r border-gray-200 text-center font-bold">
+                                        <td className={`p-2 border-r border-gray-200 font-bold text-center ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white text-gray-400'}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white text-primary'}`}>{tx.id}</td>
+                                        <td className={`p-2 border-r border-gray-200 ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>{new Date(tx.date).toLocaleDateString('en-IN')}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-bold uppercase ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>{tx.customerName}</td>
+                                        <td className={`p-2 border-r border-gray-200 text-center font-bold ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>
                                             {(() => {
                                                 const originalCount = (tx.items || []).length;
                                                 const returnedItemIds = new Set(
@@ -390,22 +453,22 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                                                 if (returnedItemIds.size > 0) {
                                                     return (
                                                         <div className="flex flex-col items-center leading-none">
-                                                            <span className="text-xs">{netCount}</span>
-                                                            <span className="text-[8px] text-red-500 font-black mt-0.5 uppercase">({returnedItemIds.size} Ret)</span>
+                                                            <span className={`text-xs ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>{netCount}</span>
+                                                            <span className={`text-[8px] font-black mt-0.5 uppercase ${selectedTransactionId === tx.id ? 'text-white/70' : 'text-red-500 group-hover:text-white/70'}`}>({returnedItemIds.size} Ret)</span>
                                                         </div>
                                                     );
                                                 }
                                                 return originalCount;
                                             })()}
                                         </td>
-                                        <td className="p-2 border-r border-gray-400 text-right font-black">₹{(tx.total || 0).toFixed(2)}</td>
-                                        <td className="p-2 border-r border-gray-200 text-center">
+                                        <td className={`p-2 border-r border-gray-400 text-right font-black ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>₹{(tx.total || 0).toFixed(2)}</td>
+                                        <td className={`p-2 border-r border-gray-200 text-center ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>
                                             <div className="flex flex-col gap-1 items-center">
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${tx.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${selectedTransactionId === tx.id ? 'bg-white/20 text-white border-white/30' : (tx.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200')}`}>
                                                     {tx.status === 'cancelled' ? 'Cancelled' : 'Completed'}
                                                 </span>
                                                 {tx.sync_status === 'pending' && (
-                                                    <span className="text-[8px] font-black text-amber-600 bg-amber-50 px-1 border border-amber-200 uppercase animate-pulse">
+                                                    <span className={`text-[8px] font-black px-1 border uppercase animate-pulse ${selectedTransactionId === tx.id ? 'text-white border-white/40 bg-white/10' : 'text-amber-600 bg-amber-50 border-amber-200'}`}>
                                                         Sync Pending
                                                     </span>
                                                 )}
@@ -416,6 +479,38 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                             </tbody>
                         </table>
                     </div>
+                    {/* Pagination Footer */}
+                    {totalPages > 1 && (
+                        <div className="p-2 bg-gray-100 border-t border-gray-400 flex justify-between items-center flex-shrink-0">
+                            <div className="text-[10px] font-black uppercase text-gray-500 tracking-widest ml-2">
+                                Showing {paginatedTransactions.length} of {filteredAndSortedTransactions.length} items
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <button 
+                                    disabled={currentPage === 1}
+                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                    className="px-4 h-8 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors shadow-sm"
+                                >
+                                    Prev
+                                </button>
+                                
+                                <div className="flex items-center gap-1 mx-2">
+                                    {renderPageNumbers()}
+                                </div>
+
+                                <button 
+                                    disabled={currentPage === totalPages}
+                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                    className="px-4 h-8 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors shadow-sm"
+                                >
+                                    Next
+                                </button>
+                            </div>
+                            <div className="text-[9px] font-bold text-gray-400 uppercase mr-2 italic">
+                                Use ← → keys to flip pages
+                            </div>
+                        </div>
+                    )}
                 </Card>
             </div>
             <ConfirmModal isOpen={isConfirmOpen} onClose={() => setIsConfirmOpen(false)} onConfirm={handleConfirmCancel} title="Cancel Invoice" message="Are you sure you want to cancel this invoice? Inventory will be reversed." />

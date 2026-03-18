@@ -419,30 +419,37 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200 text-xs font-bold">
-                                    {filteredPOList.map(po => (
-                                        <tr key={po.id} className="hover:bg-accent transition-colors">
-                                            <td className="p-3 border-r border-gray-200 font-mono font-black text-primary uppercase">{po.serialId}</td>
-                                            <td className="p-3 border-r border-gray-200">{new Date(po.date).toLocaleDateString('en-GB')}</td>
-                                            <td className="p-3 border-r border-gray-200 font-black text-gray-900 uppercase">{po.distributorName}</td>
-                                            <td className="p-3 border-r border-gray-200 text-center">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${getStatusClass(po.status)}`}>
-                                                    {po.status}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 border-r border-gray-200 text-right font-black">₹{po.totalAmount.toLocaleString('en-IN')}</td>
-                                            <td className="p-3 text-right">
-                                                <div className="flex justify-end gap-2">
-                                                    <button onClick={() => onPrintPurchaseOrder(po)} className="text-gray-500 font-black uppercase text-[10px] hover:underline">Print</button>
-                                                    {po.status === PurchaseOrderStatus.ORDERED && (
-                                                        <>
-                                                            <button onClick={() => onCreatePurchaseEntry(po)} className="text-emerald-700 font-black uppercase text-[10px] hover:underline">Receive</button>
-                                                            <button onClick={() => onCancelPurchaseOrder(po.id)} className="text-red-600 font-black uppercase text-[10px] hover:underline">Cancel</button>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {filteredPOList.map(po => {
+                                        const isSelected = selectedPO?.id === po.id;
+                                        return (
+                                            <tr 
+                                                key={po.id} 
+                                                className={`transition-colors group cursor-pointer hover:bg-primary hover:text-white ${isSelected ? 'bg-primary text-white shadow-md' : ''}`} 
+                                                onClick={() => setSelectedPO(po)}
+                                            >
+                                                <td className={`p-3 border-r border-gray-200 font-mono font-black uppercase ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{po.serialId}</td>
+                                                <td className={`p-3 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{new Date(po.date).toLocaleDateString('en-GB')}</td>
+                                                <td className={`p-3 border-r border-gray-200 font-black uppercase ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'}`}>{po.distributorName}</td>
+                                                <td className="p-3 border-r border-gray-200 text-center">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${isSelected ? 'bg-white/20 text-white border-white/30' : getStatusClass(po.status)}`}>
+                                                        {po.status}
+                                                    </span>
+                                                </td>
+                                                <td className={`p-3 border-r border-gray-200 text-right font-black ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>₹{po.totalAmount.toLocaleString('en-IN')}</td>
+                                                <td className="p-3 text-right">
+                                                    <div className="flex justify-end gap-2">
+                                                        <button onClick={(e) => { e.stopPropagation(); onPrintPurchaseOrder(po); }} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-gray-500 group-hover:text-white'}`}>Print</button>
+                                                        {po.status === PurchaseOrderStatus.ORDERED && (
+                                                            <>
+                                                                <button onClick={(e) => { e.stopPropagation(); onCreatePurchaseEntry(po); }} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-emerald-700 group-hover:text-white'}`}>Receive</button>
+                                                                <button onClick={(e) => { e.stopPropagation(); onCancelPurchaseOrder(po.id); }} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-red-600 group-hover:text-white'}`}>Cancel</button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

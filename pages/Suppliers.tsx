@@ -140,9 +140,14 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                     </div>
                     <div className="flex-1 overflow-y-auto divide-y divide-gray-200">
                         {filteredSuppliers.map(s => (
-                            <button key={s.id} type="button" onClick={() => setSelectedSupplierId(s.id)} className={`w-full text-left p-3 transition-all border-l-[6px] ${selectedSupplierId === s.id ? 'bg-accent text-black border-primary' : 'border-transparent hover:bg-gray-100'}`}>
-                                <p className={`${uniformTextStyle} !text-xl truncate`}>{s.name}</p>
-                                <p className="text-xs font-bold uppercase text-gray-500 truncate">GST: {s.gst_number || 'N/A'}</p>
+                            <button 
+                                key={s.id} 
+                                type="button" 
+                                onClick={() => setSelectedSupplierId(s.id)} 
+                                className={`w-full text-left p-3 transition-all border-l-[6px] ${selectedSupplierId === s.id ? 'bg-primary text-white border-primary shadow-lg' : 'border-transparent hover:bg-primary hover:text-white group'}`}
+                            >
+                                <p className={`${uniformTextStyle} !text-xl truncate ${selectedSupplierId === s.id ? 'text-white' : 'group-hover:text-white'}`}>{s.name}</p>
+                                <p className={`text-xs font-bold uppercase truncate ${selectedSupplierId === s.id ? 'text-white/70' : 'text-gray-500 group-hover:text-white/70'}`}>GST: {s.gst_number || 'N/A'}</p>
                             </button>
                         ))}
                     </div>

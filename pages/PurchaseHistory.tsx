@@ -39,6 +39,8 @@ const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
     </svg>
 );
 
+const ITEMS_PER_PAGE = 15;
+
 const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     purchases,
     distributors,
@@ -55,8 +57,9 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [distributorFilter, setDistributorFilter] = useState('all');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('completed');
     const [sortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' }>({ key: 'date', direction: 'descending' });
+    const [currentPage, setCurrentPage] = useState(1);
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [purchaseToCancel, setPurchaseToCancel] = useState<string | null>(null);
     const [journalPurchase, setJournalPurchase] = useState<Purchase | null>(null);
@@ -93,6 +96,13 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             return sortConfig.direction === 'descending' ? bVal - aVal : aVal - bVal;
         });
     }, [purchases, searchTerm, startDate, endDate, distributorFilter, statusFilter, sortConfig]);
+
+    const totalPages = Math.ceil(filteredAndSortedPurchases.length / ITEMS_PER_PAGE);
+
+    const paginatedPurchases = useMemo(() => {
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        return filteredAndSortedPurchases.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    }, [filteredAndSortedPurchases, currentPage]);
 
     const selectedPurchase = useMemo(
         () => filteredAndSortedPurchases.find(p => p.id === selectedPurchaseId) || null,
@@ -217,6 +227,48 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         const csvContent = [arrayToCsvRow(headers), arrayToCsvRow(row)].join('\n');
         downloadCsv(`purchase-${purchase.purchaseSerialId}.csv`, csvContent);
     }, [requireSelectedPurchase]);
+
+    const renderPageNumbers = () => {
+        const delta = 2;
+        const range = [];
+        const rangeWithDots = [];
+        let l;
+
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                range.push(i);
+            }
+        }
+
+        for (const i of range) {
+            if (l) {
+                if (i - l === 2) {
+                    rangeWithDots.push(l + 1);
+                } else if (i - l !== 1) {
+                    rangeWithDots.push('...');
+                }
+            }
+            rangeWithDots.push(i);
+            l = i;
+        }
+
+        return rangeWithDots.map((p, idx) => (
+            <button
+                key={idx}
+                disabled={p === '...'}
+                onClick={() => typeof p === 'number' && setCurrentPage(p)}
+                className={`min-w-[32px] h-8 px-2 border border-gray-400 text-[10px] font-black uppercase transition-all ${
+                    p === currentPage 
+                    ? 'bg-primary text-white border-primary shadow-inner' 
+                    : p === '...' 
+                    ? 'bg-white text-gray-400 cursor-default border-dashed' 
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+                {p}
+            </button>
+        ));
+    };
 
     const handleConfirmCancel = () => {
         if (purchaseToCancel) {
@@ -403,18 +455,18 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
-                                {filteredAndSortedPurchases.map((p, idx) => (
+                                {paginatedPurchases.map((p, idx) => (
                                     <tr
                                         key={p.id}
                                         onClick={() => handleSelectRow(p.id)}
-                                        className={`cursor-pointer transition-colors ${selectedPurchaseId === p.id ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'} ${p.status === 'cancelled' ? 'line-through text-red-500 bg-red-50/50' : ''}`}
+                                        className={`cursor-pointer transition-colors group ${selectedPurchaseId === p.id ? 'bg-primary text-white shadow-md' : 'hover:bg-primary hover:text-white'} ${p.status === 'cancelled' ? (selectedPurchaseId === p.id ? 'line-through text-white/50 bg-primary' : 'line-through text-red-500 bg-red-50/50') : ''}`}
                                     >
-                                        <td className={`p-2 border-r border-gray-200 font-bold text-center ${selectedPurchaseId === p.id ? 'text-white' : 'text-gray-400'}`}>{idx + 1}</td>
-                                        <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedPurchaseId === p.id ? 'text-white' : 'text-primary'}`}>{p.purchaseSerialId}</td>
-                                        <td className="p-2 border-r border-gray-200 font-bold uppercase">{p.invoiceNumber}</td>
-                                        <td className="p-2 border-r border-gray-200">{new Date(p.date).toLocaleDateString('en-IN')}</td>
-                                        <td className="p-2 border-r border-gray-200 font-bold uppercase">{p.supplier}</td>
-                                        <td className="p-2 border-r border-gray-200 text-center font-bold">
+                                        <td className={`p-2 border-r border-gray-200 font-bold text-center ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white text-gray-400'}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white text-primary'}`}>{p.purchaseSerialId}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-bold uppercase ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white'}`}>{p.invoiceNumber}</td>
+                                        <td className={`p-2 border-r border-gray-200 ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white'}`}>{new Date(p.date).toLocaleDateString('en-IN')}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-bold uppercase ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white'}`}>{p.supplier}</td>
+                                        <td className={`p-2 border-r border-gray-200 text-center font-bold ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white'}`}>
                                             {(() => {
                                                 const originalCount = (p.items || []).length;
                                                 const returnedItemIds = new Set(
@@ -427,17 +479,17 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                                                 if (returnedItemIds.size > 0) {
                                                     return (
                                                         <div className="flex flex-col items-center leading-none">
-                                                            <span className="text-xs">{netCount}</span>
-                                                            <span className="text-[8px] text-red-500 font-black mt-0.5 uppercase">({returnedItemIds.size} Ret)</span>
+                                                            <span className={`text-xs ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white'}`}>{netCount}</span>
+                                                            <span className={`text-[8px] font-black mt-0.5 uppercase ${selectedPurchaseId === p.id ? 'text-white/70' : 'text-red-500 group-hover:text-white/70'}`}>({returnedItemIds.size} Ret)</span>
                                                         </div>
                                                     );
                                                 }
                                                 return originalCount;
                                             })()}
                                         </td>
-                                        <td className="p-2 border-r border-gray-200 text-right font-black">₹{(p.totalAmount || 0).toFixed(2)}</td>
-                                        <td className="p-2 border-r border-gray-200 text-center">
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${p.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                                        <td className={`p-2 border-r border-gray-200 text-right font-black ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white'}`}>₹{(p.totalAmount || 0).toFixed(2)}</td>
+                                        <td className={`p-2 border-r border-gray-200 text-center ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white'}`}>
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${selectedPurchaseId === p.id ? 'bg-white/20 text-white border-white/30' : (p.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200')}`}>
                                                 {p.status === 'cancelled' ? 'Cancelled' : 'Completed'}
                                             </span>
                                         </td>
@@ -446,6 +498,38 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                             </tbody>
                         </table>
                     </div>
+                    {/* Pagination Footer */}
+                    {totalPages > 1 && (
+                        <div className="p-2 bg-gray-100 border-t border-gray-400 flex justify-between items-center flex-shrink-0">
+                            <div className="text-[10px] font-black uppercase text-gray-500 tracking-widest ml-2">
+                                Showing {paginatedPurchases.length} of {filteredAndSortedPurchases.length} items
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <button 
+                                    disabled={currentPage === 1}
+                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                    className="px-4 h-8 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors shadow-sm"
+                                >
+                                    Prev
+                                </button>
+                                
+                                <div className="flex items-center gap-1 mx-2">
+                                    {renderPageNumbers()}
+                                </div>
+
+                                <button 
+                                    disabled={currentPage === totalPages}
+                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                    className="px-4 h-8 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors shadow-sm"
+                                >
+                                    Next
+                                </button>
+                            </div>
+                            <div className="text-[9px] font-bold text-gray-400 uppercase mr-2 italic">
+                                Use ← → keys to flip pages
+                            </div>
+                        </div>
+                    )}
                 </Card>
             </div>
             <ConfirmModal isOpen={isConfirmOpen} onClose={() => setIsConfirmOpen(false)} onConfirm={handleConfirmCancel} title="Cancel Purchase" message="Are you sure you want to cancel this inward entry? Stock levels will be reduced." />
