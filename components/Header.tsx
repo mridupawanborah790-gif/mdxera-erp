@@ -123,7 +123,7 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                                 <button
                                     key={child.id}
                                     onClick={() => { onNavigate(child.id); setActiveMenu(null); }}
-                                    className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold"
+                                    className="w-full text-left px-4 py-2 hover:bg-primary hover:text-white text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold"
                                 >
                                     {child.label}
                                 </button>
@@ -160,7 +160,7 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                                             setActiveMenu(null);
                                         }
                                     }}
-                                    className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold flex justify-between items-center"
+                                    className="w-full text-left px-4 py-2 hover:bg-primary hover:text-white text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold flex justify-between items-center"
                                 >
                                     {child.label}
                                     {'children' in child && child.children ? <span>▸</span> : null}
@@ -171,7 +171,7 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                                             <button
                                                 key={grandChild.id}
                                                 onClick={() => { onNavigate(grandChild.id); setActiveMenu(null); }}
-                                                className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold"
+                                                className="w-full text-left px-4 py-2 hover:bg-primary hover:text-white text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold"
                                             >
                                                 {grandChild.label}
                                             </button>
@@ -196,7 +196,7 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                             <button
                                 key={child.id}
                                 onClick={() => { onNavigate(child.id); setActiveMenu(null); }}
-                                className="w-full text-left px-4 py-2 hover:bg-accent hover:text-black text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold"
+                                className="w-full text-left px-4 py-2 hover:bg-primary hover:text-white text-gray-800 dark:text-gray-200 text-[11px] sm:text-[12px] font-bold"
                             >
                                 {child.label}
                             </button>
@@ -234,7 +234,7 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
 const ToolbarButton: React.FC<{ label: string, onClick: () => void }> = ({ label, onClick }) => (
     <button 
         onClick={label.toLowerCase().includes('reload') ? (e) => e.preventDefault() : onClick}
-        className="flex items-center h-8 px-4 bg-white dark:bg-zinc-700 border border-gray-300 hover:bg-accent hover:border-accent hover:text-black transition-all text-[12px] font-bold uppercase tracking-tighter"
+        className="flex items-center h-8 px-4 bg-white dark:bg-zinc-700 border border-gray-300 hover:bg-primary hover:border-primary hover:text-white transition-all text-[12px] font-bold uppercase tracking-tighter"
     >
         {label}
     </button>

@@ -257,8 +257,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                                         onMouseEnter={() => setFocusedShortcutIndex(idx)}
                                         className={`w-full text-left py-2.5 px-4 leading-tight transition-colors text-[14px] sm:text-[15px] font-semibold border border-gray-400 outline-none ${
                                             focusedShortcutIndex === idx
-                                                ? 'bg-accent text-black border-primary'
-                                                : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
+                                                ? 'bg-primary text-white border-primary shadow-lg'
+                                                : 'bg-gray-200 text-gray-800 hover:bg-primary hover:text-white'
                                         }`}
                                     >
                                         {shortcut.label}
@@ -271,8 +271,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                                         onMouseEnter={() => setFocusedShortcutIndex(activeShortcuts.length)}
                                         className={`w-full text-left py-2.5 px-4 leading-tight transition-colors text-[14px] sm:text-[15px] font-semibold border border-gray-400 outline-none ${
                                             focusedShortcutIndex === activeShortcuts.length
-                                                ? 'bg-accent text-black border-primary'
-                                                : 'bg-gray-200 text-gray-800 hover:bg-accent hover:text-black'
+                                                ? 'bg-primary text-white border-primary shadow-lg'
+                                                : 'bg-gray-200 text-gray-800 hover:bg-primary hover:text-white'
                                         }`}
                                     >
                                         Full Configuration

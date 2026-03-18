@@ -384,8 +384,8 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
 
                     {!isFixedMode && (
                         <div className="flex bg-white p-1 tally-border shadow-sm">
-                            <button onClick={() => { setActiveTab('sales'); handleClearSelection(); }} className={`px-6 py-1.5 text-[10px] font-black uppercase transition-all ${activeTab === 'sales' ? 'bg-accent text-black' : 'text-gray-400 hover:bg-gray-50'}`}>Sales Returns</button>
-                            <button onClick={() => { setActiveTab('purchase'); handleClearSelection(); }} className={`px-6 py-1.5 text-[10px] font-black uppercase transition-all ${activeTab === 'purchase' ? 'bg-accent text-black' : 'text-gray-400 hover:bg-gray-50'}`}>Purchase Returns</button>
+                            <button onClick={() => { setActiveTab('sales'); handleClearSelection(); }} className={`px-6 py-1.5 text-[10px] font-black uppercase transition-all ${activeTab === 'sales' ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-50'}`}>Sales Returns</button>
+                            <button onClick={() => { setActiveTab('purchase'); handleClearSelection(); }} className={`px-6 py-1.5 text-[10px] font-black uppercase transition-all ${activeTab === 'purchase' ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-50'}`}>Purchase Returns</button>
                         </div>
                     )}
                 </div>
@@ -407,15 +407,15 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                                 </thead>
                                 <tbody className="divide-y divide-gray-200">
                                     {historyData.map((ret: any, idx: number) => (
-                                        <tr key={ret.id} className="hover:bg-accent transition-colors cursor-pointer group">
-                                            <td className="p-2 border-r border-gray-200 text-center font-bold text-gray-400">{idx + 1}</td>
-                                            <td className="p-2 border-r border-gray-200 font-mono font-black text-primary">{ret.id}</td>
-                                            <td className="p-2 border-r border-gray-200 font-bold">{new Date(ret.date).toLocaleDateString('en-IN')}</td>
-                                            <td className="p-2 border-r border-gray-200 font-black uppercase">{ret.customerName || ret.supplier}</td>
-                                            <td className="p-2 border-r border-gray-200 font-mono text-[10px] text-gray-500">{ret.originalInvoiceId || ret.originalPurchaseInvoiceId}</td>
-                                            <td className="p-2 border-r border-gray-400 text-right font-black text-red-600">₹{(ret.totalRefund || ret.totalValue || 0).toFixed(2)}</td>
+                                        <tr key={ret.id} className="hover:bg-primary hover:text-white transition-colors cursor-pointer group">
+                                            <td className="p-2 border-r border-gray-200 text-center font-bold text-gray-400 group-hover:text-white/70">{idx + 1}</td>
+                                            <td className="p-2 border-r border-gray-200 font-mono font-black text-primary group-hover:text-white">{ret.id}</td>
+                                            <td className="p-2 border-r border-gray-200 font-bold group-hover:text-white">{new Date(ret.date).toLocaleDateString('en-IN')}</td>
+                                            <td className="p-2 border-r border-gray-200 font-black uppercase group-hover:text-white">{ret.customerName || ret.supplier}</td>
+                                            <td className="p-2 border-r border-gray-200 font-mono text-[10px] text-gray-500 group-hover:text-white/70">{ret.originalInvoiceId || ret.originalPurchaseInvoiceId}</td>
+                                            <td className="p-2 border-r border-gray-400 text-right font-black text-red-600 group-hover:text-white">₹{(ret.totalRefund || ret.totalValue || 0).toFixed(2)}</td>
                                             <td className="p-2 text-right">
-                                                <button className="text-[10px] font-black uppercase text-primary hover:underline">Print</button>
+                                                <button className="text-[10px] font-black uppercase text-primary group-hover:text-white hover:underline">Print</button>
                                             </td>
                                         </tr>
                                     ))}

@@ -1521,11 +1521,11 @@ const POS = forwardRef<any, POSProps>(({
                                                 focusFirstEditableFieldInRow(item.id);
                                             }}
                                             onFocusCapture={() => setSelectedRowIndex(idx)}
-                                            className={`group h-10 cursor-pointer transition-all ${selectedRowIndex === idx ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-50'}`}
+                                            className={`group h-10 cursor-pointer transition-colors hover:bg-primary hover:text-white ${selectedRowIndex === idx ? 'bg-primary text-white shadow-md' : ''}`}
                                         >
-                                            <td className={`p-2 border-r border-gray-200 text-center ${selectedRowIndex === idx ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
+                                            <td className={`p-2 border-r border-gray-200 text-center ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (
-                                                <td className={`p-2 border-r border-gray-200 uppercase w-72 truncate ${uniformTextStyle} ${selectedRowIndex === idx ? 'text-white' : 'text-primary'}`} title={item.name}>
+                                                <td className={`p-2 border-r border-gray-200 uppercase w-72 truncate ${uniformTextStyle} ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-primary'}`} title={item.name}>
                                                     <input
                                                         id={`name-${item.id}`}
                                                         type="text"
@@ -1536,7 +1536,7 @@ const POS = forwardRef<any, POSProps>(({
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className={`w-full bg-transparent border-none outline-none ${selectedRowIndex === idx ? 'text-white placeholder:text-white/50' : 'text-primary placeholder:text-gray-400'} ${uniformTextStyle}`}
+                                                        className={`w-full bg-transparent border-none outline-none ${selectedRowIndex === idx ? 'text-white placeholder:text-white/50' : 'group-hover:text-white text-primary placeholder:text-gray-400'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
@@ -1564,7 +1564,7 @@ const POS = forwardRef<any, POSProps>(({
                                                                 handleRowKeyNavigation(e, item.id);
                                                             }
                                                         }}
-                                                        className="w-full text-center hover:bg-sky-200 hover:text-primary transition-colors outline-none focus:bg-sky-200 focus:text-primary rounded px-1"
+                                                        className={`w-full text-center transition-colors outline-none rounded px-1 ${selectedRowIndex === idx ? 'hover:bg-white/20 hover:text-white focus:bg-white/20 focus:text-white' : 'hover:bg-sky-200 hover:text-primary focus:bg-sky-200 focus:text-primary'}`}
                                                         disabled={isReadOnly}
                                                     >
                                                         {item.batch || 'N/A'}
@@ -1585,13 +1585,13 @@ const POS = forwardRef<any, POSProps>(({
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
                                                         placeholder="MM/YY"
-                                                        className="w-full text-center bg-transparent outline-none"
+                                                        className={`w-full text-center bg-transparent outline-none ${selectedRowIndex === idx ? 'text-white placeholder:text-white/50' : 'group-hover:text-white placeholder:text-gray-400'}`}
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
                                             )}
                                             {isFieldVisible('colPack') && (
-                                                <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle}`}>
+                                                <td className={`p-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white'}`}>
                                                     {(() => {
                                                         const inventoryPack = inventory.find(inv => inv.id === item.inventoryItemId)?.packType?.trim();
                                                         return item.packType?.trim() || inventoryPack || '—';
@@ -1610,7 +1610,7 @@ const POS = forwardRef<any, POSProps>(({
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-full text-right bg-transparent outline-none"
+                                                        className={`w-full text-right bg-transparent outline-none ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white'}`}
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
@@ -1627,7 +1627,7 @@ const POS = forwardRef<any, POSProps>(({
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-full text-center bg-transparent font-normal no-spinner outline-none"
+                                                        className={`w-full text-center bg-transparent font-normal no-spinner outline-none ${selectedRowIndex === idx ? 'text-white placeholder:text-white/50' : 'group-hover:text-white placeholder:text-gray-400'}`}
                                                         placeholder="0"
                                                         disabled={isReadOnly}
                                                     />
@@ -1650,7 +1650,7 @@ const POS = forwardRef<any, POSProps>(({
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-full text-center bg-transparent font-normal no-spinner outline-none text-gray-500"
+                                                        className={`w-full text-center bg-transparent font-normal no-spinner outline-none ${selectedRowIndex === idx ? 'text-white/70 placeholder:text-white/30' : 'group-hover:text-white text-gray-500 placeholder:text-gray-300'}`}
                                                         placeholder="0"
                                                         disabled={isReadOnly}
                                                     />
@@ -1668,7 +1668,7 @@ const POS = forwardRef<any, POSProps>(({
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-12 text-center bg-transparent font-normal no-spinner outline-none text-emerald-700"
+                                                        className={`w-12 text-center bg-transparent font-normal no-spinner outline-none ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-emerald-700'}`}
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
@@ -1676,7 +1676,7 @@ const POS = forwardRef<any, POSProps>(({
                                             {isFieldVisible('colRate') && (
                                                 <td className={`p-2 border-r border-gray-200 text-right font-normal ${uniformTextStyle}`}>
                                                     <div className="flex items-center justify-end">
-                                                        <span className="mr-0.5 text-[10px] opacity-40">₹</span>
+                                                        <span className={`mr-0.5 text-[10px] ${selectedRowIndex === idx ? 'text-white/40' : 'opacity-40'}`}>₹</span>
                                                         <input
                                                             id={`rate-${item.id}`}
                                                             type="number"
@@ -1687,7 +1687,7 @@ const POS = forwardRef<any, POSProps>(({
                                                                 handleItemKeyDown(e, item.id, idx);
                                                                 handleRowKeyNavigation(e, item.id);
                                                             }}
-                                                            className="w-24 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed border-gray-300 focus:border-primary" 
+                                                            className={`w-24 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed ${selectedRowIndex === idx ? 'text-white border-white/30 focus:border-white' : 'group-hover:text-white border-gray-300 focus:border-primary'}`} 
                                                             min="0"
                                                             max="999999.99"
                                                             step="0.01"
@@ -1697,7 +1697,7 @@ const POS = forwardRef<any, POSProps>(({
                                                 </td>
                                             )}
                                             {isFieldVisible('colDisc') && (
-                                                <td className={`p-2 border-r border-gray-200 text-center text-red-700 ${uniformTextStyle}`}>
+                                                <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
                                                     <input
                                                         id={`disc-${item.id}`}
                                                         type="number"
@@ -1708,13 +1708,13 @@ const POS = forwardRef<any, POSProps>(({
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-12 text-center bg-transparent font-normal no-spinner outline-none"
+                                                        className={`w-12 text-center bg-transparent font-normal no-spinner outline-none ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-red-700'}`}
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
                                             )}
                                             {isFieldVisible('colGst') && (
-                                                <td className={`p-2 border-r border-gray-200 text-center text-gray-600 ${uniformTextStyle}`}>
+                                                <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
                                                     <input
                                                         id={`gst-${item.id}`}
                                                         type="number"
@@ -1725,7 +1725,7 @@ const POS = forwardRef<any, POSProps>(({
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
-                                                        className="w-12 text-center bg-transparent font-normal no-spinner outline-none"
+                                                        className={`w-12 text-center bg-transparent font-normal no-spinner outline-none ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-gray-600'}`}
                                                         disabled={isReadOnly}
                                                     />
                                                 </td>
@@ -1759,14 +1759,14 @@ const POS = forwardRef<any, POSProps>(({
                                                                 handleRowKeyNavigation(e, item.id);
                                                             }
                                                         }}
-                                                        className={`w-full px-2 py-0.5 text-[10px] font-normal uppercase rounded border border-dashed transition-all ${item.schemeMode ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-gray-50 text-gray-400 border-gray-300 hover:text-primary hover:border-primary'}`}
+                                                        className={`w-full px-2 py-0.5 text-[10px] font-normal uppercase rounded border border-dashed transition-all ${item.schemeMode ? (selectedRowIndex === idx ? 'bg-white/20 text-white border-white/40' : 'bg-emerald-50 text-emerald-700 border-emerald-300') : (selectedRowIndex === idx ? 'bg-white/10 text-white border-white/20' : 'bg-gray-50 text-gray-400 border-gray-300 hover:text-primary hover:border-primary')}`}
                                                         disabled={isReadOnly}
                                                     >
                                                         {getDisplaySchemePercent(item).toFixed(1)}%
                                                     </button>
                                                 </td>
                                             )}
-                                            {isFieldVisible('colAmount') && <td className={`p-2 text-right text-gray-900 ${uniformTextStyle}`}>₹{(lineAmount || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colAmount') && <td className={`p-2 text-right ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(lineAmount || 0).toFixed(2)}</td>}
                                         </tr>
                                     );
                                 })}
@@ -1989,23 +1989,23 @@ const POS = forwardRef<any, POSProps>(({
                                                         data-index={sIdx}
                                                         onClick={() => triggerBatchSelection(res)}
                                                         onMouseEnter={() => setSelectedSearchIndex(sIdx)}
-                                                        className={`cursor-pointer transition-all border-b border-gray-100 ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : 'hover:bg-yellow-50'} ${areAllBatchesExpired ? 'opacity-50 grayscale' : ''}`}
+                                                        className={`cursor-pointer transition-colors border-b border-gray-100 hover:bg-primary hover:text-white group ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : ''} ${areAllBatchesExpired ? 'opacity-50 grayscale' : ''}`}
                                                     >
                                                         <td className="p-1.5 px-3 border-r border-gray-200">
                                                             <div className="flex items-center gap-2">
-                                                                <p className={`leading-none ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>
+                                                                <p className={`leading-none ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-950'}`}>{item.name}</p>
                                                                 {areAllBatchesExpired && <span className="bg-red-600 text-white text-[8px] px-1 py-0.5 font-black uppercase">Expired</span>}
                                                                 {!areAllBatchesExpired && isAnyBatchExpired && <span className="bg-amber-500 text-white text-[8px] px-1 py-0.5 font-black uppercase">Some Expired</span>}
                                                             </div>
                                                         </td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center font-mono ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-primary'}`}>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center font-mono ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>
                                                             {item.code}
                                                         </td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{stripsStock}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{looseStock}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{totalStock}</td>
-                                                        <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'group-hover:text-white text-gray-500'}`}>{item.manufacturer || item.brand}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500 group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{stripsStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500 group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{looseStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500 group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{totalStock}</td>
+                                                        <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>
                                                 );
                                             })}
@@ -2197,12 +2197,12 @@ const POS = forwardRef<any, POSProps>(({
                 <div className="text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Last 20 Sales</div>
                 <div className="space-y-1.5">
                     {salesHistory.map((sale) => (
-                        <div key={sale.id} className="p-2 bg-white border border-gray-200 hover:border-primary/50 hover:bg-sky-50 transition-colors cursor-pointer text-[11px] shadow-sm">
+                        <div key={sale.id} className="p-2 bg-white border border-gray-200 hover:bg-primary group transition-colors cursor-pointer text-[11px] shadow-sm">
                             <div className="flex justify-between items-start mb-0.5">
-                                <span className="font-black text-gray-800 uppercase truncate pr-2 flex-1" title={sale.customerName}>{sale.customerName}</span>
-                                <span className="shrink-0 font-black text-primary">₹{sale.total.toFixed(2)}</span>
+                                <span className="font-black text-gray-800 uppercase truncate pr-2 flex-1 group-hover:text-white" title={sale.customerName}>{sale.customerName}</span>
+                                <span className="shrink-0 font-black text-primary group-hover:text-white">₹{sale.total.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between text-[9px] text-gray-400 font-bold uppercase">
+                            <div className="flex justify-between text-[9px] text-gray-400 font-bold uppercase group-hover:text-white/70">
                                 <span>{sale.id}</span>
                                 <span>{(sale.date || '').split('T')[0]}</span>
                             </div>

@@ -107,11 +107,15 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                     </div>
                     <div className="flex-1 overflow-y-auto divide-y divide-gray-200">
                         {filteredCustomers.map(cust => (
-                            <div key={cust.id} onClick={() => setSelectedCustomer(cust)} className={`p-4 cursor-pointer transition-all border-l-[8px] ${selectedCustomer?.id === cust.id ? 'bg-accent border-primary' : 'border-transparent hover:bg-gray-100'}`}>
+                            <div 
+                                key={cust.id} 
+                                onClick={() => setSelectedCustomer(cust)} 
+                                className={`p-4 cursor-pointer transition-all border-l-[8px] ${selectedCustomer?.id === cust.id ? 'bg-primary text-white border-primary shadow-lg' : 'border-transparent hover:bg-primary hover:text-white group'}`}
+                            >
                                 <div className="flex justify-between items-center">
                                     <div className="flex-1 min-w-0 pr-2">
-                                        <p className={`${uniformTextStyle} truncate`}>{cust.name}</p>
-                                        <p className={`${uniformTextStyle} !text-base mt-1 ${selectedCustomer?.id === cust.id ? 'opacity-60' : 'text-gray-500'}`}>{cust.phone || 'N/A'}</p>
+                                        <p className={`${uniformTextStyle} truncate ${selectedCustomer?.id === cust.id ? 'text-white' : 'group-hover:text-white'}`}>{cust.name}</p>
+                                        <p className={`${uniformTextStyle} !text-base mt-1 ${selectedCustomer?.id === cust.id ? 'text-white/70' : 'text-gray-500 group-hover:text-white/70'}`}>{cust.phone || 'N/A'}</p>
                                     </div>
                                 </div>
                             </div>

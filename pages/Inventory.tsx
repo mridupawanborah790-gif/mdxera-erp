@@ -206,6 +206,48 @@ const Inventory: React.FC<InventoryProps> = ({
         }
     };
 
+    const renderPageNumbers = () => {
+        const delta = 2;
+        const range = [];
+        const rangeWithDots = [];
+        let l;
+
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                range.push(i);
+            }
+        }
+
+        for (const i of range) {
+            if (l) {
+                if (i - l === 2) {
+                    rangeWithDots.push(l + 1);
+                } else if (i - l !== 1) {
+                    rangeWithDots.push('...');
+                }
+            }
+            rangeWithDots.push(i);
+            l = i;
+        }
+
+        return rangeWithDots.map((p, idx) => (
+            <button
+                key={idx}
+                disabled={p === '...'}
+                onClick={() => typeof p === 'number' && (setCurrentPage(p), setSelectedIndex(0))}
+                className={`min-w-[32px] h-8 px-2 border border-gray-400 text-[10px] font-black uppercase transition-all ${
+                    p === currentPage 
+                    ? 'bg-primary text-white border-primary shadow-inner' 
+                    : p === '...' 
+                    ? 'bg-white text-gray-400 cursor-default border-dashed' 
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+                {p}
+            </button>
+        ));
+    };
+
     return (
         <main className="flex-1 page-fade-in bg-app-bg flex flex-col overflow-hidden">
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
@@ -329,42 +371,42 @@ const Inventory: React.FC<InventoryProps> = ({
                                         <tr 
                                             key={item.id} 
                                             data-row-index={idx}
-                                            className={`transition-all group cursor-pointer border-b border-gray-100 ${
+                                            className={`transition-colors group cursor-pointer border-b border-gray-100 hover:bg-primary hover:text-white ${
                                                 isSelected 
                                                 ? 'bg-primary text-white shadow-md' 
                                                 : isLow 
                                                 ? 'bg-red-50/20' 
-                                                : 'hover:bg-gray-50'
+                                                : ''
                                             }`} 
                                             onClick={() => {
                                                 setSelectedIndex(idx);
                                             }}
                                         >
-                                            <td className={`py-1.5 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
+                                            <td className={`py-1.5 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-400'} ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
                                             
                                             {isFieldVisible('colName') && (
                                                 <td className="py-1 px-2 border-r border-gray-200">
-                                                    <div className={`${isSelected ? 'text-white' : 'text-gray-900'} leading-tight ${uniformTextStyle}`}>{item.name}</div>
+                                                    <div className={`${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} leading-tight ${uniformTextStyle}`}>{item.name}</div>
                                                 </td>
                                             )}
 
-                                            {isFieldVisible('colCategory') && <td className={`py-1 px-2 border-r border-gray-200 text-gray-600 ${uniformTextStyle}`}>{item.category}</td>}
-                                            {isFieldVisible('colManufacturer') && <td className={`py-1 px-2 border-r border-gray-200 text-gray-600 ${uniformTextStyle}`}>{item.manufacturer}</td>}
-                                            {isFieldVisible('colHsn') && <td className={`py-1 px-2 border-r border-gray-200 text-center text-gray-600 ${uniformTextStyle}`}>{item.hsnCode}</td>}
-                                            {isFieldVisible('colBarcode') && <td className={`py-1 px-2 border-r border-gray-200 text-center text-gray-600 ${uniformTextStyle}`}>{item.barcode}</td>}
-                                            {isFieldVisible('colBatch') && <td className={`py-1 px-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-black' : 'text-primary'}`}>{item.batch}</td>}
-                                            {isFieldVisible('colStrips') && <td className={`py-1 px-2 border-r border-gray-200 text-center text-gray-600 ${uniformTextStyle}`}>{strips}</td>}
-                                            {isFieldVisible('colLoose') && <td className={`py-1 px-2 border-r border-gray-200 text-center text-gray-600 ${uniformTextStyle}`}>{loose}</td>}
-                                            {isFieldVisible('colStock') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle} ${isLow ? 'text-red-700 font-bold' : 'text-emerald-700'}`}>{item.stock}</td>}
-                                            {isFieldVisible('colBaseUnit') && <td className={`py-1 px-2 border-r border-gray-200 text-center text-gray-600 ${uniformTextStyle}`}>{item.baseUnit}</td>}
-                                            {isFieldVisible('colPtr') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle}`}>₹{(item.ptr || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colMrp') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colRateA') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle}`}>₹{(item.rateA || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colRateB') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle}`}>₹{(item.rateB || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colRateC') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle}`}>₹{(item.rateC || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colValue') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle}`}>₹{(item.value || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colCategory') && <td className={`py-1 px-2 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.category}</td>}
+                                            {isFieldVisible('colManufacturer') && <td className={`py-1 px-2 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.manufacturer}</td>}
+                                            {isFieldVisible('colHsn') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.hsnCode}</td>}
+                                            {isFieldVisible('colBarcode') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.barcode}</td>}
+                                            {isFieldVisible('colBatch') && <td className={`py-1 px-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{item.batch}</td>}
+                                            {isFieldVisible('colStrips') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{strips}</td>}
+                                            {isFieldVisible('colLoose') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{loose}</td>}
+                                            {isFieldVisible('colStock') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle} ${isSelected ? 'text-white' : (isLow ? 'text-red-700 font-bold group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{item.stock}</td>}
+                                            {isFieldVisible('colBaseUnit') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.baseUnit}</td>}
+                                            {isFieldVisible('colPtr') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.ptr || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colMrp') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colRateA') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.rateA || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colRateB') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.rateB || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colRateC') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.rateC || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colValue') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.value || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colExpiry') && (
-                                                <td className={`py-1 px-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
+                                                <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>
                                                     {formatExpiryToMMYY(item.expiry)}
                                                 </td>
                                             )}
@@ -375,7 +417,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                                         e.stopPropagation();
                                                         setItemToEdit(item);
                                                     }}
-                                                    className="text-primary font-black uppercase text-[10px] px-2 py-0.5 bg-primary/5 border border-primary/20 hover:bg-primary hover:text-white transition-all"
+                                                    className={`font-black uppercase text-[10px] px-2 py-0.5 border transition-all ${isSelected ? 'bg-white text-primary border-white' : 'bg-primary/5 text-primary border-primary/20 group-hover:bg-white group-hover:text-primary group-hover:border-white'}`}
                                                 >
                                                     Alter
                                                 </button>
@@ -404,17 +446,19 @@ const Inventory: React.FC<InventoryProps> = ({
                                 <button 
                                     disabled={currentPage === 1}
                                     onClick={() => { setCurrentPage(prev => Math.max(1, prev - 1)); setSelectedIndex(0); }}
-                                    className="px-4 py-1 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors"
+                                    className="px-4 h-8 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors shadow-sm"
                                 >
                                     Prev
                                 </button>
-                                <div className="px-4 py-1 border border-gray-400 bg-primary text-white text-[10px] font-black uppercase">
-                                    Page {currentPage} of {totalPages}
+                                
+                                <div className="flex items-center gap-1 mx-2">
+                                    {renderPageNumbers()}
                                 </div>
+
                                 <button 
                                     disabled={currentPage === totalPages}
                                     onClick={() => { setCurrentPage(prev => Math.min(totalPages, prev + 1)); setSelectedIndex(0); }}
-                                    className="px-4 py-1 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors"
+                                    className="px-4 h-8 border border-gray-400 bg-white text-[10px] font-black uppercase disabled:opacity-30 hover:bg-gray-50 transition-colors shadow-sm"
                                 >
                                     Next
                                 </button>

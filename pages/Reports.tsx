@@ -202,10 +202,10 @@ const Reports: React.FC<ReportsProps> = ({
                             <button 
                                 key={report.id} 
                                 onClick={() => generateReportData(report.id)}
-                                className="flex flex-col items-center text-center p-6 rounded-md border border-gray-200 bg-white hover:bg-primary-extralight/50 hover:border-primary-light transition-all shadow-sm active:scale-95"
+                                className="flex flex-col items-center text-center p-6 rounded-md border border-gray-200 bg-white hover:bg-primary hover:text-white hover:border-primary transition-all shadow-sm active:scale-95 group"
                             >
-                                <span className="text-xl font-bold text-app-text-primary mb-2">{report.name}</span>
-                                <p className="text-xs text-app-text-secondary">Click to generate and print this report.</p>
+                                <span className="text-xl font-bold text-app-text-primary group-hover:text-white mb-2">{report.name}</span>
+                                <p className="text-xs text-app-text-secondary group-hover:text-white/80">Click to generate and print this report.</p>
                             </button>
                         ))}
                     </div>

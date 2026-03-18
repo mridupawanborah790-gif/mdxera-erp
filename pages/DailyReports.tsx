@@ -199,7 +199,7 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
                   <button
                     key={child.id}
                     onClick={() => openPeriodModal(child.id)}
-                    className={`w-full text-left px-5 py-2 text-[14px] border-b border-gray-200 ${activeReportId === child.id ? 'bg-[#1d4c45] text-white font-bold' : 'hover:bg-[#edf3f1]'}`}
+                    className={`w-full text-left px-5 py-2 text-[14px] border-b border-gray-200 transition-colors ${activeReportId === child.id ? 'bg-primary text-white font-bold shadow-md' : 'text-gray-700 hover:bg-primary hover:text-white'}`}
                   >
                     {child.label}
                   </button>
@@ -232,13 +232,17 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
               </thead>
               <tbody>
                 {reportRows.map((row, index) => (
-                  <tr key={row.voucherNo} className={`${selectedRow === index ? 'bg-[#2f5d57] text-white font-bold' : 'border-b border-[#d4d8d3]'}`}>
+                  <tr 
+                    key={row.voucherNo} 
+                    onClick={() => setSelectedRow(index)}
+                    className={`cursor-pointer transition-colors ${selectedRow === index ? 'bg-primary text-white font-bold shadow-md' : 'border-b border-[#d4d8d3] hover:bg-primary/10'}`}
+                  >
                     <td className="px-2">{row.date}</td>
                     <td className="px-2">{row.partyName}</td>
                     <td className="px-2">{row.remark}</td>
                     <td className="px-2">{row.voucherNo}</td>
-                    <td className="px-2 text-right">{row.debit ? row.debit.toFixed(2) : '-'}</td>
-                    <td className="px-2 text-right">{row.credit ? row.credit.toFixed(2) : '-'}</td>
+                    <td className={`px-2 text-right ${selectedRow === index ? 'text-white' : 'text-[#2f5d57]'}`}>{row.debit ? row.debit.toFixed(2) : '-'}</td>
+                    <td className={`px-2 text-right ${selectedRow === index ? 'text-white' : 'text-[#2f5d57]'}`}>{row.credit ? row.credit.toFixed(2) : '-'}</td>
                     <td className="px-2">{row.type}</td>
                   </tr>
                 ))}

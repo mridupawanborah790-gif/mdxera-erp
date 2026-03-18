@@ -62,6 +62,7 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
   const [narration, setNarration] = useState('');
   const [lines, setLines] = useState<ManualLine[]>([newLine()]);
   const [hoveredLineId, setHoveredLineId] = useState<string | null>(null);
+  const [activeLineId, setActiveLineId] = useState<string | null>(null);
   const [salesGlId, setSalesGlId] = useState('');
   const [discountGlId, setDiscountGlId] = useState('');
   const [taxGlId, setTaxGlId] = useState('');
@@ -518,27 +519,33 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
                     key={line.id} 
                     onMouseEnter={() => setHoveredLineId(line.id)}
                     onMouseLeave={() => setHoveredLineId(null)}
-                    className={`border-b border-gray-200 h-10 text-xs font-bold uppercase transition-colors ${hoveredLineId === line.id ? 'bg-sky-50' : ''}`}
+                    className={`border-b border-gray-200 h-10 text-xs font-bold uppercase transition-colors group ${hoveredLineId === line.id || activeLineId === line.id ? 'bg-primary text-white shadow-lg' : 'hover:bg-primary hover:text-white'}`}
                   >
-                    <td className="p-2 border-r border-gray-200 text-center text-gray-500">{i + 1}</td>
+                    <td className={`p-2 border-r border-gray-200 text-center ${hoveredLineId === line.id || activeLineId === line.id ? 'text-white' : 'group-hover:text-white text-gray-500'}`}>{i + 1}</td>
                     <td className="p-2 border-r border-gray-200">
-                      <input className="w-full bg-transparent outline-none" value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })} placeholder="Item description" />
+                      <input 
+                        className={`w-full bg-transparent outline-none ${hoveredLineId === line.id || activeLineId === line.id ? 'text-white placeholder:text-white/50' : 'group-hover:text-white group-hover:placeholder:text-white/50'}`} 
+                        value={line.description} 
+                        onChange={(e) => updateLine(line.id, { description: e.target.value })} 
+                        onFocus={() => setActiveLineId(line.id)}
+                        placeholder="Item description" 
+                      />
                     </td>
                     <td className="p-2 border-r border-gray-200">
-                      <input id={`qty-${line.id}`} className="w-full text-center bg-transparent outline-none" type="number" min={0} value={line.qty || ''} onChange={(e) => updateLine(line.id, { qty: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                      <input id={`qty-${line.id}`} className={`w-full text-center bg-transparent outline-none ${hoveredLineId === line.id || activeLineId === line.id ? 'text-white' : 'group-hover:text-white'}`} type="number" min={0} value={line.qty || ''} onChange={(e) => updateLine(line.id, { qty: Number(e.target.value) })} onFocus={() => setActiveLineId(line.id)} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
                     </td>
                     <td className="p-2 border-r border-gray-200">
-                      <input id={`rate-${line.id}`} className="w-full text-right bg-transparent outline-none" type="number" min={0} value={line.rate || ''} onChange={(e) => updateLine(line.id, { rate: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} disabled={!canEditRate} />
+                      <input id={`rate-${line.id}`} className={`w-full text-right bg-transparent outline-none ${hoveredLineId === line.id || activeLineId === line.id ? 'text-white' : 'group-hover:text-white'}`} type="number" min={0} value={line.rate || ''} onChange={(e) => updateLine(line.id, { rate: Number(e.target.value) })} onFocus={() => setActiveLineId(line.id)} onKeyDown={(e) => handleRowNavigation(e, line.id)} disabled={!canEditRate} />
                     </td>
-                    <td className="p-2 border-r border-gray-200 text-right text-gray-700">{line.amount.toFixed(2)}</td>
+                    <td className={`p-2 border-r border-gray-200 text-right ${hoveredLineId === line.id || activeLineId === line.id ? 'text-white' : 'group-hover:text-white text-gray-700'}`}>{line.amount.toFixed(2)}</td>
                     <td className="p-2 border-r border-gray-200">
-                      <input id={`discount-${line.id}`} className="w-full text-right bg-transparent outline-none" type="number" min={0} value={line.discount || ''} onChange={(e) => updateLine(line.id, { discount: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                      <input id={`discount-${line.id}`} className={`w-full text-right bg-transparent outline-none ${hoveredLineId === line.id || activeLineId === line.id ? 'text-white' : 'group-hover:text-white'}`} type="number" min={0} value={line.discount || ''} onChange={(e) => updateLine(line.id, { discount: Number(e.target.value) })} onFocus={() => setActiveLineId(line.id)} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
                     </td>
                     <td className="p-2 border-r border-gray-200">
-                      <input id={`tax-${line.id}`} className="w-full text-center bg-transparent outline-none" type="number" min={0} value={line.taxPercent || ''} onChange={(e) => updateLine(line.id, { taxPercent: Number(e.target.value) })} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
+                      <input id={`tax-${line.id}`} className={`w-full text-center bg-transparent outline-none ${hoveredLineId === line.id || activeLineId === line.id ? 'text-white' : 'group-hover:text-white'}`} type="number" min={0} value={line.taxPercent || ''} onChange={(e) => updateLine(line.id, { taxPercent: Number(e.target.value) })} onFocus={() => setActiveLineId(line.id)} onKeyDown={(e) => handleRowNavigation(e, line.id)} />
                     </td>
-                    <td className="p-2 border-r border-gray-200 text-right text-gray-700">{line.taxAmount.toFixed(2)}</td>
-                    <td className="p-2 text-right font-black text-gray-800">{line.lineTotal.toFixed(2)}</td>
+                    <td className={`p-2 border-r border-gray-200 text-right ${hoveredLineId === line.id || activeLineId === line.id ? 'text-white' : 'group-hover:text-white text-gray-700'}`}>{line.taxAmount.toFixed(2)}</td>
+                    <td className={`p-2 text-right font-black ${hoveredLineId === line.id || activeLineId === line.id ? 'text-white' : 'group-hover:text-white text-gray-800'}`}>{line.lineTotal.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
