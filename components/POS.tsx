@@ -85,21 +85,24 @@ const resolveSalesRate = (
 };
 
 const normalizePackConversion = (item: BillItem): BillItem => {
-    const parsedLoose = Math.max(0, Math.floor(Number(item.looseQuantity || 0)));
     const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
     const isPackBasedItem = unitsPerPack > 1 && !isLiquidOrWeightPack(item.packType);
 
+    const parsedPacks = Math.max(0, Math.floor(Number(item.quantity || 0)));
+    const parsedLoose = Math.max(0, Math.floor(Number(item.looseQuantity || 0)));
+
     if (!isPackBasedItem) {
-        return { ...item, looseQuantity: parsedLoose };
+        return { ...item, quantity: parsedPacks, looseQuantity: parsedLoose };
     }
 
-    const convertedPackQty = Math.floor(parsedLoose / unitsPerPack);
-    const looseRemainder = parsedLoose % unitsPerPack;
+    const totalUnits = (parsedPacks * unitsPerPack) + parsedLoose;
+    const normalizedPacks = Math.floor(totalUnits / unitsPerPack);
+    const normalizedLoose = totalUnits % unitsPerPack;
 
     return {
         ...item,
-        quantity: convertedPackQty,
-        looseQuantity: looseRemainder
+        quantity: normalizedPacks,
+        looseQuantity: normalizedLoose
     };
 };
 
