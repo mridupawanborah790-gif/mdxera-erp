@@ -837,12 +837,14 @@ const POS = forwardRef<any, POSProps>(({
 
                 if (field === 'looseQuantity') {
                     const enteredLooseQty = Math.max(0, Math.floor(Number(updated.looseQuantity) || 0));
+                    const currentPacks = Math.max(0, Math.floor(Number(updated.quantity) || 0));
                     const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
                     const isPackBasedItem = unitsPerPack > 1 && !isLiquidOrWeightPack(item.packType);
 
                     if (isPackBasedItem) {
-                        updated.quantity = Math.floor(enteredLooseQty / unitsPerPack);
-                        updated.looseQuantity = enteredLooseQty % unitsPerPack;
+                        const totalUnits = (currentPacks * unitsPerPack) + enteredLooseQty;
+                        updated.quantity = Math.floor(totalUnits / unitsPerPack);
+                        updated.looseQuantity = totalUnits % unitsPerPack;
                     } else {
                         updated.looseQuantity = enteredLooseQty;
                     }
