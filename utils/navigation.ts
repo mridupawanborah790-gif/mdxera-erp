@@ -2,7 +2,7 @@
 import React from 'react';
 
 export const handleEnterToNextField = (e: React.KeyboardEvent<HTMLElement>) => {
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
     const target = e.target as HTMLElement;
     
     // Allow default behavior for Buttons, Links, Textareas, and Selects
