@@ -1608,17 +1608,20 @@ const App: React.FC = () => {
 
             {printBill && <PrintBillModal isOpen={!!printBill} onClose={() => setPrintBill(null)} bill={printBill} medicines={medicines} />}
             {viewTransaction && (
-                <TransactionDetailModal 
-                    isOpen={!!viewTransaction} 
-                    onClose={() => setViewTransaction(null)} 
-                    transaction={viewTransaction} 
-                    customer={customers.find(c => c.id === viewTransaction.customerId)} 
-                    onPrintBill={setPrintBill as any} 
-                    onProcessReturn={() => { }} 
-                    currentUser={currentUser} 
+                <TransactionDetailModal
+                    isOpen={!!viewTransaction}
+                    onClose={() => setViewTransaction(null)}
+                    transaction={viewTransaction}
+                    customer={customers.find(c => c.id === viewTransaction.customerId)}
+                    onPrintBill={(tx) => { 
+                        const billPharmacy = buildBillPharmacy(); 
+                        if (!billPharmacy) return; 
+                        setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); 
+                    }}
+                    onProcessReturn={() => { }}
+                    currentUser={currentUser}
                     salesReturns={salesReturns}
-                />
-            )}
+                />            )}
             {viewPurchase && (
                 <PurchaseDetailModal 
                     isOpen={!!viewPurchase} 
