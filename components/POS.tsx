@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback, useImperativeHandle, forwardRef } from 'react';
 import Card from '../components/Card';
 import SchemeModal from '../components/SchemeModal';
+import SchemeCalculatorModal from '../components/SchemeCalculatorModal';
 import Modal from '../components/Modal';
 import AddMedicineModal from '../components/AddMedicineModal';
 import BatchSelectionModal from './BatchSelectionModal';
@@ -288,6 +289,8 @@ const POS = forwardRef<any, POSProps>(({
     const [roundOff, setRoundOff] = useState(0);
     const [isRoundOffManuallyEdited, setIsRoundOffManuallyEdited] = useState(false);
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+    const [isSchemeCalcOpen, setIsSchemeCalcOpen] = useState(false);
+    const [activeSchemeCalcRowId, setActiveSchemeCalcRowId] = useState<string | null>(null);
     const [selectedRowIndex, setSelectedRowIndex] = useState(0);
     const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
@@ -650,7 +653,7 @@ const POS = forwardRef<any, POSProps>(({
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (isCustomerSearchModalOpen || schemeItem || pendingBatchSelection || isSearchModalOpen) return;
+            if (isCustomerSearchModalOpen || schemeItem || pendingBatchSelection || isSearchModalOpen || isSchemeCalcOpen) return;
             
             if (!shouldHandleScreenShortcut(e, ['pos', 'nonGstPos'], { allowWhenInputFocused: true })) return;
             if (e.ctrlKey && e.key.toLowerCase() === 's') {
@@ -1687,8 +1690,15 @@ const POS = forwardRef<any, POSProps>(({
                                                             onChange={e => handleUpdateCartItem(item.id, 'rate', e.target.value)}
                                                             onFocus={() => handleRowFocus(idx)}
                                                             onKeyDown={e => {
-                                                                handleItemKeyDown(e, item.id, idx);
-                                                                handleRowKeyNavigation(e, item.id);
+                                                                if (e.ctrlKey && (e.key === 'Enter' || e.keyCode === 13)) {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    setActiveSchemeCalcRowId(item.id);
+                                                                    setIsSchemeCalcOpen(true);
+                                                                } else {
+                                                                    handleItemKeyDown(e, item.id, idx);
+                                                                    handleRowKeyNavigation(e, item.id);
+                                                                }
                                                             }}
                                                             className={`w-24 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed ${selectedRowIndex === idx ? 'text-white border-white/30 focus:border-white' : 'group-hover:text-white border-gray-300 focus:border-primary'}`} 
                                                             min="0"
@@ -2149,6 +2159,17 @@ const POS = forwardRef<any, POSProps>(({
                     onClear={handleClearScheme}
                 />
             )}
+
+            <SchemeCalculatorModal
+                isOpen={isSchemeCalcOpen}
+                onClose={() => setIsSchemeCalcOpen(false)}
+                baseRate={cartItems.find(i => i.id === activeSchemeCalcRowId)?.rate || 0}
+                onApply={(effectiveRate) => {
+                    if (activeSchemeCalcRowId) {
+                        handleUpdateCartItem(activeSchemeCalcRowId, 'rate', effectiveRate);
+                    }
+                }}
+            />
 
             <BatchSelectionModal
                 isOpen={!!pendingBatchSelection}
