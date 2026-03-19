@@ -17,7 +17,7 @@ import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, Regi
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
-import { calculateBillingTotals, resolveBillingSettings } from '../utils/billing';
+import { calculateBillingTotals, resolveBillingSettings, calculateLineNetAmount } from '../utils/billing';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
@@ -362,7 +362,8 @@ const POS = forwardRef<any, POSProps>(({
         billDiscount: lumpsumDiscount,
         isNonGst,
         configurations,
-    }), [cartItems, lumpsumDiscount, isNonGst, configurations]);
+        organizationType: currentUser?.organization_type
+    }), [cartItems, lumpsumDiscount, isNonGst, configurations, currentUser?.organization_type]);
 
     useEffect(() => {
         if (!isRoundOffManuallyEdited) {
@@ -408,8 +409,9 @@ const POS = forwardRef<any, POSProps>(({
             billDiscount: 0,
             isNonGst,
             configurations,
+            organizationType: currentUser?.organization_type
         });
-    }, [activeBillItem, isNonGst, configurations]);
+    }, [activeBillItem, isNonGst, configurations, currentUser?.organization_type]);
 
 
     const customerSnapshot = useMemo(() => {
@@ -1515,7 +1517,7 @@ const POS = forwardRef<any, POSProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
-                                    const lineAmount = getBilledQuantity(item) * Number(item.rate || 0);
+                                    const lineAmount = calculateLineNetAmount(item, configurations, currentUser?.organization_type);
 
                                     return (
                                         <tr 
