@@ -207,6 +207,7 @@ export interface RegisteredPharmacy {
     dashboard_logo_url?: string;
     terms_and_conditions?: string;
     purchase_order_terms?: string;
+    organization_type?: 'Retail' | 'Distributor';
     subscription_plan?: string;
     subscription_status?: string;
     subscription_id?: string;

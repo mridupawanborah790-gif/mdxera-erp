@@ -91,6 +91,23 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUpdateProfile, addNo
                                 <InputGroup label="Manager Name" name="manager_name" value={formData.manager_name} onChange={handleChange} required />
                                 <InputGroup label="Authorized Person" name="full_name" value={formData.full_name} onChange={handleChange} required />
                                 
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">
+                                        Organization Type <span className="text-red-500">*</span>
+                                    </label>
+                                    <select 
+                                        name="organization_type" 
+                                        value={formData.organization_type || ''} 
+                                        onChange={handleChange}
+                                        required
+                                        className="w-full tally-input border-gray-400 focus:bg-yellow-50 focus:border-primary text-sm font-bold uppercase transition-all bg-input-bg"
+                                    >
+                                        <option value="">Select Type</option>
+                                        <option value="Retail">Retail</option>
+                                        <option value="Distributor">Distributor</option>
+                                    </select>
+                                </div>
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <InputGroup label="Drug License" name="drug_license" value={formData.drug_license} onChange={handleChange} placeholder="e.g. DL-12345" />
                                     <InputGroup label="D.L. Valid To" name="dl_valid_to" type="date" value={formData.dl_valid_to} onChange={handleChange} />

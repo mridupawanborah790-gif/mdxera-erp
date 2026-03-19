@@ -245,7 +245,7 @@
                 'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 
                 'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
                 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 
-                'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 
+                'terms_and_conditions', 'purchase_order_terms', 'organization_type', 'subscription_plan', 
                 'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 
                 'gst_number', 'pan_number'
             ];
@@ -291,7 +291,7 @@
                 'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 
                 'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
                 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 
-                'terms_and_conditions', 'purchase_order_terms', 'subscription_plan', 
+                'terms_and_conditions', 'purchase_order_terms', 'organization_type', 'subscription_plan', 
                 'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 
                 'gst_number', 'pan_number'
             ];
