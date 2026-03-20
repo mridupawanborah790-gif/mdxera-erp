@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
@@ -140,7 +141,7 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
           {(billDetails.items || []).map(item => (
             <tr key={item.id}>
               <td className="p-1 border-r border-b border-black text-center">
-                  {item.quantity}
+                  {formatPackLooseQuantity(item.quantity, item.looseQuantity)}
                   {item.freeQuantity ? <span className="text-[8px] ml-0.5">+{item.freeQuantity}</span> : ''}
               </td>
               <td className="p-1 border-r border-b border-black">{item.packType || 'N/A'}</td>

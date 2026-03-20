@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem } from '../../types';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
 
 interface TemplateProps {
@@ -110,7 +111,7 @@ const ProfessionalTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 <td className="py-0.5 text-[10px]">{item.batch}</td>
                 <td className="py-0.5 text-center text-[10px]">{item.expiry}</td>
                 <td className="py-0.5 text-center">
-                    {item.quantity}{item.freeQuantity ? `+${item.freeQuantity}` : ''}
+                    {formatPackLooseQuantity(item.quantity, item.looseQuantity)}{item.freeQuantity ? `+${item.freeQuantity}` : ''}
                 </td>
                 <td className="py-0.5 text-right">{(item.mrp || 0).toFixed(2)}</td>
                 <td className="py-0.5 text-right">{(item.discountPercent || 0)}%</td>

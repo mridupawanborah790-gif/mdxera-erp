@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { calculateBillingTotals } from '../../utils/billing';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -65,7 +66,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         billedQty,
         billedRate: rate,
         displayAmount: billedQty * rate,
-        displayQty: `${item.quantity || 0}${(item.freeQuantity || 0) > 0 ? `+${item.freeQuantity}` : ''}`,
+        displayQty: `${formatPackLooseQuantity(item.quantity, item.looseQuantity)}${(item.freeQuantity || 0) > 0 ? `+${item.freeQuantity}` : ''}`,
         taxableVal,
         gstAmt,
         lineTotal: lineAmount,
