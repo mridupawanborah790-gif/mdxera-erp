@@ -1,24 +1,38 @@
 
 
 import React, { useMemo } from 'react';
-import type { DetailedBill, InventoryItem } from '../../types';
+import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
+import { calculateBillingTotals } from '../../utils/billing';
 
 interface TemplateProps {
-  bill: DetailedBill & { inventory?: InventoryItem[] };
+  bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
 }
 
 const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
 
+  const computedBillTotals = useMemo(() => calculateBillingTotals({
+    items: bill.items || [],
+    billDiscount: bill.schemeDiscount || 0,
+    isNonGst,
+    configurations: bill.configurations,
+    organizationType: bill.pharmacy?.organization_type,
+    pricingMode: bill.pricingMode
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+
   const itemsWithCalculations = useMemo(() => {
+    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+
     return (bill.items || []).map(item => {
-      const rate = Number(item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0));
-      const tradeDiscount = (rate * item.quantity) * ((item.discountPercent || 0) / 100);
+      const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
+      const unitsPerPack = item.unitsPerPack || 1;
+      const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
+      const tradeDiscount = (rate * billedQty) * ((item.discountPercent || 0) / 100);
       const schemeDiscount = item.schemeDiscountAmount || 0;
       const totalDiscount = tradeDiscount + schemeDiscount;
-      const amount = (rate * item.quantity) - totalDiscount;
+      const amount = (rate * billedQty) - totalDiscount;
       
       const invItem = bill.inventory?.find(i => i.id === item.inventoryItemId);
       const unit = item.packType || invItem?.packType || '-';
@@ -27,10 +41,11 @@ const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
         ...item,
         unit,
         totalDiscount,
-        amount
+        amount,
+        billedRate: rate
       };
     });
-  }, [bill.items, bill.inventory]);
+  }, [bill.items, bill.inventory, bill.pricingMode, bill.pharmacy?.organization_type, bill.configurations]);
 
   const totalSaved = useMemo(() => {
     return itemsWithCalculations.reduce((acc, i) => acc + (i.totalDiscount || 0), 0) + (bill.schemeDiscount || 0);
@@ -104,7 +119,7 @@ const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   <p className="text-[8pt] text-gray-400">Pack: {item.unit}</p>
                 </td>
                 <td className="p-2 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
-                <td className="p-2 text-right">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)).toFixed(2)}</td>
+                <td className="p-2 text-right">{(item.billedRate || 0).toFixed(2)}</td>
                 <td className="p-2 text-right">{item.discountPercent || 0}</td>
                 <td className="p-2 text-right font-bold">{(item.amount || 0).toFixed(2)}</td>
               </tr>

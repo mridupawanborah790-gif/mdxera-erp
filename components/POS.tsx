@@ -228,6 +228,16 @@ const POS = forwardRef<any, POSProps>(({
     const [isProcessingRx, setIsProcessingRx] = useState(false);
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
+    const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(configurations?.displayOptions?.pricingMode || 'mrp');
+
+    useEffect(() => {
+        if (currentUser?.organization_type === 'Distributor') {
+            setLocalPricingMode('rate');
+        } else if (configurations?.displayOptions?.pricingMode) {
+            setLocalPricingMode(configurations.displayOptions.pricingMode);
+        }
+    }, [currentUser?.organization_type, configurations?.displayOptions?.pricingMode]);
+
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
@@ -379,8 +389,9 @@ const POS = forwardRef<any, POSProps>(({
         billDiscount: lumpsumDiscount,
         isNonGst,
         configurations,
-        organizationType: currentUser?.organization_type
-    }), [cartItems, lumpsumDiscount, isNonGst, configurations, currentUser?.organization_type]);
+        organizationType: currentUser?.organization_type,
+        pricingMode: localPricingMode
+    }), [cartItems, lumpsumDiscount, isNonGst, configurations, currentUser?.organization_type, localPricingMode]);
 
     useEffect(() => {
         if (!isRoundOffManuallyEdited) {
@@ -426,9 +437,10 @@ const POS = forwardRef<any, POSProps>(({
             billDiscount: 0,
             isNonGst,
             configurations,
-            organizationType: currentUser?.organization_type
+            organizationType: currentUser?.organization_type,
+            pricingMode: localPricingMode
         });
-    }, [activeBillItem, isNonGst, configurations, currentUser?.organization_type]);
+    }, [activeBillItem, isNonGst, configurations, currentUser?.organization_type, localPricingMode]);
 
 
     const customerSnapshot = useMemo(() => {
@@ -629,6 +641,7 @@ const POS = forwardRef<any, POSProps>(({
             paymentMode: finalPaymentMode,
             billType: isNonGst ? 'non-gst' : 'regular',
             itemCount: cartItems.length,
+            pricingMode: localPricingMode,
             prescriptionImages: prescriptions.map(p => p.data),
         };
 
@@ -1460,6 +1473,16 @@ const POS = forwardRef<any, POSProps>(({
                     >
                         View Journal Entry
                     </button>
+                    {currentUser?.organization_type === 'Retail' && (
+                        <button
+                            type="button"
+                            onClick={() => setLocalPricingMode(prev => prev === 'mrp' ? 'rate' : 'mrp')}
+                            className={`px-2 py-0.5 border text-white text-[9px] font-black uppercase tracking-widest transition-colors ${localPricingMode === 'mrp' ? 'bg-accent border-accent text-primary' : 'bg-transparent border-white/60'}`}
+                            title="Switch between MRP Based (Inclusive) and Rate Based (Exclusive) pricing"
+                        >
+                            Mode: {localPricingMode === 'mrp' ? 'MRP (INCL)' : 'RATE (EXT)'}
+                        </button>
+                    )}
                 </div>
                 <span className="text-[10px] font-black uppercase text-accent">No. {currentInvoiceNo}</span>
             </div>
@@ -1596,7 +1619,7 @@ const POS = forwardRef<any, POSProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
-                                    const lineAmount = calculateLineNetAmount(item, configurations, currentUser?.organization_type);
+                                    const lineAmount = calculateLineNetAmount(item, configurations, currentUser?.organization_type, localPricingMode);
 
                                     return (
                                         <tr 

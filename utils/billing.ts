@@ -9,6 +9,7 @@ interface TotalsInput {
   isNonGst?: boolean;
   configurations?: AppConfigurations;
   organizationType?: 'Retail' | 'Distributor';
+  pricingMode?: 'mrp' | 'rate';
 }
 
 export interface BillingTotals {
@@ -24,6 +25,7 @@ export interface BillingTotals {
   tax: number;
   baseTotal: number;
   autoRoundOff: number;
+  pricingMode: 'mrp' | 'rate';
 }
 
 const getSchemeDiscountAmount = (item: BillItem, schemeBaseAmount: number): number => {
@@ -34,16 +36,22 @@ const getSchemeDiscountAmount = (item: BillItem, schemeBaseAmount: number): numb
   return Math.max(0, item.schemeDiscountAmount || 0);
 };
 
-const isGstInclusiveMrp = (item: BillItem, organizationType?: 'Retail' | 'Distributor') => {
-  if (organizationType === 'Retail') return true;
-  return item.taxBasis === 'I-Incl.MRP';
+const resolvePricingMode = (organizationType?: 'Retail' | 'Distributor', pricingMode?: 'mrp' | 'rate', configurations?: AppConfigurations): 'mrp' | 'rate' => {
+  if (organizationType === 'Distributor') return 'rate';
+  if (pricingMode) return pricingMode;
+  if (configurations?.displayOptions?.pricingMode) return configurations.displayOptions.pricingMode;
+  return 'mrp'; // Default for Retail
 };
 
-const getDisplayRateForLine = (item: BillItem, organizationType?: 'Retail' | 'Distributor') => {
-  if (organizationType === 'Retail') return Number(item.mrp || 0);
-  if (organizationType === 'Distributor') return Number(item.rate || item.mrp || 0);
-  
-  if (isGstInclusiveMrp(item)) return Number(item.mrp || 0);
+const isGstInclusiveMrp = (item: BillItem, organizationType?: 'Retail' | 'Distributor', pricingMode?: 'mrp' | 'rate', configurations?: AppConfigurations) => {
+  const mode = resolvePricingMode(organizationType, pricingMode, configurations);
+  if (mode === 'mrp') return true;
+  return false;
+};
+
+const getDisplayRateForLine = (item: BillItem, organizationType?: 'Retail' | 'Distributor', pricingMode?: 'mrp' | 'rate', configurations?: AppConfigurations) => {
+  const mode = resolvePricingMode(organizationType, pricingMode, configurations);
+  if (mode === 'mrp') return Number(item.mrp || 0);
   return Number(item.rate || item.mrp || 0);
 };
 
@@ -54,8 +62,9 @@ export const resolveBillingSettings = (configurations?: AppConfigurations) => {
   return { schemeBase, taxBase };
 };
 
-export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = false, configurations, organizationType }: TotalsInput): BillingTotals => {
+export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = false, configurations, organizationType, pricingMode }: TotalsInput): BillingTotals => {
   const { schemeBase, taxBase } = resolveBillingSettings(configurations);
+  const effectivePricingMode = resolvePricingMode(organizationType, pricingMode, configurations);
 
   let gross = 0;
   let tradeDiscount = 0;
@@ -67,7 +76,7 @@ export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = fal
   items.forEach(item => {
     const unitsPerPack = item.unitsPerPack || 1;
     const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-    const itemGross = billedQty * getDisplayRateForLine(item, organizationType);
+    const itemGross = billedQty * getDisplayRateForLine(item, organizationType, effectivePricingMode, configurations);
     const itemTradeDisc = itemGross * ((item.discountPercent || 0) / 100);
     const itemFlatDisc = Math.max(0, item.itemFlatDiscount || 0);
     const lineAfterTrade = Math.max(0, itemGross - itemTradeDisc - itemFlatDisc);
@@ -90,7 +99,7 @@ export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = fal
 
     if (lineTaxBase > 0) {
       const gstPercent = isNonGst ? 0 : (item.gstPercent || 0);
-      const isInclusive = isGstInclusiveMrp(item, organizationType);
+      const isInclusive = isGstInclusiveMrp(item, organizationType, effectivePricingMode, configurations);
       
       const taxableBase = isInclusive && gstPercent > 0
         ? lineTaxBase / (1 + (gstPercent / 100))
@@ -139,14 +148,16 @@ export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = fal
     tax,
     baseTotal,
     autoRoundOff,
+    pricingMode: effectivePricingMode,
   };
 };
 
-export const calculateLineNetAmount = (item: BillItem, configurations?: AppConfigurations, organizationType?: 'Retail' | 'Distributor'): number => {
+export const calculateLineNetAmount = (item: BillItem, configurations?: AppConfigurations, organizationType?: 'Retail' | 'Distributor', pricingMode?: 'mrp' | 'rate'): number => {
   const { schemeBase } = resolveBillingSettings(configurations);
   const unitsPerPack = item.unitsPerPack || 1;
   const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-  const gross = billedQty * getDisplayRateForLine(item, organizationType);
+  const effectivePricingMode = resolvePricingMode(organizationType, pricingMode, configurations);
+  const gross = billedQty * getDisplayRateForLine(item, organizationType, effectivePricingMode, configurations);
   const trade = gross * ((item.discountPercent || 0) / 100);
   const flat = Math.max(0, item.itemFlatDiscount || 0);
   const afterTrade = Math.max(0, gross - trade - flat);

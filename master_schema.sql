@@ -268,6 +268,7 @@ CREATE TABLE IF NOT EXISTS public.sales_bill (
     total numeric(15,2) DEFAULT 0,
     status text DEFAULT 'completed',
     payment_mode text DEFAULT 'Cash',
+    pricing_mode text DEFAULT 'mrp',
     bill_type text DEFAULT 'regular',
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
@@ -286,6 +287,7 @@ CREATE TABLE IF NOT EXISTS public.purchases (
     subtotal numeric(15,2) DEFAULT 0,
     total_gst numeric(15,2) DEFAULT 0,
     status text DEFAULT 'completed',
+    pricing_mode text DEFAULT 'rate',
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
 );
@@ -302,6 +304,7 @@ CREATE TABLE IF NOT EXISTS public.delivery_challans (
     items jsonb DEFAULT '[]'::jsonb,
     total_amount numeric(15,2) DEFAULT 0,
     status text DEFAULT 'open',
+    pricing_mode text DEFAULT 'rate',
     created_at timestamptz DEFAULT now()
 );
 
@@ -315,6 +318,7 @@ CREATE TABLE IF NOT EXISTS public.sales_challans (
     items jsonb DEFAULT '[]'::jsonb,
     total_amount numeric(15,2) DEFAULT 0,
     status text DEFAULT 'open',
+    pricing_mode text DEFAULT 'mrp',
     created_at timestamptz DEFAULT now()
 );
 
@@ -399,3 +403,6 @@ CREATE OR REPLACE VIEW public.medicine_master AS SELECT * FROM public.material_m
 CREATE OR REPLACE VIEW public.distributors AS SELECT * FROM public.suppliers;
 
 NOTIFY pgrst, 'reload schema';
+
+
+--no need to import now in supabase, will do it later, once other setup are completed

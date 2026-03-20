@@ -1,12 +1,13 @@
 
 
 import React, { useMemo } from 'react';
-import type { DetailedBill, InventoryItem } from '../../types';
+import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
+import { calculateBillingTotals } from '../../utils/billing';
 
 interface TemplateProps {
-  bill: DetailedBill & { inventory?: InventoryItem[] };
+  bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
   orientation?: 'portrait' | 'landscape';
 }
 
@@ -16,21 +17,36 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
   const isNonGst = bill.billType === 'non-gst';
   const isLandscape = orientation === 'landscape';
 
+  const computedBillTotals = useMemo(() => calculateBillingTotals({
+    items: bill.items || [],
+    billDiscount: bill.schemeDiscount || 0,
+    isNonGst,
+    configurations: bill.configurations,
+    organizationType: bill.pharmacy?.organization_type,
+    pricingMode: bill.pricingMode
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+
   const calculations = useMemo(() => {
     let subtotalValue = 0;
-        let totalGst = 0;
+    let totalGst = 0;
+
+    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
 
     const items = (bill.items || []).map((item, idx) => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
       
-      const rate = item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
+      const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
       const lineAmount = billedQty * rate;
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
-      const taxableVal = lineAmount / (1 + (effectiveGst / 100));
-      const gstAmt = lineAmount - taxableVal;
+      const isInclusive = effectivePricingMode === 'mrp';
+
+      const taxableVal = isInclusive && effectiveGst > 0
+        ? lineAmount / (1 + (effectiveGst / 100))
+        : lineAmount;
+      const gstAmt = isInclusive ? (lineAmount - taxableVal) : (taxableVal * (effectiveGst / 100));
       
       subtotalValue += taxableVal;
       totalGst += gstAmt;
@@ -45,6 +61,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
         taxableVal,
         gstAmt,
         lineTotal: lineAmount,
+        billedRate: rate,
         displayName: (() => {
           const packLabel = item.packType?.trim() || inventoryItem?.packType?.trim() || '';
           return packLabel ? `${item.name} (${packLabel})` : item.name;
@@ -59,11 +76,11 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
     const billDiscount = bill.schemeDiscount || 0;
-    const roundOff = bill.roundOff || 0;
-    const grandTotal = bill.total || ((bill.subtotal || subtotalValue) - billDiscount + (isNonGst ? 0 : (bill.totalGst || totalGst)) + roundOff);
+    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
+    const grandTotal = bill.total || computedBillTotals.baseTotal;
 
-    return { items, itemChunks, subtotalValue: (bill.subtotal || subtotalValue), totalGst: (isNonGst ? 0 : (bill.totalGst || totalGst)), billDiscount, roundOff, grandTotal };
-  }, [bill, isNonGst]);
+    return { items, itemChunks, subtotalValue: computedBillTotals.taxableValue, totalGst: (isNonGst ? 0 : computedBillTotals.tax), billDiscount, roundOff, grandTotal };
+  }, [bill, isNonGst, computedBillTotals]);
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased border border-gray-200" style={{ fontSize: '8.25pt', fontWeight: 400 }}>

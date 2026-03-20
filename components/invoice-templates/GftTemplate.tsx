@@ -1,12 +1,13 @@
 
 
 import React, { useMemo } from 'react';
-import type { DetailedBill, InventoryItem } from '../../types';
+import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
+import { calculateBillingTotals } from '../../utils/billing';
 
 interface TemplateProps {
-  bill: DetailedBill & { inventory?: InventoryItem[] };
+  bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
 }
 
 const ITEMS_PER_PAGE = 10;
@@ -16,20 +17,35 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isCredit = bill.paymentMode === 'Credit';
   const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
   
+  const computedBillTotals = useMemo(() => calculateBillingTotals({
+    items: bill.items || [],
+    billDiscount: bill.schemeDiscount || 0,
+    isNonGst,
+    configurations: bill.configurations,
+    organizationType: bill.pharmacy?.organization_type,
+    pricingMode: bill.pricingMode
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+
   const billDetails = useMemo(() => {
     let subtotal = 0;
     let totalCgst = 0;
     let totalSgst = 0;
+
+    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+
     const itemsWithCalculations = bill.items.map(item => {
-        const rate = item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
+        const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
         const unitsPerPack = item.unitsPerPack || 1;
         const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
         const finalAmount = billedQty * rate;
 
         const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
+        const isInclusive = effectivePricingMode === 'mrp';
 
-        const taxableValue = finalAmount / (1 + (effectiveGst / 100));
-        const gstAmount = finalAmount - taxableValue;
+        const taxableValue = isInclusive && effectiveGst > 0
+          ? finalAmount / (1 + (effectiveGst / 100))
+          : finalAmount;
+        const gstAmount = isInclusive ? (finalAmount - taxableValue) : (taxableValue * (effectiveGst / 100));
 
         subtotal += finalAmount;
         totalCgst += gstAmount / 2;
@@ -52,7 +68,8 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
           return packLabel ? `${item.name} (${packLabel})` : item.name;
         })(),
             finalAmount: finalAmount,
-            taxableValue
+            taxableValue,
+            billedRate: rate
         };
     });
 
@@ -62,14 +79,14 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-        const billDiscount = bill.schemeDiscount || 0;
-    const roundOff = bill.roundOff || 0;
-    const subtotalFromBill = bill.subtotal || subtotal;
-    const totalTaxFromBill = isNonGst ? 0 : (bill.totalGst || (totalCgst + totalSgst));
-    const grandTotal = bill.total || (subtotalFromBill - billDiscount + totalTaxFromBill + roundOff);
+    const billDiscount = bill.schemeDiscount || 0;
+    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
+    const subtotalFromBill = computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax);
+    const totalTaxFromBill = isNonGst ? 0 : computedBillTotals.tax;
+    const grandTotal = bill.total || computedBillTotals.baseTotal;
 
     return { items: itemsWithCalculations, itemChunks, subtotal: subtotalFromBill, totalCgst, totalSgst, totalTaxFromBill, billDiscount, roundOff, grandTotal };
-  }, [bill, isNonGst]);
+  }, [bill, isNonGst, computedBillTotals]);
 
   const termsList = bill.pharmacy.terms_and_conditions 
     ? bill.pharmacy.terms_and_conditions.split('\n').filter(t => t.trim() !== '')
@@ -192,7 +209,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="p-1 border-r border-black text-center font-bold">
                                 {formatPackLooseQuantity(item.quantity, item.looseQuantity)} {item.freeQuantity ? `+${item.freeQuantity}` : ''}
                             </td>
-                            <td className="p-1 border-r border-black text-right">{(item.mrp || 0).toFixed(2)}</td>
+                            <td className="p-1 border-r border-black text-right">{(item.billedRate || 0).toFixed(2)}</td>
                             <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>
                             {showSchemeColumn && <td className="p-1 border-r border-black text-right">{item.schemeDiscountPercent ? item.schemeDiscountPercent : '-'}</td>}
                             {!isNonGst && <td className="p-1 border-r border-black text-right">{item.gstPercent}</td>}

@@ -48,6 +48,14 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUpdateProfile, addNo
         
         if (name === 'state') {
             setFormData(prev => prev ? ({ ...prev, state: value, district: '' }) : null);
+        } else if (name === 'organization_type') {
+            // Logic: If Distributor → force Rate Based
+            const updates: Partial<RegisteredPharmacy> = { organization_type: value as any };
+            if (value === 'Distributor') {
+                updates.subscription_plan = 'rate'; // We can use subscription_plan or a dedicated field if we had one in DB, 
+                // but let's assume we want to store it in a way that matches AppConfigurations later or just profile
+            }
+            setFormData(prev => prev ? ({ ...prev, ...updates }) : null);
         } else {
             setFormData(prev => prev ? ({ ...prev, [name]: value }) : null);
         }
@@ -106,6 +114,26 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUpdateProfile, addNo
                                         <option value="Retail">Retail</option>
                                         <option value="Distributor">Distributor</option>
                                     </select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">
+                                        Default Pricing Mode <span className="text-red-500">*</span>
+                                    </label>
+                                    <select 
+                                        name="subscription_plan" 
+                                        value={formData.subscription_plan || 'mrp'} 
+                                        onChange={handleChange}
+                                        required
+                                        disabled={formData.organization_type === 'Distributor'}
+                                        className="w-full tally-input border-gray-400 focus:bg-yellow-50 focus:border-primary text-sm font-bold uppercase transition-all bg-input-bg disabled:opacity-50 disabled:bg-gray-100"
+                                    >
+                                        <option value="mrp">MRP Based (GST Inclusive)</option>
+                                        <option value="rate">Rate Based (GST Extra)</option>
+                                    </select>
+                                    {formData.organization_type === 'Distributor' && (
+                                        <p className="text-[9px] text-primary font-bold mt-1 italic">* Distributors are forced to Rate Based mode.</p>
+                                    )}
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">

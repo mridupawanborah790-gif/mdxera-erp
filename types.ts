@@ -164,6 +164,7 @@ export interface AppConfigurations {
         printCopies?: number;
         schemeDiscountCalculationBase?: SchemeDiscountCalculationBase;
         taxCalculationBase?: TaxCalculationBaseOption;
+        pricingMode?: 'mrp' | 'rate';
         pharmacy_logo_url?: string;
         dashboard_logo_url?: string;
     };
@@ -333,6 +334,7 @@ export interface Transaction {
     billedById?: string;
     billedByName?: string;
     taxCalculationType?: TaxCalculationBasis;
+    pricingMode?: 'mrp' | 'rate';
     linkedChallans?: string[];
     companyCodeId?: string;
     setOfBooksId?: string;

@@ -19,14 +19,18 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
     billDiscount: bill.schemeDiscount || 0,
     isNonGst,
     configurations: bill.configurations,
-  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst]);
+    organizationType: bill.pharmacy?.organization_type,
+    pricingMode: bill.pricingMode
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const calculations = useMemo(() => {
+    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+
     const items = (bill.items || []).map((item, index) => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-      const rate = item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
+      const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const gross = billedQty * rate;
       const tradeDiscount = gross * ((item.discountPercent || 0) / 100);
       const flatDiscount = item.itemFlatDiscount || 0;
@@ -38,8 +42,9 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           : Math.max(0, gross - tradeDiscount - flatDiscount - schemeDiscount);
 
       const gstPercent = isNonGst ? 0 : (item.gstPercent || 0);
-      const taxable = gstPercent > 0 ? lineAmount / (1 + gstPercent / 100) : lineAmount;
-      const gstAmount = Math.max(0, lineAmount - taxable);
+      const isInclusive = effectivePricingMode === 'mrp';
+      const taxable = isInclusive && gstPercent > 0 ? lineAmount / (1 + gstPercent / 100) : lineAmount;
+      const gstAmount = isInclusive ? Math.max(0, lineAmount - taxable) : (taxable * (gstPercent / 100));
 
       return {
         ...item,
@@ -55,17 +60,18 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         taxable,
         gstAmount,
         lineAmount,
+        billedRate: rate
       };
     });
 
     return { items };
-  }, [bill.items, bill.inventory, isNonGst]);
+  }, [bill.items, bill.inventory, isNonGst, bill.pricingMode, bill.pharmacy?.organization_type, bill.configurations]);
 
   const totals = {
-    subTotal: computedTotals.subtotal || bill.subtotal || 0,
+    subTotal: computedTotals.taxableValue || 0,
     discount: computedTotals.billDiscount || bill.schemeDiscount || 0,
-    taxTotal: isNonGst ? 0 : (computedTotals.tax || bill.totalGst || 0),
-    grandTotal: bill.total || (computedTotals.baseTotal + (bill.roundOff || computedTotals.autoRoundOff || 0)),
+    taxTotal: isNonGst ? 0 : (computedTotals.tax || 0),
+    grandTotal: bill.total || computedTotals.baseTotal,
   };
 
   const paginatedItems = useMemo(() => {
@@ -338,7 +344,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                       <td className="center">{item.batch}</td>
                       <td className="center">{item.qtyText}</td>
                       <td className="right num">{(item.mrp || 0).toFixed(2)}</td>
-                      <td className="right num">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)).toFixed(2)}</td>
+                      <td className="right num">{(item.billedRate || 0).toFixed(2)}</td>
                       <td className="center">{item.expiry}</td>
                       <td className="center">{(item.discountPercent || 0).toFixed(2)}</td>
                       <td className="center num">{item.sgstRate.toFixed(2)}%</td>
