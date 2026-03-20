@@ -228,15 +228,17 @@ const POS = forwardRef<any, POSProps>(({
     const [isProcessingRx, setIsProcessingRx] = useState(false);
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
-    const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(configurations?.displayOptions?.pricingMode || 'mrp');
+    const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(transactionToEdit?.pricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
 
     useEffect(() => {
         if (currentUser?.organization_type === 'Distributor') {
             setLocalPricingMode('rate');
+        } else if (transactionToEdit?.pricingMode) {
+            setLocalPricingMode(transactionToEdit.pricingMode);
         } else if (configurations?.displayOptions?.pricingMode) {
             setLocalPricingMode(configurations.displayOptions.pricingMode);
         }
-    }, [currentUser?.organization_type, configurations?.displayOptions?.pricingMode]);
+    }, [currentUser?.organization_type, configurations?.displayOptions?.pricingMode, transactionToEdit?.pricingMode]);
 
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
@@ -1476,9 +1478,10 @@ const POS = forwardRef<any, POSProps>(({
                     {currentUser?.organization_type === 'Retail' && (
                         <button
                             type="button"
-                            onClick={() => setLocalPricingMode(prev => prev === 'mrp' ? 'rate' : 'mrp')}
-                            className={`px-2 py-0.5 border text-white text-[9px] font-black uppercase tracking-widest transition-colors ${localPricingMode === 'mrp' ? 'bg-accent border-accent text-primary' : 'bg-transparent border-white/60'}`}
-                            title="Switch between MRP Based (Inclusive) and Rate Based (Exclusive) pricing"
+                            onClick={() => !isReadOnly && setLocalPricingMode(prev => prev === 'mrp' ? 'rate' : 'mrp')}
+                            disabled={isReadOnly}
+                            className={`px-2 py-0.5 border text-white text-[9px] font-black uppercase tracking-widest transition-colors ${localPricingMode === 'mrp' ? 'bg-accent border-accent text-primary' : 'bg-transparent border-white/60'} ${isReadOnly ? 'opacity-80 cursor-default' : ''}`}
+                            title={isReadOnly ? "Pricing mode cannot be changed for existing bills" : "Switch between MRP Based (Inclusive) and Rate Based (Exclusive) pricing"}
                         >
                             Mode: {localPricingMode === 'mrp' ? 'MRP (INCL)' : 'RATE (EXT)'}
                         </button>
@@ -2001,22 +2004,40 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
 
                     <div className="col-span-12 bg-[#255d55] px-2 py-1.5 text-white flex items-center gap-1 overflow-x-auto">
-                        {["SALE", "PURC", "SC", "PC", "COPY BILL", "PASTE", "SR", "PR", "CASH", "HOLD", "SAVE", "PRINT", "RETURN"].map(btn => (
-                            <button
-                                key={btn}
-                                onClick={() => {
-                                    if (btn === 'SAVE') handleSave();
-                                    if (btn === 'PRINT' && transactionToEdit) onPrintBill(transactionToEdit);
-                                    if (btn === 'HOLD') {
-                                        localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy }));
-                                        addNotification('Bill placed on hold.', 'success');
-                                    }
-                                }}
-                                className="px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap"
-                            >
-                                {btn}
-                            </button>
-                        ))}
+                        {isReadOnly ? (
+                            <>
+                                <button
+                                    onClick={() => onPrintBill && transactionToEdit && onPrintBill(transactionToEdit)}
+                                    className="px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap hover:bg-white hover:text-[#255d55] transition-colors"
+                                >
+                                    PRINT (F8)
+                                </button>
+                                <button
+                                    onClick={() => onCancel && onCancel()}
+                                    className="px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap hover:bg-white hover:text-[#255d55] transition-colors"
+                                >
+                                    RETURN (Esc)
+                                </button>
+                            </>
+                        ) : (
+                            ["SALE", "PURC", "SC", "PC", "COPY BILL", "PASTE", "SR", "PR", "CASH", "HOLD", "SAVE", "PRINT", "RETURN"].map(btn => (
+                                <button
+                                    key={btn}
+                                    onClick={() => {
+                                        if (btn === 'SAVE') handleSave();
+                                        if (btn === 'PRINT' && transactionToEdit) onPrintBill(transactionToEdit);
+                                        if (btn === 'HOLD') {
+                                            localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy }));
+                                            addNotification('Bill placed on hold.', 'success');
+                                        }
+                                        if (btn === 'RETURN' && onCancel) onCancel();
+                                    }}
+                                    className="px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap hover:bg-white hover:text-[#255d55] transition-colors"
+                                >
+                                    {btn}
+                                </button>
+                            ))
+                        )}
                         <div className="ml-auto text-right pr-2 flex items-center gap-6">
                             {!isNonGst && (
                                 <div className="flex gap-4 text-[10px] font-bold uppercase opacity-80 border-r border-white/20 pr-4">

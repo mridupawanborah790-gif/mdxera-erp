@@ -1131,6 +1131,9 @@ const App: React.FC = () => {
                 case 'salesHistory':
                     return <SalesHistory
                         transactions={transactions} inventory={inventory}
+                        customers={customers}
+                        configurations={configurations}
+                        onAddMedicineMaster={handleAddMedicineMaster}
                         onViewDetails={setViewTransaction}
                         onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
                         onCancelTransaction={handleCancelTransaction}
@@ -1138,6 +1141,9 @@ const App: React.FC = () => {
                         onEditSale={(tx) => { setEditingSale(tx); handleNavigate(tx.billType === 'non-gst' ? 'nonGstPos' : 'pos'); }}
                         onCreateReturn={(tx) => { setSalesReturnPrefillInvoiceId(tx.id); handleNavigate('salesReturns'); }}
                         salesReturns={salesReturns}
+                        purchases={purchases}
+                        medicines={medicines}
+                        onQuickAddCustomer={handleQuickAddCustomerFromPos}
                     />;
                 case 'manualSalesEntry':
                     return <ManualSalesEntry
@@ -1379,7 +1385,11 @@ const App: React.FC = () => {
                         purchaseReturns={purchaseReturns}
                         onRefresh={async () => loadData(currentUser!, 'background')}
                         onAddInventoryItem={handleAddInventoryItem}
-                        currentUser={currentUser} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        currentUser={currentUser} 
+                        onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onAddMedicineMaster={handleAddMedicineMaster}
+                        onPrintPurchase={setViewPurchase}
+                        configurations={configurations}
                     />;
                 case 'inventory':
                     return <Inventory
