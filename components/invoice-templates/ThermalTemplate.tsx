@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem } from '../../types';
 import { formatExpiryToMMYY } from '../../utils/helpers';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
@@ -98,7 +99,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   {item.expiry && <span>Exp {item.expiry}</span>}
                 </div>
               </td>
-              <td className="py-0.5 text-center">{item.quantity}</td>
+              <td className="py-0.5 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
               <td className="py-0.5 text-right">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || 0)).toFixed(2)}</td>
               <td className="py-0.5 text-right font-semibold">{item.finalPrice.toFixed(2)}</td>
             </tr>

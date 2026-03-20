@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
@@ -102,7 +103,7 @@ const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   <p className="font-bold">{item.name}</p>
                   <p className="text-[8pt] text-gray-400">Pack: {item.unit}</p>
                 </td>
-                <td className="p-2 text-center">{item.quantity}</td>
+                <td className="p-2 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
                 <td className="p-2 text-right">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)).toFixed(2)}</td>
                 <td className="p-2 text-right">{item.discountPercent || 0}</td>
                 <td className="p-2 text-right font-bold">{(item.amount || 0).toFixed(2)}</td>

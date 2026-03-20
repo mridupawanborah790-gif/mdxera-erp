@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import Modal from './Modal';
 import JournalEntryViewerModal from './JournalEntryViewerModal';
 import type { Transaction, BillItem, Customer, RegisteredPharmacy, SalesReturn } from '../types';
+import { formatPackLooseQuantity } from '../utils/quantity';
 
 interface TransactionDetailModalProps {
     isOpen: boolean;
@@ -203,8 +204,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                       <table className="min-w-full divide-y divide-gray-200 text-sm">
                           <thead className="bg-slate-50 sticky top-0"><tr>
                               <th className="py-4 px-6 text-left font-normal uppercase text-[10px] tracking-[0.2em] text-gray-400">Product Item Description</th>
-                              <th className="py-4 px-2 text-center font-normal uppercase text-[10px] tracking-[0.2em] text-gray-400 w-28">Pack Qty</th>
-                              <th className="py-4 px-2 text-center font-normal uppercase text-[10px] tracking-[0.2em] text-gray-400 w-24">Loose</th>
+                              <th className="py-4 px-2 text-center font-normal uppercase text-[10px] tracking-[0.2em] text-gray-400 w-40">Qty</th>
                               <th className="py-4 px-2 text-right font-normal uppercase text-[10px] tracking-[0.2em] text-gray-400 w-28">Line Rate</th>
                               <th className="py-4 px-2 text-center font-normal uppercase text-[10px] tracking-[0.2em] text-gray-400 w-20">Disc%</th>
                               <th className="py-4 px-6 text-right font-normal uppercase text-[10px] tracking-[0.2em] text-gray-900 w-40">Amount</th>
@@ -227,7 +227,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                                         </td>
                                         <td className="p-2 text-center">
                                             <div className="flex flex-col items-center">
-                                                <span className="text-base text-gray-900">{netQty}</span>
+                                                <span className="text-base text-gray-900">{formatPackLooseQuantity(netQty, item.looseQuantity || 0)}</span>
                                                 {returnedQty > 0 && (
                                                     <span className="text-[9px] font-black text-red-500 uppercase">
                                                         ({originalQty} - {returnedQty} Ret)
@@ -235,7 +235,6 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="p-2 text-center text-base text-gray-500">{item.looseQuantity || 0}</td>
                                         <td className="p-2 text-right text-gray-600 text-base">₹{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)).toFixed(2)}</td>
                                         <td className="p-2 text-center text-blue-600 text-sm">{(item.discountPercent || 0)}%</td>
                                         <td className="p-6 text-right text-lg text-gray-950">
@@ -251,7 +250,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                               })}
                               {items.length === 0 && (
                                   <tr>
-                                      <td colSpan={6} className="p-12 text-center text-gray-400 font-normal uppercase tracking-widest">No items found in this invoice</td>
+                                      <td colSpan={5} className="p-12 text-center text-gray-400 font-normal uppercase tracking-widest">No items found in this invoice</td>
                                   </tr>
                               )}
                           </tbody>
