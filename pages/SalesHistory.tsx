@@ -1,7 +1,8 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Card from '../components/Card';
-import type { Transaction, RegisteredPharmacy, InventoryItem, SalesReturn } from '../types';
+import Modal from '../components/Modal';
+import POS from '../components/POS';
+import type { Transaction, RegisteredPharmacy, InventoryItem, SalesReturn, Customer, Medicine, Purchase, AppConfigurations } from '../types';
 import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import ConfirmModal from '../components/ConfirmModal';
 import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
@@ -12,6 +13,7 @@ type SortableKeys = 'date' | 'total' | 'createdAt' | 'profit';
 interface SalesHistoryProps {
     transactions: Transaction[];
     inventory: InventoryItem[];
+    customers: Customer[];
     onViewDetails: (transaction: Transaction) => void;
     onPrintBill: (transaction: Transaction) => void;
     onCancelTransaction: (transactionId: string) => void;
@@ -23,6 +25,11 @@ interface SalesHistoryProps {
     onEditSale: (transaction: Transaction) => void;
     onCreateReturn: (transaction: Transaction) => void;
     salesReturns: SalesReturn[];
+    configurations: any;
+    onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
+    purchases: Purchase[];
+    medicines: Medicine[];
+    onQuickAddCustomer: any;
 }
 
 const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -33,7 +40,11 @@ const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 const ITEMS_PER_PAGE = 15;
 
-const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, onViewDetails, onPrintBill, onCancelTransaction, initialFilters, onFiltersChange, currentUser, onRefresh, onViewSale, onEditSale, onCreateReturn, salesReturns }) => {
+const SalesHistory: React.FC<SalesHistoryProps> = ({ 
+    transactions, inventory, customers, onViewDetails, onPrintBill, onCancelTransaction, initialFilters, 
+    onFiltersChange, currentUser, onRefresh, onViewSale, onEditSale, onCreateReturn, salesReturns, 
+    configurations, onAddMedicineMaster, purchases, medicines, onQuickAddCustomer
+}) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchInput, setSearchInput] = useState('');
     const [startDate, setStartDate] = useState('');
@@ -49,6 +60,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
     const [journalTransaction, setJournalTransaction] = useState<Transaction | null>(null);
     const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
     const [actionWarning, setActionWarning] = useState<string>('');
+    const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
 
     const filteredAndSortedTransactions = useMemo(() => {
         let filtered = (transactions || []).filter(Boolean);
@@ -121,8 +133,8 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
     const handleViewSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
         if (!tx) return;
-        onViewSale(tx);
-    }, [onViewSale, requireSelectedTransaction]);
+        setViewingTransaction(tx);
+    }, [requireSelectedTransaction]);
 
     const handleEditSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
@@ -524,6 +536,34 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ transactions, inventory, on
                 currentUser={currentUser}
                 isPosted={(journalTransaction?.status || '') === 'completed'}
             />
+
+            {viewingTransaction && (
+                <Modal 
+                    isOpen={!!viewingTransaction} 
+                    onClose={() => setViewingTransaction(null)} 
+                    title={`View Sales Invoice: ${viewingTransaction.id}`}
+                >
+                    <div className="h-[90vh] overflow-hidden flex flex-col">
+                        <POS
+                            inventory={inventory}
+                            purchases={purchases}
+                            medicines={medicines}
+                            customers={customers}
+                            onSaveOrUpdateTransaction={() => Promise.resolve()}
+                            onPrintBill={onPrintBill}
+                            currentUser={currentUser}
+                            config={{}}
+                            configurations={configurations}
+                            transactionToEdit={viewingTransaction}
+                            isReadOnly={true}
+                            onCancel={() => setViewingTransaction(null)}
+                            onAddMedicineMaster={onAddMedicineMaster}
+                            onQuickAddCustomer={onQuickAddCustomer}
+                            addNotification={() => {}}
+                        />
+                    </div>
+                </Modal>
+            )}
         </main>
     );
 };

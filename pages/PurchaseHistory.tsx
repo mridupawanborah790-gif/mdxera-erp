@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Card from '../components/Card';
+import Modal from '../components/Modal';
+import PurchaseForm from '../components/PurchaseForm';
 import type {
     Purchase,
     Distributor,
@@ -8,7 +10,11 @@ import type {
     Medicine,
     DistributorProductMap,
     PurchaseReturn,
+    Supplier,
+    SupplierProductMap,
+    AppConfigurations,
 } from '../types';
+import type { SupplierQuickResult } from '../services/supplierService';
 import { downloadCsv, arrayToCsvRow } from '../utils/csv';
 import ConfirmModal from '../components/ConfirmModal';
 import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
@@ -31,6 +37,9 @@ interface PurchaseHistoryProps {
     onSaveMapping: (map: DistributorProductMap) => Promise<void>;
     purchaseReturns?: PurchaseReturn[];
     onRefresh?: () => Promise<void>;
+    onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
+    onPrintPurchase?: (purchase: Purchase) => void;
+    configurations: AppConfigurations;
 }
 
 const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -51,6 +60,13 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     onCreateReturn,
     purchaseReturns,
     onRefresh,
+    inventory,
+    medicines,
+    onAddMedicineMaster,
+    onPrintPurchase,
+    configurations,
+    onSaveMapping,
+    onUpdatePurchase,
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchInput, setSearchInput] = useState('');
@@ -66,6 +82,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
     const [actionWarning, setActionWarning] = useState('');
     const [isSyncing, setIsSyncing] = useState(false);
+    const [viewingPurchase, setViewingPurchase] = useState<Purchase | null>(null);
 
     const filteredAndSortedPurchases = useMemo(() => {
         let filtered = (purchases || []).filter(Boolean);
@@ -132,8 +149,8 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const handleViewSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
-        onViewDetails(purchase);
-    }, [onViewDetails, requireSelectedPurchase]);
+        setViewingPurchase(purchase);
+    }, [requireSelectedPurchase]);
 
     const handleEditSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
@@ -543,6 +560,43 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                 currentUser={currentUser}
                 isPosted={(journalPurchase?.status || '') === 'completed'}
             />
+
+            {viewingPurchase && (
+                <Modal 
+                    isOpen={!!viewingPurchase} 
+                    onClose={() => setViewingPurchase(null)} 
+                    title={`View Purchase: ${viewingPurchase.purchaseSerialId}`}
+                >
+                    <div className="h-[90vh] overflow-hidden flex flex-col">
+                        <PurchaseForm
+                            onAddPurchase={() => Promise.resolve()}
+                            onUpdatePurchase={onUpdatePurchase}
+                            inventory={inventory}
+                            suppliers={distributors}
+                            medicines={medicines}
+                            mappings={[]}
+                            purchases={purchases}
+                            purchaseToEdit={viewingPurchase}
+                            draftItems={null}
+                            onClearDraft={() => {}}
+                            currentUser={currentUser}
+                            onAddMedicineMaster={onAddMedicineMaster}
+                            onAddsupplier={async () => ({} as any)}
+                            onSaveMapping={async (map) => onSaveMapping(map as SupplierProductMap)}
+                            setIsDirty={() => {}}
+                            addNotification={() => {}}
+                            title="View Purchase"
+                            configurations={configurations}
+                            isReadOnly={true}
+                            mobileSyncSessionId={null}
+                            setMobileSyncSessionId={() => {}}
+                            onCancel={() => setViewingPurchase(null)}
+                            onPrint={onPrintPurchase}
+                            organizationId={currentUser?.organization_id || ''}
+                        />
+                    </div>
+                </Modal>
+            )}
         </main>
     );
 };

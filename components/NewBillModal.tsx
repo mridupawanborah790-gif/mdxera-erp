@@ -21,6 +21,11 @@ interface NewBillModalProps {
     // New props for initial values
     initialReferredBy?: string;
     initialPaymentMode?: string;
+    isReadOnly?: boolean;
+    initialCustomer?: Customer | null;
+    initialInvoiceId?: string;
+    initialDate?: string;
+    initialPricingMode?: 'mrp' | 'rate';
 }
 
 interface UploadedFile {
@@ -30,29 +35,34 @@ interface UploadedFile {
     name: string;
 }
 
-export const NewBillModal: React.FC<NewBillModalProps> = ({ isOpen, onClose, inventory, customers, onSaveOrUpdateTransaction, onPrintBill, currentUser, configurations, onAddMedicineMaster, initialItem, initialReferredBy, initialPaymentMode }) => {
+export const NewBillModal: React.FC<NewBillModalProps> = ({ 
+    isOpen, onClose, inventory, customers, onSaveOrUpdateTransaction, onPrintBill, currentUser, configurations, onAddMedicineMaster, 
+    initialItem, initialReferredBy, initialPaymentMode, isReadOnly = false, initialCustomer, initialInvoiceId, initialDate, initialPricingMode 
+}) => {
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+    const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(initialCustomer || null);
     const [customerSearch, setCustomerSearch] = useState('');
     const [selectedCustomerIndex, setSelectedCustomerIndex] = useState(0);
     const [customerPhone, setCustomerPhone] = useState('');
     const [referredBy, setReferredBy] = useState(initialReferredBy || ''); 
     const [paymentMode, setPaymentMode] = useState(initialPaymentMode || 'Cash'); 
-    const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
+    const [invoiceDate, setInvoiceDate] = useState(initialDate || new Date().toISOString().split('T')[0]);
     const [cartItems, setCartItems] = useState<BillItem[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
     const [prescriptions, setPrescriptions] = useState<UploadedFile[]>([]);
-    const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(configurations?.displayOptions?.pricingMode || 'mrp');
+    const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(initialPricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
 
     useEffect(() => {
         if (currentUser?.organization_type === 'Distributor') {
             setLocalPricingMode('rate');
+        } else if (initialPricingMode) {
+            setLocalPricingMode(initialPricingMode);
         } else if (configurations?.displayOptions?.pricingMode) {
             setLocalPricingMode(configurations.displayOptions.pricingMode);
         }
-    }, [currentUser?.organization_type, configurations?.displayOptions?.pricingMode]);
+    }, [currentUser?.organization_type, configurations?.displayOptions?.pricingMode, initialPricingMode]);
 
     const [isAddMedicineMasterModalOpen, setIsAddMedicineMasterModalOpen] = useState(false);
     const [newProductInitialName, setNewProductInitialName] = useState('');
@@ -69,7 +79,7 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({ isOpen, onClose, inv
         if (isOpen) {
             setSearchTerm('');
             setCustomerSearch('');
-            setSelectedCustomer(null);
+            setSelectedCustomer(initialCustomer || null);
             setSelectedCustomerIndex(0);
             setCartItems([]);
             setPrescriptions([]); 
@@ -78,11 +88,16 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({ isOpen, onClose, inv
             setPendingBatchSelection(null);
             setReferredBy(initialReferredBy || ''); 
             setPaymentMode(initialPaymentMode || 'Cash'); 
-            setTimeout(() => searchInputRef.current?.focus(), 150);
+            setInvoiceDate(initialDate || new Date().toISOString().split('T')[0]);
+            setLocalPricingMode(initialPricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
+            
+            if (!isReadOnly) {
+                setTimeout(() => searchInputRef.current?.focus(), 150);
+            }
 
             if (initialItem && initialItem.length > 0) {
                 setCartItems(initialItem.filter(Boolean)); 
-            } else {
+            } else if (!isReadOnly) {
                 const savedState = localStorage.getItem('pos_draft_regular'); 
                 if (savedState) {
                     try {
@@ -103,7 +118,7 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({ isOpen, onClose, inv
                 }
             }
         }
-    }, [isOpen, initialItem, initialReferredBy, initialPaymentMode]);
+    }, [isOpen, initialItem, initialReferredBy, initialPaymentMode, initialCustomer, initialDate, initialPricingMode, isReadOnly, configurations?.displayOptions?.pricingMode]);
 
     const cartUnitsByBatchId = useMemo(() => {
         const mapping: Record<string, number> = {};
@@ -442,16 +457,28 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({ isOpen, onClose, inv
                                         <td className="p-2 font-bold uppercase truncate max-w-[200px]">{item.name}</td>
                                         <td className="p-2 text-center font-mono text-xs">{item.batch}</td>
                                         <td className="p-2 text-center">
-                                            <input type="number" value={item.quantity} onChange={e => handleUpdateCartItem(item.id, 'quantity', e.target.value)} className="w-12 text-center border p-1 rounded font-bold" />
+                                            <input 
+                                                type="number" 
+                                                value={item.quantity} 
+                                                onChange={e => handleUpdateCartItem(item.id, 'quantity', e.target.value)} 
+                                                className="w-12 text-center border p-1 rounded font-bold disabled:bg-gray-100" 
+                                                disabled={isReadOnly}
+                                            />
                                         </td>
                                         <td className="p-2 text-right">₹{displayRate.toFixed(2)}</td>
                                         <td className="p-2 text-right">
-                                            <input type="number" value={item.discountPercent} onChange={e => handleUpdateCartItem(item.id, 'discountPercent', e.target.value)} className="w-12 text-right border p-1 rounded" />
+                                            <input 
+                                                type="number" 
+                                                value={item.discountPercent} 
+                                                onChange={e => handleUpdateCartItem(item.id, 'discountPercent', e.target.value)} 
+                                                className="w-12 text-right border p-1 rounded disabled:bg-gray-100" 
+                                                disabled={isReadOnly}
+                                            />
                                         </td>
                                         <td className="p-2 text-right">{item.gstPercent}%</td>
                                         <td className="p-2 text-right font-bold">₹{lineAfterDisc.toFixed(2)}</td>
                                         <td className="p-2">
-                                            <button onClick={() => handleRemoveItem(item.id)} className="text-red-400 hover:text-red-600">✕</button>
+                                            {!isReadOnly && <button onClick={() => handleRemoveItem(item.id)} className="text-red-400 hover:text-red-600">✕</button>}
                                         </td>
                                     </tr>
                                 );
@@ -482,36 +509,70 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({ isOpen, onClose, inv
                             <span>Total</span>
                             <span>₹{totals.roundedNet.toFixed(2)}</span>
                         </div>
-                        <button
-                            onClick={async () => {
-                                if (!currentUser) throw new Error('User context missing for voucher generation.');
-                                const reservation = await storage.reserveVoucherNumber('sales-gst', currentUser);
-                                const generatedId = reservation.documentNumber;
-                                const tx: Transaction = {
-                                    id: generatedId,
-                                    organization_id: currentUser?.organization_id || '',
-                                    date: new Date(invoiceDate).toISOString(),
-                                    customerName: selectedCustomer?.name || 'Walking Customer',
-                                    customerId: selectedCustomer?.id || null,
-                                    items: cartItems,
-                                    total: totals.roundedNet,
-                                    subtotal: totals.gross,
-                                    totalItemDiscount: totals.tradeDiscount,
-                                    totalGst: totals.tax,
-                                    schemeDiscount: 0,
-                                    roundOff: totals.roundOff,
-                                    status: 'completed',
-                                    itemCount: cartItems.length,
-                                    paymentMode: 'Cash'
-                                };
-                                await onSaveOrUpdateTransaction(tx, false);
-                                onClose();
-                            }}
-                            disabled={isSaving || cartItems.length === 0}
-                            className="w-full py-3 bg-primary text-white font-black uppercase rounded shadow-lg hover:bg-primary-dark transition-all"
-                        >
-                            Accept Bill (F2)
-                        </button>
+                        {isReadOnly ? (
+                            <button
+                                onClick={() => {
+                                    if (onPrintBill && initialInvoiceId) {
+                                        // Create a transaction-like object for printing
+                                        const tx: Transaction = {
+                                            id: initialInvoiceId,
+                                            organization_id: currentUser?.organization_id || '',
+                                            date: invoiceDate,
+                                            customerName: selectedCustomer?.name || 'Walking Customer',
+                                            customerId: selectedCustomer?.id || null,
+                                            items: cartItems,
+                                            total: totals.roundedNet,
+                                            subtotal: totals.gross,
+                                            totalItemDiscount: totals.tradeDiscount,
+                                            totalGst: totals.tax,
+                                            schemeDiscount: 0,
+                                            roundOff: totals.roundOff,
+                                            status: 'completed',
+                                            itemCount: cartItems.length,
+                                            paymentMode: paymentMode,
+                                            pricingMode: localPricingMode
+                                        };
+                                        onPrintBill(tx);
+                                    }
+                                }}
+                                className="w-full py-3 bg-primary text-white font-black uppercase rounded shadow-lg hover:bg-primary-dark transition-all flex items-center justify-center gap-2"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                                Print Invoice (F8)
+                            </button>
+                        ) : (
+                            <button
+                                onClick={async () => {
+                                    if (!currentUser) throw new Error('User context missing for voucher generation.');
+                                    const reservation = await storage.reserveVoucherNumber('sales-gst', currentUser);
+                                    const generatedId = reservation.documentNumber;
+                                    const tx: Transaction = {
+                                        id: generatedId,
+                                        organization_id: currentUser?.organization_id || '',
+                                        date: new Date(invoiceDate).toISOString(),
+                                        customerName: selectedCustomer?.name || 'Walking Customer',
+                                        customerId: selectedCustomer?.id || null,
+                                        items: cartItems,
+                                        total: totals.roundedNet,
+                                        subtotal: totals.gross,
+                                        totalItemDiscount: totals.tradeDiscount,
+                                        totalGst: totals.tax,
+                                        schemeDiscount: 0,
+                                        roundOff: totals.roundOff,
+                                        status: 'completed',
+                                        itemCount: cartItems.length,
+                                        paymentMode: 'Cash',
+                                        pricingMode: localPricingMode
+                                    };
+                                    await onSaveOrUpdateTransaction(tx, false);
+                                    onClose();
+                                }}
+                                disabled={isSaving || cartItems.length === 0}
+                                className="w-full py-3 bg-primary text-white font-black uppercase rounded shadow-lg hover:bg-primary-dark transition-all"
+                            >
+                                Accept Bill (F2)
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

@@ -1797,7 +1797,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                 type="date"
                                 value={date}
                                 onChange={(e) => setDate(e.target.value)}
-                                className="w-full border border-gray-400 p-2 text-sm font-bold outline-none"
+                                className="w-full border border-gray-400 p-2 text-sm font-bold outline-none disabled:bg-gray-50"
+                                disabled={isReadOnly}
                             />
                         </div>
                     )}
@@ -1809,8 +1810,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                 type="text"
                                 value={invoiceNumber}
                                 onChange={(e) => { setInvoiceNumber(e.target.value); setInvoiceNumberError(null); }}
-                                className={`w-full border p-2 text-sm font-bold uppercase outline-none ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
+                                className={`w-full border p-2 text-sm font-bold uppercase outline-none disabled:bg-gray-50 ${invoiceNumberError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                                 placeholder="Supplier Inv #..."
+                                disabled={isReadOnly}
                             />
                         </div>
                     )}
@@ -1824,8 +1826,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                 autoComplete="off"
                                 onChange={e => { setSupplier(e.target.value); setSupplierNameError(null); setIsSupplierDropdownOpen(true); }}
                                 onKeyDown={handleSupplierKeyDown}
-                                className={`w-full border p-2 text-sm font-bold uppercase outline-none ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
+                                className={`w-full border p-2 text-sm font-bold uppercase outline-none disabled:bg-gray-50 ${supplierNameError ? 'border-red-500' : 'border-gray-400 focus:border-primary'}`}
                                 placeholder="Enter for selection, Esc to skip..."
+                                disabled={isReadOnly}
                             />
                             {isSupplierDropdownOpen && supplier.length > 0 && (
                                 <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
@@ -2179,47 +2182,45 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
                     <div className="col-span-12 bg-[#255d55] px-2 py-1.5 text-white flex items-center gap-1 overflow-x-auto">
                         <div className="flex gap-1">
-                            {['SALE', 'PURC', 'SC', 'PC', 'COPY BILL', 'PASTE', 'SR', 'PR', 'CASH', 'HOLD', 'SAVE', 'PRINT', 'RETURN'].map(btn => (
+                            {isReadOnly ? (
                                 <button
-                                    key={btn}
-                                    onClick={async () => {
-                                        if (btn === 'SAVE') {
-                                            console.log('PurchaseForm: Save clicked');
-                                            const saved = await handleSubmit();
-                                            if (saved && onCancel) {
-                                                // After a successful save of a NEW entry, we usually go back
-                                                // If it's editing, we might want to stay or go back depending on UX
-                                                // For now, let's just stay on the page unless it's a new one.
-                                                if (!purchaseToEdit) onCancel();
-                                            }
-                                        }
-                                        if (btn === 'PRINT') {
-                                            console.log('PurchaseForm: Print clicked');
-                                            
-                                            // 1. Perform local validations first
-                                            const activeItems = items.filter(p => (p.name || '').trim() !== '');
-                                            if (!supplier.trim() || !invoiceNumber.trim() || activeItems.length === 0) {
-                                                addNotification("Please complete required fields (Supplier, Invoice #, Items) before printing.", "warning");
-                                                return;
-                                            }
-
-                                            // 2. Attempt save and print
-                                            const saved = await handleSubmit();
-                                            if (saved) {
-                                                if (onPrint) onPrint(saved);
-                                            } else {
-                                                // handleSubmit already shows detailed error notifications for save failures
-                                                console.warn('PurchaseForm: Save failed during print attempt');
-                                            }
-                                        }
-                                        if (btn === 'RETURN') handleDiscard();
-                                    }}
-                                    className={`px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap hover:bg-white hover:text-[#255d55] transition-colors ${btn === 'PURC' ? 'bg-white text-[#255d55]' : ''}`}
+                                    onClick={handleDiscard}
+                                    className="px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap hover:bg-white hover:text-[#255d55] transition-colors"
                                 >
-                                    {btn}
+                                    CLOSE (Esc)
                                 </button>
-                            ))}
-
+                            ) : (
+                                ['SALE', 'PURC', 'SC', 'PC', 'COPY BILL', 'PASTE', 'SR', 'PR', 'CASH', 'HOLD', 'SAVE', 'PRINT', 'RETURN'].map(btn => (
+                                    <button
+                                        key={btn}
+                                        onClick={async () => {
+                                            if (btn === 'SAVE') {
+                                                console.log('PurchaseForm: Save clicked');
+                                                const saved = await handleSubmit();
+                                                if (saved && onCancel) {
+                                                    if (!purchaseToEdit) onCancel();
+                                                }
+                                            }
+                                            if (btn === 'PRINT') {
+                                                console.log('PurchaseForm: Print clicked');
+                                                const activeItems = items.filter(p => (p.name || '').trim() !== '');
+                                                if (!supplier.trim() || !invoiceNumber.trim() || activeItems.length === 0) {
+                                                    addNotification("Please complete required fields (Supplier, Invoice #, Items) before printing.", "warning");
+                                                    return;
+                                                }
+                                                const saved = await handleSubmit();
+                                                if (saved) {
+                                                    if (onPrint) onPrint(saved);
+                                                }
+                                            }
+                                            if (btn === 'RETURN') handleDiscard();
+                                        }}
+                                        className={`px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap hover:bg-white hover:text-[#255d55] transition-colors ${btn === 'PURC' ? 'bg-white text-[#255d55]' : ''}`}
+                                    >
+                                        {btn}
+                                    </button>
+                                ))
+                            )}
                         </div>
                         
                         <div className="ml-auto flex items-center gap-6 pr-2">
