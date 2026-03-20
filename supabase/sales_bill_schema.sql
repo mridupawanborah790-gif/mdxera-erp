@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS public.sales_bill (
     -- Document Status & Attributes
     status text NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'cancelled', 'draft')),
     payment_mode text DEFAULT 'Cash', -- Cash, Credit, UPI, Card, etc.
+    pricing_mode text DEFAULT 'mrp', -- mrp or rate
     bill_type text DEFAULT 'regular', -- regular (GST) or non-gst (Estimate)
     prescription_url text, -- Link to primary prescription image
     prescription_images text[], -- Array of additional prescription images (base64 or storage URLs)

@@ -1,10 +1,11 @@
 import React, { useMemo } from 'react';
-import type { DetailedBill, InventoryItem } from '../../types';
+import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
+import { calculateBillingTotals } from '../../utils/billing';
 
 interface TemplateProps {
-  bill: DetailedBill & { inventory?: InventoryItem[] };
+  bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
 }
 
 const ITEMS_PER_PAGE = 10;
@@ -12,20 +13,35 @@ const ITEMS_PER_PAGE = 10;
 const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
 
+  const computedBillTotals = useMemo(() => calculateBillingTotals({
+    items: bill.items || [],
+    billDiscount: bill.schemeDiscount || 0,
+    isNonGst,
+    configurations: bill.configurations,
+    organizationType: bill.pharmacy?.organization_type,
+    pricingMode: bill.pricingMode
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+
   const calculations = useMemo(() => {
     let subTotalTaxable = 0;
+
+    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
 
     const items = (bill.items || []).map((item, idx) => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
       
-      const rate = item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
+      const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
       const lineAmount = billedQty * rate;
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
-      const taxableVal = lineAmount / (1 + (effectiveGst / 100));
-      const gstAmt = lineAmount - taxableVal;
+      const isInclusive = effectivePricingMode === 'mrp';
+
+      const taxableVal = isInclusive && effectiveGst > 0
+        ? lineAmount / (1 + (effectiveGst / 100))
+        : lineAmount;
+      const gstAmt = isInclusive ? (lineAmount - taxableVal) : (taxableVal * (effectiveGst / 100));
       
       subTotalTaxable += taxableVal;
 
@@ -38,6 +54,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
         taxableVal,
         gstAmt,
         lineTotal: lineAmount,
+        billedRate: rate,
         displayName: (() => {
           const packLabel = item.packType?.trim() || inventoryItem?.packType?.trim() || '';
           return packLabel ? `${item.name} (${packLabel})` : item.name;
@@ -61,14 +78,14 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-        const totalTax = isNonGst ? 0 : (bill.totalGst || Object.values(gstSummary).reduce((sum, slab) => sum + slab.cgst + slab.sgst + slab.igst, 0));
-    const subTotal = bill.subtotal || (subTotalTaxable + totalTax);
+    const totalTax = isNonGst ? 0 : computedBillTotals.tax;
+    const subTotal = computedBillTotals.taxableValue + totalTax;
     const billDiscount = bill.schemeDiscount || 0;
-    const roundOff = bill.roundOff || 0;
-    const grandTotal = bill.total || (subTotal - billDiscount + totalTax + roundOff);
+    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
+    const grandTotal = bill.total || computedBillTotals.baseTotal;
 
-    return { items, itemChunks, subTotalTaxable, gstSummary, subTotal, totalTax, billDiscount, roundOff, grandTotal };
-  }, [bill, isNonGst]);
+    return { items, itemChunks, subTotalTaxable: computedBillTotals.taxableValue, gstSummary, subTotal, totalTax, billDiscount, roundOff, grandTotal };
+  }, [bill, isNonGst, computedBillTotals]);
 
   const totalQty = (bill.items || []).reduce((acc, i) => acc + i.quantity, 0);
 
@@ -167,7 +184,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
                       <td className="text-center">{item.hsn}</td>
                       <td className="text-center">{item.gstRate}%</td>
                       <td className="text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
-                      <td className="text-center">{(item.rate ?? 0).toFixed(2)}</td>
+                      <td className="text-center">{(item.billedRate ?? 0).toFixed(2)}</td>
                       <td className="text-center">{item.unitLabel}</td>
                       <td className="text-right font-bold">{item.lineTotal.toFixed(2)}</td>
                   </tr>

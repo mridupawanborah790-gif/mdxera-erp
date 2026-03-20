@@ -1,0 +1,1 @@
+2 database changes are not imported in supabase, master_schema.sql, sales_bill_schema.sql

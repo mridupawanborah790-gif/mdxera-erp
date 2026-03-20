@@ -27,31 +27,39 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     billDiscount: bill.schemeDiscount || 0,
     isNonGst,
     configurations: bill.configurations,
-  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst]);
+    organizationType: bill.pharmacy?.organization_type,
+    pricingMode: bill.pricingMode
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
     let totalSgst = 0;
     let totalCgst = 0;
 
+    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+
     const items = (bill.items || []).map(item => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
 
-      const rate = item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
+      const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-      const lineGross = billedQty * rate;
-      const tradeDiscount = lineGross * ((item.discountPercent || 0) / 100);
+      const itemGross = billedQty * rate;
+      const tradeDiscount = itemGross * ((item.discountPercent || 0) / 100);
+      const lineManualFlat = item.itemFlatDiscount || 0;
       const schemeDiscount = item.schemeDiscountAmount || 0;
+      
       const lineAmount = Number.isFinite(item.finalAmount)
         ? (item.finalAmount as number)
-        : Number.isFinite(item.amount)
-          ? (item.amount as number)
-          : (lineGross - tradeDiscount - schemeDiscount);
+        : (itemGross - tradeDiscount - schemeDiscount - lineManualFlat);
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
-      const taxableVal = lineAmount / (1 + (effectiveGst / 100));
-      const gstAmt = lineAmount - taxableVal;
+      const isInclusive = effectivePricingMode === 'mrp';
+
+      const taxableVal = isInclusive && effectiveGst > 0
+        ? lineAmount / (1 + (effectiveGst / 100))
+        : lineAmount;
+      const gstAmt = isInclusive ? (lineAmount - taxableVal) : (taxableVal * (effectiveGst / 100));
       
       subtotalValue += lineAmount;
       totalSgst += gstAmt / 2;
@@ -65,7 +73,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : ''),
         billedQty,
         billedRate: rate,
-        displayAmount: billedQty * rate,
+        displayAmount: lineAmount,
         displayQty: `${formatPackLooseQuantity(item.quantity, item.looseQuantity)}${(item.freeQuantity || 0) > 0 ? `+${item.freeQuantity}` : ''}`,
         taxableVal,
         gstAmt,

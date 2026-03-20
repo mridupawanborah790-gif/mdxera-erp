@@ -1,29 +1,53 @@
 import React, { useMemo } from 'react';
-import type { DetailedBill, InventoryItem } from '../../types';
+import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
+import { calculateBillingTotals } from '../../utils/billing';
 
 interface TemplateProps {
-  bill: DetailedBill & { inventory?: InventoryItem[] };
+  bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
 }
 
 const PharmaWorldTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
 
+  const computedBillTotals = useMemo(() => calculateBillingTotals({
+    items: bill.items || [],
+    billDiscount: bill.schemeDiscount || 0,
+    isNonGst,
+    configurations: bill.configurations,
+    organizationType: bill.pharmacy?.organization_type,
+    pricingMode: bill.pricingMode
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+
   const calculations = useMemo(() => {
+    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+
     const items = (bill.items || []).map(item => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
-      const totalMrp = (item.mrp || 0) * (item.quantity || 0);
 
-      const tradeDiscountAmount = totalMrp * ((item.discountPercent || 0) / 100);
-      const priceAfterDiscount = totalMrp - tradeDiscountAmount;
+      const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
+      const unitsPerPack = item.unitsPerPack || 1;
+      const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
+      const itemGross = billedQty * rate;
+      const tradeDiscount = itemGross * ((item.discountPercent || 0) / 100);
+      const lineManualFlat = item.itemFlatDiscount || 0;
+      const schemeDiscount = item.schemeDiscountAmount || 0;
       
-      const taxableValue = priceAfterDiscount / (1 + ((item.gstPercent || 0) / 100));
-      const gstAmount = priceAfterDiscount - taxableValue;
+      const lineAmount = Number.isFinite(item.finalAmount)
+        ? (item.finalAmount as number)
+        : (itemGross - tradeDiscount - schemeDiscount - lineManualFlat);
+      
+      const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
+      const isInclusive = effectivePricingMode === 'mrp';
+
+      const taxableValue = isInclusive && effectiveGst > 0
+        ? lineAmount / (1 + (effectiveGst / 100))
+        : lineAmount;
+      const gstAmount = isInclusive ? (lineAmount - taxableValue) : (taxableValue * (effectiveGst / 100));
       const cgst = gstAmount / 2;
       const sgst = gstAmount / 2;
-      const rate = (item.quantity || 0) > 0 ? taxableValue / item.quantity : 0;
 
       return {
         ...item,
@@ -33,16 +57,16 @@ const PharmaWorldTemplate: React.FC<TemplateProps> = ({ bill }) => {
         taxableValue,
         cgst,
         sgst,
-        rate,
-        finalAmount: taxableValue + gstAmount,
-        totalDiscountAmount: tradeDiscountAmount
+        billedRate: rate,
+        finalAmount: lineAmount,
+        totalDiscountAmount: tradeDiscount + schemeDiscount + lineManualFlat
       };
     });
 
-    const subTotal = (items || []).reduce((sum, item) => sum + item.taxableValue, 0);
-    const totalCgst = (items || []).reduce((sum, item) => sum + item.cgst, 0);
-    const totalSgst = (items || []).reduce((sum, item) => sum + item.sgst, 0);
-    const totalDiscount = (items || []).reduce((sum, item) => sum + item.totalDiscountAmount, 0);
+    const subTotal = computedBillTotals.taxableValue;
+    const totalCgst = (isNonGst ? 0 : computedBillTotals.tax) / 2;
+    const totalSgst = (isNonGst ? 0 : computedBillTotals.tax) / 2;
+    const totalDiscount = computedBillTotals.tradeDiscount + computedBillTotals.schemeTotal + computedBillTotals.lineFlatDiscount;
 
     const gstSummary: { [rate: number]: { taxable: number; sgst: number; cgst: number } } = {};
     (items || []).forEach(item => {
@@ -56,7 +80,7 @@ const PharmaWorldTemplate: React.FC<TemplateProps> = ({ bill }) => {
     });
 
     return { items, subTotal, totalCgst, totalSgst, totalDiscount, gstSummary };
-  }, [bill]);
+  }, [bill, isNonGst, computedBillTotals]);
 
   return (
     <div className="bg-white text-[9px] text-gray-800 font-sans p-8 w-full mx-auto font-mono min-h-full">
@@ -127,7 +151,7 @@ const PharmaWorldTemplate: React.FC<TemplateProps> = ({ bill }) => {
               <td className="p-0.5">{item.batch}</td>
               <td className="p-0.5 text-center">{item.expiry}</td>
               <td className="p-0.5 text-right">{(item.mrp || 0).toFixed(2)}</td>
-              <td className="p-0.5 text-right">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || 0)).toFixed(2)}</td>
+              <td className="p-0.5 text-right">{(item.billedRate || 0).toFixed(2)}</td>
               <td className="p-0.5 text-right">{(item.discountPercent || 0).toFixed(2)}</td>
               <td className="p-0.5 text-right">{!isNonGst ? ((item.gstPercent || 0) / 2).toFixed(2) : '-'}</td>
               <td className="p-0.5 text-right">{!isNonGst ? ((item.gstPercent || 0) / 2).toFixed(2) : '-'}</td>

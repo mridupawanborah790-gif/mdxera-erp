@@ -1,15 +1,25 @@
 import React, { useMemo } from 'react';
-import type { DetailedBill, InventoryItem } from '../../types';
+import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatExpiryToMMYY } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
+import { calculateBillingTotals } from '../../utils/billing';
 
 interface TemplateProps {
-  bill: DetailedBill & { inventory?: InventoryItem[] };
+  bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
 }
 
 const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
+
+  const computedBillTotals = useMemo(() => calculateBillingTotals({
+    items: bill.items || [],
+    billDiscount: bill.schemeDiscount || 0,
+    isNonGst,
+    configurations: bill.configurations,
+    organizationType: bill.pharmacy?.organization_type,
+    pricingMode: bill.pricingMode
+  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const billDetails = useMemo(() => {
     let subtotal = 0;
@@ -17,17 +27,25 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
     let totalQty = 0;
     let totalDiscountValue = 0;
 
+    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+
     const items = (bill.items || []).map((item) => {
-      const rate = item.taxBasis === 'I-Incl.MRP' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
-      const grossAmount = rate * (item.quantity || 0);
+      const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
+      const unitsPerPack = item.unitsPerPack || 1;
+      const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
+      const grossAmount = rate * billedQty;
       const tradeDiscountAmount = grossAmount * ((item.discountPercent || 0) / 100);
       const schemeDiscountAmount = item.schemeDiscountAmount || 0;
       const itemTotalDiscount = tradeDiscountAmount + schemeDiscountAmount;
       const finalPrice = grossAmount - itemTotalDiscount;
+      
       const effectiveGstPercent = isNonGst ? 0 : (item.gstPercent || 0);
+      const isInclusive = effectivePricingMode === 'mrp';
 
-      const taxableValue = finalPrice / (1 + (effectiveGstPercent / 100));
-      const gstAmount = finalPrice - taxableValue;
+      const taxableValue = isInclusive && effectiveGstPercent > 0
+        ? finalPrice / (1 + (effectiveGstPercent / 100))
+        : finalPrice;
+      const gstAmount = isInclusive ? (finalPrice - taxableValue) : (taxableValue * (effectiveGstPercent / 100));
 
       subtotal += finalPrice;
       totalGst += gstAmount;
@@ -47,6 +65,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
         itemTotalDiscount,
         batch,
         expiry,
+        billedRate: rate
       };
     });
 
@@ -58,8 +77,8 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
       gstBreakdown[rate].tax += item.gstAmount;
     });
 
-    return { items, subtotal, totalGst, gstBreakdown, totalQty, totalDiscountValue };
-  }, [bill.items, isNonGst, bill.inventory]);
+    return { items, subtotal: computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax), totalGst: (isNonGst ? 0 : computedBillTotals.tax), gstBreakdown, totalQty, totalDiscountValue };
+  }, [bill, isNonGst, computedBillTotals]);
 
   return (
     <div className="w-[76mm] max-w-[76mm] text-black font-mono text-[10px] leading-tight px-1 py-1">
@@ -100,7 +119,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 </div>
               </td>
               <td className="py-0.5 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
-              <td className="py-0.5 text-right">{(item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || 0)).toFixed(2)}</td>
+              <td className="py-0.5 text-right">{(item.billedRate || 0).toFixed(2)}</td>
               <td className="py-0.5 text-right font-semibold">{item.finalPrice.toFixed(2)}</td>
             </tr>
           ))}
