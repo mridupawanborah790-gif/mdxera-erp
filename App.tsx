@@ -901,6 +901,46 @@ const App: React.FC = () => {
         }
     };
 
+    const handleQuickAddCustomerFromPos = async (data: {
+        name: string;
+        phone?: string;
+        address?: string;
+        gstNumber?: string;
+        customerGroup?: string;
+    }): Promise<{ customer: Customer; isDuplicate: boolean }> => {
+        if (!currentUser) throw new Error('Unauthorized');
+
+        const trimmedName = (data.name || '').trim();
+        if (!trimmedName) throw new Error('Customer Name is required.');
+
+        const existingCustomer = customers.find(c => (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase());
+        if (existingCustomer) {
+            return { customer: existingCustomer, isDuplicate: true };
+        }
+
+        const customerGroup = (data.customerGroup || 'Walk-in / Retail').trim();
+        const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'customer', customerGroup, '120000');
+        if (!mappedControlGlId) throw new Error('Customer Control GL not found for selected Customer Group in active Set of Books.');
+
+        const customerPayload: Omit<Customer, 'id' | 'ledger' | 'organization_id'> = {
+            name: trimmedName,
+            phone: data.phone?.trim() || '',
+            address: data.address?.trim() || '',
+            gstNumber: data.gstNumber?.trim() || '',
+            customerGroup,
+            controlGlId: mappedControlGlId,
+            is_active: true,
+            customerType: 'retail',
+            defaultRateTier: 'none',
+            defaultDiscount: 0,
+        };
+
+        const createdCustomer = await storage.saveData('customers', customerPayload, currentUser);
+        setCustomers(prev => [createdCustomer, ...prev]);
+        loadData(currentUser, 'background');
+        return { customer: createdCustomer, isDuplicate: false };
+    };
+
 
 
     const handleUpdateSupplier = async (supplier: Supplier) => {
@@ -1080,6 +1120,7 @@ const App: React.FC = () => {
                         currentUser={currentUser} config={config} configurations={configurations}
                         billType={currentPage === 'nonGstPos' ? 'non-gst' : 'regular'}
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
+                        onQuickAddCustomer={handleQuickAddCustomerFromPos}
                         onCancel={() => {
                             setEditingSale(null);
                             handleNavigate('dashboard');

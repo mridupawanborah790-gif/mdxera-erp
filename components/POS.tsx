@@ -37,6 +37,13 @@ interface POSProps {
     isReadOnly?: boolean;
     onCancel?: () => void;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
+    onQuickAddCustomer?: (data: {
+        name: string;
+        phone?: string;
+        address?: string;
+        gstNumber?: string;
+        customerGroup?: string;
+    }) => Promise<{ customer: Customer; isDuplicate: boolean }>;
     onRefreshConfig?: () => void;
 }
 
@@ -191,6 +198,7 @@ const POS = forwardRef<any, POSProps>(({
     isReadOnly,
     onCancel,
     onAddMedicineMaster,
+    onQuickAddCustomer,
     onRefreshConfig
 }, ref) => {
     const [searchTerm, setSearchTerm] = useState('');
@@ -284,6 +292,15 @@ const POS = forwardRef<any, POSProps>(({
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
+    const [isQuickAddCustomerOpen, setIsQuickAddCustomerOpen] = useState(false);
+    const [isQuickAddCustomerSaving, setIsQuickAddCustomerSaving] = useState(false);
+    const [quickAddCustomerForm, setQuickAddCustomerForm] = useState({
+        name: '',
+        phone: '',
+        address: '',
+        gstNumber: '',
+        customerGroup: 'Walk-in / Retail',
+    });
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
     const [roundOff, setRoundOff] = useState(0);
@@ -935,6 +952,33 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const handleCustomerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            if (!onQuickAddCustomer) {
+                addNotification('Quick customer creation is not available in this screen.', 'warning');
+                return;
+            }
+            if (!customerSearch.trim()) {
+                addNotification('Enter customer name before creating.', 'warning');
+                return;
+            }
+            const exactMatch = customers.find(c => (c.name || '').trim().toLowerCase() === customerSearch.trim().toLowerCase());
+            if (exactMatch) {
+                setIsCustomerSearchModalOpen(true);
+                addNotification(`Customer "${exactMatch.name}" already exists. Please select from suggestions.`, 'warning');
+                return;
+            }
+            setQuickAddCustomerForm({
+                name: customerSearch.trim(),
+                phone: customerPhone.trim(),
+                address: '',
+                gstNumber: '',
+                customerGroup: 'Walk-in / Retail',
+            });
+            setIsQuickAddCustomerOpen(true);
+            return;
+        }
+
         if (e.key === 'Enter') {
             e.preventDefault();
             setIsCustomerSearchModalOpen(true);
@@ -942,6 +986,41 @@ const POS = forwardRef<any, POSProps>(({
             // User doesn't want to select customer, move to next field
             e.preventDefault();
             phoneInputRef.current?.focus();
+        }
+    };
+
+    const handleQuickAddCustomerSave = async () => {
+        const trimmedName = quickAddCustomerForm.name.trim();
+        if (!trimmedName) {
+            addNotification('Customer Name is required.', 'error');
+            return;
+        }
+
+        setIsQuickAddCustomerSaving(true);
+        try {
+            if (!onQuickAddCustomer) {
+                throw new Error('Quick customer creation is not available in this screen.');
+            }
+            const result = await onQuickAddCustomer({
+                name: trimmedName,
+                phone: quickAddCustomerForm.phone.trim() || undefined,
+                address: quickAddCustomerForm.address.trim() || undefined,
+                gstNumber: quickAddCustomerForm.gstNumber.trim() || undefined,
+                customerGroup: quickAddCustomerForm.customerGroup.trim() || 'Walk-in / Retail',
+            });
+            handleSelectCustomer(result.customer);
+            setIsQuickAddCustomerOpen(false);
+            addNotification(
+                result.isDuplicate
+                    ? `Customer "${result.customer.name}" already existed and was selected.`
+                    : `Customer "${result.customer.name}" created and selected.`,
+                result.isDuplicate ? 'warning' : 'success'
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to save customer.';
+            addNotification(message, 'error');
+        } finally {
+            setIsQuickAddCustomerSaving(false);
         }
     };
 
@@ -2151,6 +2230,97 @@ const POS = forwardRef<any, POSProps>(({
                 onSelect={handleSelectCustomer}
                 initialSearch={customerSearch}
             />
+
+            <Modal
+                isOpen={isQuickAddCustomerOpen}
+                onClose={() => {
+                    setIsQuickAddCustomerOpen(false);
+                    setTimeout(() => customerSearchInputRef.current?.focus(), 100);
+                }}
+                title="Add New Customer"
+            >
+                <div
+                    className="p-4 space-y-3"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                            e.preventDefault();
+                            setIsQuickAddCustomerOpen(false);
+                            setTimeout(() => customerSearchInputRef.current?.focus(), 100);
+                            return;
+                        }
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (!isQuickAddCustomerSaving) {
+                                handleQuickAddCustomerSave();
+                            }
+                        }
+                    }}
+                >
+                    <div>
+                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">Customer Name *</label>
+                        <input
+                            type="text"
+                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold uppercase focus:bg-yellow-50 outline-none"
+                            value={quickAddCustomerForm.name}
+                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, name: e.target.value }))}
+                            autoFocus
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">Phone Number</label>
+                        <input
+                            type="text"
+                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold focus:bg-yellow-50 outline-none"
+                            value={quickAddCustomerForm.phone}
+                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, phone: e.target.value }))}
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">Address</label>
+                        <input
+                            type="text"
+                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold focus:bg-yellow-50 outline-none"
+                            value={quickAddCustomerForm.address}
+                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, address: e.target.value }))}
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">GST (Optional)</label>
+                        <input
+                            type="text"
+                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold uppercase focus:bg-yellow-50 outline-none"
+                            value={quickAddCustomerForm.gstNumber}
+                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, gstNumber: e.target.value }))}
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">Customer Group</label>
+                        <input
+                            type="text"
+                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold focus:bg-yellow-50 outline-none"
+                            value={quickAddCustomerForm.customerGroup}
+                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, customerGroup: e.target.value }))}
+                        />
+                    </div>
+                    <div className="pt-2 flex justify-end gap-2">
+                        <button
+                            className="px-4 py-2 text-xs font-black uppercase border border-gray-300 text-gray-600"
+                            onClick={() => setIsQuickAddCustomerOpen(false)}
+                            type="button"
+                        >
+                            Cancel (Esc)
+                        </button>
+                        <button
+                            className="px-4 py-2 text-xs font-black uppercase bg-primary text-white disabled:opacity-60"
+                            onClick={handleQuickAddCustomerSave}
+                            disabled={isQuickAddCustomerSaving}
+                            type="button"
+                        >
+                            {isQuickAddCustomerSaving ? 'Saving...' : 'Save & Select (Enter)'}
+                        </button>
+                    </div>
+                </div>
+            </Modal>
 
             {schemeItem && (
                 <SchemeModal
