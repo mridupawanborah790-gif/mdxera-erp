@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import type { AppConfigurations, DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { calculateBillingTotals } from '../../utils/billing';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations };
@@ -47,7 +48,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         pack: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack}` : '-'),
         hsn: item.hsnCode || inventoryItem?.hsnCode || '-',
         batch: item.batch || inventoryItem?.batch || '-',
-        qtyText: `${item.quantity || 0}${item.freeQuantity ? `+${item.freeQuantity}` : ''}`,
+        qtyText: `${formatPackLooseQuantity(item.quantity, item.looseQuantity)}${item.freeQuantity ? `+${item.freeQuantity}` : ''}`,
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : '-'),
         sgstRate: gstPercent / 2,
         cgstRate: gstPercent / 2,

@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem } from '../../types';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
 
 interface TemplateProps {
@@ -165,7 +166,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
                   <td className="font-semibold uppercase truncate">{item.displayName}</td>
                   <td className="text-center font-mono text-[7.5pt]">{item.batch}</td>
                   <td className="text-center text-[7pt]">{item.expiry}</td>
-                  <td className="text-center font-semibold">{item.quantity}</td>
+                  <td className="text-center font-semibold">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
                   <td className="text-right">{(item.mrp || 0).toFixed(2)}</td>
                   <td className="text-right font-semibold">{(item.lineTotal || 0).toFixed(2)}</td>
                 </tr>

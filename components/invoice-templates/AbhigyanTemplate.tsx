@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
@@ -165,7 +166,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
                       <td className="font-bold truncate">{item.displayName}</td>
                       <td className="text-center">{item.hsn}</td>
                       <td className="text-center">{item.gstRate}%</td>
-                      <td className="text-center">{item.quantity.toFixed(2)} {item.unitLabel}</td>
+                      <td className="text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
                       <td className="text-center">{(item.rate ?? 0).toFixed(2)}</td>
                       <td className="text-center">{item.unitLabel}</td>
                       <td className="text-right font-bold">{item.lineTotal.toFixed(2)}</td>

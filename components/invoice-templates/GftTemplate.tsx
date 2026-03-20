@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
@@ -189,7 +190,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="p-1 border-r border-black">{item.batch}</td>
                             <td className="p-1 border-r border-black text-center">{item.expiry}</td>
                             <td className="p-1 border-r border-black text-center font-bold">
-                                {item.quantity} {item.freeQuantity ? `+${item.freeQuantity}` : ''}
+                                {formatPackLooseQuantity(item.quantity, item.looseQuantity)} {item.freeQuantity ? `+${item.freeQuantity}` : ''}
                             </td>
                             <td className="p-1 border-r border-black text-right">{(item.mrp || 0).toFixed(2)}</td>
                             <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>

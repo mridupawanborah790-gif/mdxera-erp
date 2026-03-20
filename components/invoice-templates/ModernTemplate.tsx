@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem } from '../../types';
+import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
@@ -121,7 +122,8 @@ const ModernTemplate: React.FC<TemplateProps> = ({ bill }) => {
                         </div>
                     </div>
                     <div className="w-12 text-center text-xs">
-                        {item.quantity}{item.freeQuantity ? <span className="text-[10px] text-gray-400 ml-1">+{item.freeQuantity}</span> : ''}
+                        {formatPackLooseQuantity(item.quantity, item.looseQuantity)}
+                        {item.freeQuantity ? <span className="text-[10px] text-gray-400 ml-1">+{item.freeQuantity}</span> : ''}
                     </div>
                     <div className="w-16 text-right text-xs">
                         {(item.mrp || 0).toFixed(1)}
