@@ -147,6 +147,10 @@ const App: React.FC = () => {
     const [authView, setAuthView] = useState<'auth' | 'forgot' | 'reset'>(resolveAuthViewFromLocation);
 
     const [activeDashboardMenu, setActiveDashboardMenu] = useState<'left' | 'right'>('right');
+    const [mountedPages, setMountedPages] = useState<string[]>(['dashboard']);
+    const pageContainerRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    const pageScrollPositionsRef = useRef<Record<string, number>>({});
+    const previousPageRef = useRef('dashboard');
 
     const getScreenStateStorageKey = useCallback((user: RegisteredPharmacy) => {
         return `${APP_SCREEN_STATE_STORAGE_PREFIX}:${user.organization_id}:${user.user_id}`;
@@ -212,6 +216,29 @@ const App: React.FC = () => {
             // no-op: persistence is best effort
         }
     }, [activeDashboardMenu, currentDailyReportId, currentPage, currentUser, getScreenStateStorageKey]);
+
+    useEffect(() => {
+        setMountedPages(prev => (prev.includes(currentPage) ? prev : [...prev, currentPage]));
+    }, [currentPage]);
+
+    useEffect(() => {
+        const previousPage = previousPageRef.current;
+        if (previousPage !== currentPage) {
+            const previousContainer = pageContainerRefs.current[previousPage];
+            if (previousContainer) {
+                pageScrollPositionsRef.current[previousPage] = previousContainer.scrollTop;
+            }
+        }
+
+        const restoreScroll = () => {
+            const container = pageContainerRefs.current[currentPage];
+            if (!container) return;
+            container.scrollTop = pageScrollPositionsRef.current[currentPage] ?? 0;
+        };
+
+        window.requestAnimationFrame(restoreScroll);
+        previousPageRef.current = currentPage;
+    }, [currentPage]);
 
     const addNotification = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
         setNotifications(prev => [...prev, { id: Date.now(), message, type }]);
@@ -1263,12 +1290,12 @@ const App: React.FC = () => {
         return { ...currentUser, pharmacy_logo_url: configuredLogo };
     };
 
-    const renderPage = () => {
-        const configId = currentPage === 'nonGstPos' ? 'pos' : currentPage;
+    const renderPage = (pageId: string, isActive: boolean) => {
+        const configId = pageId === 'nonGstPos' ? 'pos' : pageId;
         const config: ModuleConfig = { visible: true, fields: configurations.modules?.[configId]?.fields || {} };
 
         try {
-            switch (currentPage) {
+            switch (pageId) {
                 case 'dashboard':
                     return <Dashboard
                         currentUser={currentUser} configurations={configurations} inventory={inventory}
@@ -1280,12 +1307,12 @@ const App: React.FC = () => {
                 case 'pos':
                 case 'nonGstPos':
                     return <POS
-                        ref={posRef}
+                        ref={isActive ? posRef : undefined}
                         inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
                         onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
                         onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
                         currentUser={currentUser} config={config} configurations={configurations}
-                        billType={currentPage === 'nonGstPos' ? 'non-gst' : 'regular'}
+                        billType={pageId === 'nonGstPos' ? 'non-gst' : 'regular'}
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
                         onQuickAddCustomer={handleQuickAddCustomerFromPos}
                         onCancel={() => {
@@ -1314,7 +1341,7 @@ const App: React.FC = () => {
                     />;
                 case 'manualSalesEntry':
                     return <ManualSalesEntry
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         currentUser={currentUser}
                         customers={customers}
                         inventory={inventory}
@@ -1386,7 +1413,7 @@ const App: React.FC = () => {
                 case 'salesReturns':
                 case 'purchaseReturn':
                     return <Returns
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         currentUser={currentUser}
                         transactions={transactions}
                         inventory={inventory}
@@ -1427,7 +1454,7 @@ const App: React.FC = () => {
                             addNotification('Purchase return recorded.', 'success');
                         }}
                         addNotification={addNotification}
-                        defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'}
+                        defaultTab={pageId === 'salesReturns' ? 'sales' : 'purchase'}
                         isFixedMode={true}
                         prefillSalesInvoiceId={salesReturnPrefillInvoiceId || undefined}
                         prefillPurchaseInvoiceId={purchaseReturnPrefillInvoiceId || undefined}
@@ -1436,7 +1463,7 @@ const App: React.FC = () => {
                     />;
                 case 'purchaseOrders':
                     return <PurchaseOrders
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         distributors={suppliers}
                         inventory={inventory}
                         purchaseOrders={purchaseOrders}
@@ -1491,7 +1518,7 @@ const App: React.FC = () => {
                     />;
                 case 'automatedPurchaseEntry':
                     return <PurchaseForm
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
                         inventory={inventory} suppliers={suppliers} medicines={medicines}
                         mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
@@ -1511,7 +1538,7 @@ const App: React.FC = () => {
                     />;
                 case 'manualPurchaseEntry':
                     return <PurchaseForm
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
                         inventory={inventory} suppliers={suppliers} medicines={medicines}
                         mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
@@ -1531,7 +1558,7 @@ const App: React.FC = () => {
 
                 case 'manualSupplierInvoice':
                     return <ManualPurchase
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         currentUser={currentUser}
                         suppliers={suppliers}
                         inventory={inventory}
@@ -1633,7 +1660,7 @@ const App: React.FC = () => {
                         onSearchMedicines={() => { }} onMassUpdateClick={() => { }}
                         onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} onDeleteMapping={(id) => storage.deleteData('supplier_product_map', id).then(() => loadData(currentUser!, 'background'))}
                         mappings={mappings}
-                        initialSubModule={currentPage === 'vendorNomenclature' ? 'sync' : currentPage === 'bulkUtility' ? 'bulk' : 'master'}
+                        initialSubModule={pageId === 'vendorNomenclature' ? 'sync' : pageId === 'bulkUtility' ? 'bulk' : 'master'}
                         mrpChangeLogs={mrpChangeLogs}
                     />;
                 case 'substituteFinder':
@@ -1727,7 +1754,7 @@ const App: React.FC = () => {
                 <div className="flex-1 flex items-center justify-center bg-red-50 p-10">
                     <div className="max-w-md w-full bg-white border-2 border-red-500 p-8 shadow-2xl">
                         <h2 className="text-2xl font-black text-red-600 uppercase mb-4 tracking-tight">Application Fault</h2>
-                        <p className="text-sm font-bold text-gray-700 mb-6">The module <span className="text-red-600 uppercase">{currentPage}</span> has encountered a critical failure and could not be rendered.</p>
+                        <p className="text-sm font-bold text-gray-700 mb-6">The module <span className="text-red-600 uppercase">{pageId}</span> has encountered a critical failure and could not be rendered.</p>
                         <div className="bg-red-50 p-4 border border-red-100 rounded mb-6">
                             <p className="text-[10px] font-black text-red-400 uppercase mb-1">Error Trace</p>
                             <p className="text-xs font-mono text-red-700 break-words">{String(e)}</p>
@@ -1812,7 +1839,16 @@ const App: React.FC = () => {
                     />
                 )}
                 <div className="flex-1 relative overflow-hidden flex flex-col">
-                    {renderPage()}
+                    {mountedPages.map((pageId) => (
+                        <div
+                            key={pageId}
+                            ref={(node) => { pageContainerRefs.current[pageId] = node; }}
+                            className={`absolute inset-0 overflow-auto ${pageId === currentPage ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none z-0'}`}
+                            aria-hidden={pageId === currentPage ? undefined : true}
+                        >
+                            {renderPage(pageId, pageId === currentPage)}
+                        </div>
+                    ))}
                 </div>
             </div>
             <div className="no-print">
