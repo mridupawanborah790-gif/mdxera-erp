@@ -1,5 +1,6 @@
 const DB_NAME = 'MedimartDB';
 const DB_VERSION = 16; 
+const ENABLE_INDEXED_DB = false;
 
 export const STORES = {
     PROFILES: 'profiles',
@@ -27,6 +28,9 @@ export const STORES = {
 };
 
 export const openDB = (): Promise<IDBDatabase> => {
+    if (!ENABLE_INDEXED_DB) {
+        return Promise.reject(new Error('IndexedDB persistence is disabled.'));
+    }
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -46,6 +50,7 @@ export const openDB = (): Promise<IDBDatabase> => {
 
 export const idb = {
     async put(storeName: string, data: any) {
+        if (!ENABLE_INDEXED_DB) return null;
         if (!data || typeof data.id === 'undefined') {
             console.error(`IDB Error: Data missing primary key 'id' for store ${storeName}`, data);
             throw new Error(`Data missing primary key 'id' for store ${storeName}`);
@@ -62,6 +67,7 @@ export const idb = {
     },
 
     async putBulk(storeName: string, dataArray: any[]) {
+        if (!ENABLE_INDEXED_DB) return true;
         const db = await openDB();
         return new Promise((resolve, reject) => {
             const transaction = db.transaction(storeName, 'readwrite');
@@ -77,6 +83,7 @@ export const idb = {
     },
 
     async get(storeName: string, id: string) {
+        if (!ENABLE_INDEXED_DB) return null;
         if (!id) return null;
         const db = await openDB();
         return new Promise((resolve, reject) => {
@@ -89,6 +96,7 @@ export const idb = {
     },
 
     async getAll(storeName: string) {
+        if (!ENABLE_INDEXED_DB) return [];
         const db = await openDB();
         return new Promise<any[]>((resolve, reject) => {
             const transaction = db.transaction(storeName, 'readonly');
@@ -100,6 +108,7 @@ export const idb = {
     },
 
     async delete(storeName: string, id: string) {
+        if (!ENABLE_INDEXED_DB) return;
         if (!id) return;
         const db = await openDB();
         return new Promise((resolve, reject) => {
@@ -112,6 +121,7 @@ export const idb = {
     },
 
     async clearAllStores() {
+        if (!ENABLE_INDEXED_DB) return [];
         const db = await openDB();
         const allStores = Object.values(STORES);
         const promises = allStores.map(storeName => {
