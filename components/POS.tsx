@@ -1675,10 +1675,10 @@ const POS = forwardRef<any, POSProps>(({
                                     {isFieldVisible('colExpiry') && <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>}
                                     {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
                                     {isFieldVisible('colMrp') && <th className="p-2 border-r border-gray-400 text-right w-20">MRP</th>}
+                                    {isFieldVisible('colRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
                                     {isFieldVisible('colPQty') && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
                                     {isFieldVisible('colLQty') && <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>}
                                     {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">Free</th>}
-                                    {isFieldVisible('colRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
                                     {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
                                     {isFieldVisible('colGst') && <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>}
                                     {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-20">Sch%</th>}
@@ -1793,6 +1793,36 @@ const POS = forwardRef<any, POSProps>(({
                                                     />
                                                 </td>
                                             )}
+                                            {isFieldVisible('colRate') && (
+                                                <td className={`p-2 border-r border-gray-200 text-right font-normal ${uniformTextStyle}`}>
+                                                    <div className="flex items-center justify-end">
+                                                        <span className={`mr-0.5 text-[10px] ${selectedRowIndex === idx ? 'text-white/40' : 'opacity-40'}`}>₹</span>
+                                                        <input
+                                                            id={`rate-${item.id}`}
+                                                            type="number"
+                                                            value={item.rate === 0 ? '' : item.rate}
+                                                            onChange={e => handleUpdateCartItem(item.id, 'rate', e.target.value)}
+                                                            onFocus={() => handleRowFocus(idx)}
+                                                            onKeyDown={e => {
+                                                                if (e.ctrlKey && (e.key === 'Enter' || e.keyCode === 13)) {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    setActiveSchemeCalcRowId(item.id);
+                                                                    setIsSchemeCalcOpen(true);
+                                                                } else {
+                                                                    handleItemKeyDown(e, item.id, idx);
+                                                                    handleRowKeyNavigation(e, item.id);
+                                                                }
+                                                            }}
+                                                            className={`w-24 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed ${selectedRowIndex === idx ? 'text-white border-white/30 focus:border-white' : 'group-hover:text-white border-gray-300 focus:border-primary'}`} 
+                                                            min="0"
+                                                            max="999999.99"
+                                                            step="0.01"
+                                                            disabled={isReadOnly}
+                                                        />
+                                                    </div>
+                                                </td>
+                                            )}
                                             {isFieldVisible('colPQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
                                                     <input
@@ -1849,36 +1879,6 @@ const POS = forwardRef<any, POSProps>(({
                                                         className={`w-12 text-center bg-transparent font-normal no-spinner outline-none ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-emerald-700'}`}
                                                         disabled={isReadOnly}
                                                     />
-                                                </td>
-                                            )}
-                                            {isFieldVisible('colRate') && (
-                                                <td className={`p-2 border-r border-gray-200 text-right font-normal ${uniformTextStyle}`}>
-                                                    <div className="flex items-center justify-end">
-                                                        <span className={`mr-0.5 text-[10px] ${selectedRowIndex === idx ? 'text-white/40' : 'opacity-40'}`}>₹</span>
-                                                        <input
-                                                            id={`rate-${item.id}`}
-                                                            type="number"
-                                                            value={item.rate === 0 ? '' : item.rate}
-                                                            onChange={e => handleUpdateCartItem(item.id, 'rate', e.target.value)}
-                                                            onFocus={() => handleRowFocus(idx)}
-                                                            onKeyDown={e => {
-                                                                if (e.ctrlKey && (e.key === 'Enter' || e.keyCode === 13)) {
-                                                                    e.preventDefault();
-                                                                    e.stopPropagation();
-                                                                    setActiveSchemeCalcRowId(item.id);
-                                                                    setIsSchemeCalcOpen(true);
-                                                                } else {
-                                                                    handleItemKeyDown(e, item.id, idx);
-                                                                    handleRowKeyNavigation(e, item.id);
-                                                                }
-                                                            }}
-                                                            className={`w-24 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed ${selectedRowIndex === idx ? 'text-white border-white/30 focus:border-white' : 'group-hover:text-white border-gray-300 focus:border-primary'}`} 
-                                                            min="0"
-                                                            max="999999.99"
-                                                            step="0.01"
-                                                            disabled={isReadOnly}
-                                                        />
-                                                    </div>
                                                 </td>
                                             )}
                                             {isFieldVisible('colDisc') && (
