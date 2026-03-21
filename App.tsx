@@ -700,30 +700,38 @@ const App: React.FC = () => {
         if (!currentUser) throw new Error("Unauthorized");
 
         const normalize = (value?: string) => (value || '').trim().toLowerCase();
+        const parseMrpNumber = (value?: string) => {
+            const parsed = parseFloat(String(value ?? '').replace(/[^\d.]/g, ''));
+            return Number.isFinite(parsed) ? parsed : 0;
+        };
         const updatedPack = (updatedMedicine.pack || '').trim();
         const inferredUnitsPerPack = resolveUnitsPerStrip(parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10), updatedPack);
+        const normalizedMaterialCode = normalize(updatedMedicine.materialCode);
 
         const isLinkedInventoryItem = (item: InventoryItem) => {
             const itemCode = normalize(item.code);
-            const materialCode = normalize(updatedMedicine.materialCode);
-            if (itemCode && materialCode && itemCode === materialCode) return true;
-
-            const sameName = normalize(item.name) === normalize(updatedMedicine.name);
-            if (!sameName) return false;
-
-            const masterBrand = normalize(updatedMedicine.brand);
-            const inventoryBrand = normalize(item.brand);
-            return !masterBrand || !inventoryBrand || masterBrand === inventoryBrand;
+            return Boolean(itemCode && normalizedMaterialCode && itemCode === normalizedMaterialCode);
         };
 
         await storage.saveData('material_master', updatedMedicine, currentUser);
 
         const linkedInventoryItems = inventory.filter(isLinkedInventoryItem);
         if (linkedInventoryItems.length > 0) {
+            const nextMrp = parseMrpNumber(updatedMedicine.mrp);
             await Promise.all(
                 linkedInventoryItems.map(item =>
                     storage.saveData('inventory', {
                         ...item,
+                        name: updatedMedicine.name,
+                        brand: updatedMedicine.brand || '',
+                        manufacturer: updatedMedicine.manufacturer || '',
+                        code: updatedMedicine.materialCode,
+                        barcode: updatedMedicine.barcode || item.barcode,
+                        composition: updatedMedicine.composition || '',
+                        hsnCode: updatedMedicine.hsnCode || '',
+                        description: updatedMedicine.description || '',
+                        gstPercent: Number(updatedMedicine.gstRate ?? 0),
+                        mrp: nextMrp,
                         packType: updatedPack,
                         unitsPerPack: inferredUnitsPerPack,
                     }, currentUser)
@@ -732,7 +740,21 @@ const App: React.FC = () => {
 
             setInventory(prev => prev.map(item =>
                 isLinkedInventoryItem(item)
-                    ? { ...item, packType: updatedPack, unitsPerPack: inferredUnitsPerPack }
+                    ? {
+                        ...item,
+                        name: updatedMedicine.name,
+                        brand: updatedMedicine.brand || '',
+                        manufacturer: updatedMedicine.manufacturer || '',
+                        code: updatedMedicine.materialCode,
+                        barcode: updatedMedicine.barcode || item.barcode,
+                        composition: updatedMedicine.composition || '',
+                        hsnCode: updatedMedicine.hsnCode || '',
+                        description: updatedMedicine.description || '',
+                        gstPercent: Number(updatedMedicine.gstRate ?? 0),
+                        mrp: nextMrp,
+                        packType: updatedPack,
+                        unitsPerPack: inferredUnitsPerPack,
+                    }
                     : item
             ));
         }
