@@ -38,9 +38,13 @@ const getEffectiveSchemePercent = (item: BillItem): number => {
   const explicitPercent = Number(item.schemeDiscountPercent || 0);
   if (explicitPercent > 0) return explicitPercent;
 
+  if (item.schemeMode === 'percent') {
+    const schemeValuePercent = Number(item.schemeValue || 0);
+    if (schemeValuePercent > 0) return schemeValuePercent;
+  }
+
   const displayPercent = Number(item.schemeDisplayPercent || 0);
-  const isPercentOnlyEntry = item.schemeMode === 'percent' || !item.schemeMode;
-  if (isPercentOnlyEntry && displayPercent > 0) return displayPercent;
+  if (displayPercent > 0) return displayPercent;
 
   return 0;
 };
