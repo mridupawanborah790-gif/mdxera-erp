@@ -731,6 +731,21 @@ const POS = forwardRef<any, POSProps>(({
         }
     }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber]);
 
+    const resetForm = useCallback(() => {
+        setCartItems([]);
+        setPrescriptions([]);
+        setSelectedCustomer(null);
+        setCustomerSearch('');
+        setCustomerPhone('');
+        setReferredBy('');
+        setLumpsumDiscount(0);
+        setRoundOff(0);
+        setIsRoundOffManuallyEdited(false);
+        setReservedVoucherNumber(null);
+        setNextVoucherNumberHint(null);
+        lastReservedType.current = null;
+    }, []);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (isCustomerSearchModalOpen || schemeItem || pendingBatchSelection || isSearchModalOpen || isSchemeCalcOpen) return;
@@ -807,10 +822,11 @@ const POS = forwardRef<any, POSProps>(({
 
     useImperativeHandle(ref, () => ({
         handleSave,
+        resetForm,
         setCartItems,
         cartItems,
         isDirty: cartItems.length > 0 || customerPhone.trim() !== '' || referredBy.trim() !== ''
-    }));
+    }), [handleSave, resetForm, cartItems, customerPhone, referredBy]);
 
 
     const handleProcessPrescription = async (fileInput: FileInput, fileName: string) => {

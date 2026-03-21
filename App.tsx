@@ -93,6 +93,7 @@ const App: React.FC = () => {
 
     const [showLogoutPrompt, setShowLogoutPrompt] = useState(false);
     const [showEscSavePrompt, setShowEscSavePrompt] = useState(false);
+    const [screenResetNonce, setScreenResetNonce] = useState<Record<string, number>>({});
 
     // Refs to trigger child save methods remotely
     const posRef = useRef<any>(null);
@@ -395,7 +396,7 @@ const App: React.FC = () => {
         let isDirty = false;
         if (fromPage === 'pos' || fromPage === 'nonGstPos') {
             isDirty = posRef.current?.isDirty ?? false;
-        } else if (['automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice', 'manualSalesEntry', 'deliveryChallans', 'salesChallans', 'purchaseOrders', 'returns', 'salesReturns', 'purchaseReturn'].includes(fromPage)) {
+        } else {
             isDirty = purchaseFormRef.current?.isDirty ?? false;
         }
         
@@ -442,8 +443,12 @@ const App: React.FC = () => {
         try {
             if (currentPage === 'pos' || currentPage === 'nonGstPos') {
                 if (posRef.current) await posRef.current.handleSave();
-            } else if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
-                if (purchaseFormRef.current) await purchaseFormRef.current.handleSubmit();
+            } else if (purchaseFormRef.current) {
+                if (typeof purchaseFormRef.current.handleSubmit === 'function') {
+                    await purchaseFormRef.current.handleSubmit();
+                } else if (typeof purchaseFormRef.current.handleSave === 'function') {
+                    await purchaseFormRef.current.handleSave();
+                }
             }
             // Navigate after successful save
             setCurrentPage('dashboard');
@@ -454,12 +459,16 @@ const App: React.FC = () => {
 
     const handleEscDiscard = () => {
         setShowEscSavePrompt(false);
-        // Clear any specific component states if needed
-        if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
-            setEditingPurchase(null);
-            setSourceChallansForPurchase(null);
+        if (currentPage === 'pos' || currentPage === 'nonGstPos') {
+            posRef.current?.resetForm?.();
+        } else {
+            purchaseFormRef.current?.resetForm?.();
+            if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
+                setEditingPurchase(null);
+                setSourceChallansForPurchase(null);
+            }
         }
-        setCurrentPage('dashboard');
+        setScreenResetNonce(prev => ({ ...prev, [currentPage]: (prev[currentPage] ?? 0) + 1 }));
     };
 
     // Handle Supabase Auth Session Changes
@@ -1840,7 +1849,7 @@ const App: React.FC = () => {
                 <div className="flex-1 relative overflow-hidden flex flex-col">
                     {mountedPages.map((pageId) => (
                         <div
-                            key={pageId}
+                            key={`${pageId}-${screenResetNonce[pageId] ?? 0}`}
                             ref={(node) => { pageContainerRefs.current[pageId] = node; }}
                             className={`absolute inset-0 overflow-auto ${pageId === currentPage ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none z-0'}`}
                             aria-hidden={pageId === currentPage ? undefined : true}

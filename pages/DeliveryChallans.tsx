@@ -60,8 +60,13 @@ const DeliveryChallansPage = React.forwardRef<any, DeliveryChallansPageProps>(({
     const purchaseFormRef = React.useRef<any>(null);
 
     React.useImperativeHandle(ref, () => ({
+        handleSubmit: () => purchaseFormRef.current?.handleSubmit?.(),
+        resetForm: () => {
+            setActiveTab('create');
+            purchaseFormRef.current?.resetForm?.();
+        },
         isDirty: activeTab === 'create' && (purchaseFormRef.current?.isDirty ?? false)
-    }));
+    }), [activeTab]);
 
     const visibleChallans = useMemo(() => {
         let list = [...deliveryChallans];

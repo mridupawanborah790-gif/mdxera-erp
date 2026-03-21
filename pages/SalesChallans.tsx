@@ -36,8 +36,13 @@ const SalesChallans = React.forwardRef<any, SalesChallansProps>(({
     const posRef = React.useRef<any>(null);
 
     React.useImperativeHandle(ref, () => ({
+        handleSubmit: () => posRef.current?.handleSave?.(),
+        resetForm: () => {
+            setActiveTab('create');
+            posRef.current?.resetForm?.();
+        },
         isDirty: activeTab === 'create' && (posRef.current?.isDirty ?? false)
-    }));
+    }), [activeTab]);
 
     const visibleChallans = useMemo(() => {
         let list = [...salesChallans];
