@@ -64,6 +64,23 @@ const DATA_ENTRY_SCREENS = [
     'customers', 'suppliers', 'inventory', 'materialMaster', 'returns', 'salesReturns', 'purchaseReturn'
 ];
 
+const APP_SCREEN_STATE_STORAGE_PREFIX = 'mdxera:screen-state:v1';
+const PERSISTABLE_SCREENS = new Set([
+    'dashboard', 'pos', 'nonGstPos', 'salesHistory', 'manualSalesEntry', 'salesChallans',
+    'deliveryChallans', 'salesReturns', 'purchaseReturn', 'purchaseOrders', 'automatedPurchaseEntry',
+    'manualPurchaseEntry', 'manualSupplierInvoice', 'purchaseHistory', 'inventory', 'physicalInventory',
+    'suppliers', 'customers', 'medicineMasterList', 'vendorNomenclature', 'bulkUtility',
+    'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst',
+    'businessUsers', 'businessRoles', 'companyConfiguration', 'configuration', 'settings',
+    'classification', 'accountReceivable', 'accountPayable'
+]);
+
+type PersistedScreenState = {
+    currentPage?: string;
+    currentDailyReportId?: string;
+    activeDashboardMenu?: 'left' | 'right';
+};
+
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
     const [currentPage, setCurrentPage] = useState('dashboard');
@@ -131,6 +148,20 @@ const App: React.FC = () => {
 
     const [activeDashboardMenu, setActiveDashboardMenu] = useState<'left' | 'right'>('right');
 
+    const getScreenStateStorageKey = useCallback((user: RegisteredPharmacy) => {
+        return `${APP_SCREEN_STATE_STORAGE_PREFIX}:${user.organization_id}:${user.user_id}`;
+    }, []);
+
+    const readPersistedScreenState = useCallback((user: RegisteredPharmacy): PersistedScreenState | null => {
+        try {
+            const stored = window.localStorage.getItem(getScreenStateStorageKey(user));
+            if (!stored) return null;
+            return JSON.parse(stored) as PersistedScreenState;
+        } catch {
+            return null;
+        }
+    }, [getScreenStateStorageKey]);
+
     // Robust recovery detection on initial load
     useEffect(() => {
         if (window.location.hash.includes('type=recovery') || window.location.href.includes('recovery')) {
@@ -145,6 +176,42 @@ const App: React.FC = () => {
         window.addEventListener('popstate', onPopState);
         return () => window.removeEventListener('popstate', onPopState);
     }, []);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        const state = readPersistedScreenState(currentUser);
+        if (!state) return;
+
+        const nextPage = typeof state.currentPage === 'string' && PERSISTABLE_SCREENS.has(state.currentPage)
+            ? state.currentPage
+            : 'dashboard';
+        const nextDailyReportId = typeof state.currentDailyReportId === 'string' && state.currentDailyReportId.trim()
+            ? state.currentDailyReportId
+            : 'dispatchSummary';
+        const nextDashboardMenu = state.activeDashboardMenu === 'left' || state.activeDashboardMenu === 'right'
+            ? state.activeDashboardMenu
+            : 'right';
+
+        setCurrentPage(nextPage);
+        setCurrentDailyReportId(nextDailyReportId);
+        setActiveDashboardMenu(nextDashboardMenu);
+    }, [currentUser, readPersistedScreenState]);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        try {
+            window.localStorage.setItem(
+                getScreenStateStorageKey(currentUser),
+                JSON.stringify({
+                    currentPage,
+                    currentDailyReportId,
+                    activeDashboardMenu
+                } satisfies PersistedScreenState)
+            );
+        } catch {
+            // no-op: persistence is best effort
+        }
+    }, [activeDashboardMenu, currentDailyReportId, currentPage, currentUser, getScreenStateStorageKey]);
 
     const addNotification = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
         setNotifications(prev => [...prev, { id: Date.now(), message, type }]);
@@ -545,16 +612,23 @@ const App: React.FC = () => {
         loadData(user, 'initial');
     };
 
-    const handleLogout = async () => {
+    const handleLogout = useCallback(async () => {
         setShowLogoutPrompt(false);
         setIsAppLoading(true);
+        const persistedStateKey = currentUser ? getScreenStateStorageKey(currentUser) : null;
         try {
             await storage.clearCurrentUser();
+            if (persistedStateKey) {
+                window.localStorage.removeItem(persistedStateKey);
+            }
             setCurrentUser(null);
             setCurrentPage('dashboard');
             setAuthView('auth');
             window.history.replaceState({}, '', '/');
         } catch (e) {
+            if (persistedStateKey) {
+                window.localStorage.removeItem(persistedStateKey);
+            }
             setCurrentUser(null);
             setCurrentPage('dashboard');
             setAuthView('auth');
@@ -562,7 +636,7 @@ const App: React.FC = () => {
         } finally {
             setIsAppLoading(false);
         }
-    };
+    }, [currentUser, getScreenStateStorageKey]);
 
     const toggleFullScreen = () => {
         if (!document.fullscreenElement) {
