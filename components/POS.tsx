@@ -464,6 +464,29 @@ const POS = forwardRef<any, POSProps>(({
         });
     }, [activeBillItem, isNonGst, configurations, currentUser?.organization_type, localPricingMode]);
 
+    const activeLineSummary = useMemo(() => {
+        if (!activeBillItem || !activeLineTotals) return null;
+        const effectiveSchemeRule = activeBillItem.schemeCalculationBasis || (billingSettings.schemeBase === 'subtotal' ? 'before_discount' : 'after_discount');
+        const value = activeLineTotals.gross || 0;
+        const discount = (activeLineTotals.tradeDiscount || 0) + (activeLineTotals.lineFlatDiscount || 0);
+        const amountAfterDiscount = activeLineTotals.subtotal || 0;
+        const schemeDiscount = activeLineTotals.schemeTotal || 0;
+        const taxableValue = activeLineTotals.taxableValue || 0;
+        const gst = activeLineTotals.tax || 0;
+        const finalLineTotal = activeLineTotals.baseTotal || 0;
+
+        return {
+            rule: effectiveSchemeRule,
+            value,
+            discount,
+            amountAfterDiscount,
+            schemeDiscount,
+            taxableValue,
+            gst,
+            finalLineTotal
+        };
+    }, [activeBillItem, activeLineTotals, billingSettings.schemeBase]);
+
 
     const customerSnapshot = useMemo(() => {
         if (!selectedCustomer) {
@@ -1989,15 +2012,38 @@ const POS = forwardRef<any, POSProps>(({
                                 {activeLineTotals && (
                                     <>
                                         <div className="flex items-center justify-between text-blue-800"><span>Unit Rate</span> <span className="font-mono">₹{(activeBillItem?.rate || 0).toFixed(2)}</span></div>
+                                        <div className="flex items-center justify-between text-emerald-700"><span>Scheme Rule</span> <span className="font-mono">{activeLineSummary?.rule === 'before_discount' ? 'At Same Level / Before Discount' : 'After Disc%'}</span></div>
                                         <div className="flex items-center justify-between text-emerald-700"><span>Scheme %</span> <span className="font-mono">{getDisplaySchemePercent(activeBillItem).toFixed(2)}%</span></div>
                                     </>
                                 )}
-                                <div className="flex justify-between"><span>MRP Value</span><span>₹{(activeLineTotals?.gross ?? totals.gross ?? 0).toFixed(2)}</span></div>
-                                <div className="flex justify-between"><span>Value of Goods</span><span>₹{(activeLineTotals?.subtotal ?? totals.subtotal ?? 0).toFixed(2)}</span></div>
+                                {activeLineTotals ? (
+                                    activeLineSummary?.rule === 'before_discount' ? (
+                                        <>
+                                            <div className="flex justify-between"><span>Value</span><span>₹{(activeLineSummary.value || 0).toFixed(2)}</span></div>
+                                            <div className="flex justify-between text-red-600"><span>Discount</span><span>₹{(activeLineSummary.discount || 0).toFixed(2)}</span></div>
+                                            <div className="flex justify-between text-red-600"><span>Scheme Discount</span><span>₹{(activeLineSummary.schemeDiscount || 0).toFixed(2)}</span></div>
+                                            <div className="flex justify-between"><span>Taxable Value</span><span>₹{(activeLineSummary.taxableValue || 0).toFixed(2)}</span></div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="flex justify-between"><span>Value</span><span>₹{(activeLineSummary?.value || 0).toFixed(2)}</span></div>
+                                            <div className="flex justify-between text-red-600"><span>Discount</span><span>₹{(activeLineSummary?.discount || 0).toFixed(2)}</span></div>
+                                            <div className="flex justify-between"><span>Amount After Discount</span><span>₹{(activeLineSummary?.amountAfterDiscount || 0).toFixed(2)}</span></div>
+                                            <div className="flex justify-between text-red-600"><span>Scheme Discount</span><span>₹{(activeLineSummary?.schemeDiscount || 0).toFixed(2)}</span></div>
+                                            <div className="flex justify-between"><span>Taxable Value After Scheme</span><span>₹{(activeLineSummary?.taxableValue || 0).toFixed(2)}</span></div>
+                                        </>
+                                    )
+                                ) : (
+                                    <>
+                                        <div className="flex justify-between"><span>MRP Value</span><span>₹{(totals.gross ?? 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between"><span>Value of Goods</span><span>₹{(totals.subtotal ?? 0).toFixed(2)}</span></div>
+                                    </>
+                                )}
                             </div>
                             <div className="space-y-0.5 xl:space-y-1">
-                                <div className="flex justify-between text-blue-700"><span>SGST</span><span>₹{((activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
-                                <div className="flex justify-between text-blue-700"><span>CGST</span><span>₹{((activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                                <div className="flex justify-between text-blue-700"><span>SGST</span><span>₹{((activeLineSummary?.gst ?? activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                                <div className="flex justify-between text-blue-700"><span>CGST</span><span>₹{((activeLineSummary?.gst ?? activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                                {activeLineTotals && <div className="flex justify-between text-blue-700"><span>GST</span><span>₹{(activeLineSummary?.gst || 0).toFixed(2)}</span></div>}
                                 <div className="flex justify-between text-red-600">
                                     <span>Discount</span>
                                     <span>₹{activeLineTotals 
@@ -2028,7 +2074,7 @@ const POS = forwardRef<any, POSProps>(({
                             </div>
                             <div className="flex justify-between font-black text-primary border-t border-gray-300 pt-1 mt-1">
                                 <span>{activeLineTotals ? 'Line Total' : 'Balance'}</span>
-                                <span>₹{(activeLineTotals ? (activeLineTotals.baseTotal ?? 0) : (grandTotal ?? 0)).toFixed(2)}</span>
+                                <span>₹{(activeLineTotals ? (activeLineSummary?.finalLineTotal ?? 0) : (grandTotal ?? 0)).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
