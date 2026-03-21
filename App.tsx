@@ -50,7 +50,7 @@ import {
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
     Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
     PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
-    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig
+    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
@@ -93,6 +93,7 @@ const App: React.FC = () => {
     const [deliveryChallans, setDeliveryChallans] = useState<DeliveryChallan[]>([]);
     const [salesChallans, setSalesChallans] = useState<SalesChallan[]>([]);
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+    const [mrpChangeLogs, setMrpChangeLogs] = useState<MrpChangeLogEntry[]>([]);
 
     const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
     const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
@@ -153,6 +154,39 @@ const App: React.FC = () => {
         setNotifications(prev => prev.filter(n => n.id !== id));
     }, []);
 
+    const parseMrpNumber = useCallback((value: unknown): number => {
+        const parsed = parseFloat(String(value ?? '').replace(/[^\d.]/g, ''));
+        return Number.isFinite(parsed) ? parsed : 0;
+    }, []);
+
+    const normalizeCode = useCallback((value?: string) => (value || '').trim().toLowerCase(), []);
+
+    const createMrpChangeLog = useCallback(async (
+        sourceScreen: 'Inventory' | 'Material Master',
+        materialCode: string,
+        productName: string,
+        oldMrp: number,
+        newMrp: number,
+    ) => {
+        if (!currentUser) return;
+        if (Math.abs(oldMrp - newMrp) < 0.0001) return;
+
+        const logPayload: Omit<MrpChangeLogEntry, 'id'> = {
+            organization_id: currentUser.organization_id,
+            materialCode,
+            productName: productName || 'UNKNOWN',
+            oldMrp,
+            newMrp,
+            changedAt: new Date().toISOString(),
+            changedById: currentUser.user_id || currentUser.id,
+            changedByName: currentUser.full_name || currentUser.email,
+            sourceScreen,
+        };
+
+        const saved = await storage.saveData('mrp_change_log', logPayload, currentUser);
+        setMrpChangeLogs(prev => [saved, ...prev]);
+    }, [currentUser]);
+
     const loadData = useCallback(async (user: RegisteredPharmacy, mode: 'initial' | 'sync' | 'background' | 'targeted' = 'sync', specificTable?: string) => {
         if (!user) return;
 
@@ -184,6 +218,7 @@ const App: React.FC = () => {
                     case 'categories': setCategories(await storage.getData('categories', [], user)); break;
                     case 'sub_categories': setSubCategories(await storage.getData('sub_categories', [], user)); break;
                     case 'supplier_product_map': setMappings(await storage.fetchSupplierProductMaps(user)); break;
+                    case 'mrp_change_log': setMrpChangeLogs(await storage.getData('mrp_change_log', [], user)); break;
                     case 'profiles':
                         const freshProfile = await storage.fetchProfile(user.user_id);
                         if (freshProfile) setCurrentUser(freshProfile);
@@ -195,7 +230,7 @@ const App: React.FC = () => {
 
             const [
                 freshProfile, inv, med, tx, pur, supp, cust, ewb, mapData, phy, dc, sc, po,
-                sr, pr, cert, sub, promo, team, configData
+                sr, pr, cert, sub, promo, team, configData, mrpLogs
             ] = await Promise.all([
                 storage.fetchProfile(user.user_id),
                 storage.fetchInventory(user),
@@ -216,7 +251,8 @@ const App: React.FC = () => {
                 storage.getData('sub_categories', [], user),
                 storage.getData('promotions', [], user),
                 storage.fetchTeamMembers(user),
-                storage.getData('configurations', [{ organization_id: orgId }], user)
+                storage.getData('configurations', [{ organization_id: orgId }], user),
+                storage.getData('mrp_change_log', [], user)
             ]);
 
             if (freshProfile) setCurrentUser(freshProfile);
@@ -239,6 +275,7 @@ const App: React.FC = () => {
             setSubCategories(sub || []);
             setPromotions(promo || []);
             setTeamMembers(team || []);
+            setMrpChangeLogs(mrpLogs || []);
 
             if (configData && configData.length > 0) {
                 setConfigurations(configData[0]);
@@ -340,6 +377,7 @@ const App: React.FC = () => {
                 setMedicines([]);
                 setTransactions([]);
                 setPurchases([]);
+                setMrpChangeLogs([]);
                 setIsAppLoading(false);
                 setAuthView('auth');
             } else if (event === 'PASSWORD_RECOVERY') {
@@ -689,6 +727,33 @@ const App: React.FC = () => {
         return saved;
     };
 
+    const handleUpdateInventoryItem = useCallback(async (updatedItem: InventoryItem) => {
+        if (!currentUser) throw new Error("Unauthorized");
+
+        const existingItem = inventory.find(i => i.id === updatedItem.id);
+        const oldMrp = parseMrpNumber(existingItem?.mrp);
+        const newMrp = parseMrpNumber(updatedItem.mrp);
+        const normalizedCode = normalizeCode(updatedItem.code);
+
+        await storage.saveData('inventory', updatedItem, currentUser, true);
+
+        if (normalizedCode) {
+            const linkedMedicine = medicines.find(m => normalizeCode(m.materialCode) === normalizedCode);
+            if (linkedMedicine && Math.abs(oldMrp - newMrp) >= 0.0001) {
+                await storage.saveData('material_master', { ...linkedMedicine, mrp: newMrp.toFixed(2) }, currentUser, true);
+                await createMrpChangeLog(
+                    'Inventory',
+                    updatedItem.code || linkedMedicine.materialCode,
+                    updatedItem.name || linkedMedicine.name,
+                    oldMrp,
+                    newMrp
+                );
+            }
+        }
+
+        await loadData(currentUser, 'background');
+    }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber]);
+
     const handleAddMedicineMaster = async (med: Omit<Medicine, 'id'>) => {
         if (!currentUser) throw new Error("Unauthorized");
         const saved = await storage.saveData('material_master', med, currentUser);
@@ -698,26 +763,24 @@ const App: React.FC = () => {
 
     const handleUpdateMedicineMaster = useCallback(async (updatedMedicine: Medicine) => {
         if (!currentUser) throw new Error("Unauthorized");
-
-        const normalize = (value?: string) => (value || '').trim().toLowerCase();
-        const parseMrpNumber = (value?: string) => {
-            const parsed = parseFloat(String(value ?? '').replace(/[^\d.]/g, ''));
-            return Number.isFinite(parsed) ? parsed : 0;
-        };
         const updatedPack = (updatedMedicine.pack || '').trim();
         const inferredUnitsPerPack = resolveUnitsPerStrip(parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10), updatedPack);
-        const normalizedMaterialCode = normalize(updatedMedicine.materialCode);
+        const normalizedMaterialCode = normalizeCode(updatedMedicine.materialCode);
 
         const isLinkedInventoryItem = (item: InventoryItem) => {
-            const itemCode = normalize(item.code);
+            const itemCode = normalizeCode(item.code);
             return Boolean(itemCode && normalizedMaterialCode && itemCode === normalizedMaterialCode);
         };
 
-        await storage.saveData('material_master', updatedMedicine, currentUser);
+        const previousMedicine = medicines.find(m => m.id === updatedMedicine.id);
+        const oldMrp = parseMrpNumber(previousMedicine?.mrp);
+        const newMrp = parseMrpNumber(updatedMedicine.mrp);
+
+        await storage.saveData('material_master', updatedMedicine, currentUser, true);
 
         const linkedInventoryItems = inventory.filter(isLinkedInventoryItem);
         if (linkedInventoryItems.length > 0) {
-            const nextMrp = parseMrpNumber(updatedMedicine.mrp);
+            const nextMrp = newMrp;
             await Promise.all(
                 linkedInventoryItems.map(item =>
                     storage.saveData('inventory', {
@@ -759,9 +822,17 @@ const App: React.FC = () => {
             ));
         }
 
+        await createMrpChangeLog(
+            'Material Master',
+            updatedMedicine.materialCode,
+            updatedMedicine.name,
+            oldMrp,
+            newMrp
+        );
+
         setMedicines(prev => prev.map(m => (m.id === updatedMedicine.id ? updatedMedicine : m)));
         await loadData(currentUser, 'background');
-    }, [currentUser, inventory, loadData]);
+    }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber]);
 
     const resolveControlGlByCode = useCallback(async (organizationId: string, glCode: string): Promise<string | undefined> => {
         const { data: bookRows, error: bookErr } = await supabase
@@ -1418,7 +1489,8 @@ const App: React.FC = () => {
                         inventory={inventory} medicines={medicines} currentUser={currentUser}
                         onCreatePurchaseOrder={() => { }} config={config} onUpdateConfig={(newConfig) => handleUpdateModuleConfig('inventory', newConfig)}
                         onBulkAddInventory={(list) => storage.saveBulkData('inventory', list, currentUser)}
-                        onAddProduct={handleAddInventoryItem} onUpdateProduct={(item) => storage.saveData('inventory', item, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onAddProduct={handleAddInventoryItem} onUpdateProduct={handleUpdateInventoryItem}
+                        mrpChangeLogs={mrpChangeLogs}
                     />;
                 case 'physicalInventory':
                     return <PhysicalInventory
@@ -1488,6 +1560,7 @@ const App: React.FC = () => {
                         onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} onDeleteMapping={(id) => storage.deleteData('supplier_product_map', id).then(() => loadData(currentUser!, 'background'))}
                         mappings={mappings}
                         initialSubModule={currentPage === 'vendorNomenclature' ? 'sync' : currentPage === 'bulkUtility' ? 'bulk' : 'master'}
+                        mrpChangeLogs={mrpChangeLogs}
                     />;
                 case 'substituteFinder':
                     return <SubstituteFinder inventory={inventory} />;

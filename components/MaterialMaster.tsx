@@ -5,7 +5,8 @@ import EditMedicineModal from '../components/EditMedicineModal';
 import AddMedicineModal from '../components/AddMedicineModal';
 import SupplierSyncView from './SupplierSyncView';
 import ExportOptionsModal from './ExportOptionsModal';
-import type { Medicine, RegisteredPharmacy, Supplier, Purchase, SupplierProductMap } from '../types';
+import MrpChangeLogModal from './MrpChangeLogModal';
+import type { Medicine, RegisteredPharmacy, Supplier, Purchase, SupplierProductMap, MrpChangeLogEntry } from '../types';
 import { fuzzyMatch } from '../utils/search';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
@@ -46,6 +47,7 @@ interface MaterialMasterProps {
     onDeleteMapping: (id: string) => Promise<void>;
     mappings: SupplierProductMap[];
     initialSubModule?: SubModule;
+    mrpChangeLogs?: MrpChangeLogEntry[];
 }
 
 type SubModule = 'master' | 'sync' | 'bulk';
@@ -54,7 +56,8 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
     medicines, onAddMedicine, onUpdateMedicine, currentUser, 
     suppliers, onAddPurchase, onBulkAddMedicines, onSearchMedicines, 
     onMassUpdateClick, onSaveMapping, onDeleteMapping, mappings,
-    initialSubModule = 'master'
+    initialSubModule = 'master',
+    mrpChangeLogs = []
 }) => {
     const [activeSubModule, setActiveSubModule] = useState<SubModule>(initialSubModule);
     const [medSearchTerm, setMedSearchTerm] = useState('');
@@ -64,6 +67,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isMrpLogOpen, setIsMrpLogOpen] = useState(false);
     const [medicineToEdit, setMedicineToEdit] = useState<Medicine | null>(null);
 
     useEffect(() => {
@@ -202,6 +206,12 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">{moduleTitles[activeSubModule]}</h2>
                     {activeSubModule === 'master' && (
                         <div className="flex gap-2">
+                            <button
+                                onClick={() => setIsMrpLogOpen(true)}
+                                className="px-5 py-2 tally-border bg-white text-primary font-black uppercase text-[10px] shadow-sm hover:bg-gray-50 transition-all active:scale-95"
+                            >
+                                MRP Log
+                            </button>
                             <button 
                                 onClick={() => setIsExportModalOpen(true)} 
                                 className="px-6 py-2 tally-border bg-white text-primary font-black uppercase text-[10px] shadow-sm flex items-center gap-2 hover:bg-gray-50 transition-all active:scale-95"
@@ -361,6 +371,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     pharmacyName={currentUser?.pharmacy_name || 'MDXERA ERP'}
                 />
             )}
+            <MrpChangeLogModal isOpen={isMrpLogOpen} onClose={() => setIsMrpLogOpen(false)} logs={mrpChangeLogs} />
         </main>
     );
 };
