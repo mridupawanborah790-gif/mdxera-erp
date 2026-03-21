@@ -106,7 +106,11 @@ export const loadDefaultPostingContext = async (organizationId: string): Promise
   const booksQuery = isUuid(defaultSetOfBooksRef)
     ? baseBooksQuery.eq('id', defaultSetOfBooksRef)
     : (isUuid(defaultCompany.id)
-      ? baseBooksQuery.eq('company_code_id', defaultCompany.id).eq('set_of_books_id', defaultSetOfBooksRef)
+      // Mixed-schema tenants may keep set_of_books.set_of_books_id as UUID while
+      // company_codes.default_set_of_books_id is stored as text label/code.
+      // Filtering with `.eq('set_of_books_id', text)` in that case can throw
+      // "operator does not exist: uuid = text". Prefer company linkage only.
+      ? baseBooksQuery.eq('company_code_id', defaultCompany.id)
       : baseBooksQuery.eq('set_of_books_id', defaultSetOfBooksRef));
 
   const { data: books, error: booksError } = await booksQuery.limit(1);
