@@ -1994,9 +1994,9 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </Card>
 
-                <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[210px] xl:min-h-[260px]">
-                    <div className="col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm flex flex-col justify-center">
-                        <div className="text-[11px] xl:text-[14px] font-bold uppercase space-y-1 xl:space-y-2">
+                <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[145px] xl:min-h-[170px]">
+                    <div className="col-span-3 bg-[#e5f0f0] px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center">
+                        <div className="text-[10px] xl:text-[12px] font-bold uppercase space-y-0.5 xl:space-y-1">
                             <div>Item : <span className="text-primary">{activeStockSnapshot?.item || '-'}</span></div>
                             <div>Batch : <span className="text-primary">{activeStockSnapshot?.batch || '-'}</span></div>
                             <div>Expiry : <span className="text-primary">{activeStockSnapshot?.expiry || '-'}</span></div>
@@ -2005,10 +2005,10 @@ const POS = forwardRef<any, POSProps>(({
                         </div>
                     </div>
 
-                    <div className="col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
-                        <h4 className="text-[8px] xl:text-[11px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1 xl:mb-2 border-b border-gray-200 pb-1">{activeLineTotals ? 'Item Summary' : 'Bill Summary'}</h4>
-                        <div className="grid grid-cols-1 xl:grid-cols-2 xl:gap-x-6 gap-y-0.5 text-[9px] xl:text-[13px] font-bold uppercase tracking-tight">
-                            <div className="space-y-0.5 xl:space-y-1">
+                    <div className="col-span-6 bg-[#e5f0f0] px-2 py-1.5 tally-border !rounded-none shadow-sm">
+                        <h4 className="text-[8px] xl:text-[10px] font-black text-gray-500 uppercase tracking-[0.16em] mb-1 border-b border-gray-200 pb-0.5">{activeLineTotals ? 'Item Summary' : 'Bill Summary'}</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 md:gap-x-4 gap-y-0.5 text-[8px] xl:text-[11px] font-bold uppercase tracking-tight leading-tight">
+                            <div className="space-y-0.5">
                                 {activeLineTotals && (
                                     <>
                                         <div className="flex items-center justify-between text-blue-800"><span>Unit Rate</span> <span className="font-mono">₹{(activeBillItem?.rate || 0).toFixed(2)}</span></div>
@@ -2040,7 +2040,7 @@ const POS = forwardRef<any, POSProps>(({
                                     </>
                                 )}
                             </div>
-                            <div className="space-y-0.5 xl:space-y-1">
+                            <div className="space-y-0.5">
                                 <div className="flex justify-between text-blue-700"><span>SGST</span><span>₹{((activeLineSummary?.gst ?? activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
                                 <div className="flex justify-between text-blue-700"><span>CGST</span><span>₹{((activeLineSummary?.gst ?? activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
                                 {activeLineTotals && <div className="flex justify-between text-blue-700"><span>GST</span><span>₹{(activeLineSummary?.gst || 0).toFixed(2)}</span></div>}
@@ -2053,13 +2053,13 @@ const POS = forwardRef<any, POSProps>(({
                                 </div>
                             </div>
                             {!activeLineTotals && (
-                                <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 xl:col-span-2 border-t border-gray-300 mt-1">
-                                    <span className="xl:text-[14px]">Bill Discount</span>
+                                <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 md:col-span-2 border-t border-gray-300 mt-0.5">
+                                    <span className="xl:text-[12px]">Bill Discount</span>
                                     <input
                                         type="number"
                                         value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
                                         onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
-                                        className="w-16 text-right bg-white border border-gray-300 font-normal text-[9px] no-spinner outline-none px-1 h-4"
+                                        className="w-16 text-right bg-white border border-gray-300 font-normal text-[8px] xl:text-[10px] no-spinner outline-none px-1 h-4"
                                         disabled={isReadOnly}
                                     />
                                 </div>
@@ -2072,16 +2072,16 @@ const POS = forwardRef<any, POSProps>(({
                                     return sub > 0 ? ((tx / sub) * 100).toFixed(2) : '0.00';
                                 })()}%</span>
                             </div>
-                            <div className="flex justify-between font-black text-primary border-t border-gray-300 pt-1 mt-1">
+                            <div className="flex justify-between font-black text-primary border-t border-gray-300 pt-0.5 mt-0.5">
                                 <span>{activeLineTotals ? 'Line Total' : 'Balance'}</span>
                                 <span>₹{(activeLineTotals ? (activeLineSummary?.finalLineTotal ?? 0) : (grandTotal ?? 0)).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
 
-                    <div className="col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm">
-                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1">Customer Info</div>
-                        <div className="text-[11px] font-bold uppercase space-y-1">
+                    <div className="col-span-3 bg-white px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center">
+                        <div className="text-[9px] xl:text-[10px] font-black uppercase text-gray-500 mb-0.5">Customer Info</div>
+                        <div className="text-[10px] xl:text-[11px] font-bold uppercase space-y-0.5 xl:space-y-1">
                             <div>Area: {customerSnapshot.area}</div>
                             <div>Route: {customerSnapshot.route}</div>
                             <div>Collection Days: {customerSnapshot.collectionDays}</div>
