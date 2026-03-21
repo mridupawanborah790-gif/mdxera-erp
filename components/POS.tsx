@@ -54,6 +54,20 @@ interface UploadedFile {
     name: string;
 }
 
+type SchemeCalculationBasis = 'before_discount' | 'after_discount';
+
+interface PendingSchemeApplication {
+    itemId: string;
+    schemeQty: number;
+    mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio';
+    value: number;
+    discountAmount: number;
+    discountPercent: number;
+    freeQuantity: number;
+    schemeTotalQty?: number;
+    schemeDisplayPercent?: number;
+}
+
 const uniformTextStyle = "text-sm font-bold tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-base font-bold tracking-tight uppercase leading-tight";
 
@@ -143,8 +157,14 @@ const recalculateSchemeFields = (item: BillItem): BillItem => {
 
     const billedQty = getBilledQuantity(item);
     const baseRate = Number(item.rate || item.mrp || 0);
+    const gross = billedQty * baseRate;
     const tradeDiscountPercent = Number(item.discountPercent || 0);
-    const netRate = baseRate * (1 - tradeDiscountPercent / 100);
+    const tradeDiscountAmount = gross * (tradeDiscountPercent / 100);
+    const flatDiscountAmount = Math.max(0, Number(item.itemFlatDiscount || 0));
+    const afterTradeAmount = Math.max(0, gross - tradeDiscountAmount - flatDiscountAmount);
+    const schemeBasis: SchemeCalculationBasis = item.schemeCalculationBasis === 'before_discount' ? 'before_discount' : 'after_discount';
+    const schemeBaseAmount = schemeBasis === 'before_discount' ? gross : afterTradeAmount;
+    const schemeUnitRate = billedQty > 0 ? (schemeBaseAmount / billedQty) : 0;
     const appliedQty = Math.max(0, Number(item.schemeQty || 0));
     const schemeValue = Math.max(0, Number(item.schemeValue || 0));
     const schemeTotalQty = Math.max(0, Number(item.schemeTotalQty || 0));
@@ -154,25 +174,25 @@ const recalculateSchemeFields = (item: BillItem): BillItem => {
 
     if (item.schemeMode === 'free_qty') {
         freeQuantity = Math.min(appliedQty, billedQty);
-        calculatedTotalDiscount = freeQuantity * netRate;
+        calculatedTotalDiscount = freeQuantity * schemeUnitRate;
     } else if (item.schemeMode === 'qty_ratio' && schemeTotalQty > 0) {
         const applications = Math.floor(billedQty / schemeTotalQty);
         freeQuantity = applications * appliedQty;
-        calculatedTotalDiscount = freeQuantity * netRate;
+        calculatedTotalDiscount = freeQuantity * schemeUnitRate;
     } else if (item.schemeMode === 'flat') {
         calculatedTotalDiscount = Math.min(appliedQty, billedQty) * schemeValue;
-        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+        freeQuantity = schemeUnitRate > 0 ? calculatedTotalDiscount / schemeUnitRate : 0;
     } else if (item.schemeMode === 'percent') {
-        calculatedTotalDiscount = Math.min(appliedQty || billedQty, billedQty) * (netRate * (schemeValue / 100));
-        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+        const effectiveQty = Math.min(appliedQty || billedQty, billedQty);
+        calculatedTotalDiscount = Math.min(schemeBaseAmount, effectiveQty * (schemeUnitRate * (schemeValue / 100)));
+        freeQuantity = schemeUnitRate > 0 ? calculatedTotalDiscount / schemeUnitRate : 0;
     } else if (item.schemeMode === 'price_override') {
-        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * Math.max(0, netRate - schemeValue);
-        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * Math.max(0, schemeUnitRate - schemeValue);
+        freeQuantity = schemeUnitRate > 0 ? calculatedTotalDiscount / schemeUnitRate : 0;
     }
 
-    const discountedSubtotal = billedQty * netRate;
-    const schemeDiscountAmount = Math.max(0, Math.min(calculatedTotalDiscount, discountedSubtotal));
-    const schemeDiscountPercent = discountedSubtotal > 0 ? (schemeDiscountAmount / discountedSubtotal) * 100 : 0;
+    const schemeDiscountAmount = Math.max(0, Math.min(calculatedTotalDiscount, afterTradeAmount));
+    const schemeDiscountPercent = schemeBaseAmount > 0 ? (schemeDiscountAmount / schemeBaseAmount) * 100 : 0;
 
     return {
         ...item,
@@ -229,6 +249,7 @@ const POS = forwardRef<any, POSProps>(({
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
     const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(transactionToEdit?.pricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
+    const [pendingSchemeApplication, setPendingSchemeApplication] = useState<PendingSchemeApplication | null>(null);
 
     useEffect(() => {
         if (currentUser?.organization_type === 'Distributor') {
@@ -1227,32 +1248,55 @@ const POS = forwardRef<any, POSProps>(({
     //     }
     // }, [addNotification, isValidExpiry]);
 
-    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number, schemeDisplayPercent?: number) => {
+    const applySchemeToLine = useCallback((payload: PendingSchemeApplication, schemeCalculationBasis: SchemeCalculationBasis) => {
         setCartItems(prev => prev.map(item => {
-            if (item.id === itemId) {
+            if (item.id === payload.itemId) {
                 const updatedItem: BillItem = {
                     ...item,
-                    schemeQty,
-                    schemeMode: mode,
-                    schemeValue: value,
-                    freeQuantity,
-                    schemeDiscountAmount: discountAmount,
-                    schemeDiscountPercent: discountPercent,
-                    schemeTotalQty,
-                    schemeDisplayPercent,
+                    schemeQty: payload.schemeQty,
+                    schemeMode: payload.mode,
+                    schemeValue: payload.value,
+                    freeQuantity: payload.freeQuantity,
+                    schemeDiscountAmount: payload.discountAmount,
+                    schemeDiscountPercent: payload.discountPercent,
+                    schemeTotalQty: payload.schemeTotalQty,
+                    schemeDisplayPercent: payload.schemeDisplayPercent,
+                    schemeCalculationBasis,
                 };
                 return recalculateSchemeFields(updatedItem);
             }
             return item;
         }));
         setSchemeItem(null);
+        setPendingSchemeApplication(null);
         setTimeout(() => productSearchInputRef.current?.focus(), 100);
     }, []);
+
+    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number, schemeDisplayPercent?: number) => {
+        const payload: PendingSchemeApplication = {
+            itemId,
+            schemeQty,
+            mode,
+            value,
+            discountAmount,
+            discountPercent,
+            freeQuantity,
+            schemeTotalQty,
+            schemeDisplayPercent,
+        };
+        const configuredSchemeBase = configurations?.displayOptions?.schemeDiscountCalculationBase || 'after_trade_discount';
+        if (configuredSchemeBase === 'ask_user') {
+            setPendingSchemeApplication(payload);
+            return;
+        }
+        const schemeBasis: SchemeCalculationBasis = configuredSchemeBase === 'subtotal' ? 'before_discount' : 'after_discount';
+        applySchemeToLine(payload, schemeBasis);
+    }, [applySchemeToLine, configurations?.displayOptions?.schemeDiscountCalculationBase]);
 
     const handleClearScheme = useCallback((itemId: string) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
-                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeDisplayPercent, schemeTotalQty, schemeBaseRate, ...rest } = item;
+                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeDisplayPercent, schemeTotalQty, schemeBaseRate, schemeCalculationBasis, ...rest } = item;
                 return { ...rest };
             }
             return item;
@@ -2375,6 +2419,39 @@ const POS = forwardRef<any, POSProps>(({
                     onClear={handleClearScheme}
                 />
             )}
+
+            <Modal
+                isOpen={!!pendingSchemeApplication}
+                onClose={() => setPendingSchemeApplication(null)}
+                title="How should scheme discount be applied?"
+                widthClass="max-w-lg"
+            >
+                <div className="p-4 space-y-4">
+                    <p className="text-xs font-bold text-gray-600 uppercase">
+                        Choose one option before final line amount calculation.
+                    </p>
+                    <div className="grid gap-3">
+                        <button
+                            type="button"
+                            onClick={() => pendingSchemeApplication && applySchemeToLine(pendingSchemeApplication, 'after_discount')}
+                            className="w-full text-left p-3 border-2 border-gray-200 hover:border-primary hover:bg-yellow-50 transition-colors"
+                        >
+                            <div className="text-[11px] font-black uppercase text-gray-900">After Disc%</div>
+                            <div className="text-[10px] font-bold uppercase text-gray-500 mt-1">First apply normal discount, then apply scheme on discounted value.</div>
+                            <div className="text-[10px] font-bold text-emerald-700 mt-2">Rate = 100, Disc% = 5% → 95, Scheme on 95</div>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => pendingSchemeApplication && applySchemeToLine(pendingSchemeApplication, 'before_discount')}
+                            className="w-full text-left p-3 border-2 border-gray-200 hover:border-primary hover:bg-yellow-50 transition-colors"
+                        >
+                            <div className="text-[11px] font-black uppercase text-gray-900">At Same Level / Before Discount</div>
+                            <div className="text-[10px] font-bold uppercase text-gray-500 mt-1">Apply scheme on original value before discount.</div>
+                            <div className="text-[10px] font-bold text-emerald-700 mt-2">Rate = 100, Scheme on 100</div>
+                        </button>
+                    </div>
+                </div>
+            </Modal>
 
             <SchemeCalculatorModal
                 isOpen={isSchemeCalcOpen}

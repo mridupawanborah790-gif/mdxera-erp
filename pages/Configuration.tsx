@@ -740,12 +740,13 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                         <div className="flex flex-col gap-1.5">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Scheme Discount Calculation Base</label>
                                             <select 
-                                                value={localConfigs.displayOptions?.schemeDiscountCalculationBase || 'after_trade_discount'}
+                                                value={localConfigs.displayOptions?.schemeDiscountCalculationBase || 'ask_user'}
                                                 onChange={e => handleConfigChange('displayOptions', 'schemeDiscountCalculationBase', e.target.value)}
                                                 className="w-full tally-input !text-sm"
                                             >
-                                                <option value="subtotal">Subtotal (Scheme Discount calculated on Subtotal)</option>
-                                                <option value="after_trade_discount">After Trade Discount (Scheme Discount on Subtotal − Trade Discount)</option>
+                                                <option value="ask_user">Always Ask User (Recommended)</option>
+                                                <option value="after_trade_discount">After Discount (apply scheme on discounted value)</option>
+                                                <option value="subtotal">Before Discount / Same Level (apply scheme on original value)</option>
                                             </select>
                                         </div>
 
