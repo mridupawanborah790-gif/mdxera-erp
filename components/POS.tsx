@@ -17,7 +17,7 @@ import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, Regi
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
-import { calculateBillingTotals, resolveBillingSettings, calculateLineNetAmount } from '../utils/billing';
+import { calculateBillingTotals, resolveBillingSettings, calculateLineNetAmount, isRateFieldAvailable } from '../utils/billing';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
@@ -249,16 +249,19 @@ const POS = forwardRef<any, POSProps>(({
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
     const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(transactionToEdit?.pricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
+    const rateFieldAvailable = useMemo(() => isRateFieldAvailable(configurations), [configurations]);
 
     useEffect(() => {
-        if (currentUser?.organization_type === 'Distributor') {
+        if (!rateFieldAvailable) {
+            setLocalPricingMode('mrp');
+        } else if (currentUser?.organization_type === 'Distributor') {
             setLocalPricingMode('rate');
         } else if (transactionToEdit?.pricingMode) {
             setLocalPricingMode(transactionToEdit.pricingMode);
         } else if (configurations?.displayOptions?.pricingMode) {
             setLocalPricingMode(configurations.displayOptions.pricingMode);
         }
-    }, [currentUser?.organization_type, configurations?.displayOptions?.pricingMode, transactionToEdit?.pricingMode]);
+    }, [currentUser?.organization_type, configurations?.displayOptions?.pricingMode, transactionToEdit?.pricingMode, rateFieldAvailable]);
 
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
@@ -1543,10 +1546,10 @@ const POS = forwardRef<any, POSProps>(({
                     {currentUser?.organization_type === 'Retail' && (
                         <button
                             type="button"
-                            onClick={() => !isReadOnly && setLocalPricingMode(prev => prev === 'mrp' ? 'rate' : 'mrp')}
-                            disabled={isReadOnly}
+                            onClick={() => !isReadOnly && rateFieldAvailable && setLocalPricingMode(prev => prev === 'mrp' ? 'rate' : 'mrp')}
+                            disabled={isReadOnly || !rateFieldAvailable}
                             className={`px-2 py-0.5 border text-white text-[9px] font-black uppercase tracking-widest transition-colors ${localPricingMode === 'mrp' ? 'bg-accent border-accent text-primary' : 'bg-transparent border-white/60'} ${isReadOnly ? 'opacity-80 cursor-default' : ''}`}
-                            title={isReadOnly ? "Pricing mode cannot be changed for existing bills" : "Switch between MRP Based (Inclusive) and Rate Based (Exclusive) pricing"}
+                            title={isReadOnly ? "Pricing mode cannot be changed for existing bills" : (!rateFieldAvailable ? "Rate column is disabled in POS configuration, so billing is locked to MRP mode." : "Switch between MRP Based (Inclusive) and Rate Based (Exclusive) pricing")}
                         >
                             Mode: {localPricingMode === 'mrp' ? 'MRP (INCL)' : 'RATE (EXT)'}
                         </button>
