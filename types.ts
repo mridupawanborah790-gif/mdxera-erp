@@ -129,7 +129,7 @@ export interface DiscountRule {
 export type DiscountLevel = 'line' | 'quantity' | 'invoice';
 export type DiscountValueType = 'flat' | 'percentage';
 export type DiscCalculationBase = 'mrp' | 'ptr' | 'selling_price' | 'net_amount' | 'total_amount';
-export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount';
+export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount' | 'ask_user';
 export type TaxCalculationBaseOption = 'subtotal' | 'after_trade_discount' | 'after_all_discounts';
 
 export interface AppConfigurations {
@@ -282,6 +282,7 @@ export interface BillItem {
     schemeDiscountPercent?: number;
     schemeDisplayPercent?: number;
     schemeBaseRate?: number;
+    schemeCalculationBasis?: 'before_discount' | 'after_discount';
     amount?: number;
     finalAmount?: number;
     manufacturer?: string;
