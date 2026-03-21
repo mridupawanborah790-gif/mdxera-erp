@@ -860,7 +860,7 @@ const POS = forwardRef<any, POSProps>(({
         }));
     };
 
-    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number) => {
+    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, freeQuantity: number, _schemeCalculationBasis: 'before_discount' | 'after_discount', schemeTotalQty?: number) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
                 return {
@@ -1724,6 +1724,7 @@ const POS = forwardRef<any, POSProps>(({
                     isOpen={!!schemeItem}
                     onClose={() => { setSchemeItem(null); setTimeout(() => productSearchInputRef.current?.focus(), 100); }}
                     item={schemeItem}
+                    schemeCalculationBasis={schemeItem.schemeCalculationBasis === 'before_discount' ? 'before_discount' : 'after_discount'}
                     onApply={handleApplyScheme}
                     onClear={handleClearScheme}
                 />
