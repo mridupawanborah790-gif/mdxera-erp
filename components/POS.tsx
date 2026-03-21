@@ -249,7 +249,6 @@ const POS = forwardRef<any, POSProps>(({
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
     const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(transactionToEdit?.pricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
-    const [schemeBasisSelectionItem, setSchemeBasisSelectionItem] = useState<BillItem | null>(null);
 
     useEffect(() => {
         if (currentUser?.organization_type === 'Distributor') {
@@ -336,7 +335,6 @@ const POS = forwardRef<any, POSProps>(({
     });
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
-    const [activeSchemeBasis, setActiveSchemeBasis] = useState<SchemeCalculationBasis>('after_discount');
     const [roundOff, setRoundOff] = useState(0);
     const [isRoundOffManuallyEdited, setIsRoundOffManuallyEdited] = useState(false);
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
@@ -761,14 +759,7 @@ const POS = forwardRef<any, POSProps>(({
                     e.preventDefault();
                     if (cartItems.length > 0) {
                         const targetItem = cartItems[cartItems.length - 1];
-                        const configuredSchemeBase = configurations?.displayOptions?.schemeDiscountCalculationBase || 'after_trade_discount';
-                        if (configuredSchemeBase === 'ask_user') {
-                            setSchemeBasisSelectionItem(targetItem);
-                        } else {
-                            const schemeBasis: SchemeCalculationBasis = configuredSchemeBase === 'subtotal' ? 'before_discount' : 'after_discount';
-                            setActiveSchemeBasis(schemeBasis);
-                            setSchemeItem(targetItem);
-                        }
+                        setSchemeItem(targetItem);
                     }
                     return;
                 case 'F8':
@@ -786,7 +777,7 @@ const POS = forwardRef<any, POSProps>(({
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleSave, cartItems, inventory, customerSearch, customerPhone, billMode, billCategory, invoiceDate, referredBy, addNotification, isCustomerSearchModalOpen, schemeItem, pendingBatchSelection, isSearchModalOpen, configurations?.displayOptions?.schemeDiscountCalculationBase]);
+    }, [handleSave, cartItems, inventory, customerSearch, customerPhone, billMode, billCategory, invoiceDate, referredBy, addNotification, isCustomerSearchModalOpen, schemeItem, pendingBatchSelection, isSearchModalOpen]);
 
     useImperativeHandle(ref, () => ({
         handleSave,
@@ -1279,7 +1270,6 @@ const POS = forwardRef<any, POSProps>(({
             return item;
         }));
         setSchemeItem(null);
-        setSchemeBasisSelectionItem(null);
         setTimeout(() => productSearchInputRef.current?.focus(), 100);
     }, []);
 
@@ -1298,15 +1288,8 @@ const POS = forwardRef<any, POSProps>(({
     }, [applySchemeToLine]);
 
     const openSchemeFlow = useCallback((item: BillItem) => {
-        const configuredSchemeBase = configurations?.displayOptions?.schemeDiscountCalculationBase || 'after_trade_discount';
-        if (configuredSchemeBase === 'ask_user') {
-            setSchemeBasisSelectionItem(item);
-            return;
-        }
-        const schemeBasis: SchemeCalculationBasis = configuredSchemeBase === 'subtotal' ? 'before_discount' : 'after_discount';
-        setActiveSchemeBasis(schemeBasis);
         setSchemeItem(item);
-    }, [configurations?.displayOptions?.schemeDiscountCalculationBase]);
+    }, []);
 
     const handleClearScheme = useCallback((itemId: string) => {
         setCartItems(prev => prev.map(item => {
@@ -2430,54 +2413,11 @@ const POS = forwardRef<any, POSProps>(({
                     isOpen={!!schemeItem}
                     onClose={() => { setSchemeItem(null); setTimeout(() => productSearchInputRef.current?.focus(), 100); }}
                     item={schemeItem}
-                    schemeCalculationBasis={activeSchemeBasis}
+                    schemeCalculationBasis={schemeItem.schemeCalculationBasis === 'before_discount' ? 'before_discount' : 'after_discount'}
                     onApply={handleApplyScheme}
                     onClear={handleClearScheme}
                 />
             )}
-
-            <Modal
-                isOpen={!!schemeBasisSelectionItem}
-                onClose={() => setSchemeBasisSelectionItem(null)}
-                title="Select Scheme Calculation Basis"
-                widthClass="max-w-lg"
-            >
-                <div className="p-4 space-y-4">
-                    <p className="text-xs font-bold text-gray-600 uppercase">
-                        Select one option to continue to Scheme Rule.
-                    </p>
-                    <div className="grid gap-3">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (!schemeBasisSelectionItem) return;
-                                setActiveSchemeBasis('after_discount');
-                                setSchemeItem(schemeBasisSelectionItem);
-                                setSchemeBasisSelectionItem(null);
-                            }}
-                            className="w-full text-left p-3 border-2 border-gray-200 hover:border-primary hover:bg-yellow-50 transition-colors"
-                        >
-                            <div className="text-[11px] font-black uppercase text-gray-900">After Disc%</div>
-                            <div className="text-[10px] font-bold uppercase text-gray-500 mt-1">First apply Discount%, then apply Scheme on discounted value.</div>
-                            <div className="text-[10px] font-bold text-emerald-700 mt-2">Rate = 100, Disc% = 5% → 95, Scheme on 95</div>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (!schemeBasisSelectionItem) return;
-                                setActiveSchemeBasis('before_discount');
-                                setSchemeItem(schemeBasisSelectionItem);
-                                setSchemeBasisSelectionItem(null);
-                            }}
-                            className="w-full text-left p-3 border-2 border-gray-200 hover:border-primary hover:bg-yellow-50 transition-colors"
-                        >
-                            <div className="text-[11px] font-black uppercase text-gray-900">At Same Level / Before Discount</div>
-                            <div className="text-[10px] font-bold uppercase text-gray-500 mt-1">Scheme is applied on original value.</div>
-                            <div className="text-[10px] font-bold text-emerald-700 mt-2">Rate = 100, Scheme on 100</div>
-                        </button>
-                    </div>
-                </div>
-            </Modal>
 
             <SchemeCalculatorModal
                 isOpen={isSchemeCalcOpen}
