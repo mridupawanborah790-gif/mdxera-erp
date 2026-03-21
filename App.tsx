@@ -478,7 +478,6 @@ const App: React.FC = () => {
                 setAuthView('reset');
             } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 if (session?.user) {
-                    setCurrentPage('dashboard');
                     storage.getCurrentUser().then(async user => {
                         if (user) {
                             setCurrentUser(user);
