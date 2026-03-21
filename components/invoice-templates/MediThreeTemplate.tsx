@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import type { AppConfigurations, DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
-import { calculateBillingTotals } from '../../utils/billing';
+import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
@@ -13,6 +13,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
   const isNonGst = bill.billType === 'non-gst';
   const isLandscape = orientation === 'landscape';
   const MAX_ITEMS_PER_PAGE = 16;
+  const showRateColumn = isRateFieldAvailable(bill.configurations);
 
   const computedTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -24,7 +25,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
   }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const calculations = useMemo(() => {
-    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+    const effectivePricingMode = resolveEffectivePricingMode(bill.pharmacy?.organization_type, bill.pricingMode, bill.configurations);
 
     const items = (bill.items || []).map((item, index) => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
@@ -325,7 +326,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                     <th style={{ width: columnWidths.batch }}>Batch</th>
                     <th style={{ width: columnWidths.qty }}>Qty + Free</th>
                     <th style={{ width: columnWidths.mrp }}>MRP</th>
-                    <th style={{ width: columnWidths.rate }}>Rate</th>
+                    {showRateColumn && <th style={{ width: columnWidths.rate }}>Rate</th>}
                     <th style={{ width: columnWidths.expiry }}>Expiry</th>
                     <th style={{ width: columnWidths.discount }}>Disc%</th>
                     <th style={{ width: columnWidths.sgst }}>SGST</th>
@@ -344,7 +345,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                       <td className="center">{item.batch}</td>
                       <td className="center">{item.qtyText}</td>
                       <td className="right num">{(item.mrp || 0).toFixed(2)}</td>
-                      <td className="right num">{(item.billedRate || 0).toFixed(2)}</td>
+                      {showRateColumn && <td className="right num">{(item.billedRate || 0).toFixed(2)}</td>}
                       <td className="center">{item.expiry}</td>
                       <td className="center">{(item.discountPercent || 0).toFixed(2)}</td>
                       <td className="center num">{item.sgstRate.toFixed(2)}%</td>
@@ -354,7 +355,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                   ))}
                   {Array.from({ length: blankRows }, (_, index) => (
                     <tr key={`blank-${pageIndex + 1}-${index + 1}`} className="medi-three-row-empty" aria-hidden="true">
-                      <td>&nbsp;</td>
+                      {showRateColumn && <td>&nbsp;</td>}
                       <td>&nbsp;</td>
                       <td>&nbsp;</td>
                       <td>&nbsp;</td>

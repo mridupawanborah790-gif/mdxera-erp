@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatExpiryToMMYY } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals } from '../../utils/billing';
+import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -11,6 +11,7 @@ interface TemplateProps {
 const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
+  const showRateColumn = isRateFieldAvailable(bill.configurations);
 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -27,7 +28,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
     let totalQty = 0;
     let totalDiscountValue = 0;
 
-    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+    const effectivePricingMode = resolveEffectivePricingMode(bill.pharmacy?.organization_type, bill.pricingMode, bill.configurations);
 
     const items = (bill.items || []).map((item) => {
       const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
@@ -103,7 +104,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
           <tr className="font-bold border-b border-dashed border-black">
             <th className="w-[44%] text-left pb-0.5">Description</th>
             <th className="w-[12%] text-center pb-0.5">Qty</th>
-            <th className="w-[20%] text-right pb-0.5">Rate</th>
+            {showRateColumn && <th className="w-[20%] text-right pb-0.5">Rate</th>}
             <th className="w-[24%] text-right pb-0.5">Amount</th>
           </tr>
         </thead>
@@ -119,7 +120,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 </div>
               </td>
               <td className="py-0.5 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
-              <td className="py-0.5 text-right">{(item.billedRate || 0).toFixed(2)}</td>
+              {showRateColumn && <td className="py-0.5 text-right">{(item.billedRate || 0).toFixed(2)}</td>}
               <td className="py-0.5 text-right font-semibold">{item.finalPrice.toFixed(2)}</td>
             </tr>
           ))}

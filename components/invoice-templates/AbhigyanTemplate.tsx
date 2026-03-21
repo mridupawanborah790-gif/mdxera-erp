@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals } from '../../utils/billing';
+import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -12,6 +12,7 @@ const ITEMS_PER_PAGE = 10;
 
 const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
+  const showRateColumn = isRateFieldAvailable(bill.configurations);
 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -25,7 +26,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const calculations = useMemo(() => {
     let subTotalTaxable = 0;
 
-    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+    const effectivePricingMode = resolveEffectivePricingMode(bill.pharmacy?.organization_type, bill.pricingMode, bill.configurations);
 
     const items = (bill.items || []).map((item, idx) => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
@@ -171,7 +172,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   <th className="w-[10%]">HSN/SAC</th>
                   <th className="w-[8%]">GST</th>
                   <th className="w-[8%]">Qty</th>
-                  <th className="w-[8%]">Rate</th>
+                  {showRateColumn && <th className="w-[8%]">Rate</th>}
                   <th className="w-[6%]">Per</th>
                   <th className="w-[10%] text-right">Amount</th>
               </tr>
@@ -184,7 +185,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
                       <td className="text-center">{item.hsn}</td>
                       <td className="text-center">{item.gstRate}%</td>
                       <td className="text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
-                      <td className="text-center">{(item.billedRate ?? 0).toFixed(2)}</td>
+                      {showRateColumn && <td className="text-center">{(item.billedRate ?? 0).toFixed(2)}</td>}
                       <td className="text-center">{item.unitLabel}</td>
                       <td className="text-right font-bold">{item.lineTotal.toFixed(2)}</td>
                   </tr>
@@ -192,7 +193,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
               
               {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                   <tr key={`spacer-${i}`} className="row-min-h">
-                      <td className="border-l border-r border-black"></td>
+                      {showRateColumn && <td className="border-l border-r border-black"></td>}
                       <td className="border-l border-r border-black"></td>
                       <td className="border-l border-r border-black"></td>
                       <td className="border-l border-r border-black"></td>

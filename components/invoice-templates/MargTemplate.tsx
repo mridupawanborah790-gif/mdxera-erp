@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
-import { calculateBillingTotals } from '../../utils/billing';
+import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
@@ -21,6 +21,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const isMode8 = displayOptions.calculationMode === '8';
   const showItemWiseDisc = displayOptions.showItemWiseDiscountOnPrint !== false;
   const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
+  const showRateColumn = isRateFieldAvailable(bill.configurations);
 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -36,7 +37,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     let totalSgst = 0;
     let totalCgst = 0;
 
-    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+    const effectivePricingMode = resolveEffectivePricingMode(bill.pharmacy?.organization_type, bill.pricingMode, bill.configurations);
 
     const items = (bill.items || []).map(item => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
@@ -241,7 +242,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                 <th className="w-[9%]">BATCH</th>
                 <th className="w-[7%]">EXP.</th>
                 <th className="w-[8%] text-right">M.R.P</th>
-                <th className="w-[8%] text-right">RATE</th>
+                {showRateColumn && <th className="w-[8%] text-right">RATE</th>}
                 {showItemWiseDisc && <th className="w-[5%]">D%</th>}
                 {showSchemeColumn && <th className="w-[5%]">SCH%</th>}
                 <th className="w-[5%]">GST%</th>
@@ -261,7 +262,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <td className="text-center">{item.batch}</td>
                     <td className="text-center text-[7pt]">{item.expiry}</td>
                     <td className="text-right">{(item.mrp || 0).toFixed(2)}</td>
-                    <td className="text-right text-blue-900">{(item.billedRate || 0).toFixed(2)}</td>
+                    {showRateColumn && <td className="text-right text-blue-900">{(item.billedRate || 0).toFixed(2)}</td>}
                     {showItemWiseDisc && <td className="text-center text-red-600">{item.discountPercent || '0'}</td>}
                     {showSchemeColumn && <td className="text-center text-emerald-700">{item.schemeDiscountPercent || '-'}</td>}
                     <td className="text-center">{(item.gstPercent || 0).toFixed(0)}</td>
@@ -271,7 +272,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               })}
               {isLastPage && Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                 <tr key={`spacer-${i}`} className="row-height border-b border-gray-100 last:border-b-0">
-                    <td className="border-r border-black"></td>
+                    {showRateColumn && <td className="border-r border-black"></td>}
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>

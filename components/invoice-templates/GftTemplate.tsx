@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals } from '../../utils/billing';
+import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -16,6 +16,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
   const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
+  const showRateColumn = isRateFieldAvailable(bill.configurations);
   
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -31,7 +32,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     let totalCgst = 0;
     let totalSgst = 0;
 
-    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+    const effectivePricingMode = resolveEffectivePricingMode(bill.pharmacy?.organization_type, bill.pricingMode, bill.configurations);
 
     const itemsWithCalculations = bill.items.map(item => {
         const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
@@ -191,7 +192,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                         <th className="p-1 border-r border-black text-left w-[9%]">Batch</th>
                         <th className="p-1 border-r border-black text-center w-[7%]">Exp.</th>
                         <th className="p-1 border-r border-black text-center w-[6%]">Qty</th>
-                        <th className="p-1 border-r border-black text-right w-[7%]">Rate</th>
+                        {showRateColumn && <th className="p-1 border-r border-black text-right w-[7%]">Rate</th>}
                         <th className="p-1 border-r border-black text-right w-[5%]">Disc%</th>
                         {showSchemeColumn && <th className="p-1 border-r border-black text-right w-[5%]">Sch%</th>}
                         {!isNonGst && <th className="p-1 border-r border-black text-right w-[5%]">GST%</th>}
@@ -209,7 +210,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="p-1 border-r border-black text-center font-bold">
                                 {formatPackLooseQuantity(item.quantity, item.looseQuantity)} {item.freeQuantity ? `+${item.freeQuantity}` : ''}
                             </td>
-                            <td className="p-1 border-r border-black text-right">{(item.billedRate || 0).toFixed(2)}</td>
+                            {showRateColumn && <td className="p-1 border-r border-black text-right">{(item.billedRate || 0).toFixed(2)}</td>}
                             <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>
                             {showSchemeColumn && <td className="p-1 border-r border-black text-right">{item.schemeDiscountPercent ? item.schemeDiscountPercent : '-'}</td>}
                             {!isNonGst && <td className="p-1 border-r border-black text-right">{item.gstPercent}</td>}
@@ -218,7 +219,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     ))}
                     {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                         <tr key={`empty-${i}`} className="border-b border-gray-300 last:border-b-0 h-6">
-                            <td className="border-r border-black"></td>
+                            {showRateColumn && <td className="border-r border-black"></td>}
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
