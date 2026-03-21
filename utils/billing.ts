@@ -34,10 +34,21 @@ const resolveSchemeBaseForItem = (item: BillItem, schemeBase: SchemeDiscountCalc
   return schemeBase === 'subtotal' ? 'subtotal' : 'after_trade_discount';
 };
 
+const getEffectiveSchemePercent = (item: BillItem): number => {
+  const explicitPercent = Number(item.schemeDiscountPercent || 0);
+  if (explicitPercent > 0) return explicitPercent;
+
+  const displayPercent = Number(item.schemeDisplayPercent || 0);
+  const isPercentOnlyEntry = item.schemeMode === 'percent' || !item.schemeMode;
+  if (isPercentOnlyEntry && displayPercent > 0) return displayPercent;
+
+  return 0;
+};
+
 const getSchemeDiscountAmount = (item: BillItem, schemeBaseAmount: number): number => {
-  const hasPercent = (item.schemeDiscountPercent || 0) > 0;
-  if (hasPercent) {
-    return Math.max(0, schemeBaseAmount * ((item.schemeDiscountPercent || 0) / 100));
+  const effectivePercent = getEffectiveSchemePercent(item);
+  if (effectivePercent > 0) {
+    return Math.max(0, schemeBaseAmount * (effectivePercent / 100));
   }
   return Math.max(0, item.schemeDiscountAmount || 0);
 };

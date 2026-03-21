@@ -1229,7 +1229,7 @@ const POS = forwardRef<any, POSProps>(({
                     const parsedRate = rateText === '' ? 0 : (parseFloat(rateText) || 0);
                     updated.rate = Math.min(parsedRate, 999999.99);
                     updated.schemeBaseRate = undefined;
-                    return updated;
+                    return updated.schemeMode ? recalculateSchemeFields(updated) : updated;
                 }
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
                     (updated as any)[field] = value === '' ? 0 : (parseFloat(value) || 0);
