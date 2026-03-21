@@ -81,10 +81,6 @@ const ManualPurchase = React.forwardRef<any, ManualPurchaseProps>(({
   const [searchText, setSearchText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  React.useImperativeHandle(ref, () => ({
-    isDirty: lines.some(l => l.description.trim() !== '' || l.rate > 0) || supplierId !== '' || supplierInvoiceNumber !== '' || grnNumber !== ''
-  }));
-
   const [isAddMasterOpen, setIsAddMasterOpen] = useState(false);
   const [newMaterialName, setNewMaterialName] = useState('');
   const [newMaterialCode, setNewMaterialCode] = useState('');
@@ -298,6 +294,21 @@ const ManualPurchase = React.forwardRef<any, ManualPurchaseProps>(({
       setIsSubmitting(false);
     }
   };
+
+  React.useImperativeHandle(ref, () => ({
+    handleSubmit: () => onSave('completed'),
+    resetForm: () => {
+      setDate(new Date().toISOString().slice(0, 10));
+      setSupplierId('');
+      setPhone('');
+      setSupplierInvoiceNumber('');
+      setGrnNumber('');
+      setPurchaseNo('AUTO');
+      setLines([newLine()]);
+      setSearchText('');
+    },
+    isDirty: lines.some(l => l.description.trim() !== '' || l.rate > 0) || supplierId !== '' || supplierInvoiceNumber !== '' || grnNumber !== ''
+  }), [lines, supplierId, supplierInvoiceNumber, grnNumber, onSave]);
 
   const handleAddMaterialMaster = async () => {
     const name = newMaterialName.trim();

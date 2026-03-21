@@ -59,10 +59,6 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
 
-    React.useImperativeHandle(ref, () => ({
-        isDirty: view === 'create' && (items.length > 0 || selectedDistributorId !== '' || remarks !== '')
-    }));
-
     const supplierSelectRef = useRef<HTMLSelectElement>(null);
     const itemSearchRef = useRef<HTMLInputElement>(null);
 
@@ -164,6 +160,19 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             setIsSaving(false);
         }
     };
+
+    React.useImperativeHandle(ref, () => ({
+        handleSubmit: handleSavePO,
+        resetForm: () => {
+            setItems([]);
+            setRemarks('');
+            setSelectedDistributorId('');
+            setSearchTerm('');
+            setView('create');
+            onClearDraft();
+        },
+        isDirty: view === 'create' && (items.length > 0 || selectedDistributorId !== '' || remarks !== '')
+    }), [handleSavePO, view, items, selectedDistributorId, remarks, onClearDraft]);
 
     const searchResults = useMemo(() => {
         if (!searchTerm) return [];
