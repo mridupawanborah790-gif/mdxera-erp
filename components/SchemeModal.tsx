@@ -7,7 +7,8 @@ interface SchemeModalProps {
     isOpen: boolean;
     onClose: () => void;
     item: BillItem;
-    onApply: (itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number, schemeDisplayPercent?: number) => void;
+    schemeCalculationBasis: 'before_discount' | 'after_discount';
+    onApply: (itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeCalculationBasis: 'before_discount' | 'after_discount', schemeTotalQty?: number, schemeDisplayPercent?: number) => void;
     onClear: (itemId: string) => void;
 }
 
@@ -71,7 +72,7 @@ const calculateSchemeDisplayPercent = (params: { mode: 'flat' | 'percent' | 'pri
 };
 
 
-const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onApply, onClear }) => {
+const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, schemeCalculationBasis, onApply, onClear }) => {
     const [schemeRule, setSchemeRule] = useState('');
     const [selectedRule, setSelectedRule] = useState('custom');
     const [schemePercent, setSchemePercent] = useState<number>(0);
@@ -108,8 +109,12 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
     const unitsPerPack = item.unitsPerPack || 1;
     const billedQty = Math.max(0, (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack));
     const baseRate = item.rate ?? item.mrp ?? 0;
-    const netRate = baseRate * (1 - ((item.discountPercent || 0) / 100));
+    const tradeDiscountFactor = 1 - ((item.discountPercent || 0) / 100);
+    const netRate = baseRate * tradeDiscountFactor;
     const lineSubtotal = billedQty * netRate;
+    const lineGross = billedQty * baseRate;
+    const schemeBaseAmount = schemeCalculationBasis === 'before_discount' ? lineGross : lineSubtotal;
+    const schemeBaseRate = billedQty > 0 ? (schemeBaseAmount / billedQty) : 0;
 
     const parsedRule = parseSchemeRule(schemeRule);
     const parsedPercentRule = parsePercentRule(schemeRule);
@@ -117,15 +122,15 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
     const computed = (() => {
         if (schemeRate > 0) {
             const discountAmount = Math.min(lineSubtotal, billedQty * schemeRate);
-            const discountPercent = lineSubtotal > 0 ? (discountAmount / lineSubtotal) * 100 : 0;
-            const freeQuantity = netRate > 0 ? discountAmount / netRate : 0;
+            const discountPercent = schemeBaseAmount > 0 ? (discountAmount / schemeBaseAmount) * 100 : 0;
+            const freeQuantity = schemeBaseRate > 0 ? discountAmount / schemeBaseRate : 0;
             return { mode: 'flat' as const, discountPercent, discountAmount, schemeQty: billedQty, schemeTotalQty: undefined, value: schemeRate, freeQuantity };
         }
 
         if (schemePercent > 0 || (parsedPercentRule || 0) > 0) {
             const resolvedPercent = schemePercent > 0 ? schemePercent : (parsedPercentRule || 0);
-            const discountAmount = Math.min(lineSubtotal, lineSubtotal * (resolvedPercent / 100));
-            const freeQuantity = netRate > 0 ? discountAmount / netRate : 0;
+            const discountAmount = Math.min(lineSubtotal, schemeBaseAmount * (resolvedPercent / 100));
+            const freeQuantity = schemeBaseRate > 0 ? discountAmount / schemeBaseRate : 0;
             return {
                 mode: 'percent' as const,
                 discountPercent: resolvedPercent,
@@ -140,8 +145,8 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
         if (parsedRule) {
             const ruleApplications = Math.floor(billedQty / parsedRule.requiredQty);
             const freeQuantity = ruleApplications * parsedRule.freeQty;
-            const discountAmount = Math.min(lineSubtotal, freeQuantity * netRate);
-            const benefitPercent = lineSubtotal > 0 ? (discountAmount / lineSubtotal) * 100 : 0;
+            const discountAmount = Math.min(lineSubtotal, freeQuantity * schemeBaseRate);
+            const benefitPercent = schemeBaseAmount > 0 ? (discountAmount / schemeBaseAmount) * 100 : 0;
             return {
                 mode: 'qty_ratio' as const,
                 discountPercent: benefitPercent,
@@ -187,6 +192,7 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
             computed.discountAmount,
             computed.discountPercent,
             computed.freeQuantity,
+            schemeCalculationBasis,
             computed.schemeTotalQty,
             schemeDisplayPercent
         );
@@ -198,6 +204,9 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
             <form onSubmit={handleApply} onKeyDown={handleEnterToNextField} className="flex flex-col h-full">
                 <div className="space-y-4 p-4 flex-1 overflow-y-auto">
                     <div className="text-xs text-gray-500 uppercase font-bold">{item.name}</div>
+                    <div className="text-[10px] font-black uppercase text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-1 inline-flex">
+                        Basis: {schemeCalculationBasis === 'after_discount' ? 'After Disc%' : 'Before Discount'}
+                    </div>
 
                     <div>
                         <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Quick Scheme</label>
