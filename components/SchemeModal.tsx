@@ -77,10 +77,12 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, scheme
     const [selectedRule, setSelectedRule] = useState('custom');
     const [schemePercent, setSchemePercent] = useState<number>(0);
     const [schemeRate, setSchemeRate] = useState<number>(0);
+    const [selectedBasis, setSelectedBasis] = useState<'before_discount' | 'after_discount'>('after_discount');
     const firstInputRef = useRef<HTMLSelectElement>(null);
 
     useEffect(() => {
         if (!isOpen) return;
+        setSelectedBasis(schemeCalculationBasis === 'before_discount' ? 'before_discount' : 'after_discount');
 
         if (item.schemeMode === 'qty_ratio' && (item.schemeQty || 0) > 0 && (item.schemeTotalQty || 0) > 0) {
             setSchemeRule(`${item.schemeQty} in ${item.schemeTotalQty}`);
@@ -113,7 +115,7 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, scheme
     const netRate = baseRate * tradeDiscountFactor;
     const lineSubtotal = billedQty * netRate;
     const lineGross = billedQty * baseRate;
-    const schemeBaseAmount = schemeCalculationBasis === 'before_discount' ? lineGross : lineSubtotal;
+    const schemeBaseAmount = selectedBasis === 'before_discount' ? lineGross : lineSubtotal;
     const schemeBaseRate = billedQty > 0 ? (schemeBaseAmount / billedQty) : 0;
 
     const parsedRule = parseSchemeRule(schemeRule);
@@ -192,7 +194,7 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, scheme
             computed.discountAmount,
             computed.discountPercent,
             computed.freeQuantity,
-            schemeCalculationBasis,
+            selectedBasis,
             computed.schemeTotalQty,
             schemeDisplayPercent
         );
@@ -204,14 +206,40 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, scheme
             <form onSubmit={handleApply} onKeyDown={handleEnterToNextField} className="flex flex-col h-full">
                 <div className="space-y-4 p-4 flex-1 overflow-y-auto">
                     <div className="text-xs text-gray-500 uppercase font-bold">{item.name}</div>
-                    <div className="text-[10px] font-black uppercase text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-1 inline-flex">
-                        Basis: {schemeCalculationBasis === 'after_discount' ? 'After Disc%' : 'Before Discount'}
+                    <div>
+                        <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">
+                            Scheme Calculation Basis <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                            ref={firstInputRef}
+                            value={selectedBasis}
+                            required
+                            onChange={(e) => setSelectedBasis(e.target.value as 'before_discount' | 'after_discount')}
+                            className="w-full p-2 border border-gray-300 bg-white focus:bg-yellow-50 outline-none text-sm font-bold"
+                        >
+                            <option value="after_discount">After Disc% (Recommended)</option>
+                            <option value="before_discount">At Same Level / Before Discount</option>
+                        </select>
+                        <div className="mt-2 rounded border border-indigo-200 bg-indigo-50 p-2 space-y-1">
+                            <div className="text-[10px] font-black uppercase text-indigo-700">
+                                Selected Basis: {selectedBasis === 'after_discount' ? 'After Disc% (Recommended)' : 'At Same Level / Before Discount'}
+                            </div>
+                            <div className="text-[10px] font-bold text-indigo-700">
+                                {selectedBasis === 'after_discount'
+                                    ? 'First apply Discount%, then apply Scheme on discounted value.'
+                                    : 'Scheme is applied on original value.'}
+                            </div>
+                            <div className="text-[10px] font-bold text-emerald-700">
+                                {selectedBasis === 'after_discount'
+                                    ? 'Rate = 100, Disc% = 5% → 95, Scheme on 95'
+                                    : 'Rate = 100, Scheme on 100'}
+                            </div>
+                        </div>
                     </div>
 
                     <div>
                         <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Quick Scheme</label>
                         <select
-                            ref={firstInputRef}
                             value={selectedRule}
                             onChange={(e) => {
                                 const nextRule = e.target.value;
