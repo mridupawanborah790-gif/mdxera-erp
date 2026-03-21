@@ -4,7 +4,8 @@ import Card from '../components/Card';
 import AddProductModal from '../components/AddProductModal';
 import EditProductModal from '../components/EditProductModal';
 import ExportInventoryModal from '../components/ExportInventoryModal';
-import type { InventoryItem, RegisteredPharmacy, ModuleConfig, AppConfigurations, Medicine } from '../types';
+import MrpChangeLogModal from '../components/MrpChangeLogModal';
+import type { InventoryItem, RegisteredPharmacy, ModuleConfig, AppConfigurations, Medicine, MrpChangeLogEntry } from '../types';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY } from '../utils/helpers';
 import { configurableModules } from '../constants';
@@ -38,6 +39,7 @@ interface InventoryProps {
     onAddProduct: (item: Omit<InventoryItem, 'id'>) => void;
     onAddProductLocal?: (item: Omit<InventoryItem, 'id'>) => void;
     onUpdateProduct: (item: InventoryItem) => void;
+    mrpChangeLogs?: MrpChangeLogEntry[];
 }
 
 const Inventory: React.FC<InventoryProps> = ({
@@ -51,7 +53,8 @@ const Inventory: React.FC<InventoryProps> = ({
     onUpdateConfig,
     onBulkAddInventory,
     onAddProduct,
-    onUpdateProduct
+    onUpdateProduct,
+    mrpChangeLogs = []
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -61,6 +64,7 @@ const Inventory: React.FC<InventoryProps> = ({
     const [isColumnSelectorOpen, setIsColumnSelectorOpen] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [currentPage, setCurrentPage] = useState(1);
+    const [isMrpLogOpen, setIsMrpLogOpen] = useState(false);
     const columnSelectorRef = useRef<HTMLDivElement>(null);
     const tableBodyRef = useRef<HTMLTableSectionElement>(null);
 
@@ -273,6 +277,12 @@ const Inventory: React.FC<InventoryProps> = ({
                             />
                         </div>
                         <div className="flex items-center gap-4 ml-auto">
+                            <button
+                                onClick={() => setIsMrpLogOpen(true)}
+                                className="px-4 py-2 border border-primary bg-white text-primary text-[10px] font-black uppercase hover:bg-primary hover:text-white transition-colors"
+                            >
+                                MRP Log
+                            </button>
                             <label className="flex items-center gap-2 cursor-pointer bg-white px-4 py-2 border border-gray-400">
                                 <input 
                                     type="checkbox" 
@@ -504,6 +514,7 @@ const Inventory: React.FC<InventoryProps> = ({
                     pharmacyName={currentUser?.pharmacy_name || 'MDXERA ERP'}
                 />
             )}
+            <MrpChangeLogModal isOpen={isMrpLogOpen} onClose={() => setIsMrpLogOpen(false)} logs={mrpChangeLogs} />
         </main>
     );
 };

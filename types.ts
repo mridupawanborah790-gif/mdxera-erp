@@ -616,6 +616,19 @@ export interface Medicine {
     updated_at?: string;
 }
 
+export interface MrpChangeLogEntry {
+    id: string;
+    organization_id: string;
+    materialCode: string;
+    productName: string;
+    oldMrp: number;
+    newMrp: number;
+    changedAt: string;
+    changedById?: string;
+    changedByName?: string;
+    sourceScreen: 'Inventory' | 'Material Master';
+}
+
 export interface SupplierProductMap {
     id: string;
     organization_id: string;
