@@ -1515,13 +1515,13 @@ export const recordSupplierPaymentWithAccounting = async (
             payoutAccountName = bank.bankName || bank.bank_name || 'Bank Account';
         }
 
-        const reservedVoucher = await reserveVoucherNumber('purchase-entry', user);
+        const supplierPaymentVoucherNumber = `PMT-${Date.now()}`;
 
         const { data: header, error: headerError } = await supabase
             .from('journal_entry_header')
             .insert({
                 organization_id: user.organization_id,
-                journal_entry_number: reservedVoucher.documentNumber,
+                journal_entry_number: supplierPaymentVoucherNumber,
                 posting_date: args.date,
                 status: 'Posted',
                 reference_type: 'SUPPLIER_PAYMENT',
