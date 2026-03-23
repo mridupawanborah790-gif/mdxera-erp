@@ -123,7 +123,8 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
     const grandTotal = bill.total || (taxableValue + totalGst + roundOff);
 
-    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, billDiscount, taxableValue, totalGst, roundOff, grandTotal };
+    const schemeDiscount = computedBillTotals.schemeTotal || 0;
+    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, taxableValue, totalGst, roundOff, grandTotal };
   }, [bill, isNonGst, computedBillTotals, showBillDiscount]);
 
   return (
@@ -258,7 +259,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                 <th className="w-[7%]">EXP.</th>
                 <th className="w-[8%] text-right">M.R.P</th>
                 {showRateColumn && <th className="w-[8%] text-right">RATE</th>}
-                {showItemWiseDisc && <th className="w-[5%]">D%</th>}
+                {showTradeDiscountColumn && <th className="w-[5%]">D%</th>}
                 {showSchemeColumn && <th className="w-[5%]">SCH%</th>}
                 <th className="w-[5%]">GST%</th>
                 <th className="w-[11%] text-right border-r-0">AMOUNT</th>
@@ -304,7 +305,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
                     <td className="border-r border-black"></td>
-                    {showItemWiseDisc && <td className="border-r border-black"></td>}
+                    {showTradeDiscountColumn && <td className="border-r border-black"></td>}
                     {showSchemeColumn && <td className="border-r border-black"></td>}
                     <td className="border-r border-black"></td>
                     <td className=""></td>
@@ -312,7 +313,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               ))}
               {!isLastPage && (
                 <tr className="page-break-footer">
-                  <td colSpan={11 + (showItemWiseDisc ? 1 : 0) + (showSchemeColumn ? 1 : 0)} style={{ borderBottom: '1px solid #000' }}></td>
+                  <td colSpan={11 + (showTradeDiscountColumn ? 1 : 0) + (showSchemeColumn ? 1 : 0)} style={{ borderBottom: '1px solid #000' }}></td>
                 </tr>
               )}
             </tbody>
@@ -385,6 +386,20 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <div className="p-2 flex-1 space-y-1 text-[8.5pt] font-bold">
                         <div className="flex justify-between"><span>SUB TOTAL</span> <span className="font-black">₹ {(bill.subtotal || 0).toFixed(2)}</span></div>
                         
+                        {calculations.tradeDiscount > 0 && (
+                          <div className="flex justify-between text-indigo-700 font-black">
+                              <span>Trade Discount (₹)</span>
+                              <span>- {calculations.tradeDiscount.toFixed(2)}</span>
+                          </div>
+                        )}
+
+                        {calculations.schemeDiscount > 0 && (
+                          <div className="flex justify-between text-emerald-700 font-black">
+                              <span>Scheme Discount (₹)</span>
+                              <span>- {calculations.schemeDiscount.toFixed(2)}</span>
+                          </div>
+                        )}
+
                         {showBillDiscount && calculations.billDiscount > 0 && (
                           <div className="flex justify-between text-indigo-700 font-black">
                               <span>{isMode8 ? 'Adjustment (Mode 8)' : 'Bill Discount'}</span> 

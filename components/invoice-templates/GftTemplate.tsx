@@ -101,7 +101,9 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     const totalTaxFromBill = isNonGst ? 0 : computedBillTotals.tax;
     const grandTotal = bill.total || computedBillTotals.baseTotal;
 
-    return { items: itemsWithCalculations, itemChunks, subtotal: subtotalFromBill, totalCgst, totalSgst, totalTaxFromBill, billDiscount, roundOff, grandTotal };
+    const tradeDiscount = computedBillTotals.tradeDiscount || 0;
+    const schemeDiscount = computedBillTotals.schemeTotal || 0;
+    return { items: itemsWithCalculations, itemChunks, subtotal: subtotalFromBill, totalCgst, totalSgst, totalTaxFromBill, tradeDiscount, schemeDiscount, billDiscount, roundOff, grandTotal };
   }, [bill, isNonGst, computedBillTotals]);
 
   const termsList = bill.pharmacy.terms_and_conditions 
@@ -208,7 +210,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                         <th className="p-1 border-r border-black text-center w-[7%]">Exp.</th>
                         <th className="p-1 border-r border-black text-center w-[6%]">Qty</th>
                         {showRateColumn && <th className="p-1 border-r border-black text-right w-[7%]">Rate</th>}
-                        <th className="p-1 border-r border-black text-right w-[5%]">Disc%</th>
+                        {showTradeDiscountColumn && <th className="p-1 border-r border-black text-right w-[5%]">Disc%</th>}
                         {showSchemeColumn && <th className="p-1 border-r border-black text-right w-[5%]">Sch%</th>}
                         {!isNonGst && <th className="p-1 border-r border-black text-right w-[5%]">GST%</th>}
                         <th className="p-1 text-right w-[11%]">Amount</th>
@@ -250,7 +252,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
+                            {showTradeDiscountColumn && <td className="border-r border-black"></td>}
                             {showSchemeColumn && <td className="border-r border-black"></td>}
                             {!isNonGst && <td className="border-r border-black"></td>}
                             <td></td>
