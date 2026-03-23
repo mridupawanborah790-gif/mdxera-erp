@@ -266,7 +266,11 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <td className="text-right">{(item.mrp || 0).toFixed(2)}</td>
                     {showRateColumn && <td className="text-right text-blue-900">{(item.billedRate || 0).toFixed(2)}</td>}
                     {showTradeDiscountColumn && <td className="text-center text-red-600">{item.discountPercent || '0'}</td>}
-                    {showSchemeColumn && <td className="text-center text-emerald-700">{item.schemeDiscountPercent || '-'}</td>}
+                    {showSchemeColumn && (
+                      <td className="text-center text-emerald-700">
+                        {(item.schemeDiscountPercent || 0) > 0 ? Number(item.schemeDiscountPercent).toFixed(2) : ''}
+                      </td>
+                    )}
                     <td className="text-center">{(item.gstPercent || 0).toFixed(0)}</td>
                     <td className="text-right font-black border-r-0 text-gray-950">{(item.displayAmount || 0).toFixed(2)}</td>
                   </tr>

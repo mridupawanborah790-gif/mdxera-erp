@@ -215,7 +215,11 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             </td>
                             {showRateColumn && <td className="p-1 border-r border-black text-right">{(item.billedRate || 0).toFixed(2)}</td>}
                             {showTradeDiscountColumn && <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>}
-                            {showSchemeColumn && <td className="p-1 border-r border-black text-right">{item.schemeDiscountPercent ? item.schemeDiscountPercent : '-'}</td>}
+                            {showSchemeColumn && (
+                              <td className="p-1 border-r border-black text-right">
+                                {(item.schemeDiscountPercent || 0) > 0 ? Number(item.schemeDiscountPercent).toFixed(2) : ''}
+                              </td>
+                            )}
                             {!isNonGst && <td className="p-1 border-r border-black text-right">{item.gstPercent}</td>}
                             <td className="p-1 text-right font-bold">{(item.finalAmount || 0).toFixed(2)}</td>
                         </tr>
