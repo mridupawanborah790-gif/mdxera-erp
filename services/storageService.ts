@@ -1442,8 +1442,14 @@ export const recordSupplierPaymentWithAccounting = async (
         },
         user: RegisteredPharmacy
 ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
-        const supplier = await idb.get(STORES.SUPPLIERS, args.supplierId) as Supplier | undefined;
+        let supplier = await idb.get(STORES.SUPPLIERS, args.supplierId as any) as Supplier | undefined;
+        if (!supplier) {
+            const allSuppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
+            const targetSupplierId = String(args.supplierId || '').trim().toLowerCase();
+            supplier = allSuppliers.find((row) => String(row?.id || '').trim().toLowerCase() === targetSupplierId);
+        }
         if (!supplier) throw new Error('Supplier not found');
+        const resolvedSupplierId = String(supplier.id);
 
         if (!navigator.onLine) throw new Error('Payment posting with accounting requires online mode.');
         const isCashMode = String(args.paymentMode || '').trim().toLowerCase() === 'cash';
@@ -1525,10 +1531,10 @@ export const recordSupplierPaymentWithAccounting = async (
                 posting_date: args.date,
                 status: 'Posted',
                 reference_type: 'SUPPLIER_PAYMENT',
-                reference_id: args.referenceInvoiceId || args.supplierId,
-                reference_document_id: args.referenceInvoiceId || args.supplierId,
+                reference_id: args.referenceInvoiceId || resolvedSupplierId,
+                reference_document_id: args.referenceInvoiceId || resolvedSupplierId,
                 document_type: 'PAYMENT',
-                document_reference: args.referenceInvoiceNumber || args.supplierId,
+                document_reference: args.referenceInvoiceNumber || resolvedSupplierId,
                 company: companyCodeId,
                 company_code_id: companyCodeId,
                 set_of_books: setOfBooksId,
@@ -1546,7 +1552,7 @@ export const recordSupplierPaymentWithAccounting = async (
                 {
                     organization_id: user.organization_id,
                     journal_entry_id: header.id,
-                    reference_document_id: args.referenceInvoiceId || args.supplierId,
+                    reference_document_id: args.referenceInvoiceId || resolvedSupplierId,
                     document_type: 'PAYMENT',
                     line_number: 1,
                     gl_code: String(payableGl.gl_code),
@@ -1558,7 +1564,7 @@ export const recordSupplierPaymentWithAccounting = async (
                 {
                     organization_id: user.organization_id,
                     journal_entry_id: header.id,
-                    reference_document_id: args.referenceInvoiceId || args.supplierId,
+                    reference_document_id: args.referenceInvoiceId || resolvedSupplierId,
                     document_type: 'PAYMENT',
                     line_number: 2,
                     gl_code: String(payoutGl.gl_code),
@@ -1585,7 +1591,7 @@ export const recordSupplierPaymentWithAccounting = async (
             referenceInvoiceNumber: args.referenceInvoiceNumber,
             journalEntryId: header.id,
             journalEntryNumber: header.journal_entry_number,
-        }, { type: 'supplier', id: args.supplierId }, user);
+        }, { type: 'supplier', id: resolvedSupplierId }, user);
 
         return {
             journalEntryId: header.id,
