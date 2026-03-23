@@ -12,10 +12,24 @@ interface TemplateProps {
 
 const ITEMS_PER_PAGE = 10;
 
+const getDisplaySchemePercent = (item: DetailedBill['items'][number]): number => {
+  const explicitPercent = Number(item.schemeDiscountPercent || 0);
+  if (explicitPercent > 0) return explicitPercent;
+
+  if (item.schemeMode === 'percent') {
+    const schemeValuePercent = Number(item.schemeValue || 0);
+    if (schemeValuePercent > 0) return schemeValuePercent;
+  }
+
+  const displayPercent = Number(item.schemeDisplayPercent || 0);
+  if (displayPercent > 0) return displayPercent;
+
+  return 0;
+};
+
 const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
-  const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
   const showRateColumn = isRateFieldAvailable(bill.configurations);
   
   const computedBillTotals = useMemo(() => calculateBillingTotals({
@@ -26,6 +40,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     organizationType: bill.pharmacy?.organization_type,
     pricingMode: bill.pricingMode
   }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+  const showSchemeColumn = computedBillTotals.schemeTotal > 0;
 
   const billDetails = useMemo(() => {
     let subtotal = 0;
@@ -212,7 +227,15 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             </td>
                             {showRateColumn && <td className="p-1 border-r border-black text-right">{(item.billedRate || 0).toFixed(2)}</td>}
                             <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>
-                            {showSchemeColumn && <td className="p-1 border-r border-black text-right">{item.schemeDiscountPercent ? item.schemeDiscountPercent : '-'}</td>}
+                            {showSchemeColumn && (
+                              <td className="p-1 border-r border-black text-right">
+                                {(() => {
+                                  const lineSchemePercent = getDisplaySchemePercent(item);
+                                  const hasLineScheme = (item.schemeDiscountAmount || 0) > 0 || lineSchemePercent > 0;
+                                  return hasLineScheme ? lineSchemePercent.toFixed(2) : '';
+                                })()}
+                              </td>
+                            )}
                             {!isNonGst && <td className="p-1 border-r border-black text-right">{item.gstPercent}</td>}
                             <td className="p-1 text-right font-bold">{(item.finalAmount || 0).toFixed(2)}</td>
                         </tr>
@@ -279,6 +302,9 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
             <div className="w-1/3 flex flex-col">
                 <div className="p-2 space-y-1 text-xs">
                     <div className="flex justify-between"><span>Total Amount (MRP):</span> <span className="font-bold">{(billDetails.subtotal || 0).toFixed(2)}</span></div>
+                    {computedBillTotals.schemeTotal > 0 && (
+                      <div className="flex justify-between text-emerald-700"><span>Scheme Discount:</span> <span>{computedBillTotals.schemeTotal.toFixed(2)}</span></div>
+                    )}
                     <div className="flex justify-between text-green-700"><span>Less Bill Discount:</span> <span>{(billDetails.billDiscount).toFixed(2)}</span></div>
                     {!isNonGst && (
                         <>
