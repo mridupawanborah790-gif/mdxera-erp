@@ -1684,6 +1684,11 @@ const App: React.FC = () => {
                 case 'dailyReports':
                     return <DailyReports
                         transactions={transactions}
+                        inventory={inventory}
+                        purchases={purchases}
+                        salesChallans={salesChallans}
+                        deliveryChallans={deliveryChallans}
+                        customers={customers}
                         reportId={currentDailyReportId}
                     />;
                 case 'balanceCarryforward':
