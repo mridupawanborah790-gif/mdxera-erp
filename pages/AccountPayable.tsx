@@ -15,6 +15,7 @@ interface BankOption {
     accountName: string;
     accountNumber: string;
     isDefault: boolean;
+    accountType?: string;
 }
 
 interface PayableInvoiceRow {
@@ -87,7 +88,23 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [ledgerVoucherMap, setLedgerVoucherMap] = useState<Record<string, LedgerVoucherMeta>>({});
 
-    const defaultBank = useMemo(() => bankOptions.find(b => b.isDefault), [bankOptions]);
+    const normalizedPaymentMode = paymentMode.trim().toLowerCase();
+    const isCashMode = normalizedPaymentMode === 'cash';
+
+    const bankOnlyOptions = useMemo(
+        () =>
+            bankOptions.filter((option) => {
+                const accountType = String(option.accountType || '').toLowerCase();
+                const compositeLabel = `${option.bankName} ${option.accountName} ${option.accountNumber}`.toLowerCase();
+                return accountType.includes('bank') || (!accountType.includes('cash') && !compositeLabel.includes('cash'));
+            }),
+        [bankOptions]
+    );
+
+    const defaultBankOption = useMemo(
+        () => bankOnlyOptions.find((option) => option.isDefault) || bankOnlyOptions[0] || null,
+        [bankOnlyOptions]
+    );
 
     const filteredDistributors = useMemo(() => {
         if (!Array.isArray(distributors)) return [];
@@ -340,12 +357,26 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         setAmount('');
         setDescription('Supplier Payment');
         setSelectedInvoiceId('');
-        setBankAccountId(defaultBank?.id || '');
+        setPaymentMode('Bank');
+        setBankAccountId(defaultBankOption?.id || '');
     };
+
+    useEffect(() => {
+        if (isCashMode) {
+            setBankAccountId('');
+            return;
+        }
+        if (!bankAccountId) {
+            setBankAccountId(defaultBankOption?.id || '');
+        } else if (!bankOnlyOptions.some((option) => option.id === bankAccountId)) {
+            setBankAccountId(defaultBankOption?.id || '');
+        }
+    }, [isCashMode, bankAccountId, bankOnlyOptions, defaultBankOption]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedDistributor || !amount || amount <= 0 || !bankAccountId) return;
+        if (!selectedDistributor || !amount || amount <= 0) return;
+        if (!isCashMode && !bankAccountId) return;
         const invoice = invoiceRows.find(i => i.id === selectedInvoiceId);
 
         setIsSubmitting(true);
@@ -356,7 +387,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                 date,
                 description,
                 paymentMode,
-                bankAccountId,
+                bankAccountId: isCashMode ? '' : bankAccountId,
                 referenceInvoiceId: invoice?.id,
                 referenceInvoiceNumber: invoice?.invoiceNumber,
             });
@@ -455,13 +486,22 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Bank / Cash Account</label>
-                                            <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50">
-                                                <option value="">Select Bank / Cash Account</option>
-                                                {bankOptions.map(option => (
-                                                    <option key={option.id} value={option.id}>{option.bankName} • {option.accountNumber || option.accountName}</option>
-                                                ))}
-                                            </select>
-                                            {!defaultBank && <p className="text-[10px] mt-1 text-amber-700">No default bank configured. Select from Bank Master.</p>}
+                                            {isCashMode ? (
+                                                <input
+                                                    type="text"
+                                                    value="Cash Account"
+                                                    disabled
+                                                    className="w-full border border-gray-300 bg-gray-100 p-2 text-sm font-bold text-gray-600 cursor-not-allowed"
+                                                />
+                                            ) : (
+                                                <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50">
+                                                    <option value="">Select Bank Account</option>
+                                                    {bankOnlyOptions.map(option => (
+                                                        <option key={option.id} value={option.id}>{option.bankName} • {option.accountNumber || option.accountName}</option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                            {!isCashMode && !defaultBankOption && <p className="text-[10px] mt-1 text-amber-700">No default bank configured. Select from Bank Master.</p>}
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Narration / Remark</label>
@@ -470,7 +510,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                     </div>
                                     <div className="flex justify-end gap-2">
                                         <button type="button" onClick={() => setShowPaymentForm(false)} className="px-3 py-2 border border-gray-300 font-bold uppercase text-[10px] hover:bg-white">Discard</button>
-                                        <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || !bankAccountId} className="px-4 py-2 tally-button-primary font-black uppercase text-xs">
+                                        <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || (!isCashMode && !bankAccountId)} className="px-4 py-2 tally-button-primary font-black uppercase text-xs">
                                             {isSubmitting ? 'Posting...' : 'Post Supplier Payment'}
                                         </button>
                                     </div>
