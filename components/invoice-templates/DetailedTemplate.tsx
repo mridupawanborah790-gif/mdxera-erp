@@ -55,6 +55,10 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
     return { items: itemsWithCalculations, subtotal, totalCgst, totalSgst, totalDiscount, totalTradeDiscount, totalItemSchemeDiscount };
   }, [bill, isNonGst]);
 
+  const showSchemeColumn = (billDetails.items || []).some(item =>
+    (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0
+  );
+
   return (
     <div className="bg-white text-[10px] text-gray-800 font-sans p-8 w-full mx-auto leading-tight min-h-full flex flex-col">
       
@@ -132,7 +136,7 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
             <th className="p-1.5 border-r border-b border-black text-right font-semibold w-[6%]">M.R.P</th>
             <th className="p-1.5 border-r border-b border-black text-right font-semibold w-[6%]">Rate</th>
             <th className="p-1.5 border-r border-b border-black text-right font-semibold w-[4%]">Disc%</th>
-            <th className="p-1.5 border-r border-b border-black text-right font-semibold w-[4%]">Sch%</th>
+            {showSchemeColumn && <th className="p-1.5 border-r border-b border-black text-right font-semibold w-[4%]">Sch%</th>}
             <th className="p-1.5 border-r border-b border-black text-right font-semibold w-[4%]">GST%</th>
             <th className="p-1.5 border-b border-black text-right font-semibold w-[8%]">Amount</th>
           </tr>
@@ -158,7 +162,11 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
               </td>
               <td className="p-1 border-r border-b border-black text-right">{(item.mrp || 0).toFixed(2)}</td>
               <td className="p-1 border-r border-b border-black text-right">{(item.discountPercent || 0).toFixed(2)}</td>
-              <td className="p-1 border-r border-b border-black text-right">{(item.schemeDiscountPercent || 0).toFixed(2)}</td>
+              {showSchemeColumn && (
+                <td className="p-1 border-r border-b border-black text-right">
+                  {(item.schemeDiscountPercent || 0) > 0 ? Number(item.schemeDiscountPercent).toFixed(2) : ''}
+                </td>
+              )}
               <td className="p-1 border-r border-b border-black text-right">{!isNonGst ? (item.gstPercent || 0).toFixed(0) : '-'}</td>
               <td className="p-1 border-b border-black text-right font-semibold">{(item.finalAmount || 0).toFixed(2)}</td>
             </tr>
@@ -205,7 +213,9 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
               <div className="w-full space-y-1 text-[10px] border-b border-black pb-2 mb-2">
                   <div className="flex justify-between"><span>Subtotal</span> <span>{(billDetails.subtotal || 0).toFixed(2)}</span></div>
                   <div className="flex justify-between text-gray-600"><span>Trade Discount</span> <span>- {(billDetails.totalTradeDiscount || 0).toFixed(2)}</span></div>
-                  <div className="flex justify-between text-gray-600"><span>Scheme Discount</span> <span>- {(billDetails.totalItemSchemeDiscount || 0).toFixed(2)}</span></div>
+                  {billDetails.totalItemSchemeDiscount > 0 && (
+                    <div className="flex justify-between text-gray-600"><span>Scheme Discount</span> <span>- {(billDetails.totalItemSchemeDiscount || 0).toFixed(2)}</span></div>
+                  )}
                   {bill.schemeDiscount > 0 && <div className="flex justify-between text-gray-600"><span>Bill Discount</span> <span>- {(bill.schemeDiscount || 0).toFixed(2)}</span></div>}
                   {!isNonGst && (
                       <>
