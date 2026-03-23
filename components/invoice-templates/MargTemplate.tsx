@@ -12,6 +12,21 @@ interface TemplateProps {
 
 const ITEMS_PER_PAGE = 14;
 
+const getDisplaySchemePercent = (item: DetailedBill['items'][number]): number => {
+  const explicitPercent = Number(item.schemeDiscountPercent || 0);
+  if (explicitPercent > 0) return explicitPercent;
+
+  if (item.schemeMode === 'percent') {
+    const schemeValuePercent = Number(item.schemeValue || 0);
+    if (schemeValuePercent > 0) return schemeValuePercent;
+  }
+
+  const displayPercent = Number(item.schemeDisplayPercent || 0);
+  if (displayPercent > 0) return displayPercent;
+
+  return 0;
+};
+
 const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isLandscape = orientation === 'landscape';
@@ -20,8 +35,6 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const showBillDiscount = displayOptions.showBillDiscountOnPrint !== false;
   const isMode8 = displayOptions.calculationMode === '8';
   const showItemWiseDisc = displayOptions.showItemWiseDiscountOnPrint !== false;
-  const showTradeDiscountColumn = showItemWiseDisc && (bill.items || []).some(item => (item.discountPercent || 0) > 0);
-  const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
   const showRateColumn = isRateFieldAvailable(bill.configurations);
 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
@@ -32,6 +45,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     organizationType: bill.pharmacy?.organization_type,
     pricingMode: bill.pricingMode
   }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+  const showSchemeColumn = computedBillTotals.schemeTotal > 0;
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -265,8 +279,16 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     <td className="text-center text-[7pt]">{item.expiry}</td>
                     <td className="text-right">{(item.mrp || 0).toFixed(2)}</td>
                     {showRateColumn && <td className="text-right text-blue-900">{(item.billedRate || 0).toFixed(2)}</td>}
-                    {showTradeDiscountColumn && <td className="text-center text-red-600">{item.discountPercent || '0'}</td>}
-                    {showSchemeColumn && <td className="text-center text-emerald-700">{item.schemeDiscountPercent || '-'}</td>}
+                    {showItemWiseDisc && <td className="text-center text-red-600">{item.discountPercent || '0'}</td>}
+                    {showSchemeColumn && (
+                      <td className="text-center text-emerald-700">
+                        {(() => {
+                          const lineSchemePercent = getDisplaySchemePercent(item);
+                          const hasLineScheme = (item.schemeDiscountAmount || 0) > 0 || lineSchemePercent > 0;
+                          return hasLineScheme ? lineSchemePercent.toFixed(2) : '';
+                        })()}
+                      </td>
+                    )}
                     <td className="text-center">{(item.gstPercent || 0).toFixed(0)}</td>
                     <td className="text-right font-black border-r-0 text-gray-950">{(item.displayAmount || 0).toFixed(2)}</td>
                   </tr>
@@ -382,6 +404,12 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                           <div className="flex justify-between text-indigo-700 font-black">
                               <span>{isMode8 ? 'Adjustment (Mode 8)' : 'Bill Discount'}</span> 
                               <span>- {calculations.billDiscount.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {computedBillTotals.schemeTotal > 0 && (
+                          <div className="flex justify-between text-emerald-700 font-black">
+                              <span>Scheme Discount</span>
+                              <span>- {computedBillTotals.schemeTotal.toFixed(2)}</span>
                           </div>
                         )}
 
