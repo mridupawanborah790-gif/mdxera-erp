@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
-import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
@@ -21,7 +21,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const isMode8 = displayOptions.calculationMode === '8';
   const showItemWiseDisc = displayOptions.showItemWiseDiscountOnPrint !== false;
   const showTradeDiscountColumn = showItemWiseDisc && (bill.items || []).some(item => (item.discountPercent || 0) > 0);
-  const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
+  const showSchemeColumn = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
   const showRateColumn = isRateFieldAvailable(bill.configurations);
 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
@@ -268,7 +268,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     {showTradeDiscountColumn && <td className="text-center text-red-600">{item.discountPercent || '0'}</td>}
                     {showSchemeColumn && (
                       <td className="text-center text-emerald-700">
-                        {(item.schemeDiscountPercent || 0) > 0 ? Number(item.schemeDiscountPercent).toFixed(2) : ''}
+                        {getDisplaySchemePercent(item) > 0 ? getDisplaySchemePercent(item).toFixed(2) : ''}
                       </td>
                     )}
                     <td className="text-center">{(item.gstPercent || 0).toFixed(0)}</td>

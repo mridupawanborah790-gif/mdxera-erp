@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
+import { getDisplaySchemePercent, hasLineLevelSchemeDiscount } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
@@ -55,9 +56,7 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
     return { items: itemsWithCalculations, subtotal, totalCgst, totalSgst, totalDiscount, totalTradeDiscount, totalItemSchemeDiscount };
   }, [bill, isNonGst]);
 
-  const showSchemeColumn = (billDetails.items || []).some(item =>
-    (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0
-  );
+  const showSchemeColumn = (billDetails.items || []).some(item => hasLineLevelSchemeDiscount(item));
 
   return (
     <div className="bg-white text-[10px] text-gray-800 font-sans p-8 w-full mx-auto leading-tight min-h-full flex flex-col">
@@ -164,7 +163,7 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
               <td className="p-1 border-r border-b border-black text-right">{(item.discountPercent || 0).toFixed(2)}</td>
               {showSchemeColumn && (
                 <td className="p-1 border-r border-b border-black text-right">
-                  {(item.schemeDiscountPercent || 0) > 0 ? Number(item.schemeDiscountPercent).toFixed(2) : ''}
+                  {getDisplaySchemePercent(item) > 0 ? getDisplaySchemePercent(item).toFixed(2) : ''}
                 </td>
               )}
               <td className="p-1 border-r border-b border-black text-right">{!isNonGst ? (item.gstPercent || 0).toFixed(0) : '-'}</td>

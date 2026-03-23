@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -16,7 +16,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
   const showTradeDiscountColumn = (bill.items || []).some(item => (item.discountPercent || 0) > 0);
-  const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
+  const showSchemeColumn = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
   const showRateColumn = isRateFieldAvailable(bill.configurations);
   
   const computedBillTotals = useMemo(() => calculateBillingTotals({
@@ -217,7 +217,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             {showTradeDiscountColumn && <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>}
                             {showSchemeColumn && (
                               <td className="p-1 border-r border-black text-right">
-                                {(item.schemeDiscountPercent || 0) > 0 ? Number(item.schemeDiscountPercent).toFixed(2) : ''}
+                                {getDisplaySchemePercent(item) > 0 ? getDisplaySchemePercent(item).toFixed(2) : ''}
                               </td>
                             )}
                             {!isNonGst && <td className="p-1 border-r border-black text-right">{item.gstPercent}</td>}
