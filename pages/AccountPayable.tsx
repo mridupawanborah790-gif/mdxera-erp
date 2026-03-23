@@ -86,6 +86,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const [bankAccountId, setBankAccountId] = useState('');
     const [showPaymentForm, setShowPaymentForm] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState('');
     const [ledgerVoucherMap, setLedgerVoucherMap] = useState<Record<string, LedgerVoucherMeta>>({});
 
     const normalizedPaymentMode = paymentMode.trim().toLowerCase();
@@ -359,6 +360,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         setSelectedInvoiceId('');
         setPaymentMode('Bank');
         setBankAccountId(defaultBankOption?.id || '');
+        setSubmitError('');
     };
 
     useEffect(() => {
@@ -380,6 +382,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         const invoice = invoiceRows.find(i => i.id === selectedInvoiceId);
 
         setIsSubmitting(true);
+        setSubmitError('');
         try {
             await onRecordPayment({
                 supplierId: selectedDistributor.id,
@@ -394,6 +397,10 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             setShowPaymentForm(false);
             setAmount('');
             setDescription('Supplier Payment');
+            setSubmitError('');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to post supplier payment. Please try again.';
+            setSubmitError(message);
         } finally {
             setIsSubmitting(false);
         }
@@ -514,6 +521,9 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                             {isSubmitting ? 'Posting...' : 'Post Supplier Payment'}
                                         </button>
                                     </div>
+                                    {submitError && (
+                                        <p className="text-xs font-bold text-red-700">{submitError}</p>
+                                    )}
                                 </form>
                             )}
 
