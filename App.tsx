@@ -1607,27 +1607,41 @@ const App: React.FC = () => {
                         onStartNewCount={async () => {
                             if (!currentUser) return;
 
-                            const hasOpenSession = physicalInventory.some(s => s.status === PhysicalInventoryStatus.IN_PROGRESS);
-                            if (hasOpenSession) {
-                                addNotification('An audit session is already in progress.', 'warning');
-                                return;
+                            try {
+                                const hasOpenSession = physicalInventory.some(s => s.status === PhysicalInventoryStatus.IN_PROGRESS);
+                                if (hasOpenSession) {
+                                    addNotification('An audit session is already in progress.', 'warning');
+                                    return;
+                                }
+
+                                let sessionId = '';
+                                try {
+                                    const reserved = await storage.reserveVoucherNumber('physical-inventory', currentUser);
+                                    sessionId = reserved.documentNumber;
+                                } catch (reservationError) {
+                                    console.warn('Unable to reserve physical inventory voucher number, using timestamp fallback.', reservationError);
+                                    sessionId = `PHY-TEMP-${Date.now()}`;
+                                    addNotification('Voucher numbering is unavailable. A temporary audit ID was used.', 'warning');
+                                }
+
+                                const session: PhysicalInventorySession = {
+                                    id: sessionId,
+                                    organization_id: currentUser.organization_id,
+                                    status: PhysicalInventoryStatus.IN_PROGRESS,
+                                    startDate: new Date().toISOString(),
+                                    reason: '',
+                                    items: [],
+                                    totalVarianceValue: 0,
+                                    performedById: currentUser.id,
+                                    performedByName: currentUser.full_name,
+                                };
+
+                                await storage.saveData('physical_inventory', session, currentUser);
+                                await loadData(currentUser, 'background');
+                                addNotification(`Stock audit ${sessionId} created successfully.`, 'success');
+                            } catch (error) {
+                                addNotification(parseNetworkAndApiError(error), 'error');
                             }
-
-                            const reserved = await storage.reserveVoucherNumber('physical-inventory', currentUser);
-                            const session: PhysicalInventorySession = {
-                                id: reserved.documentNumber,
-                                organization_id: currentUser.organization_id,
-                                status: PhysicalInventoryStatus.IN_PROGRESS,
-                                startDate: new Date().toISOString(),
-                                reason: '',
-                                items: [],
-                                totalVarianceValue: 0,
-                                performedById: currentUser.id,
-                                performedByName: currentUser.full_name,
-                            };
-
-                            await storage.saveData('physical_inventory', session, currentUser);
-                            await loadData(currentUser, 'background');
                         }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
                         onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
                         onCancelCount={(session) => {
