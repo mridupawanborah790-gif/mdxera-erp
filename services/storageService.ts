@@ -1258,14 +1258,16 @@
 
     export const addLedgerEntry = async (entry: TransactionLedgerItem, owner: { type: 'customer' | 'supplier' | 'distributor', id: string }, user: RegisteredPharmacy) => {
         const type = owner.type === 'distributor' ? 'supplier' : owner.type;
-        const storeName = type === 'customer' ? STORES.CUSTOMERS : STORES.SUPPLIERS;
-        const entity = await idb.get(storeName, owner.id) as (Customer | Supplier | undefined);
+        const tableName = type === 'customer' ? 'customers' : 'suppliers';
+        
+        const entity = await getDataById<Customer | Supplier>(tableName, owner.id, user);
+
         if (!entity) throw new Error(`${type} not found`);
-        const ledger = [...(entity.ledger || [])];
-        const prevBalance = ledger.length > 0 ? ledger[ledger.length - 1].balance : (entity.opening_balance || 0);
-        const newBalance = prevBalance + (entry.debit || 0) - (entry.credit || 0);
+        const ledger = Array.isArray(entity.ledger) ? [...entity.ledger] : [];
+        const prevBalance = ledger.length > 0 ? Number(ledger[ledger.length - 1].balance || 0) : Number(entity.opening_balance || 0);
+        const newBalance = prevBalance + Number(entry.debit || 0) - Number(entry.credit || 0);
         entity.ledger = [...ledger, { ...entry, balance: newBalance }];
-        return await saveData(type === 'customer' ? 'customers' : 'suppliers', entity, user);
+        return await saveData(tableName, entity, user, true);
     };
 
 
@@ -1653,9 +1655,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         entry: Omit<TransactionLedgerItem, 'balance'>,
         shouldPost: boolean
     ) => {
-        const storeName = owner.type === 'customer' ? STORES.CUSTOMERS : STORES.SUPPLIERS;
         const tableName = owner.type === 'customer' ? 'customers' : 'suppliers';
-        const entity = await idb.get(storeName, owner.id) as (Customer | Supplier | undefined);
+        const entity = await getDataById<Customer | Supplier>(tableName, owner.id, user);
         if (!entity) return;
 
         const nextLedger = (entity.ledger || []).filter((item) => !isAutoLedgerEntry(item, entry.id));
@@ -1668,7 +1669,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         }
 
         entity.ledger = recalculateLedger(nextLedger, entity.opening_balance || 0);
-        await saveData(tableName, entity, user);
+        await saveData(tableName, entity, user, true);
     };
 
 

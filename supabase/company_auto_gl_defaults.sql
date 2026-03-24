@@ -215,7 +215,9 @@ begin
   if v_gl_id is null then raise exception 'Configuration error: Missing GL 110001'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
   values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Sundry Debtors', v_gl_id, true, 'v2.1', 'system', 'system')
-  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  on conflict (organization_id, set_of_books_id, party_type, party_group) 
+  where assignment_scope = 'PARTY_GROUP'
+  do update
   set control_gl_id = excluded.control_gl_id,
       seeded_by_system = true,
       template_version = excluded.template_version,
@@ -226,7 +228,9 @@ begin
   if v_gl_id is null then raise exception 'Configuration error: Missing GL 110005'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
   values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Cash Customers', v_gl_id, true, 'v2.1', 'system', 'system')
-  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  on conflict (organization_id, set_of_books_id, party_type, party_group) 
+  where assignment_scope = 'PARTY_GROUP'
+  do update
   set control_gl_id = excluded.control_gl_id,
       seeded_by_system = true,
       template_version = excluded.template_version,
@@ -237,7 +241,9 @@ begin
   if v_gl_id is null then raise exception 'Configuration error: Missing GL 110002'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
   values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Corporate Customers', v_gl_id, true, 'v2.1', 'system', 'system')
-  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  on conflict (organization_id, set_of_books_id, party_type, party_group) 
+  where assignment_scope = 'PARTY_GROUP'
+  do update
   set control_gl_id = excluded.control_gl_id,
       seeded_by_system = true,
       template_version = excluded.template_version,
@@ -248,7 +254,9 @@ begin
   if v_gl_id is null then raise exception 'Configuration error: Missing GL 110003'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
   values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Retail Customers', v_gl_id, true, 'v2.1', 'system', 'system')
-  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  on conflict (organization_id, set_of_books_id, party_type, party_group) 
+  where assignment_scope = 'PARTY_GROUP'
+  do update
   set control_gl_id = excluded.control_gl_id,
       seeded_by_system = true,
       template_version = excluded.template_version,
@@ -259,7 +267,9 @@ begin
   if v_gl_id is null then raise exception 'Configuration error: Missing GL 110004'; end if;
   insert into public.gl_assignments (organization_id, set_of_books_id, assignment_scope, party_type, party_group, control_gl_id, seeded_by_system, template_version, created_by, updated_by)
   values (p_organization_id, p_set_of_books_id, 'PARTY_GROUP', 'Customer', 'Government Customers', v_gl_id, true, 'v2.1', 'system', 'system')
-  on conflict (organization_id, set_of_books_id, party_type, party_group) do update
+  on conflict (organization_id, set_of_books_id, party_type, party_group) 
+  where assignment_scope = 'PARTY_GROUP'
+  do update
   set control_gl_id = excluded.control_gl_id,
       seeded_by_system = true,
       template_version = excluded.template_version,
@@ -284,6 +294,11 @@ returns trigger
 language plpgsql
 as $$
 begin
+  -- Prevent infinite recursion: if we are already inside a trigger call for this table, stop.
+  if pg_trigger_depth() > 1 then
+    return new;
+  end if;
+
   perform public.seed_party_control_defaults(new.organization_id, new.id);
   return new;
 end;
