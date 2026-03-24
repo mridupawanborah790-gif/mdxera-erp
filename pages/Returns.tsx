@@ -137,10 +137,6 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
     const [returnReason, setReturnReason] = useState('');
     const [returnDate, setReturnDate] = useState(new Date().toISOString().split('T')[0]);
 
-    React.useImperativeHandle(ref, () => ({
-        isDirty: view === 'create' && (selectedInvoice !== null || searchInvoiceId !== '' || returnReason !== '' || returnItems.some(i => (i.returnQuantity || 0) > 0))
-    }));
-
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!shouldHandleScreenShortcut(e, ['salesReturns', 'purchaseReturns'])) return;
@@ -365,6 +361,15 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
         setSearchInvoiceId('');
         setReturnReason('');
     };
+
+    React.useImperativeHandle(ref, () => ({
+        handleSubmit: handleProcessReturn,
+        resetForm: () => {
+            setView('create');
+            handleClearSelection();
+        },
+        isDirty: view === 'create' && (selectedInvoice !== null || searchInvoiceId !== '' || returnReason !== '' || returnItems.some(i => (i.returnQuantity || 0) > 0))
+    }), [handleProcessReturn, view, selectedInvoice, searchInvoiceId, returnReason, returnItems]);
 
     return (
         <main className="flex-1 overflow-hidden flex flex-col bg-app-bg">

@@ -50,7 +50,7 @@ import {
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
     Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
     PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
-    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig
+    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
@@ -64,6 +64,23 @@ const DATA_ENTRY_SCREENS = [
     'customers', 'suppliers', 'inventory', 'materialMaster', 'returns', 'salesReturns', 'purchaseReturn'
 ];
 
+const APP_SCREEN_STATE_STORAGE_PREFIX = 'mdxera:screen-state:v1';
+const PERSISTABLE_SCREENS = new Set([
+    'dashboard', 'pos', 'nonGstPos', 'salesHistory', 'manualSalesEntry', 'salesChallans',
+    'deliveryChallans', 'salesReturns', 'purchaseReturn', 'purchaseOrders', 'automatedPurchaseEntry',
+    'manualPurchaseEntry', 'manualSupplierInvoice', 'purchaseHistory', 'inventory', 'physicalInventory',
+    'suppliers', 'customers', 'medicineMasterList', 'vendorNomenclature', 'bulkUtility',
+    'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst',
+    'businessUsers', 'businessRoles', 'companyConfiguration', 'configuration', 'settings',
+    'classification', 'accountReceivable', 'accountPayable'
+]);
+
+type PersistedScreenState = {
+    currentPage?: string;
+    currentDailyReportId?: string;
+    activeDashboardMenu?: 'left' | 'right';
+};
+
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
     const [currentPage, setCurrentPage] = useState('dashboard');
@@ -76,6 +93,7 @@ const App: React.FC = () => {
 
     const [showLogoutPrompt, setShowLogoutPrompt] = useState(false);
     const [showEscSavePrompt, setShowEscSavePrompt] = useState(false);
+    const [screenResetNonce, setScreenResetNonce] = useState<Record<string, number>>({});
 
     // Refs to trigger child save methods remotely
     const posRef = useRef<any>(null);
@@ -93,6 +111,7 @@ const App: React.FC = () => {
     const [deliveryChallans, setDeliveryChallans] = useState<DeliveryChallan[]>([]);
     const [salesChallans, setSalesChallans] = useState<SalesChallan[]>([]);
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+    const [mrpChangeLogs, setMrpChangeLogs] = useState<MrpChangeLogEntry[]>([]);
 
     const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
     const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
@@ -129,6 +148,24 @@ const App: React.FC = () => {
     const [authView, setAuthView] = useState<'auth' | 'forgot' | 'reset'>(resolveAuthViewFromLocation);
 
     const [activeDashboardMenu, setActiveDashboardMenu] = useState<'left' | 'right'>('right');
+    const [mountedPages, setMountedPages] = useState<string[]>(['dashboard']);
+    const pageContainerRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    const pageScrollPositionsRef = useRef<Record<string, number>>({});
+    const previousPageRef = useRef('dashboard');
+
+    const getScreenStateStorageKey = useCallback((user: RegisteredPharmacy) => {
+        return `${APP_SCREEN_STATE_STORAGE_PREFIX}:${user.organization_id}:${user.user_id}`;
+    }, []);
+
+    const readPersistedScreenState = useCallback((user: RegisteredPharmacy): PersistedScreenState | null => {
+        try {
+            const stored = window.localStorage.getItem(getScreenStateStorageKey(user));
+            if (!stored) return null;
+            return JSON.parse(stored) as PersistedScreenState;
+        } catch {
+            return null;
+        }
+    }, [getScreenStateStorageKey]);
 
     // Robust recovery detection on initial load
     useEffect(() => {
@@ -145,6 +182,65 @@ const App: React.FC = () => {
         return () => window.removeEventListener('popstate', onPopState);
     }, []);
 
+    useEffect(() => {
+        if (!currentUser) return;
+        const state = readPersistedScreenState(currentUser);
+        if (!state) return;
+
+        const nextPage = typeof state.currentPage === 'string' && PERSISTABLE_SCREENS.has(state.currentPage)
+            ? state.currentPage
+            : 'dashboard';
+        const nextDailyReportId = typeof state.currentDailyReportId === 'string' && state.currentDailyReportId.trim()
+            ? state.currentDailyReportId
+            : 'dispatchSummary';
+        const nextDashboardMenu = state.activeDashboardMenu === 'left' || state.activeDashboardMenu === 'right'
+            ? state.activeDashboardMenu
+            : 'right';
+
+        setCurrentPage(nextPage);
+        setCurrentDailyReportId(nextDailyReportId);
+        setActiveDashboardMenu(nextDashboardMenu);
+    }, [currentUser, readPersistedScreenState]);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        try {
+            window.localStorage.setItem(
+                getScreenStateStorageKey(currentUser),
+                JSON.stringify({
+                    currentPage,
+                    currentDailyReportId,
+                    activeDashboardMenu
+                } satisfies PersistedScreenState)
+            );
+        } catch {
+            // no-op: persistence is best effort
+        }
+    }, [activeDashboardMenu, currentDailyReportId, currentPage, currentUser, getScreenStateStorageKey]);
+
+    useEffect(() => {
+        setMountedPages(prev => (prev.includes(currentPage) ? prev : [...prev, currentPage]));
+    }, [currentPage]);
+
+    useEffect(() => {
+        const previousPage = previousPageRef.current;
+        if (previousPage !== currentPage) {
+            const previousContainer = pageContainerRefs.current[previousPage];
+            if (previousContainer) {
+                pageScrollPositionsRef.current[previousPage] = previousContainer.scrollTop;
+            }
+        }
+
+        const restoreScroll = () => {
+            const container = pageContainerRefs.current[currentPage];
+            if (!container) return;
+            container.scrollTop = pageScrollPositionsRef.current[currentPage] ?? 0;
+        };
+
+        window.requestAnimationFrame(restoreScroll);
+        previousPageRef.current = currentPage;
+    }, [currentPage]);
+
     const addNotification = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
         setNotifications(prev => [...prev, { id: Date.now(), message, type }]);
     }, []);
@@ -152,6 +248,39 @@ const App: React.FC = () => {
     const removeNotification = useCallback((id: number) => {
         setNotifications(prev => prev.filter(n => n.id !== id));
     }, []);
+
+    const parseMrpNumber = useCallback((value: unknown): number => {
+        const parsed = parseFloat(String(value ?? '').replace(/[^\d.]/g, ''));
+        return Number.isFinite(parsed) ? parsed : 0;
+    }, []);
+
+    const normalizeCode = useCallback((value?: string) => (value || '').trim().toLowerCase(), []);
+
+    const createMrpChangeLog = useCallback(async (
+        sourceScreen: 'Inventory' | 'Material Master',
+        materialCode: string,
+        productName: string,
+        oldMrp: number,
+        newMrp: number,
+    ) => {
+        if (!currentUser) return;
+        if (Math.abs(oldMrp - newMrp) < 0.0001) return;
+
+        const logPayload: Omit<MrpChangeLogEntry, 'id'> = {
+            organization_id: currentUser.organization_id,
+            materialCode,
+            productName: productName || 'UNKNOWN',
+            oldMrp,
+            newMrp,
+            changedAt: new Date().toISOString(),
+            changedById: currentUser.user_id || currentUser.id,
+            changedByName: currentUser.full_name || currentUser.email,
+            sourceScreen,
+        };
+
+        const saved = await storage.saveData('mrp_change_log', logPayload, currentUser);
+        setMrpChangeLogs(prev => [saved, ...prev]);
+    }, [currentUser]);
 
     const loadData = useCallback(async (user: RegisteredPharmacy, mode: 'initial' | 'sync' | 'background' | 'targeted' = 'sync', specificTable?: string) => {
         if (!user) return;
@@ -184,6 +313,7 @@ const App: React.FC = () => {
                     case 'categories': setCategories(await storage.getData('categories', [], user)); break;
                     case 'sub_categories': setSubCategories(await storage.getData('sub_categories', [], user)); break;
                     case 'supplier_product_map': setMappings(await storage.fetchSupplierProductMaps(user)); break;
+                    case 'mrp_change_log': setMrpChangeLogs(await storage.getData('mrp_change_log', [], user)); break;
                     case 'profiles':
                         const freshProfile = await storage.fetchProfile(user.user_id);
                         if (freshProfile) setCurrentUser(freshProfile);
@@ -195,7 +325,7 @@ const App: React.FC = () => {
 
             const [
                 freshProfile, inv, med, tx, pur, supp, cust, ewb, mapData, phy, dc, sc, po,
-                sr, pr, cert, sub, promo, team, configData
+                sr, pr, cert, sub, promo, team, configData, mrpLogs
             ] = await Promise.all([
                 storage.fetchProfile(user.user_id),
                 storage.fetchInventory(user),
@@ -216,7 +346,8 @@ const App: React.FC = () => {
                 storage.getData('sub_categories', [], user),
                 storage.getData('promotions', [], user),
                 storage.fetchTeamMembers(user),
-                storage.getData('configurations', [{ organization_id: orgId }], user)
+                storage.getData('configurations', [{ organization_id: orgId }], user),
+                storage.getData('mrp_change_log', [], user)
             ]);
 
             if (freshProfile) setCurrentUser(freshProfile);
@@ -239,6 +370,7 @@ const App: React.FC = () => {
             setSubCategories(sub || []);
             setPromotions(promo || []);
             setTeamMembers(team || []);
+            setMrpChangeLogs(mrpLogs || []);
 
             if (configData && configData.length > 0) {
                 setConfigurations(configData[0]);
@@ -264,7 +396,7 @@ const App: React.FC = () => {
         let isDirty = false;
         if (fromPage === 'pos' || fromPage === 'nonGstPos') {
             isDirty = posRef.current?.isDirty ?? false;
-        } else if (['automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice', 'manualSalesEntry', 'deliveryChallans', 'salesChallans', 'purchaseOrders', 'returns', 'salesReturns', 'purchaseReturn'].includes(fromPage)) {
+        } else {
             isDirty = purchaseFormRef.current?.isDirty ?? false;
         }
         
@@ -311,8 +443,12 @@ const App: React.FC = () => {
         try {
             if (currentPage === 'pos' || currentPage === 'nonGstPos') {
                 if (posRef.current) await posRef.current.handleSave();
-            } else if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
-                if (purchaseFormRef.current) await purchaseFormRef.current.handleSubmit();
+            } else if (purchaseFormRef.current) {
+                if (typeof purchaseFormRef.current.handleSubmit === 'function') {
+                    await purchaseFormRef.current.handleSubmit();
+                } else if (typeof purchaseFormRef.current.handleSave === 'function') {
+                    await purchaseFormRef.current.handleSave();
+                }
             }
             // Navigate after successful save
             setCurrentPage('dashboard');
@@ -323,12 +459,16 @@ const App: React.FC = () => {
 
     const handleEscDiscard = () => {
         setShowEscSavePrompt(false);
-        // Clear any specific component states if needed
-        if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
-            setEditingPurchase(null);
-            setSourceChallansForPurchase(null);
+        if (currentPage === 'pos' || currentPage === 'nonGstPos') {
+            posRef.current?.resetForm?.();
+        } else {
+            purchaseFormRef.current?.resetForm?.();
+            if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
+                setEditingPurchase(null);
+                setSourceChallansForPurchase(null);
+            }
         }
-        setCurrentPage('dashboard');
+        setScreenResetNonce(prev => ({ ...prev, [currentPage]: (prev[currentPage] ?? 0) + 1 }));
     };
 
     // Handle Supabase Auth Session Changes
@@ -340,13 +480,13 @@ const App: React.FC = () => {
                 setMedicines([]);
                 setTransactions([]);
                 setPurchases([]);
+                setMrpChangeLogs([]);
                 setIsAppLoading(false);
                 setAuthView('auth');
             } else if (event === 'PASSWORD_RECOVERY') {
                 setAuthView('reset');
             } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 if (session?.user) {
-                    setCurrentPage('dashboard');
                     storage.getCurrentUser().then(async user => {
                         if (user) {
                             setCurrentUser(user);
@@ -507,16 +647,23 @@ const App: React.FC = () => {
         loadData(user, 'initial');
     };
 
-    const handleLogout = async () => {
+    const handleLogout = useCallback(async () => {
         setShowLogoutPrompt(false);
         setIsAppLoading(true);
+        const persistedStateKey = currentUser ? getScreenStateStorageKey(currentUser) : null;
         try {
             await storage.clearCurrentUser();
+            if (persistedStateKey) {
+                window.localStorage.removeItem(persistedStateKey);
+            }
             setCurrentUser(null);
             setCurrentPage('dashboard');
             setAuthView('auth');
             window.history.replaceState({}, '', '/');
         } catch (e) {
+            if (persistedStateKey) {
+                window.localStorage.removeItem(persistedStateKey);
+            }
             setCurrentUser(null);
             setCurrentPage('dashboard');
             setAuthView('auth');
@@ -524,7 +671,7 @@ const App: React.FC = () => {
         } finally {
             setIsAppLoading(false);
         }
-    };
+    }, [currentUser, getScreenStateStorageKey]);
 
     const toggleFullScreen = () => {
         if (!document.fullscreenElement) {
@@ -689,6 +836,33 @@ const App: React.FC = () => {
         return saved;
     };
 
+    const handleUpdateInventoryItem = useCallback(async (updatedItem: InventoryItem) => {
+        if (!currentUser) throw new Error("Unauthorized");
+
+        const existingItem = inventory.find(i => i.id === updatedItem.id);
+        const oldMrp = parseMrpNumber(existingItem?.mrp);
+        const newMrp = parseMrpNumber(updatedItem.mrp);
+        const normalizedCode = normalizeCode(updatedItem.code);
+
+        await storage.saveData('inventory', updatedItem, currentUser, true);
+
+        if (normalizedCode) {
+            const linkedMedicine = medicines.find(m => normalizeCode(m.materialCode) === normalizedCode);
+            if (linkedMedicine && Math.abs(oldMrp - newMrp) >= 0.0001) {
+                await storage.saveData('material_master', { ...linkedMedicine, mrp: newMrp.toFixed(2) }, currentUser, true);
+                await createMrpChangeLog(
+                    'Inventory',
+                    updatedItem.code || linkedMedicine.materialCode,
+                    updatedItem.name || linkedMedicine.name,
+                    oldMrp,
+                    newMrp
+                );
+            }
+        }
+
+        await loadData(currentUser, 'background');
+    }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber]);
+
     const handleAddMedicineMaster = async (med: Omit<Medicine, 'id'>) => {
         if (!currentUser) throw new Error("Unauthorized");
         const saved = await storage.saveData('material_master', med, currentUser);
@@ -698,32 +872,38 @@ const App: React.FC = () => {
 
     const handleUpdateMedicineMaster = useCallback(async (updatedMedicine: Medicine) => {
         if (!currentUser) throw new Error("Unauthorized");
-
-        const normalize = (value?: string) => (value || '').trim().toLowerCase();
         const updatedPack = (updatedMedicine.pack || '').trim();
         const inferredUnitsPerPack = resolveUnitsPerStrip(parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10), updatedPack);
+        const normalizedMaterialCode = normalizeCode(updatedMedicine.materialCode);
 
         const isLinkedInventoryItem = (item: InventoryItem) => {
-            const itemCode = normalize(item.code);
-            const materialCode = normalize(updatedMedicine.materialCode);
-            if (itemCode && materialCode && itemCode === materialCode) return true;
-
-            const sameName = normalize(item.name) === normalize(updatedMedicine.name);
-            if (!sameName) return false;
-
-            const masterBrand = normalize(updatedMedicine.brand);
-            const inventoryBrand = normalize(item.brand);
-            return !masterBrand || !inventoryBrand || masterBrand === inventoryBrand;
+            const itemCode = normalizeCode(item.code);
+            return Boolean(itemCode && normalizedMaterialCode && itemCode === normalizedMaterialCode);
         };
 
-        await storage.saveData('material_master', updatedMedicine, currentUser);
+        const previousMedicine = medicines.find(m => m.id === updatedMedicine.id);
+        const oldMrp = parseMrpNumber(previousMedicine?.mrp);
+        const newMrp = parseMrpNumber(updatedMedicine.mrp);
+
+        await storage.saveData('material_master', updatedMedicine, currentUser, true);
 
         const linkedInventoryItems = inventory.filter(isLinkedInventoryItem);
         if (linkedInventoryItems.length > 0) {
+            const nextMrp = newMrp;
             await Promise.all(
                 linkedInventoryItems.map(item =>
                     storage.saveData('inventory', {
                         ...item,
+                        name: updatedMedicine.name,
+                        brand: updatedMedicine.brand || '',
+                        manufacturer: updatedMedicine.manufacturer || '',
+                        code: updatedMedicine.materialCode,
+                        barcode: updatedMedicine.barcode || item.barcode,
+                        composition: updatedMedicine.composition || '',
+                        hsnCode: updatedMedicine.hsnCode || '',
+                        description: updatedMedicine.description || '',
+                        gstPercent: Number(updatedMedicine.gstRate ?? 0),
+                        mrp: nextMrp,
                         packType: updatedPack,
                         unitsPerPack: inferredUnitsPerPack,
                     }, currentUser)
@@ -732,14 +912,36 @@ const App: React.FC = () => {
 
             setInventory(prev => prev.map(item =>
                 isLinkedInventoryItem(item)
-                    ? { ...item, packType: updatedPack, unitsPerPack: inferredUnitsPerPack }
+                    ? {
+                        ...item,
+                        name: updatedMedicine.name,
+                        brand: updatedMedicine.brand || '',
+                        manufacturer: updatedMedicine.manufacturer || '',
+                        code: updatedMedicine.materialCode,
+                        barcode: updatedMedicine.barcode || item.barcode,
+                        composition: updatedMedicine.composition || '',
+                        hsnCode: updatedMedicine.hsnCode || '',
+                        description: updatedMedicine.description || '',
+                        gstPercent: Number(updatedMedicine.gstRate ?? 0),
+                        mrp: nextMrp,
+                        packType: updatedPack,
+                        unitsPerPack: inferredUnitsPerPack,
+                    }
                     : item
             ));
         }
 
+        await createMrpChangeLog(
+            'Material Master',
+            updatedMedicine.materialCode,
+            updatedMedicine.name,
+            oldMrp,
+            newMrp
+        );
+
         setMedicines(prev => prev.map(m => (m.id === updatedMedicine.id ? updatedMedicine : m)));
         await loadData(currentUser, 'background');
-    }, [currentUser, inventory, loadData]);
+    }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber]);
 
     const resolveControlGlByCode = useCallback(async (organizationId: string, glCode: string): Promise<string | undefined> => {
         const { data: bookRows, error: bookErr } = await supabase
@@ -1096,12 +1298,12 @@ const App: React.FC = () => {
         return { ...currentUser, pharmacy_logo_url: configuredLogo };
     };
 
-    const renderPage = () => {
-        const configId = currentPage === 'nonGstPos' ? 'pos' : currentPage;
+    const renderPage = (pageId: string, isActive: boolean) => {
+        const configId = pageId === 'nonGstPos' ? 'pos' : pageId;
         const config: ModuleConfig = { visible: true, fields: configurations.modules?.[configId]?.fields || {} };
 
         try {
-            switch (currentPage) {
+            switch (pageId) {
                 case 'dashboard':
                     return <Dashboard
                         currentUser={currentUser} configurations={configurations} inventory={inventory}
@@ -1113,12 +1315,12 @@ const App: React.FC = () => {
                 case 'pos':
                 case 'nonGstPos':
                     return <POS
-                        ref={posRef}
+                        ref={isActive ? posRef : undefined}
                         inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
                         onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
                         onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
                         currentUser={currentUser} config={config} configurations={configurations}
-                        billType={currentPage === 'nonGstPos' ? 'non-gst' : 'regular'}
+                        billType={pageId === 'nonGstPos' ? 'non-gst' : 'regular'}
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
                         onQuickAddCustomer={handleQuickAddCustomerFromPos}
                         onCancel={() => {
@@ -1147,7 +1349,7 @@ const App: React.FC = () => {
                     />;
                 case 'manualSalesEntry':
                     return <ManualSalesEntry
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         currentUser={currentUser}
                         customers={customers}
                         inventory={inventory}
@@ -1219,7 +1421,7 @@ const App: React.FC = () => {
                 case 'salesReturns':
                 case 'purchaseReturn':
                     return <Returns
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         currentUser={currentUser}
                         transactions={transactions}
                         inventory={inventory}
@@ -1260,7 +1462,7 @@ const App: React.FC = () => {
                             addNotification('Purchase return recorded.', 'success');
                         }}
                         addNotification={addNotification}
-                        defaultTab={currentPage === 'salesReturns' ? 'sales' : 'purchase'}
+                        defaultTab={pageId === 'salesReturns' ? 'sales' : 'purchase'}
                         isFixedMode={true}
                         prefillSalesInvoiceId={salesReturnPrefillInvoiceId || undefined}
                         prefillPurchaseInvoiceId={purchaseReturnPrefillInvoiceId || undefined}
@@ -1269,7 +1471,7 @@ const App: React.FC = () => {
                     />;
                 case 'purchaseOrders':
                     return <PurchaseOrders
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         distributors={suppliers}
                         inventory={inventory}
                         purchaseOrders={purchaseOrders}
@@ -1324,7 +1526,7 @@ const App: React.FC = () => {
                     />;
                 case 'automatedPurchaseEntry':
                     return <PurchaseForm
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
                         inventory={inventory} suppliers={suppliers} medicines={medicines}
                         mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
@@ -1344,7 +1546,7 @@ const App: React.FC = () => {
                     />;
                 case 'manualPurchaseEntry':
                     return <PurchaseForm
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
                         inventory={inventory} suppliers={suppliers} medicines={medicines}
                         mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
@@ -1364,7 +1566,7 @@ const App: React.FC = () => {
 
                 case 'manualSupplierInvoice':
                     return <ManualPurchase
-                        ref={purchaseFormRef}
+                        ref={isActive ? purchaseFormRef : undefined}
                         currentUser={currentUser}
                         suppliers={suppliers}
                         inventory={inventory}
@@ -1396,7 +1598,8 @@ const App: React.FC = () => {
                         inventory={inventory} medicines={medicines} currentUser={currentUser}
                         onCreatePurchaseOrder={() => { }} config={config} onUpdateConfig={(newConfig) => handleUpdateModuleConfig('inventory', newConfig)}
                         onBulkAddInventory={(list) => storage.saveBulkData('inventory', list, currentUser)}
-                        onAddProduct={handleAddInventoryItem} onUpdateProduct={(item) => storage.saveData('inventory', item, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        onAddProduct={handleAddInventoryItem} onUpdateProduct={handleUpdateInventoryItem}
+                        mrpChangeLogs={mrpChangeLogs}
                     />;
                 case 'physicalInventory':
                     return <PhysicalInventory
@@ -1404,27 +1607,41 @@ const App: React.FC = () => {
                         onStartNewCount={async () => {
                             if (!currentUser) return;
 
-                            const hasOpenSession = physicalInventory.some(s => s.status === PhysicalInventoryStatus.IN_PROGRESS);
-                            if (hasOpenSession) {
-                                addNotification('An audit session is already in progress.', 'warning');
-                                return;
+                            try {
+                                const hasOpenSession = physicalInventory.some(s => s.status === PhysicalInventoryStatus.IN_PROGRESS);
+                                if (hasOpenSession) {
+                                    addNotification('An audit session is already in progress.', 'warning');
+                                    return;
+                                }
+
+                                let sessionId = '';
+                                try {
+                                    const reserved = await storage.reserveVoucherNumber('physical-inventory', currentUser);
+                                    sessionId = reserved.documentNumber;
+                                } catch (reservationError) {
+                                    console.warn('Unable to reserve physical inventory voucher number, using timestamp fallback.', reservationError);
+                                    sessionId = `PHY-TEMP-${Date.now()}`;
+                                    addNotification('Voucher numbering is unavailable. A temporary audit ID was used.', 'warning');
+                                }
+
+                                const session: PhysicalInventorySession = {
+                                    id: sessionId,
+                                    organization_id: currentUser.organization_id,
+                                    status: PhysicalInventoryStatus.IN_PROGRESS,
+                                    startDate: new Date().toISOString(),
+                                    reason: '',
+                                    items: [],
+                                    totalVarianceValue: 0,
+                                    performedById: currentUser.id,
+                                    performedByName: currentUser.full_name,
+                                };
+
+                                await storage.saveData('physical_inventory', session, currentUser);
+                                await loadData(currentUser, 'background');
+                                addNotification(`Stock audit ${sessionId} created successfully.`, 'success');
+                            } catch (error) {
+                                addNotification(parseNetworkAndApiError(error), 'error');
                             }
-
-                            const reserved = await storage.reserveVoucherNumber('physical-inventory', currentUser);
-                            const session: PhysicalInventorySession = {
-                                id: reserved.documentNumber,
-                                organization_id: currentUser.organization_id,
-                                status: PhysicalInventoryStatus.IN_PROGRESS,
-                                startDate: new Date().toISOString(),
-                                reason: '',
-                                items: [],
-                                totalVarianceValue: 0,
-                                performedById: currentUser.id,
-                                performedByName: currentUser.full_name,
-                            };
-
-                            await storage.saveData('physical_inventory', session, currentUser);
-                            await loadData(currentUser, 'background');
                         }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
                         onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
                         onCancelCount={(session) => {
@@ -1465,7 +1682,8 @@ const App: React.FC = () => {
                         onSearchMedicines={() => { }} onMassUpdateClick={() => { }}
                         onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} onDeleteMapping={(id) => storage.deleteData('supplier_product_map', id).then(() => loadData(currentUser!, 'background'))}
                         mappings={mappings}
-                        initialSubModule={currentPage === 'vendorNomenclature' ? 'sync' : currentPage === 'bulkUtility' ? 'bulk' : 'master'}
+                        initialSubModule={pageId === 'vendorNomenclature' ? 'sync' : pageId === 'bulkUtility' ? 'bulk' : 'master'}
+                        mrpChangeLogs={mrpChangeLogs}
                     />;
                 case 'substituteFinder':
                     return <SubstituteFinder inventory={inventory} />;
@@ -1480,6 +1698,11 @@ const App: React.FC = () => {
                 case 'dailyReports':
                     return <DailyReports
                         transactions={transactions}
+                        inventory={inventory}
+                        purchases={purchases}
+                        salesChallans={salesChallans}
+                        deliveryChallans={deliveryChallans}
+                        customers={customers}
                         reportId={currentDailyReportId}
                     />;
                 case 'balanceCarryforward':
@@ -1558,7 +1781,7 @@ const App: React.FC = () => {
                 <div className="flex-1 flex items-center justify-center bg-red-50 p-10">
                     <div className="max-w-md w-full bg-white border-2 border-red-500 p-8 shadow-2xl">
                         <h2 className="text-2xl font-black text-red-600 uppercase mb-4 tracking-tight">Application Fault</h2>
-                        <p className="text-sm font-bold text-gray-700 mb-6">The module <span className="text-red-600 uppercase">{currentPage}</span> has encountered a critical failure and could not be rendered.</p>
+                        <p className="text-sm font-bold text-gray-700 mb-6">The module <span className="text-red-600 uppercase">{pageId}</span> has encountered a critical failure and could not be rendered.</p>
                         <div className="bg-red-50 p-4 border border-red-100 rounded mb-6">
                             <p className="text-[10px] font-black text-red-400 uppercase mb-1">Error Trace</p>
                             <p className="text-xs font-mono text-red-700 break-words">{String(e)}</p>
@@ -1643,7 +1866,16 @@ const App: React.FC = () => {
                     />
                 )}
                 <div className="flex-1 relative overflow-hidden flex flex-col">
-                    {renderPage()}
+                    {mountedPages.map((pageId) => (
+                        <div
+                            key={`${pageId}-${screenResetNonce[pageId] ?? 0}`}
+                            ref={(node) => { pageContainerRefs.current[pageId] = node; }}
+                            className={`absolute inset-0 overflow-auto ${pageId === currentPage ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none z-0'}`}
+                            aria-hidden={pageId === currentPage ? undefined : true}
+                        >
+                            {renderPage(pageId, pageId === currentPage)}
+                        </div>
+                    ))}
                 </div>
             </div>
             <div className="no-print">

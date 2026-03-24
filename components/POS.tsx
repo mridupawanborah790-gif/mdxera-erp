@@ -17,7 +17,7 @@ import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, Regi
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
-import { calculateBillingTotals, resolveBillingSettings, calculateLineNetAmount } from '../utils/billing';
+import { calculateBillingTotals, resolveBillingSettings, calculateLineNetAmount, isRateFieldAvailable } from '../utils/billing';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
@@ -52,6 +52,20 @@ interface UploadedFile {
     data: string;
     type: 'image' | 'pdf';
     name: string;
+}
+
+type SchemeCalculationBasis = 'before_discount' | 'after_discount';
+
+interface PendingSchemeApplication {
+    itemId: string;
+    schemeQty: number;
+    mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio';
+    value: number;
+    discountAmount: number;
+    discountPercent: number;
+    freeQuantity: number;
+    schemeTotalQty?: number;
+    schemeDisplayPercent?: number;
 }
 
 const uniformTextStyle = "text-sm font-bold tracking-tight uppercase leading-tight";
@@ -143,8 +157,14 @@ const recalculateSchemeFields = (item: BillItem): BillItem => {
 
     const billedQty = getBilledQuantity(item);
     const baseRate = Number(item.rate || item.mrp || 0);
+    const gross = billedQty * baseRate;
     const tradeDiscountPercent = Number(item.discountPercent || 0);
-    const netRate = baseRate * (1 - tradeDiscountPercent / 100);
+    const tradeDiscountAmount = gross * (tradeDiscountPercent / 100);
+    const flatDiscountAmount = Math.max(0, Number(item.itemFlatDiscount || 0));
+    const afterTradeAmount = Math.max(0, gross - tradeDiscountAmount - flatDiscountAmount);
+    const schemeBasis: SchemeCalculationBasis = item.schemeCalculationBasis === 'before_discount' ? 'before_discount' : 'after_discount';
+    const schemeBaseAmount = schemeBasis === 'before_discount' ? gross : afterTradeAmount;
+    const schemeUnitRate = billedQty > 0 ? (schemeBaseAmount / billedQty) : 0;
     const appliedQty = Math.max(0, Number(item.schemeQty || 0));
     const schemeValue = Math.max(0, Number(item.schemeValue || 0));
     const schemeTotalQty = Math.max(0, Number(item.schemeTotalQty || 0));
@@ -154,25 +174,25 @@ const recalculateSchemeFields = (item: BillItem): BillItem => {
 
     if (item.schemeMode === 'free_qty') {
         freeQuantity = Math.min(appliedQty, billedQty);
-        calculatedTotalDiscount = freeQuantity * netRate;
+        calculatedTotalDiscount = freeQuantity * schemeUnitRate;
     } else if (item.schemeMode === 'qty_ratio' && schemeTotalQty > 0) {
         const applications = Math.floor(billedQty / schemeTotalQty);
         freeQuantity = applications * appliedQty;
-        calculatedTotalDiscount = freeQuantity * netRate;
+        calculatedTotalDiscount = freeQuantity * schemeUnitRate;
     } else if (item.schemeMode === 'flat') {
         calculatedTotalDiscount = Math.min(appliedQty, billedQty) * schemeValue;
-        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+        freeQuantity = schemeUnitRate > 0 ? calculatedTotalDiscount / schemeUnitRate : 0;
     } else if (item.schemeMode === 'percent') {
-        calculatedTotalDiscount = Math.min(appliedQty || billedQty, billedQty) * (netRate * (schemeValue / 100));
-        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+        const effectiveQty = Math.min(appliedQty || billedQty, billedQty);
+        calculatedTotalDiscount = Math.min(schemeBaseAmount, effectiveQty * (schemeUnitRate * (schemeValue / 100)));
+        freeQuantity = schemeUnitRate > 0 ? calculatedTotalDiscount / schemeUnitRate : 0;
     } else if (item.schemeMode === 'price_override') {
-        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * Math.max(0, netRate - schemeValue);
-        freeQuantity = netRate > 0 ? calculatedTotalDiscount / netRate : 0;
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * Math.max(0, schemeUnitRate - schemeValue);
+        freeQuantity = schemeUnitRate > 0 ? calculatedTotalDiscount / schemeUnitRate : 0;
     }
 
-    const discountedSubtotal = billedQty * netRate;
-    const schemeDiscountAmount = Math.max(0, Math.min(calculatedTotalDiscount, discountedSubtotal));
-    const schemeDiscountPercent = discountedSubtotal > 0 ? (schemeDiscountAmount / discountedSubtotal) * 100 : 0;
+    const schemeDiscountAmount = Math.max(0, Math.min(calculatedTotalDiscount, afterTradeAmount));
+    const schemeDiscountPercent = schemeBaseAmount > 0 ? (schemeDiscountAmount / schemeBaseAmount) * 100 : 0;
 
     return {
         ...item,
@@ -229,16 +249,19 @@ const POS = forwardRef<any, POSProps>(({
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
     const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(transactionToEdit?.pricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
+    const rateFieldAvailable = useMemo(() => isRateFieldAvailable(configurations), [configurations]);
 
     useEffect(() => {
-        if (currentUser?.organization_type === 'Distributor') {
+        if (!rateFieldAvailable) {
+            setLocalPricingMode('mrp');
+        } else if (currentUser?.organization_type === 'Distributor') {
             setLocalPricingMode('rate');
         } else if (transactionToEdit?.pricingMode) {
             setLocalPricingMode(transactionToEdit.pricingMode);
         } else if (configurations?.displayOptions?.pricingMode) {
             setLocalPricingMode(configurations.displayOptions.pricingMode);
         }
-    }, [currentUser?.organization_type, configurations?.displayOptions?.pricingMode, transactionToEdit?.pricingMode]);
+    }, [currentUser?.organization_type, configurations?.displayOptions?.pricingMode, transactionToEdit?.pricingMode, rateFieldAvailable]);
 
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
@@ -443,6 +466,29 @@ const POS = forwardRef<any, POSProps>(({
             pricingMode: localPricingMode
         });
     }, [activeBillItem, isNonGst, configurations, currentUser?.organization_type, localPricingMode]);
+
+    const activeLineSummary = useMemo(() => {
+        if (!activeBillItem || !activeLineTotals) return null;
+        const effectiveSchemeRule = activeBillItem.schemeCalculationBasis || (billingSettings.schemeBase === 'subtotal' ? 'before_discount' : 'after_discount');
+        const value = activeLineTotals.gross || 0;
+        const discount = (activeLineTotals.tradeDiscount || 0) + (activeLineTotals.lineFlatDiscount || 0);
+        const amountAfterDiscount = activeLineTotals.subtotal || 0;
+        const schemeDiscount = activeLineTotals.schemeTotal || 0;
+        const taxableValue = activeLineTotals.taxableValue || 0;
+        const gst = activeLineTotals.tax || 0;
+        const finalLineTotal = activeLineTotals.baseTotal || 0;
+
+        return {
+            rule: effectiveSchemeRule,
+            value,
+            discount,
+            amountAfterDiscount,
+            schemeDiscount,
+            taxableValue,
+            gst,
+            finalLineTotal
+        };
+    }, [activeBillItem, activeLineTotals, billingSettings.schemeBase]);
 
 
     const customerSnapshot = useMemo(() => {
@@ -685,6 +731,21 @@ const POS = forwardRef<any, POSProps>(({
         }
     }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber]);
 
+    const resetForm = useCallback(() => {
+        setCartItems([]);
+        setPrescriptions([]);
+        setSelectedCustomer(null);
+        setCustomerSearch('');
+        setCustomerPhone('');
+        setReferredBy('');
+        setLumpsumDiscount(0);
+        setRoundOff(0);
+        setIsRoundOffManuallyEdited(false);
+        setReservedVoucherNumber(null);
+        setNextVoucherNumberHint(null);
+        lastReservedType.current = null;
+    }, []);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (isCustomerSearchModalOpen || schemeItem || pendingBatchSelection || isSearchModalOpen || isSchemeCalcOpen) return;
@@ -737,7 +798,10 @@ const POS = forwardRef<any, POSProps>(({
                     return;
                 case 'F6':
                     e.preventDefault();
-                    if (cartItems.length > 0) setSchemeItem(cartItems[cartItems.length - 1]);
+                    if (cartItems.length > 0) {
+                        const targetItem = cartItems[cartItems.length - 1];
+                        setSchemeItem(targetItem);
+                    }
                     return;
                 case 'F8':
                     e.preventDefault();
@@ -758,10 +822,11 @@ const POS = forwardRef<any, POSProps>(({
 
     useImperativeHandle(ref, () => ({
         handleSave,
+        resetForm,
         setCartItems,
         cartItems,
         isDirty: cartItems.length > 0 || customerPhone.trim() !== '' || referredBy.trim() !== ''
-    }));
+    }), [handleSave, resetForm, cartItems, customerPhone, referredBy]);
 
 
     const handleProcessPrescription = async (fileInput: FileInput, fileName: string) => {
@@ -1183,7 +1248,7 @@ const POS = forwardRef<any, POSProps>(({
                     const parsedRate = rateText === '' ? 0 : (parseFloat(rateText) || 0);
                     updated.rate = Math.min(parsedRate, 999999.99);
                     updated.schemeBaseRate = undefined;
-                    return updated;
+                    return updated.schemeMode ? recalculateSchemeFields(updated) : updated;
                 }
                 if (['quantity', 'looseQuantity', 'freeQuantity', 'discountPercent', 'rate', 'itemFlatDiscount', 'mrp', 'gstPercent'].includes(field as string)) {
                     (updated as any)[field] = value === '' ? 0 : (parseFloat(value) || 0);
@@ -1227,19 +1292,20 @@ const POS = forwardRef<any, POSProps>(({
     //     }
     // }, [addNotification, isValidExpiry]);
 
-    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number, schemeDisplayPercent?: number) => {
+    const applySchemeToLine = useCallback((payload: PendingSchemeApplication, schemeCalculationBasis: SchemeCalculationBasis) => {
         setCartItems(prev => prev.map(item => {
-            if (item.id === itemId) {
+            if (item.id === payload.itemId) {
                 const updatedItem: BillItem = {
                     ...item,
-                    schemeQty,
-                    schemeMode: mode,
-                    schemeValue: value,
-                    freeQuantity,
-                    schemeDiscountAmount: discountAmount,
-                    schemeDiscountPercent: discountPercent,
-                    schemeTotalQty,
-                    schemeDisplayPercent,
+                    schemeQty: payload.schemeQty,
+                    schemeMode: payload.mode,
+                    schemeValue: payload.value,
+                    freeQuantity: payload.freeQuantity,
+                    schemeDiscountAmount: payload.discountAmount,
+                    schemeDiscountPercent: payload.discountPercent,
+                    schemeTotalQty: payload.schemeTotalQty,
+                    schemeDisplayPercent: payload.schemeDisplayPercent,
+                    schemeCalculationBasis,
                 };
                 return recalculateSchemeFields(updatedItem);
             }
@@ -1249,10 +1315,28 @@ const POS = forwardRef<any, POSProps>(({
         setTimeout(() => productSearchInputRef.current?.focus(), 100);
     }, []);
 
+    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeCalculationBasis: SchemeCalculationBasis, schemeTotalQty?: number, schemeDisplayPercent?: number) => {
+        applySchemeToLine({
+            itemId,
+            schemeQty,
+            mode,
+            value,
+            discountAmount,
+            discountPercent,
+            freeQuantity,
+            schemeTotalQty,
+            schemeDisplayPercent,
+        }, schemeCalculationBasis);
+    }, [applySchemeToLine]);
+
+    const openSchemeFlow = useCallback((item: BillItem) => {
+        setSchemeItem(item);
+    }, []);
+
     const handleClearScheme = useCallback((itemId: string) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
-                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeDisplayPercent, schemeTotalQty, schemeBaseRate, ...rest } = item;
+                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeDisplayPercent, schemeTotalQty, schemeBaseRate, schemeCalculationBasis, ...rest } = item;
                 return { ...rest };
             }
             return item;
@@ -1478,10 +1562,10 @@ const POS = forwardRef<any, POSProps>(({
                     {currentUser?.organization_type === 'Retail' && (
                         <button
                             type="button"
-                            onClick={() => !isReadOnly && setLocalPricingMode(prev => prev === 'mrp' ? 'rate' : 'mrp')}
-                            disabled={isReadOnly}
+                            onClick={() => !isReadOnly && rateFieldAvailable && setLocalPricingMode(prev => prev === 'mrp' ? 'rate' : 'mrp')}
+                            disabled={isReadOnly || !rateFieldAvailable}
                             className={`px-2 py-0.5 border text-white text-[9px] font-black uppercase tracking-widest transition-colors ${localPricingMode === 'mrp' ? 'bg-accent border-accent text-primary' : 'bg-transparent border-white/60'} ${isReadOnly ? 'opacity-80 cursor-default' : ''}`}
-                            title={isReadOnly ? "Pricing mode cannot be changed for existing bills" : "Switch between MRP Based (Inclusive) and Rate Based (Exclusive) pricing"}
+                            title={isReadOnly ? "Pricing mode cannot be changed for existing bills" : (!rateFieldAvailable ? "Rate column is disabled in POS configuration, so billing is locked to MRP mode." : "Switch between MRP Based (Inclusive) and Rate Based (Exclusive) pricing")}
                         >
                             Mode: {localPricingMode === 'mrp' ? 'MRP (INCL)' : 'RATE (EXT)'}
                         </button>
@@ -1610,10 +1694,10 @@ const POS = forwardRef<any, POSProps>(({
                                     {isFieldVisible('colExpiry') && <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>}
                                     {isFieldVisible('colPack') && <th className="p-2 border-r border-gray-400 text-center w-16">Pack</th>}
                                     {isFieldVisible('colMrp') && <th className="p-2 border-r border-gray-400 text-right w-20">MRP</th>}
+                                    {isFieldVisible('colRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
                                     {isFieldVisible('colPQty') && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
                                     {isFieldVisible('colLQty') && <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>}
                                     {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">Free</th>}
-                                    {isFieldVisible('colRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
                                     {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
                                     {isFieldVisible('colGst') && <th className="p-2 border-r border-gray-400 text-center w-16">GST%</th>}
                                     {isFieldVisible('colSch') && <th className="p-2 border-r border-gray-400 text-center w-20">Sch%</th>}
@@ -1728,6 +1812,36 @@ const POS = forwardRef<any, POSProps>(({
                                                     />
                                                 </td>
                                             )}
+                                            {isFieldVisible('colRate') && (
+                                                <td className={`p-2 border-r border-gray-200 text-right font-normal ${uniformTextStyle}`}>
+                                                    <div className="flex items-center justify-end">
+                                                        <span className={`mr-0.5 text-[10px] ${selectedRowIndex === idx ? 'text-white/40' : 'opacity-40'}`}>₹</span>
+                                                        <input
+                                                            id={`rate-${item.id}`}
+                                                            type="number"
+                                                            value={item.rate === 0 ? '' : item.rate}
+                                                            onChange={e => handleUpdateCartItem(item.id, 'rate', e.target.value)}
+                                                            onFocus={() => handleRowFocus(idx)}
+                                                            onKeyDown={e => {
+                                                                if (e.ctrlKey && (e.key === 'Enter' || e.keyCode === 13)) {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    setActiveSchemeCalcRowId(item.id);
+                                                                    setIsSchemeCalcOpen(true);
+                                                                } else {
+                                                                    handleItemKeyDown(e, item.id, idx);
+                                                                    handleRowKeyNavigation(e, item.id);
+                                                                }
+                                                            }}
+                                                            className={`w-24 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed ${selectedRowIndex === idx ? 'text-white border-white/30 focus:border-white' : 'group-hover:text-white border-gray-300 focus:border-primary'}`} 
+                                                            min="0"
+                                                            max="999999.99"
+                                                            step="0.01"
+                                                            disabled={isReadOnly}
+                                                        />
+                                                    </div>
+                                                </td>
+                                            )}
                                             {isFieldVisible('colPQty') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
                                                     <input
@@ -1786,36 +1900,6 @@ const POS = forwardRef<any, POSProps>(({
                                                     />
                                                 </td>
                                             )}
-                                            {isFieldVisible('colRate') && (
-                                                <td className={`p-2 border-r border-gray-200 text-right font-normal ${uniformTextStyle}`}>
-                                                    <div className="flex items-center justify-end">
-                                                        <span className={`mr-0.5 text-[10px] ${selectedRowIndex === idx ? 'text-white/40' : 'opacity-40'}`}>₹</span>
-                                                        <input
-                                                            id={`rate-${item.id}`}
-                                                            type="number"
-                                                            value={item.rate === 0 ? '' : item.rate}
-                                                            onChange={e => handleUpdateCartItem(item.id, 'rate', e.target.value)}
-                                                            onFocus={() => handleRowFocus(idx)}
-                                                            onKeyDown={e => {
-                                                                if (e.ctrlKey && (e.key === 'Enter' || e.keyCode === 13)) {
-                                                                    e.preventDefault();
-                                                                    e.stopPropagation();
-                                                                    setActiveSchemeCalcRowId(item.id);
-                                                                    setIsSchemeCalcOpen(true);
-                                                                } else {
-                                                                    handleItemKeyDown(e, item.id, idx);
-                                                                    handleRowKeyNavigation(e, item.id);
-                                                                }
-                                                            }}
-                                                            className={`w-24 text-right bg-transparent font-black no-spinner outline-none border-b border-dashed ${selectedRowIndex === idx ? 'text-white border-white/30 focus:border-white' : 'group-hover:text-white border-gray-300 focus:border-primary'}`} 
-                                                            min="0"
-                                                            max="999999.99"
-                                                            step="0.01"
-                                                            disabled={isReadOnly}
-                                                        />
-                                                    </div>
-                                                </td>
-                                            )}
                                             {isFieldVisible('colDisc') && (
                                                 <td className={`p-2 border-r border-gray-200 text-center ${uniformTextStyle}`}>
                                                     <input
@@ -1857,7 +1941,7 @@ const POS = forwardRef<any, POSProps>(({
                                                         e.stopPropagation();
                                                         if (isReadOnly) return;
                                                         handleRowFocus(idx);
-                                                        setSchemeItem(item);
+                                                        openSchemeFlow(item);
                                                     }}
                                                 >
                                                     <button
@@ -1866,14 +1950,14 @@ const POS = forwardRef<any, POSProps>(({
                                                             e.stopPropagation();
                                                             if (isReadOnly) return;
                                                             handleRowFocus(idx);
-                                                            setSchemeItem(item);
+                                                            openSchemeFlow(item);
                                                         }}
                                                         onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             if (e.key === 'Enter') {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
-                                                                setSchemeItem(item);
+                                                                openSchemeFlow(item);
                                                             } else {
                                                                 handleItemKeyDown(e, item.id, idx);
                                                                 handleRowKeyNavigation(e, item.id);
@@ -1929,9 +2013,9 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </Card>
 
-                <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[210px] xl:min-h-[260px]">
-                    <div className="col-span-5 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm flex flex-col justify-center">
-                        <div className="text-[11px] xl:text-[14px] font-bold uppercase space-y-1 xl:space-y-2">
+                <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[145px] xl:min-h-[170px]">
+                    <div className="col-span-3 bg-[#e5f0f0] px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center">
+                        <div className="text-[10px] xl:text-[12px] font-bold uppercase space-y-0.5 xl:space-y-1">
                             <div>Item : <span className="text-primary">{activeStockSnapshot?.item || '-'}</span></div>
                             <div>Batch : <span className="text-primary">{activeStockSnapshot?.batch || '-'}</span></div>
                             <div>Expiry : <span className="text-primary">{activeStockSnapshot?.expiry || '-'}</span></div>
@@ -1940,22 +2024,35 @@ const POS = forwardRef<any, POSProps>(({
                         </div>
                     </div>
 
-                    <div className="col-span-4 bg-[#e5f0f0] px-3 py-2 tally-border !rounded-none shadow-sm">
-                        <h4 className="text-[8px] xl:text-[11px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1 xl:mb-2 border-b border-gray-200 pb-1">{activeLineTotals ? 'Item Summary' : 'Bill Summary'}</h4>
-                        <div className="grid grid-cols-1 xl:grid-cols-2 xl:gap-x-6 gap-y-0.5 text-[9px] xl:text-[13px] font-bold uppercase tracking-tight">
-                            <div className="space-y-0.5 xl:space-y-1">
+                    <div className="col-span-6 bg-[#e5f0f0] px-2 py-1.5 tally-border !rounded-none shadow-sm">
+                        <h4 className="text-[8px] xl:text-[10px] font-black text-gray-500 uppercase tracking-[0.16em] mb-1 border-b border-gray-200 pb-0.5">{activeLineTotals ? 'Item Summary' : 'Bill Summary'}</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 md:gap-x-4 gap-y-0.5 text-[8px] xl:text-[11px] font-bold uppercase tracking-tight leading-tight">
+                            <div className="space-y-0.5">
                                 {activeLineTotals && (
                                     <>
                                         <div className="flex items-center justify-between text-blue-800"><span>Unit Rate</span> <span className="font-mono">₹{(activeBillItem?.rate || 0).toFixed(2)}</span></div>
-                                        <div className="flex items-center justify-between text-emerald-700"><span>Scheme %</span> <span className="font-mono">{getDisplaySchemePercent(activeBillItem).toFixed(2)}%</span></div>
+                                        <div className="flex items-center justify-between text-emerald-700"><span>Scheme Rule</span> <span className="font-mono">{activeLineSummary?.rule === 'before_discount' ? 'At Same Level / Before Discount' : 'After Disc%'}</span></div>
                                     </>
                                 )}
-                                <div className="flex justify-between"><span>MRP Value</span><span>₹{(activeLineTotals?.gross ?? totals.gross ?? 0).toFixed(2)}</span></div>
-                                <div className="flex justify-between"><span>Value of Goods</span><span>₹{(activeLineTotals?.subtotal ?? totals.subtotal ?? 0).toFixed(2)}</span></div>
+                                {activeLineTotals ? (
+                                    <>
+                                        <div className="flex justify-between"><span>Value</span><span>₹{(activeLineSummary?.value || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-red-600"><span>Discount</span><span>₹{(activeLineSummary?.discount || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between"><span>Amount After Discount</span><span>₹{(activeLineSummary?.amountAfterDiscount || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-red-600"><span>Scheme Discount</span><span>₹{(activeLineSummary?.schemeDiscount || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between"><span>Taxable Value After Scheme</span><span>₹{(activeLineSummary?.taxableValue || 0).toFixed(2)}</span></div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="flex justify-between"><span>MRP Value</span><span>₹{(totals.gross ?? 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between"><span>Value of Goods</span><span>₹{(totals.subtotal ?? 0).toFixed(2)}</span></div>
+                                    </>
+                                )}
                             </div>
-                            <div className="space-y-0.5 xl:space-y-1">
-                                <div className="flex justify-between text-blue-700"><span>SGST</span><span>₹{((activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
-                                <div className="flex justify-between text-blue-700"><span>CGST</span><span>₹{((activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                            <div className="space-y-0.5">
+                                <div className="flex justify-between text-blue-700"><span>SGST</span><span>₹{((activeLineSummary?.gst ?? activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                                <div className="flex justify-between text-blue-700"><span>CGST</span><span>₹{((activeLineSummary?.gst ?? activeLineTotals?.tax ?? totals.tax ?? 0) / 2).toFixed(2)}</span></div>
+                                {activeLineTotals && <div className="flex justify-between text-blue-700"><span>GST</span><span>₹{(activeLineSummary?.gst || 0).toFixed(2)}</span></div>}
                                 <div className="flex justify-between text-red-600">
                                     <span>Discount</span>
                                     <span>₹{activeLineTotals 
@@ -1965,13 +2062,13 @@ const POS = forwardRef<any, POSProps>(({
                                 </div>
                             </div>
                             {!activeLineTotals && (
-                                <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 xl:col-span-2 border-t border-gray-300 mt-1">
-                                    <span className="xl:text-[14px]">Bill Discount</span>
+                                <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 md:col-span-2 border-t border-gray-300 mt-0.5">
+                                    <span className="xl:text-[12px]">Bill Discount</span>
                                     <input
                                         type="number"
                                         value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
                                         onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
-                                        className="w-16 text-right bg-white border border-gray-300 font-normal text-[9px] no-spinner outline-none px-1 h-4"
+                                        className="w-16 text-right bg-white border border-gray-300 font-normal text-[8px] xl:text-[10px] no-spinner outline-none px-1 h-4"
                                         disabled={isReadOnly}
                                     />
                                 </div>
@@ -1984,16 +2081,16 @@ const POS = forwardRef<any, POSProps>(({
                                     return sub > 0 ? ((tx / sub) * 100).toFixed(2) : '0.00';
                                 })()}%</span>
                             </div>
-                            <div className="flex justify-between font-black text-primary border-t border-gray-300 pt-1 mt-1">
+                            <div className="flex justify-between font-black text-primary border-t border-gray-300 pt-0.5 mt-0.5">
                                 <span>{activeLineTotals ? 'Line Total' : 'Balance'}</span>
-                                <span>₹{(activeLineTotals ? (activeLineTotals.baseTotal ?? 0) : (grandTotal ?? 0)).toFixed(2)}</span>
+                                <span>₹{(activeLineTotals ? (activeLineSummary?.finalLineTotal ?? 0) : (grandTotal ?? 0)).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
 
-                    <div className="col-span-3 bg-white p-2 tally-border !rounded-none shadow-sm">
-                        <div className="text-[10px] font-black uppercase text-gray-500 mb-1">Customer Info</div>
-                        <div className="text-[11px] font-bold uppercase space-y-1">
+                    <div className="col-span-3 bg-white px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center">
+                        <div className="text-[9px] xl:text-[10px] font-black uppercase text-gray-500 mb-0.5">Customer Info</div>
+                        <div className="text-[10px] xl:text-[11px] font-bold uppercase space-y-0.5 xl:space-y-1">
                             <div>Area: {customerSnapshot.area}</div>
                             <div>Route: {customerSnapshot.route}</div>
                             <div>Collection Days: {customerSnapshot.collectionDays}</div>
@@ -2371,6 +2468,7 @@ const POS = forwardRef<any, POSProps>(({
                     isOpen={!!schemeItem}
                     onClose={() => { setSchemeItem(null); setTimeout(() => productSearchInputRef.current?.focus(), 100); }}
                     item={schemeItem}
+                    schemeCalculationBasis={schemeItem.schemeCalculationBasis === 'before_discount' ? 'before_discount' : 'after_discount'}
                     onApply={handleApplyScheme}
                     onClear={handleClearScheme}
                 />

@@ -7,7 +7,8 @@ interface SchemeModalProps {
     isOpen: boolean;
     onClose: () => void;
     item: BillItem;
-    onApply: (itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number, schemeDisplayPercent?: number) => void;
+    schemeCalculationBasis: 'before_discount' | 'after_discount';
+    onApply: (itemId: string, schemeQty: number, mode: 'flat' | 'percent' | 'price_override' | 'free_qty' | 'qty_ratio', value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeCalculationBasis: 'before_discount' | 'after_discount', schemeTotalQty?: number, schemeDisplayPercent?: number) => void;
     onClear: (itemId: string) => void;
 }
 
@@ -71,15 +72,17 @@ const calculateSchemeDisplayPercent = (params: { mode: 'flat' | 'percent' | 'pri
 };
 
 
-const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onApply, onClear }) => {
+const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, schemeCalculationBasis, onApply, onClear }) => {
     const [schemeRule, setSchemeRule] = useState('');
     const [selectedRule, setSelectedRule] = useState('custom');
     const [schemePercent, setSchemePercent] = useState<number>(0);
     const [schemeRate, setSchemeRate] = useState<number>(0);
+    const [selectedBasis, setSelectedBasis] = useState<'before_discount' | 'after_discount'>('after_discount');
     const firstInputRef = useRef<HTMLSelectElement>(null);
 
     useEffect(() => {
         if (!isOpen) return;
+        setSelectedBasis(schemeCalculationBasis === 'before_discount' ? 'before_discount' : 'after_discount');
 
         if (item.schemeMode === 'qty_ratio' && (item.schemeQty || 0) > 0 && (item.schemeTotalQty || 0) > 0) {
             setSchemeRule(`${item.schemeQty} in ${item.schemeTotalQty}`);
@@ -108,8 +111,12 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
     const unitsPerPack = item.unitsPerPack || 1;
     const billedQty = Math.max(0, (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack));
     const baseRate = item.rate ?? item.mrp ?? 0;
-    const netRate = baseRate * (1 - ((item.discountPercent || 0) / 100));
+    const tradeDiscountFactor = 1 - ((item.discountPercent || 0) / 100);
+    const netRate = baseRate * tradeDiscountFactor;
     const lineSubtotal = billedQty * netRate;
+    const lineGross = billedQty * baseRate;
+    const schemeBaseAmount = selectedBasis === 'before_discount' ? lineGross : lineSubtotal;
+    const schemeBaseRate = billedQty > 0 ? (schemeBaseAmount / billedQty) : 0;
 
     const parsedRule = parseSchemeRule(schemeRule);
     const parsedPercentRule = parsePercentRule(schemeRule);
@@ -117,15 +124,15 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
     const computed = (() => {
         if (schemeRate > 0) {
             const discountAmount = Math.min(lineSubtotal, billedQty * schemeRate);
-            const discountPercent = lineSubtotal > 0 ? (discountAmount / lineSubtotal) * 100 : 0;
-            const freeQuantity = netRate > 0 ? discountAmount / netRate : 0;
+            const discountPercent = schemeBaseAmount > 0 ? (discountAmount / schemeBaseAmount) * 100 : 0;
+            const freeQuantity = schemeBaseRate > 0 ? discountAmount / schemeBaseRate : 0;
             return { mode: 'flat' as const, discountPercent, discountAmount, schemeQty: billedQty, schemeTotalQty: undefined, value: schemeRate, freeQuantity };
         }
 
         if (schemePercent > 0 || (parsedPercentRule || 0) > 0) {
             const resolvedPercent = schemePercent > 0 ? schemePercent : (parsedPercentRule || 0);
-            const discountAmount = Math.min(lineSubtotal, lineSubtotal * (resolvedPercent / 100));
-            const freeQuantity = netRate > 0 ? discountAmount / netRate : 0;
+            const discountAmount = Math.min(lineSubtotal, schemeBaseAmount * (resolvedPercent / 100));
+            const freeQuantity = schemeBaseRate > 0 ? discountAmount / schemeBaseRate : 0;
             return {
                 mode: 'percent' as const,
                 discountPercent: resolvedPercent,
@@ -140,8 +147,8 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
         if (parsedRule) {
             const ruleApplications = Math.floor(billedQty / parsedRule.requiredQty);
             const freeQuantity = ruleApplications * parsedRule.freeQty;
-            const discountAmount = Math.min(lineSubtotal, freeQuantity * netRate);
-            const benefitPercent = lineSubtotal > 0 ? (discountAmount / lineSubtotal) * 100 : 0;
+            const discountAmount = Math.min(lineSubtotal, freeQuantity * schemeBaseRate);
+            const benefitPercent = schemeBaseAmount > 0 ? (discountAmount / schemeBaseAmount) * 100 : 0;
             return {
                 mode: 'qty_ratio' as const,
                 discountPercent: benefitPercent,
@@ -187,6 +194,7 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
             computed.discountAmount,
             computed.discountPercent,
             computed.freeQuantity,
+            selectedBasis,
             computed.schemeTotalQty,
             schemeDisplayPercent
         );
@@ -198,11 +206,40 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, onAppl
             <form onSubmit={handleApply} onKeyDown={handleEnterToNextField} className="flex flex-col h-full">
                 <div className="space-y-4 p-4 flex-1 overflow-y-auto">
                     <div className="text-xs text-gray-500 uppercase font-bold">{item.name}</div>
+                    <div>
+                        <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">
+                            Scheme Calculation Basis <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                            ref={firstInputRef}
+                            value={selectedBasis}
+                            required
+                            onChange={(e) => setSelectedBasis(e.target.value as 'before_discount' | 'after_discount')}
+                            className="w-full p-2 border border-gray-300 bg-white focus:bg-yellow-50 outline-none text-sm font-bold"
+                        >
+                            <option value="after_discount">After Disc% (Recommended)</option>
+                            <option value="before_discount">At Same Level / Before Discount</option>
+                        </select>
+                        <div className="mt-2 rounded border border-indigo-200 bg-indigo-50 p-2 space-y-1">
+                            <div className="text-[10px] font-black uppercase text-indigo-700">
+                                Selected Basis: {selectedBasis === 'after_discount' ? 'After Disc% (Recommended)' : 'At Same Level / Before Discount'}
+                            </div>
+                            <div className="text-[10px] font-bold text-indigo-700">
+                                {selectedBasis === 'after_discount'
+                                    ? 'First apply Discount%, then apply Scheme on discounted value.'
+                                    : 'Scheme is applied on original value.'}
+                            </div>
+                            <div className="text-[10px] font-bold text-emerald-700">
+                                {selectedBasis === 'after_discount'
+                                    ? 'Rate = 100, Disc% = 5% → 95, Scheme on 95'
+                                    : 'Rate = 100, Scheme on 100'}
+                            </div>
+                        </div>
+                    </div>
 
                     <div>
                         <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Quick Scheme</label>
                         <select
-                            ref={firstInputRef}
                             value={selectedRule}
                             onChange={(e) => {
                                 const nextRule = e.target.value;

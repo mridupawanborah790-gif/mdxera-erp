@@ -1270,7 +1270,7 @@
 
 
 
-    export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<{ id: string; bankName: string; accountName: string; accountNumber: string; linkedBankGlId?: string; defaultBank?: boolean; activeStatus?: string }>> => {
+export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<{ id: string; bankName: string; accountName: string; accountNumber: string; accountType?: string; linkedBankGlId?: string; defaultBank?: boolean; activeStatus?: string }>> => {
         if (!navigator.onLine) return [];
         const { data, error } = await supabase
             .from('bank_master')
@@ -1286,6 +1286,7 @@
                 bankName: String(b.bankName || b.bank_name || ''),
                 accountName: String(b.accountName || b.account_name || ''),
                 accountNumber: String(b.accountNumber || b.account_number || ''),
+                accountType: String(b.accountType || b.account_type || ''),
                 linkedBankGlId: b.linkedBankGlId || b.linked_bank_gl_id || undefined,
                 defaultBank: !!(b.defaultBank || b.default_bank),
                 activeStatus: b.activeStatus || b.active_status,
@@ -1428,7 +1429,7 @@
         return { journalEntryId, journalEntryNumber };
     };
 
-    export const recordSupplierPaymentWithAccounting = async (
+export const recordSupplierPaymentWithAccounting = async (
         args: {
             supplierId: string;
             amount: number;
@@ -1440,19 +1441,31 @@
             referenceInvoiceNumber?: string;
         },
         user: RegisteredPharmacy
-    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
-        const supplier = await idb.get(STORES.SUPPLIERS, args.supplierId) as Supplier | undefined;
+): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
+        let supplier = await idb.get(STORES.SUPPLIERS, args.supplierId as any) as Supplier | undefined;
+        if (!supplier) {
+            const allSuppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
+            const targetSupplierId = String(args.supplierId || '').trim().toLowerCase();
+            supplier = allSuppliers.find((row) => String(row?.id || '').trim().toLowerCase() === targetSupplierId);
+        }
         if (!supplier) throw new Error('Supplier not found');
+        const resolvedSupplierId = String(supplier.id);
 
         if (!navigator.onLine) throw new Error('Payment posting with accounting requires online mode.');
-        const { data: bank, error: bankErr } = await supabase
-            .from('bank_master')
-            .select('*')
-            .eq('organization_id', user.organization_id)
-            .eq('id', args.bankAccountId)
-            .maybeSingle();
-        if (bankErr) throw bankErr;
-        if (!bank) throw new Error('Selected bank / cash account not found');
+        const isCashMode = String(args.paymentMode || '').trim().toLowerCase() === 'cash';
+        let bank: any = null;
+        if (!isCashMode) {
+            if (!args.bankAccountId) throw new Error('Bank account is required for selected payment mode.');
+            const { data: bankRow, error: bankErr } = await supabase
+                .from('bank_master')
+                .select('*')
+                .eq('organization_id', user.organization_id)
+                .eq('id', args.bankAccountId)
+                .maybeSingle();
+            if (bankErr) throw bankErr;
+            if (!bankRow) throw new Error('Selected bank account not found');
+            bank = bankRow;
+        }
 
         const postingContext = await loadDefaultPostingContext(user.organization_id);
         const companyCodeId = postingContext.companyCodeId;
@@ -1466,37 +1479,62 @@
             .single();
         if (bookErr) throw bookErr;
         const supplierControlGlId = books?.default_supplier_gl_id;
-        const bankGlId = bank.linkedBankGlId || bank.linked_bank_gl_id;
         if (!supplierControlGlId) throw new Error('Supplier/Payable GL is not configured for default set of books.');
-        if (!bankGlId) throw new Error('Selected bank has no linked bank GL. Configure in Bank Master.');
 
-        const { data: glRows, error: glErr } = await supabase
+        const { data: payableGl, error: payableGlErr } = await supabase
             .from('gl_master')
             .select('id, gl_code, gl_name')
             .eq('organization_id', user.organization_id)
             .eq('set_of_books_id', setOfBooksId)
-            .in('id', [supplierControlGlId, bankGlId]);
-        if (glErr) throw glErr;
+            .eq('id', supplierControlGlId)
+            .maybeSingle();
+        if (payableGlErr) throw payableGlErr;
+        if (!payableGl) throw new Error('Supplier control GL missing in active Set of Books.');
 
-        const glById = new Map((glRows || []).map((g: any) => [String(g.id), g]));
-        const bankGl = glById.get(String(bankGlId));
-        const payableGl = glById.get(String(supplierControlGlId));
-        if (!bankGl || !payableGl) throw new Error('GL Assignment missing for selected bank/supplier control in active Set of Books.');
+        let payoutGl: any;
+        let payoutAccountName = 'Cash Account';
+        if (isCashMode) {
+            const { data: cashGl, error: cashGlErr } = await supabase
+                .from('gl_master')
+                .select('id, gl_code, gl_name')
+                .eq('organization_id', user.organization_id)
+                .eq('set_of_books_id', setOfBooksId)
+                .eq('gl_code', '100001')
+                .maybeSingle();
+            if (cashGlErr) throw cashGlErr;
+            if (!cashGl) throw new Error('Cash GL (100001) is not configured in active Set of Books.');
+            payoutGl = cashGl;
+        } else {
+            const bankGlId = bank.linkedBankGlId || bank.linked_bank_gl_id;
+            if (!bankGlId) throw new Error('Selected bank has no linked bank GL. Configure in Bank Master.');
 
-        const reservedVoucher = await reserveVoucherNumber('purchase-entry', user);
+            const { data: bankGl, error: bankGlErr } = await supabase
+                .from('gl_master')
+                .select('id, gl_code, gl_name')
+                .eq('organization_id', user.organization_id)
+                .eq('set_of_books_id', setOfBooksId)
+                .eq('id', bankGlId)
+                .maybeSingle();
+            if (bankGlErr) throw bankGlErr;
+            if (!bankGl) throw new Error('GL Assignment missing for selected bank in active Set of Books.');
+            payoutGl = bankGl;
+            payoutAccountName = bank.bankName || bank.bank_name || 'Bank Account';
+        }
+
+        const supplierPaymentVoucherNumber = `PMT-${Date.now()}`;
 
         const { data: header, error: headerError } = await supabase
             .from('journal_entry_header')
             .insert({
                 organization_id: user.organization_id,
-                journal_entry_number: reservedVoucher.documentNumber,
+                journal_entry_number: supplierPaymentVoucherNumber,
                 posting_date: args.date,
                 status: 'Posted',
                 reference_type: 'SUPPLIER_PAYMENT',
-                reference_id: args.referenceInvoiceId || args.supplierId,
-                reference_document_id: args.referenceInvoiceId || args.supplierId,
+                reference_id: args.referenceInvoiceId || resolvedSupplierId,
+                reference_document_id: args.referenceInvoiceId || resolvedSupplierId,
                 document_type: 'PAYMENT',
-                document_reference: args.referenceInvoiceNumber || args.supplierId,
+                document_reference: args.referenceInvoiceNumber || resolvedSupplierId,
                 company: companyCodeId,
                 company_code_id: companyCodeId,
                 set_of_books: setOfBooksId,
@@ -1514,7 +1552,7 @@
                 {
                     organization_id: user.organization_id,
                     journal_entry_id: header.id,
-                    reference_document_id: args.referenceInvoiceId || args.supplierId,
+                    reference_document_id: args.referenceInvoiceId || resolvedSupplierId,
                     document_type: 'PAYMENT',
                     line_number: 1,
                     gl_code: String(payableGl.gl_code),
@@ -1526,14 +1564,14 @@
                 {
                     organization_id: user.organization_id,
                     journal_entry_id: header.id,
-                    reference_document_id: args.referenceInvoiceId || args.supplierId,
+                    reference_document_id: args.referenceInvoiceId || resolvedSupplierId,
                     document_type: 'PAYMENT',
                     line_number: 2,
-                    gl_code: String(bankGl.gl_code),
-                    gl_name: String(bankGl.gl_name),
+                    gl_code: String(payoutGl.gl_code),
+                    gl_name: String(payoutGl.gl_name),
                     debit: 0,
                     credit: Number(args.amount.toFixed(2)),
-                    line_memo: 'Payment made from bank/cash',
+                    line_memo: isCashMode ? 'Payment made from cash account' : 'Payment made from bank account',
                 },
             ]);
         if (lineError) throw lineError;
@@ -1547,13 +1585,13 @@
             credit: Number(args.amount),
             balance: 0,
             paymentMode: args.paymentMode,
-            bankAccountId: args.bankAccountId,
-            bankName: bank.bankName || bank.bank_name,
+            bankAccountId: isCashMode ? undefined : args.bankAccountId,
+            bankName: payoutAccountName,
             referenceInvoiceId: args.referenceInvoiceId,
             referenceInvoiceNumber: args.referenceInvoiceNumber,
             journalEntryId: header.id,
             journalEntryNumber: header.journal_entry_number,
-        }, { type: 'supplier', id: args.supplierId }, user);
+        }, { type: 'supplier', id: resolvedSupplierId }, user);
 
         return {
             journalEntryId: header.id,

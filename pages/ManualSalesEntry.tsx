@@ -128,10 +128,6 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
     fetchHistory();
   }, [currentUser, customerId]);
 
-  React.useImperativeHandle(ref, () => ({
-    isDirty: lines.some(l => l.description.trim() !== '' || l.rate > 0) || customerId !== '' || narration !== ''
-  }));
-
   const activeLine = useMemo(() => {
     if (hoveredLineId) return lines.find(l => l.id === hoveredLineId);
     return lines[lines.length - 1];
@@ -430,6 +426,19 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
       addNotification(e?.message || 'Posting failed', 'error');
     }
   };
+
+  React.useImperativeHandle(ref, () => ({
+    handleSubmit: () => onPost(),
+    resetForm: () => {
+      setDate(new Date().toISOString().slice(0, 10));
+      setCustomerId('');
+      setPhone('');
+      setNarration('');
+      setLines([newLine()]);
+      setVoucherNo('');
+    },
+    isDirty: lines.some(l => l.description.trim() !== '' || l.rate > 0) || customerId !== '' || narration !== ''
+  }), [lines, customerId, narration, onPost]);
 
   return (
     <div className="flex h-full bg-app-bg overflow-hidden">

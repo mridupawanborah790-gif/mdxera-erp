@@ -1,6 +1,6 @@
 import type { AppConfigurations, BillItem } from '../types';
 
-export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount';
+export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount' | 'ask_user';
 export type TaxCalculationBaseOption = 'subtotal' | 'after_trade_discount' | 'after_all_discounts';
 
 interface TotalsInput {
@@ -28,15 +28,45 @@ export interface BillingTotals {
   pricingMode: 'mrp' | 'rate';
 }
 
+const resolveSchemeBaseForItem = (item: BillItem, schemeBase: SchemeDiscountCalculationBase): 'subtotal' | 'after_trade_discount' => {
+  if (item.schemeCalculationBasis === 'before_discount') return 'subtotal';
+  if (item.schemeCalculationBasis === 'after_discount') return 'after_trade_discount';
+  return schemeBase === 'subtotal' ? 'subtotal' : 'after_trade_discount';
+};
+
+export const getDisplaySchemePercent = (item: BillItem): number => {
+  const explicitPercent = Number(item.schemeDiscountPercent || 0);
+  if (explicitPercent > 0) return explicitPercent;
+
+  if (item.schemeMode === 'percent') {
+    const schemeValuePercent = Number(item.schemeValue || 0);
+    if (schemeValuePercent > 0) return schemeValuePercent;
+  }
+
+  const displayPercent = Number(item.schemeDisplayPercent || 0);
+  if (displayPercent > 0) return displayPercent;
+
+  return 0;
+};
+
+export const hasLineLevelSchemeDiscount = (item: BillItem): boolean => {
+  return getDisplaySchemePercent(item) > 0 || Number(item.schemeDiscountAmount || 0) > 0;
+};
+
 const getSchemeDiscountAmount = (item: BillItem, schemeBaseAmount: number): number => {
-  const hasPercent = (item.schemeDiscountPercent || 0) > 0;
-  if (hasPercent) {
-    return Math.max(0, schemeBaseAmount * ((item.schemeDiscountPercent || 0) / 100));
+  const effectivePercent = getDisplaySchemePercent(item);
+  if (effectivePercent > 0) {
+    return Math.max(0, schemeBaseAmount * (effectivePercent / 100));
   }
   return Math.max(0, item.schemeDiscountAmount || 0);
 };
 
-const resolvePricingMode = (organizationType?: 'Retail' | 'Distributor', pricingMode?: 'mrp' | 'rate', configurations?: AppConfigurations): 'mrp' | 'rate' => {
+export const isRateFieldAvailable = (configurations?: AppConfigurations): boolean => {
+  return configurations?.modules?.pos?.fields?.colRate !== false;
+};
+
+export const resolveEffectivePricingMode = (organizationType?: 'Retail' | 'Distributor', pricingMode?: 'mrp' | 'rate', configurations?: AppConfigurations): 'mrp' | 'rate' => {
+  if (!isRateFieldAvailable(configurations)) return 'mrp';
   if (organizationType === 'Distributor') return 'rate';
   if (pricingMode) return pricingMode;
   if (configurations?.displayOptions?.pricingMode) return configurations.displayOptions.pricingMode;
@@ -44,27 +74,28 @@ const resolvePricingMode = (organizationType?: 'Retail' | 'Distributor', pricing
 };
 
 const isGstInclusiveMrp = (item: BillItem, organizationType?: 'Retail' | 'Distributor', pricingMode?: 'mrp' | 'rate', configurations?: AppConfigurations) => {
-  const mode = resolvePricingMode(organizationType, pricingMode, configurations);
+  const mode = resolveEffectivePricingMode(organizationType, pricingMode, configurations);
   if (mode === 'mrp') return true;
   return false;
 };
 
 const getDisplayRateForLine = (item: BillItem, organizationType?: 'Retail' | 'Distributor', pricingMode?: 'mrp' | 'rate', configurations?: AppConfigurations) => {
-  const mode = resolvePricingMode(organizationType, pricingMode, configurations);
+  const mode = resolveEffectivePricingMode(organizationType, pricingMode, configurations);
   if (mode === 'mrp') return Number(item.mrp || 0);
   return Number(item.rate || item.mrp || 0);
 };
 
 
 export const resolveBillingSettings = (configurations?: AppConfigurations) => {
-  const schemeBase = (configurations?.displayOptions?.schemeDiscountCalculationBase || 'after_trade_discount') as SchemeDiscountCalculationBase;
+  const rawSchemeBase = (configurations?.displayOptions?.schemeDiscountCalculationBase || 'after_trade_discount') as SchemeDiscountCalculationBase;
+  const schemeBase = rawSchemeBase === 'ask_user' ? 'after_trade_discount' : rawSchemeBase;
   const taxBase = (configurations?.displayOptions?.taxCalculationBase || 'after_all_discounts') as TaxCalculationBaseOption;
   return { schemeBase, taxBase };
 };
 
 export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = false, configurations, organizationType, pricingMode }: TotalsInput): BillingTotals => {
   const { schemeBase, taxBase } = resolveBillingSettings(configurations);
-  const effectivePricingMode = resolvePricingMode(organizationType, pricingMode, configurations);
+  const effectivePricingMode = resolveEffectivePricingMode(organizationType, pricingMode, configurations);
 
   let gross = 0;
   let tradeDiscount = 0;
@@ -81,7 +112,8 @@ export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = fal
     const itemFlatDisc = Math.max(0, item.itemFlatDiscount || 0);
     const lineAfterTrade = Math.max(0, itemGross - itemTradeDisc - itemFlatDisc);
 
-    const schemeBaseAmount = schemeBase === 'subtotal' ? itemGross : lineAfterTrade;
+    const effectiveSchemeBase = resolveSchemeBaseForItem(item, schemeBase);
+    const schemeBaseAmount = effectiveSchemeBase === 'subtotal' ? itemGross : lineAfterTrade;
     const schemeDiscount = Math.min(lineAfterTrade, getSchemeDiscountAmount(item, schemeBaseAmount));
     const lineAfterAllDiscounts = Math.max(0, lineAfterTrade - schemeDiscount);
 
@@ -156,12 +188,13 @@ export const calculateLineNetAmount = (item: BillItem, configurations?: AppConfi
   const { schemeBase } = resolveBillingSettings(configurations);
   const unitsPerPack = item.unitsPerPack || 1;
   const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-  const effectivePricingMode = resolvePricingMode(organizationType, pricingMode, configurations);
+  const effectivePricingMode = resolveEffectivePricingMode(organizationType, pricingMode, configurations);
   const gross = billedQty * getDisplayRateForLine(item, organizationType, effectivePricingMode, configurations);
   const trade = gross * ((item.discountPercent || 0) / 100);
   const flat = Math.max(0, item.itemFlatDiscount || 0);
   const afterTrade = Math.max(0, gross - trade - flat);
-  const schemeBaseAmount = schemeBase === 'subtotal' ? gross : afterTrade;
+  const effectiveSchemeBase = resolveSchemeBaseForItem(item, schemeBase);
+  const schemeBaseAmount = effectiveSchemeBase === 'subtotal' ? gross : afterTrade;
   const scheme = Math.min(afterTrade, getSchemeDiscountAmount(item, schemeBaseAmount));
   return Math.max(0, afterTrade - scheme);
 };

@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals } from '../../utils/billing';
+import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -15,7 +15,9 @@ const ITEMS_PER_PAGE = 10;
 const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
-  const showSchemeColumn = (bill.items || []).some(item => (item.schemeDiscountPercent || 0) > 0 || (item.schemeDiscountAmount || 0) > 0);
+  const showTradeDiscountColumn = (bill.items || []).some(item => (item.discountPercent || 0) > 0);
+  const showSchemeColumn = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
+  const showRateColumn = isRateFieldAvailable(bill.configurations);
   
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -31,7 +33,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     let totalCgst = 0;
     let totalSgst = 0;
 
-    const effectivePricingMode = bill.pricingMode || (bill.pharmacy?.organization_type === 'Distributor' ? 'rate' : (bill.configurations?.displayOptions?.pricingMode || 'mrp'));
+    const effectivePricingMode = resolveEffectivePricingMode(bill.pharmacy?.organization_type, bill.pricingMode, bill.configurations);
 
     const itemsWithCalculations = bill.items.map(item => {
         const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
@@ -85,7 +87,9 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     const totalTaxFromBill = isNonGst ? 0 : computedBillTotals.tax;
     const grandTotal = bill.total || computedBillTotals.baseTotal;
 
-    return { items: itemsWithCalculations, itemChunks, subtotal: subtotalFromBill, totalCgst, totalSgst, totalTaxFromBill, billDiscount, roundOff, grandTotal };
+    const tradeDiscount = computedBillTotals.tradeDiscount || 0;
+    const schemeDiscount = computedBillTotals.schemeTotal || 0;
+    return { items: itemsWithCalculations, itemChunks, subtotal: subtotalFromBill, totalCgst, totalSgst, totalTaxFromBill, tradeDiscount, schemeDiscount, billDiscount, roundOff, grandTotal };
   }, [bill, isNonGst, computedBillTotals]);
 
   const termsList = bill.pharmacy.terms_and_conditions 
@@ -191,8 +195,8 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                         <th className="p-1 border-r border-black text-left w-[9%]">Batch</th>
                         <th className="p-1 border-r border-black text-center w-[7%]">Exp.</th>
                         <th className="p-1 border-r border-black text-center w-[6%]">Qty</th>
-                        <th className="p-1 border-r border-black text-right w-[7%]">Rate</th>
-                        <th className="p-1 border-r border-black text-right w-[5%]">Disc%</th>
+                        {showRateColumn && <th className="p-1 border-r border-black text-right w-[7%]">Rate</th>}
+                        {showTradeDiscountColumn && <th className="p-1 border-r border-black text-right w-[5%]">Disc%</th>}
                         {showSchemeColumn && <th className="p-1 border-r border-black text-right w-[5%]">Sch%</th>}
                         {!isNonGst && <th className="p-1 border-r border-black text-right w-[5%]">GST%</th>}
                         <th className="p-1 text-right w-[11%]">Amount</th>
@@ -209,15 +213,20 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="p-1 border-r border-black text-center font-bold">
                                 {formatPackLooseQuantity(item.quantity, item.looseQuantity)} {item.freeQuantity ? `+${item.freeQuantity}` : ''}
                             </td>
-                            <td className="p-1 border-r border-black text-right">{(item.billedRate || 0).toFixed(2)}</td>
-                            <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>
-                            {showSchemeColumn && <td className="p-1 border-r border-black text-right">{item.schemeDiscountPercent ? item.schemeDiscountPercent : '-'}</td>}
+                            {showRateColumn && <td className="p-1 border-r border-black text-right">{(item.billedRate || 0).toFixed(2)}</td>}
+                            {showTradeDiscountColumn && <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>}
+                            {showSchemeColumn && (
+                              <td className="p-1 border-r border-black text-right">
+                                {getDisplaySchemePercent(item) > 0 ? getDisplaySchemePercent(item).toFixed(2) : ''}
+                              </td>
+                            )}
                             {!isNonGst && <td className="p-1 border-r border-black text-right">{item.gstPercent}</td>}
                             <td className="p-1 text-right font-bold">{(item.finalAmount || 0).toFixed(2)}</td>
                         </tr>
                     ))}
                     {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
                         <tr key={`empty-${i}`} className="border-b border-gray-300 last:border-b-0 h-6">
+                            {showRateColumn && <td className="border-r border-black"></td>}
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
@@ -225,8 +234,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
                             <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
+                            {showTradeDiscountColumn && <td className="border-r border-black"></td>}
                             {showSchemeColumn && <td className="border-r border-black"></td>}
                             {!isNonGst && <td className="border-r border-black"></td>}
                             <td></td>
@@ -278,7 +286,9 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
             <div className="w-1/3 flex flex-col">
                 <div className="p-2 space-y-1 text-xs">
                     <div className="flex justify-between"><span>Total Amount (MRP):</span> <span className="font-bold">{(billDetails.subtotal || 0).toFixed(2)}</span></div>
-                    <div className="flex justify-between text-green-700"><span>Less Bill Discount:</span> <span>{(billDetails.billDiscount).toFixed(2)}</span></div>
+                    {billDetails.tradeDiscount > 0 && <div className="flex justify-between text-indigo-700"><span>Trade Discount (₹):</span> <span>-{(billDetails.tradeDiscount).toFixed(2)}</span></div>}
+                    {billDetails.schemeDiscount > 0 && <div className="flex justify-between text-emerald-700"><span>Scheme Discount (₹):</span> <span>-{(billDetails.schemeDiscount).toFixed(2)}</span></div>}
+                    {billDetails.billDiscount > 0 && <div className="flex justify-between text-green-700"><span>Less Bill Discount:</span> <span>-{(billDetails.billDiscount).toFixed(2)}</span></div>}
                     {!isNonGst && (
                         <>
                             <div className="flex justify-between"><span>Add CGST:</span> <span>{((billDetails.totalTaxFromBill || 0) / 2).toFixed(2)}</span></div>

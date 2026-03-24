@@ -18,7 +18,7 @@ import { fuzzyMatch } from '../utils/search';
 import { getOutstandingBalance, parseNumber, checkIsExpired, formatExpiryToMMYY } from '../utils/helpers';
 import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
-import { calculateBillingTotals } from '../utils/billing';
+import { calculateBillingTotals, resolveBillingSettings } from '../utils/billing';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -94,21 +94,22 @@ const recalculateSchemeFields = (item: BillItem): BillItem => {
     const baseRate = Number(item.rate || item.mrp || 0);
     const tradeDiscountPercent = Number(item.discountPercent || 0);
     const netRate = baseRate * (1 - tradeDiscountPercent / 100);
+    const schemeBaseRate = item.schemeCalculationBasis === 'before_discount' ? baseRate : netRate;
     const appliedQty = Math.max(0, Number(item.schemeQty || 0));
     const schemeValue = Math.max(0, Number(item.schemeValue || 0));
     const schemeTotalQty = Math.max(0, Number(item.schemeTotalQty || 0));
 
     let calculatedTotalDiscount = 0;
     if (item.schemeMode === 'free_qty') {
-        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * netRate;
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * schemeBaseRate;
     } else if (item.schemeMode === 'qty_ratio' && schemeTotalQty > 0) {
-        calculatedTotalDiscount = (billedQty * netRate) * (appliedQty / schemeTotalQty);
+        calculatedTotalDiscount = (billedQty * schemeBaseRate) * (appliedQty / schemeTotalQty);
     } else if (item.schemeMode === 'flat') {
         calculatedTotalDiscount = Math.min(appliedQty, billedQty) * schemeValue;
     } else if (item.schemeMode === 'percent') {
-        calculatedTotalDiscount = Math.min(appliedQty || billedQty, billedQty) * (netRate * (schemeValue / 100));
+        calculatedTotalDiscount = Math.min(appliedQty || billedQty, billedQty) * (schemeBaseRate * (schemeValue / 100));
     } else if (item.schemeMode === 'price_override') {
-        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * Math.max(0, netRate - schemeValue);
+        calculatedTotalDiscount = Math.min(appliedQty, billedQty) * Math.max(0, schemeBaseRate - schemeValue);
     }
 
     const discountedSubtotal = billedQty * netRate;
@@ -287,6 +288,34 @@ const POS = forwardRef<any, POSProps>(({
             configurations,
         });
     }, [cartItems, hoveredRowId, selectedRowId, isNonGst, configurations]);
+
+    const activeSummary = useMemo(() => {
+        const targetId = hoveredRowId || selectedRowId;
+        if (!targetId) return null;
+        const item = cartItems.find(i => i.id === targetId);
+        if (!item || !activeLineTotals) return null;
+
+        const effectiveSchemeRule = item.schemeCalculationBasis
+            || (resolveBillingSettings(configurations).schemeBase === 'subtotal' ? 'before_discount' : 'after_discount');
+        const value = activeLineTotals.gross || 0;
+        const discount = (activeLineTotals.tradeDiscount || 0) + (activeLineTotals.lineFlatDiscount || 0);
+        const amountAfterDiscount = activeLineTotals.subtotal || 0;
+        const schemeAmount = activeLineTotals.schemeTotal || 0;
+        const taxableValueAfterScheme = activeLineTotals.taxableValue || 0;
+        const lineTax = activeLineTotals.tax || 0;
+        const lineTotal = activeLineTotals.baseTotal || 0;
+
+        return {
+            rule: effectiveSchemeRule,
+            value,
+            discount,
+            amountAfterDiscount,
+            schemeAmount,
+            taxableValueAfterScheme,
+            lineTax,
+            lineTotal,
+        };
+    }, [cartItems, hoveredRowId, selectedRowId, configurations, activeLineTotals]);
 
     useEffect(() => {
         setBillMode(billType === 'non-gst' ? 'EST' : 'GST');
@@ -860,7 +889,7 @@ const POS = forwardRef<any, POSProps>(({
         }));
     };
 
-    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeTotalQty?: number) => {
+    const handleApplyScheme = useCallback((itemId: string, schemeQty: number, mode: any, value: number, discountAmount: number, discountPercent: number, freeQuantity: number, schemeCalculationBasis: 'before_discount' | 'after_discount', schemeTotalQty?: number) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
                 return {
@@ -871,6 +900,7 @@ const POS = forwardRef<any, POSProps>(({
                     schemeDiscountAmount: discountAmount,
                     schemeDiscountPercent: discountPercent,
                     freeQuantity,
+                    schemeCalculationBasis,
                     schemeTotalQty
                 };
             }
@@ -883,7 +913,7 @@ const POS = forwardRef<any, POSProps>(({
     const handleClearScheme = useCallback((itemId: string) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === itemId) {
-                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeTotalQty, ...rest } = item;
+                const { schemeQty, schemeMode, schemeValue, schemeDiscountAmount, schemeDiscountPercent, schemeTotalQty, schemeCalculationBasis, ...rest } = item;
                 return { ...rest, freeQuantity: 0 };
             }
             return item;
@@ -1164,7 +1194,12 @@ const POS = forwardRef<any, POSProps>(({
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
-                                    const lineAmount = ((item.quantity || 0) + ((item.looseQuantity || 0) / (item.unitsPerPack || 1))) * (item.rate || 0);
+                                    const lineAmount = calculateBillingTotals({
+                                        items: [item],
+                                        billDiscount: 0,
+                                        isNonGst,
+                                        configurations,
+                                    }).baseTotal;
 
                                     return (
                                         <tr
@@ -1414,17 +1449,30 @@ const POS = forwardRef<any, POSProps>(({
                                 {activeLineTotals && (
                                     <>
                                         <div className="flex items-center justify-between text-blue-800"><span>Unit Rate</span> <span className="font-mono">₹{(cartItems.find(i => i.id === (hoveredRowId || selectedRowId))?.rate || 0).toFixed(2)}</span></div>
-                                        <div className="flex items-center justify-between text-emerald-700"><span>Scheme %</span> <span className="font-mono">{(cartItems.find(i => i.id === (hoveredRowId || selectedRowId))?.schemeDiscountPercent || 0).toFixed(2)}%</span></div>
+                                        <div className="flex items-center justify-between text-emerald-700"><span>Scheme Rule</span> <span className="font-mono">{activeSummary?.rule === 'before_discount' ? 'At Same Level / Before Discount' : 'After Disc%'}</span></div>
                                     </>
                                 )}
-                                <div className="flex justify-between text-gray-600"><span>MRP Value</span> <span className="font-mono">₹{(activeLineTotals?.gross ?? (totals?.gross || 0)).toFixed(2)}</span></div>
-                                <div className="flex justify-between text-gray-600"><span>Value of Goods</span> <span className="font-mono">₹{(activeLineTotals?.taxableValue ?? totals.taxableValue).toFixed(2)}</span></div>
+                                {activeLineTotals ? (
+                                    <>
+                                        <div className="flex justify-between text-gray-600"><span>Value</span> <span className="font-mono">₹{(activeSummary?.value || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-gray-600"><span>Discount</span> <span className="font-mono">₹{(activeSummary?.discount || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-gray-600"><span>Amount After Discount</span> <span className="font-mono">₹{(activeSummary?.amountAfterDiscount || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-emerald-700"><span>Scheme Discount</span> <span className="font-mono">₹{(activeSummary?.schemeAmount || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-gray-700"><span>Taxable Value After Scheme</span> <span className="font-mono">₹{(activeSummary?.taxableValueAfterScheme || 0).toFixed(2)}</span></div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="flex justify-between text-gray-600"><span>MRP Value</span> <span className="font-mono">₹{(totals?.gross || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-gray-600"><span>Value of Goods</span> <span className="font-mono">₹{(totals?.taxableValue || 0).toFixed(2)}</span></div>
+                                    </>
+                                )}
                             </div>
                             <div className="space-y-0.5 xl:space-y-1">
                                 {!isNonGst && (
                                     <>
                                         <div className="flex justify-between text-blue-700"><span>SGST</span> <span className="font-mono">₹{((activeLineTotals?.tax ?? (totals?.tax || 0)) / 2).toFixed(2)}</span></div>
                                         <div className="flex justify-between text-blue-700"><span>CGST</span> <span className="font-mono">₹{((activeLineTotals?.tax ?? (totals?.tax || 0)) / 2).toFixed(2)}</span></div>
+                                        {activeLineTotals && <div className="flex justify-between text-blue-700"><span>GST</span> <span className="font-mono">₹{(activeSummary?.lineTax || 0).toFixed(2)}</span></div>}
                                     </>
                                 )}
                                 <div className="flex justify-between text-red-600">
@@ -1462,7 +1510,7 @@ const POS = forwardRef<any, POSProps>(({
                             {activeLineTotals ? null : <div className="flex justify-between text-gray-600 xl:col-span-1"><span>Round Off</span> <span className="font-mono">₹{(totals?.autoRoundOff || 0).toFixed(2)}</span></div>}
                             <div className="xl:col-span-2 border-t border-gray-400 pt-0.5 mt-0.5 flex justify-between text-[11px] xl:text-[15px] font-black text-primary leading-none">
                                 <span>{activeLineTotals ? 'Line Total' : 'Grand Total'}</span>
-                                <span className="font-mono">₹{(activeLineTotals ? (activeLineTotals.baseTotal || 0) : Math.round(totals.baseTotal || 0)).toFixed(2)}</span>
+                                <span className="font-mono">₹{(activeLineTotals ? (activeSummary?.lineTotal || 0) : Math.round(totals.baseTotal || 0)).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
@@ -1724,6 +1772,7 @@ const POS = forwardRef<any, POSProps>(({
                     isOpen={!!schemeItem}
                     onClose={() => { setSchemeItem(null); setTimeout(() => productSearchInputRef.current?.focus(), 100); }}
                     item={schemeItem}
+                    schemeCalculationBasis={schemeItem.schemeCalculationBasis === 'before_discount' ? 'before_discount' : 'after_discount'}
                     onApply={handleApplyScheme}
                     onClear={handleClearScheme}
                 />

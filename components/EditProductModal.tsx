@@ -243,7 +243,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                             <span className="w-5 h-5 rounded-none bg-primary text-white flex items-center justify-center font-black text-[9px]">₹</span>
                             <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-primary">Pricing Structure (Per Pack)</h3>
                         </div>
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                             <div>
                                 <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Landed Cost</label>
                                 <input type="number" name="purchasePrice" value={product.purchasePrice} onChange={handleChange} className="w-full tally-input !text-base" />
@@ -255,18 +255,6 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                             <div className="bg-yellow-50/50 p-1">
                                 <label className="block text-[9px] font-black uppercase text-yellow-700 mb-1 ml-1">M.R.P</label>
                                 <input type="number" name="mrp" value={product.mrp} onChange={handleChange} className="w-full tally-input !text-lg border-yellow-400 !bg-white" />
-                            </div>
-                            <div>
-                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Tier A Rate</label>
-                                <input type="number" name="rateA" value={product.rateA || 0} onChange={handleChange} className="w-full tally-input !text-base" />
-                            </div>
-                            <div>
-                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Tier B Rate</label>
-                                <input type="number" name="rateB" value={product.rateB || 0} onChange={handleChange} className="w-full tally-input !text-base" />
-                            </div>
-                            <div>
-                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Tier C Rate</label>
-                                <input type="number" name="rateC" value={product.rateC || 0} onChange={handleChange} className="w-full tally-input !text-base" />
                             </div>
                         </div>
                     </div>

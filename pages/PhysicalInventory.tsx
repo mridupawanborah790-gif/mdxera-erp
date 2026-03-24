@@ -7,6 +7,7 @@ import type { InventoryItem, Medicine, PhysicalInventorySession, PhysicalInvento
 import { PhysicalInventoryStatus } from '../types';
 import { fuzzyMatch } from '../utils/search';
 import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
+import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
@@ -91,6 +92,19 @@ const HistoryView: React.FC<{
     const [searchTerm, setSearchTerm] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleScreenShortcut(e, 'physicalInventory')) return;
+            if (e.key === 'F2') {
+                e.preventDefault();
+                onStartNew();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onStartNew]);
 
     const completedSessions = useMemo(() => {
         let filtered = sessions.filter(s => s.status === PhysicalInventoryStatus.COMPLETED);

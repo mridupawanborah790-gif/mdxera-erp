@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import type { Transaction } from '../types';
+import type { Customer, DeliveryChallan, InventoryItem, Purchase, SalesChallan, Transaction } from '../types';
+import { SalesChallanStatus } from '../types';
 
 type ReportMenuGroup = {
   id: string;
@@ -9,6 +10,11 @@ type ReportMenuGroup = {
 
 interface DailyReportsProps {
   transactions: Transaction[];
+  inventory: InventoryItem[];
+  purchases: Purchase[];
+  salesChallans: SalesChallan[];
+  deliveryChallans: DeliveryChallan[];
+  customers: Customer[];
   reportId?: string;
 }
 
@@ -59,7 +65,34 @@ const formatDate = (date: string) => {
   return new Date(date).toLocaleDateString('en-GB');
 };
 
-const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) => {
+type ReportRow = {
+  id: string;
+  date: string;
+  partyName: string;
+  remark: string;
+  voucherNo: string;
+  debit: number;
+  credit: number;
+  type: string;
+  items: Array<{ name: string; quantity: number | string }>;
+};
+
+const isWithinPeriod = (value: string, fromDate: string, toDate: string) => {
+  const from = fromDate ? new Date(fromDate) : null;
+  const to = toDate ? new Date(toDate) : null;
+  const current = new Date(value);
+  if (from && current < from) return false;
+  if (to) {
+    const endOfDay = new Date(to);
+    endOfDay.setHours(23, 59, 59, 999);
+    if (current > endOfDay) return false;
+  }
+  return true;
+};
+
+const DailyReports: React.FC<DailyReportsProps> = ({
+  transactions, inventory, purchases, salesChallans, deliveryChallans, customers, reportId
+}) => {
   const defaultReportId = reportId && reportNameMap.has(reportId) ? reportId : 'dispatchSummary';
   const [activeGroup, setActiveGroup] = useState('dailyWorking');
   const [activeReportId, setActiveReportId] = useState(defaultReportId);
@@ -115,35 +148,263 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
     setIsPeriodModalOpen(false);
   }, []);
 
-  const reportRows = useMemo(() => {
-    const from = fromDate ? new Date(fromDate) : null;
-    const to = toDate ? new Date(toDate) : null;
+  const reportRows = useMemo<ReportRow[]>(() => {
+    const validTransactions = transactions.filter(tx => isWithinPeriod(tx.date, fromDate, toDate));
+    const validSalesChallans = salesChallans.filter(ch => isWithinPeriod(ch.date, fromDate, toDate));
+    const validDeliveryChallans = deliveryChallans.filter(ch => isWithinPeriod(ch.date, fromDate, toDate));
+    const validPurchases = purchases.filter(pu => isWithinPeriod(pu.date, fromDate, toDate));
 
-    const filtered = transactions
-      .filter(tx => {
-        const txDate = new Date(tx.date);
-        if (from && txDate < from) return false;
-        if (to) {
-          const endOfDay = new Date(to);
-          endOfDay.setHours(23, 59, 59, 999);
-          if (txDate > endOfDay) return false;
-        }
-        return true;
-      })
-      .slice(0, 40)
-      .map(tx => ({
-        date: formatDate(tx.date),
-        partyName: tx.customerName || 'Walk-in Customer',
-        remark: tx.referredBy || tx.paymentMode || '-',
-        voucherNo: tx.id,
-        debit: tx.paymentMode === 'Credit' ? Number(tx.total || 0) : 0,
-        credit: tx.paymentMode !== 'Credit' ? Number(tx.total || 0) : 0,
-        type: tx.status || 'Sale',
-        items: tx.items || [],
-      }));
+    switch (activeReportId) {
+      case 'dispatchSummary':
+        return validSalesChallans.slice(0, 60).map(ch => ({
+          id: ch.id,
+          date: formatDate(ch.date),
+          partyName: ch.customerName || 'Unknown Party',
+          remark: `Dispatched Items: ${ch.items.length}`,
+          voucherNo: ch.challanSerialId,
+          debit: Number(ch.totalAmount || 0),
+          credit: 0,
+          type: `Delivery ${ch.status}`,
+          items: ch.items.map(item => ({ name: item.name, quantity: item.quantity })),
+        }));
 
-    return filtered;
-  }, [transactions, fromDate, toDate]);
+      case 'reorderManagement':
+        return inventory
+          .filter(item => Number(item.stock || 0) < Number(item.minStockLimit || 0))
+          .slice(0, 80)
+          .map(item => ({
+            id: item.id,
+            date: '--',
+            partyName: item.supplierName || 'Unmapped Supplier',
+            remark: `Required Qty: ${Math.max(Number(item.minStockLimit || 0) - Number(item.stock || 0), 0)}`,
+            voucherNo: item.code || item.id,
+            debit: Number(item.stock || 0),
+            credit: Number(item.minStockLimit || 0),
+            type: 'Below Reorder Level',
+            items: [{ name: item.name, quantity: item.stock }],
+          }));
+
+      case 'stockSaleAnalysis': {
+        const soldByItem = new Map<string, { qty: number; amount: number }>();
+        validTransactions.forEach(tx => {
+          tx.items.forEach(item => {
+            const key = item.inventoryItemId || item.name;
+            const qty = Number(item.quantity || 0);
+            const amount = Number(item.amount || item.finalAmount || 0);
+            const current = soldByItem.get(key) || { qty: 0, amount: 0 };
+            soldByItem.set(key, { qty: current.qty + qty, amount: current.amount + amount });
+          });
+        });
+
+        return inventory.slice(0, 80).map(item => {
+          const key = item.id || item.name;
+          const sold = soldByItem.get(key) || { qty: 0, amount: 0 };
+          const movementType = sold.qty >= 20 ? 'Fast Moving' : sold.qty > 0 ? 'Slow Moving' : 'No Movement';
+          return {
+            id: item.id,
+            date: '--',
+            partyName: item.name,
+            remark: `Stock: ${item.stock} | Sold: ${sold.qty}`,
+            voucherNo: item.code || item.id,
+            debit: Number(item.stock || 0),
+            credit: sold.qty,
+            type: movementType,
+            items: [{ name: item.name, quantity: sold.qty }],
+          };
+        });
+      }
+
+      case 'multiBillPrinting':
+        return validTransactions.slice(0, 80).map(tx => ({
+          id: tx.id,
+          date: formatDate(tx.date),
+          partyName: tx.customerName || 'Walk-in Customer',
+          remark: 'Available for multi bill print selection',
+          voucherNo: tx.id,
+          debit: Number(tx.total || 0),
+          credit: 0,
+          type: tx.status,
+          items: tx.items.map(item => ({ name: item.name, quantity: item.quantity })),
+        }));
+
+      case 'challanToBill':
+        return validSalesChallans
+          .filter(ch => ch.status === SalesChallanStatus.OPEN)
+          .slice(0, 80)
+          .map(ch => ({
+            id: ch.id,
+            date: formatDate(ch.date),
+            partyName: ch.customerName || 'Unknown Party',
+            remark: 'Pending conversion to invoice',
+            voucherNo: ch.challanSerialId,
+            debit: Number(ch.totalAmount || 0),
+            credit: 0,
+            type: ch.status,
+            items: ch.items.map(item => ({ name: item.name, quantity: item.quantity })),
+          }));
+
+      case 'pendingChallans':
+        return validSalesChallans
+          .filter(ch => ch.status === SalesChallanStatus.OPEN)
+          .slice(0, 80)
+          .map(ch => ({
+            id: ch.id,
+            date: formatDate(ch.date),
+            partyName: ch.customerName || 'Unknown Party',
+            remark: 'Open challan',
+            voucherNo: ch.challanSerialId,
+            debit: Number(ch.totalAmount || 0),
+            credit: 0,
+            type: 'Pending Challan',
+            items: ch.items.map(item => ({ name: item.name, quantity: item.quantity })),
+          }));
+
+      case 'dispatchManagementReports':
+        return validDeliveryChallans.slice(0, 80).map(ch => ({
+          id: ch.id,
+          date: formatDate(ch.date),
+          partyName: ch.supplier,
+          remark: `Dispatch tracking: ${ch.items.length} items`,
+          voucherNo: ch.challanSerialId,
+          debit: Number(ch.totalAmount || 0),
+          credit: 0,
+          type: `Dispatch ${ch.status}`,
+          items: ch.items.map(item => ({ name: item.name, quantity: item.quantity })),
+        }));
+
+      case 'rateComparisonStatement': {
+        const purchaseRates = new Map<string, { total: number; qty: number }>();
+        validPurchases.forEach(pu => {
+          pu.items.forEach(item => {
+            const key = item.inventoryItemId || item.name;
+            const qty = Number(item.quantity || 0);
+            const total = Number(item.purchasePrice || 0) * qty;
+            const current = purchaseRates.get(key) || { total: 0, qty: 0 };
+            purchaseRates.set(key, { total: current.total + total, qty: current.qty + qty });
+          });
+        });
+
+        const salesRates = new Map<string, { total: number; qty: number }>();
+        validTransactions.forEach(tx => {
+          tx.items.forEach(item => {
+            const key = item.inventoryItemId || item.name;
+            const qty = Number(item.quantity || 0);
+            const total = Number(item.amount || item.finalAmount || 0);
+            const current = salesRates.get(key) || { total: 0, qty: 0 };
+            salesRates.set(key, { total: current.total + total, qty: current.qty + qty });
+          });
+        });
+
+        return inventory.slice(0, 80).map(item => {
+          const key = item.id || item.name;
+          const purchase = purchaseRates.get(key) || { total: 0, qty: 0 };
+          const sales = salesRates.get(key) || { total: 0, qty: 0 };
+          const avgPurchase = purchase.qty ? purchase.total / purchase.qty : 0;
+          const avgSale = sales.qty ? sales.total / sales.qty : 0;
+          return {
+            id: item.id,
+            date: '--',
+            partyName: item.name,
+            remark: `Purchase Avg: ${avgPurchase.toFixed(2)} | Sale Avg: ${avgSale.toFixed(2)}`,
+            voucherNo: item.code || item.id,
+            debit: avgPurchase,
+            credit: avgSale,
+            type: 'Rate Comparison',
+            items: [{ name: item.name, quantity: `${purchase.qty}/${sales.qty}` }],
+          };
+        });
+      }
+
+      case 'mergeBillsSingleOrder': {
+        const grouped = validTransactions.reduce((acc, tx) => {
+          const key = `${tx.customerId || tx.customerName}-${formatDate(tx.date)}`;
+          const bucket = acc.get(key) || [];
+          bucket.push(tx);
+          acc.set(key, bucket);
+          return acc;
+        }, new Map<string, Transaction[]>());
+
+        return Array.from(grouped.entries())
+          .filter(([, txs]) => txs.length > 1)
+          .slice(0, 80)
+          .map(([key, txs]) => ({
+            id: key,
+            date: formatDate(txs[0]?.date || ''),
+            partyName: txs[0]?.customerName || 'Walk-in Customer',
+            remark: `Merge ${txs.length} bills in single order`,
+            voucherNo: txs.map(tx => tx.id).join(', '),
+            debit: txs.reduce((sum, tx) => sum + Number(tx.total || 0), 0),
+            credit: 0,
+            type: 'Merge Candidate',
+            items: txs.flatMap(tx => tx.items).slice(0, 10).map(item => ({ name: item.name, quantity: item.quantity })),
+          }));
+      }
+
+      case 'partyNotVisited': {
+        const visitedPartyIds = new Set(validTransactions.map(tx => tx.customerId).filter(Boolean));
+        const visitedPartyNames = new Set(validTransactions.map(tx => tx.customerName));
+        return customers
+          .filter(c => !visitedPartyIds.has(c.id) && !visitedPartyNames.has(c.name))
+          .slice(0, 80)
+          .map(c => ({
+            id: c.id,
+            date: '--',
+            partyName: c.name,
+            remark: 'No visit/sales activity in selected period',
+            voucherNo: c.id,
+            debit: 0,
+            credit: 0,
+            type: 'Not Visited',
+            items: [{ name: c.name, quantity: '-' }],
+          }));
+      }
+
+      case 'billNotPrinted':
+        return validTransactions
+          .filter(tx => {
+            const anyTx = tx as any;
+            return anyTx.printed === false || anyTx.isPrinted === false || anyTx.printFlag === false || (!anyTx.printedAt && anyTx.status === 'completed');
+          })
+          .slice(0, 80)
+          .map(tx => ({
+            id: tx.id,
+            date: formatDate(tx.date),
+            partyName: tx.customerName || 'Walk-in Customer',
+            remark: 'Invoice print pending',
+            voucherNo: tx.id,
+            debit: Number(tx.total || 0),
+            credit: 0,
+            type: tx.status,
+            items: tx.items.map(item => ({ name: item.name, quantity: item.quantity })),
+          }));
+
+      case 'fastReports':
+      default:
+        return validTransactions
+          .slice(0, 80)
+          .map(tx => ({
+            id: tx.id,
+            date: formatDate(tx.date),
+            partyName: tx.customerName || 'Walk-in Customer',
+            remark: tx.referredBy || tx.paymentMode || '-',
+            voucherNo: tx.id,
+            debit: tx.paymentMode === 'Credit' ? Number(tx.total || 0) : 0,
+            credit: tx.paymentMode !== 'Credit' ? Number(tx.total || 0) : 0,
+            type: tx.status || 'Sale',
+            items: tx.items.map(item => ({ name: item.name, quantity: item.quantity })),
+          }));
+    }
+  }, [
+    activeReportId,
+    customers,
+    deliveryChallans,
+    fromDate,
+    inventory,
+    purchases,
+    salesChallans,
+    toDate,
+    transactions,
+  ]);
 
   useEffect(() => {
     setSelectedRow(0);
@@ -233,7 +494,7 @@ const DailyReports: React.FC<DailyReportsProps> = ({ transactions, reportId }) =
               <tbody>
                 {reportRows.map((row, index) => (
                   <tr 
-                    key={row.voucherNo} 
+                    key={row.id} 
                     onClick={() => setSelectedRow(index)}
                     className={`cursor-pointer transition-colors ${selectedRow === index ? 'bg-primary text-white font-bold shadow-md' : 'border-b border-[#d4d8d3] hover:bg-primary/10'}`}
                   >
