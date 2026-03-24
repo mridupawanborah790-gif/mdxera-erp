@@ -1,4 +1,4 @@
--- ROBUST COLLISION-RESISTANT VOUCHER RESERVATION
+-- ROBUST COLLISION-RESISTANT VOUCHER RESERVATION (FIXED)
 -- This version ensures that if a counter gets out of sync, 
 -- it auto-increments until it finds a truly unique number in the target table.
 
@@ -25,6 +25,7 @@ DECLARE
     cfg jsonb;
     cfg_key text;
     target_table text;
+    target_column text;
     v_fy text;
     v_prefix text;
     v_start integer;
@@ -36,29 +37,36 @@ DECLARE
     v_exists boolean;
     v_safe_counter integer := 0; -- Safety break for infinite loops
 BEGIN
-    -- 1. Identify Config Key and Target Table
+    -- 1. Identify Config Key, Target Table, and Target Column
     CASE p_document_type
         WHEN 'sales-gst' THEN 
             cfg_key := 'invoice_config';
             target_table := 'sales_bill';
+            target_column := 'id'; -- sales_bill uses text ID for invoice number
         WHEN 'sales-non-gst' THEN 
             cfg_key := 'non_gst_invoice_config';
             target_table := 'sales_bill';
+            target_column := 'id';
         WHEN 'purchase-entry' THEN 
             cfg_key := 'purchase_config';
             target_table := 'purchases';
+            target_column := 'purchase_serial_id';
         WHEN 'purchase-order' THEN 
             cfg_key := 'purchase_order_config';
             target_table := 'purchase_orders';
+            target_column := 'serial_id';
         WHEN 'sales-challan' THEN 
             cfg_key := 'sales_challan_config';
             target_table := 'sales_challans';
+            target_column := 'challan_serial_id';
         WHEN 'delivery-challan' THEN 
             cfg_key := 'delivery_challan_config';
             target_table := 'delivery_challans';
+            target_column := 'challan_serial_id';
         WHEN 'physical-inventory' THEN 
             cfg_key := 'physical_inventory_config';
             target_table := 'physical_inventory';
+            target_column := 'id'; -- physical_inventory uses text ID
         ELSE
             RETURN QUERY SELECT false, 'Invalid document type: ' || p_document_type, NULL::text, NULL::integer, NULL::integer, NULL::integer, NULL::text;
             RETURN;
@@ -93,14 +101,12 @@ BEGIN
     v_current := GREATEST(v_start, COALESCE((cfg->>'currentNumber')::integer, v_start));
 
     -- 4. Collision Avoidance Loop
-    -- We generate the document number and check if it already exists in the target table.
-    -- If it does, we increment and try again. This self-heals out-of-sync counters.
     LOOP
         v_doc := v_prefix || LPAD(v_current::text, v_padding, '0') || CASE WHEN v_use_fy THEN '-' || v_fy ELSE '' END;
         
         v_exists := false;
-        -- Dynamic existence check
-        EXECUTE format('SELECT EXISTS(SELECT 1 FROM public.%I WHERE id = $1)', target_table)
+        -- Dynamic existence check against the correct column
+        EXECUTE format('SELECT EXISTS(SELECT 1 FROM public.%I WHERE %I = $1)', target_table, target_column)
         INTO v_exists
         USING v_doc;
 
