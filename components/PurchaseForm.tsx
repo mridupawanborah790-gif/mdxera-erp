@@ -75,6 +75,12 @@ const formatExpiryToMMYY = (value?: string | null): string => {
     return EXPIRY_MM_YY_REGEX.test(clean) ? clean : '';
 };
 
+const isEditableElement = (element: EventTarget | null): boolean => {
+    if (!(element instanceof HTMLElement)) return false;
+    const tag = element.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || element.isContentEditable;
+};
+
 const normalizeExpiryInput = (rawValue: string): string => {
     const digits = rawValue.replace(/\D/g, '').slice(0, 4);
     if (digits.length <= 2) {
@@ -952,10 +958,60 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         return null;
     }, [isSearchModalOpen, deduplicatedSearchInventory, selectedSearchIndex, activeRowId, items, inventory]);
 
+    const handleDeleteSelectedRow = useCallback((): boolean => {
+        if (isReadOnly || isChallan || !activeRowId) return false;
+
+        const rowIndex = items.findIndex(p => p.id === activeRowId);
+        if (rowIndex < 0) return false;
+
+        const selectedRow = items[rowIndex];
+        if (!(selectedRow.name || '').trim()) return false;
+
+        const remainingRows = items.filter((_, index) => index !== rowIndex);
+        const nextSelection = remainingRows[rowIndex] ?? remainingRows[rowIndex - 1] ?? null;
+
+        if (remainingRows.length === 0) {
+            setItems([createBlankItem()]);
+            setActiveRowId(null);
+            return true;
+        }
+
+        setItems(remainingRows);
+        setActiveRowId(nextSelection?.id ?? null);
+        return true;
+    }, [activeRowId, isChallan, isReadOnly, items]);
+
     const handleGlobalKeyDown = useCallback((e: KeyboardEvent) => {
         if (isSearchModalOpen || isWebcamModalOpen || isAddSupplierModalOpen || isAddMedicineMasterModalOpen || isLinkModalOpen || isRateTierModalOpen || isSupplierSearchModalOpen) return;
 
-        const isInputFocused = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
+        const activeElement = document.activeElement;
+        const isInputFocused = isEditableElement(activeElement);
+
+        if (!isChallan && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            void handleSubmit();
+            return;
+        }
+
+        if (
+            !isChallan
+            && e.key === 'Backspace'
+            && activeRowId
+            && !isInputFocused
+            && !e.ctrlKey
+            && !e.metaKey
+            && !e.altKey
+        ) {
+            const gridElement = voucherGridRef.current;
+            const insideGrid = !!(activeElement instanceof Node && gridElement?.contains(activeElement));
+            const noSpecificFocus = activeElement === document.body || activeElement === null;
+
+            if (insideGrid || noSpecificFocus) {
+                const deleted = handleDeleteSelectedRow();
+                if (deleted) e.preventDefault();
+            }
+            return;
+        }
 
         if (!isInputFocused && activeRowId) {
             const rowIndex = items.findIndex(p => p.id === activeRowId);
@@ -974,7 +1030,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 (nameInput as HTMLInputElement)?.select();
             }
         }
-    }, [activeRowId, items, isSearchModalOpen, isWebcamModalOpen, isAddSupplierModalOpen, isAddMedicineMasterModalOpen, isLinkModalOpen, isRateTierModalOpen, isSupplierSearchModalOpen]);
+    }, [activeRowId, handleDeleteSelectedRow, handleSubmit, isAddMedicineMasterModalOpen, isAddSupplierModalOpen, isChallan, isLinkModalOpen, isRateTierModalOpen, isSearchModalOpen, isSupplierSearchModalOpen, isWebcamModalOpen, items]);
 
     useEffect(() => {
         window.addEventListener('keydown', handleGlobalKeyDown);
