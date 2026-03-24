@@ -1306,7 +1306,21 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         },
         user: RegisteredPharmacy
     ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
-        const customer = await idb.get(STORES.CUSTOMERS, args.customerId) as Customer | undefined;
+        let customer = await idb.get(STORES.CUSTOMERS, args.customerId) as Customer | undefined;
+
+        // Fallback to Supabase if local fetch fails (e.g. IndexedDB disabled)
+        if (!customer && navigator.onLine) {
+            const { data, error } = await supabase
+                .from('customers')
+                .select('*')
+                .eq('organization_id', user.organization_id)
+                .eq('id', args.customerId)
+                .maybeSingle();
+            if (data) {
+                customer = fromSupabase('customers', data) as Customer;
+            }
+        }
+
         if (!customer) throw new Error('Customer not found');
 
         if (!navigator.onLine) throw new Error('Payment posting with accounting requires online mode.');
@@ -1429,28 +1443,41 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         return { journalEntryId, journalEntryNumber };
     };
 
-export const recordSupplierPaymentWithAccounting = async (
-        args: {
-            supplierId: string;
-            amount: number;
-            date: string;
-            description: string;
-            paymentMode: string;
-            bankAccountId: string;
-            referenceInvoiceId?: string;
-            referenceInvoiceNumber?: string;
-        },
-        user: RegisteredPharmacy
-): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
-        let supplier = await idb.get(STORES.SUPPLIERS, args.supplierId as any) as Supplier | undefined;
-        if (!supplier) {
-            const allSuppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
-            const targetSupplierId = String(args.supplierId || '').trim().toLowerCase();
-            supplier = allSuppliers.find((row) => String(row?.id || '').trim().toLowerCase() === targetSupplierId);
-        }
-        if (!supplier) throw new Error('Supplier not found');
-        const resolvedSupplierId = String(supplier.id);
+    export const recordSupplierPaymentWithAccounting = async (
+            args: {
+                supplierId: string;
+                amount: number;
+                date: string;
+                description: string;
+                paymentMode: string;
+                bankAccountId: string;
+                referenceInvoiceId?: string;
+                referenceInvoiceNumber?: string;
+            },
+            user: RegisteredPharmacy
+    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
+            let supplier = await idb.get(STORES.SUPPLIERS, args.supplierId as any) as Supplier | undefined;
 
+            // Fallback to Supabase if local fetch fails (e.g. IndexedDB disabled)
+            if (!supplier && navigator.onLine) {
+                const { data, error } = await supabase
+                    .from('suppliers')
+                    .select('*')
+                    .eq('organization_id', user.organization_id)
+                    .eq('id', args.supplierId)
+                    .maybeSingle();
+                if (data) {
+                    supplier = fromSupabase('suppliers', data) as Supplier;
+                }
+            }
+
+            if (!supplier) {
+                const allSuppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
+                const targetSupplierId = String(args.supplierId || '').trim().toLowerCase();
+                supplier = allSuppliers.find((row) => String(row?.id || '').trim().toLowerCase() === targetSupplierId);
+            }
+            if (!supplier) throw new Error('Supplier not found');
+            const resolvedSupplierId = String(supplier.id);
         if (!navigator.onLine) throw new Error('Payment posting with accounting requires online mode.');
         const isCashMode = String(args.paymentMode || '').trim().toLowerCase() === 'cash';
         let bank: any = null;
