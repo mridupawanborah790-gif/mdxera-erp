@@ -52,7 +52,7 @@ interface AccountPayableProps {
         referenceInvoiceId?: string;
         referenceInvoiceNumber?: string;
         entryCategory?: 'invoice_payment' | 'down_payment';
-    }) => Promise<void>;
+    }) => Promise<{ ledgerEntryId: string }>;
     onRecordDownPaymentAdjustment: (args: {
         supplierId: string;
         date: string;
@@ -61,6 +61,22 @@ interface AccountPayableProps {
         referenceInvoiceNumber?: string;
         amount: number;
         description?: string;
+    }) => Promise<void>;
+    onRecordInvoicePaymentAdjustment: (args: {
+        supplierId: string;
+        date: string;
+        sourcePaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
+    }) => Promise<void>;
+    onCancelPaymentEntry: (args: {
+        ownerType: 'customer' | 'supplier';
+        ownerId: string;
+        paymentEntryId: string;
+        cancellationDate: string;
+        reason: string;
     }) => Promise<void>;
     currentUser: RegisteredPharmacy | null;
 }
@@ -85,7 +101,7 @@ const getPaymentAmount = (entry: TransactionLedgerItem): number => {
     return Number(entry.debit || 0);
 };
 
-const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases, bankOptions, onRecordPayment, onRecordDownPaymentAdjustment, currentUser }) => {
+const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases, bankOptions, onRecordPayment, onRecordDownPaymentAdjustment, onRecordInvoicePaymentAdjustment, onCancelPaymentEntry, currentUser }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedDistributor, setSelectedDistributor] = useState<Distributor | null>(null);
     const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
@@ -101,6 +117,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const [submitError, setSubmitError] = useState('');
     const [ledgerVoucherMap, setLedgerVoucherMap] = useState<Record<string, LedgerVoucherMeta>>({});
     const [invoiceAdjustments, setInvoiceAdjustments] = useState<Record<string, number>>({});
+    const [paymentType, setPaymentType] = useState<'against_invoice' | 'on_account'>('against_invoice');
 
     const normalizedPaymentMode = paymentMode.trim().toLowerCase();
     const isCashMode = normalizedPaymentMode === 'cash';
@@ -236,7 +253,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         const ledger = Array.isArray(selectedDistributor.ledger) ? selectedDistributor.ledger : [];
 
         for (const entry of ledger) {
-            if (!entry || entry.type !== 'payment') continue;
+            if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
             const invoiceId = entry.referenceInvoiceId || '';
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (!target) continue;
@@ -250,7 +267,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             };
 
             const adjustedAmount = Number(normalizedEntry.adjustedAmount || 0);
-            target.paid += adjustedAmount > 0 ? adjustedAmount : getPaymentAmount(normalizedEntry);
+            target.paid += adjustedAmount !== 0 ? adjustedAmount : getPaymentAmount(normalizedEntry);
             target.balance = Number((target.invoiceAmount - target.paid).toFixed(2));
             target.paymentDate = normalizedEntry.date || target.paymentDate;
             target.paymentMode = normalizedEntry.paymentMode || target.paymentMode;
@@ -292,13 +309,13 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         [ledgerRows]
     );
     const downPaymentRows = useMemo(
-        () => ledgerRows.filter(item => item.type === 'payment' && item.entryCategory === 'down_payment' && getPaymentAmount(item) > 0),
+        () => ledgerRows.filter(item => item.type === 'payment' && item.entryCategory === 'down_payment' && item.status !== 'cancelled' && getPaymentAmount(item) > 0),
         [ledgerRows]
     );
     const availableAdvanceBalance = useMemo(() => {
         const totalAdvance = downPaymentRows.reduce((sum, row) => sum + getPaymentAmount(row), 0);
         const totalAdjusted = ledgerRows
-            .filter(item => item.entryCategory === 'down_payment_adjustment')
+            .filter(item => item.entryCategory === 'down_payment_adjustment' || item.entryCategory === 'down_payment_adjustment_reversal')
             .reduce((sum, row) => sum + Number(row.adjustedAmount || 0), 0);
         return Number((totalAdvance - totalAdjusted).toFixed(2));
     }, [downPaymentRows, ledgerRows]);
@@ -387,6 +404,8 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         setAmount('');
         setDescription('Supplier Payment');
         setSelectedInvoiceId('');
+        setPaymentType('against_invoice');
+        setInvoiceAdjustments({});
         setPaymentMode('Bank');
         setBankAccountId(defaultBankOption?.id || '');
         setSubmitError('');
@@ -421,22 +440,45 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         e.preventDefault();
         if (!selectedDistributor || !amount || amount <= 0) return;
         if (!isCashMode && !bankAccountId) return;
-        const invoice = invoiceRows.find(i => i.id === selectedInvoiceId);
+        const paymentAmount = Number(amount);
+        const allocations = Object.entries(invoiceAdjustments)
+            .map(([invoiceId, allocated]) => ({ invoiceId, allocated: Number(allocated || 0) }))
+            .filter(({ allocated }) => allocated > 0);
+        const totalAllocated = allocations.reduce((sum, item) => sum + item.allocated, 0);
+        if (paymentType === 'against_invoice') {
+            if (allocations.length === 0) throw new Error('Select invoice allocations for against-invoice payment.');
+            if (Math.abs(totalAllocated - paymentAmount) > 0.001) throw new Error('Allocated total must match payment amount.');
+        }
 
         setIsSubmitting(true);
         setSubmitError('');
         try {
-            await onRecordPayment({
+            const paymentResult = await onRecordPayment({
                 supplierId: selectedDistributor.id,
-                amount: Number(amount),
+                amount: paymentAmount,
                 date,
                 description,
                 paymentMode,
                 bankAccountId: isCashMode ? '' : bankAccountId,
-                referenceInvoiceId: invoice?.id,
-                referenceInvoiceNumber: invoice?.invoiceNumber,
+                referenceInvoiceId: paymentType === 'against_invoice' && allocations.length === 1 ? allocations[0].invoiceId : undefined,
+                referenceInvoiceNumber: paymentType === 'against_invoice' && allocations.length === 1 ? invoiceRows.find(i => i.id === allocations[0].invoiceId)?.invoiceNumber : undefined,
                 entryCategory: 'invoice_payment',
             });
+            if (paymentType === 'against_invoice') {
+                for (const allocation of allocations) {
+                    const invoice = invoiceRows.find(i => i.id === allocation.invoiceId);
+                    if (!invoice) continue;
+                    await onRecordInvoicePaymentAdjustment({
+                        supplierId: selectedDistributor.id,
+                        date,
+                        sourcePaymentId: paymentResult.ledgerEntryId,
+                        referenceInvoiceId: invoice.id,
+                        referenceInvoiceNumber: invoice.invoiceNumber,
+                        amount: allocation.allocated,
+                        description: 'Payment adjusted against invoice',
+                    });
+                }
+            }
             setShowPaymentForm(false);
             setAmount('');
             setDescription('Supplier Payment');
@@ -464,7 +506,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         setIsSubmitting(true);
         setSubmitError('');
         try {
-            await onRecordPayment({
+            const downPaymentResult = await onRecordPayment({
                 supplierId: selectedDistributor.id,
                 amount: enteredAmount,
                 date,
@@ -473,14 +515,17 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                 bankAccountId: isCashMode ? '' : bankAccountId,
                 entryCategory: 'down_payment',
             });
-            const downPaymentId = `DP-${Date.now()}`;
             for (const allocation of allocations) {
                 const invoice = invoiceRows.find(row => row.id === allocation.invoiceId);
                 if (!invoice) continue;
+                if (new Date(invoice.date).getTime() < new Date(date).getTime()) {
+                    setSubmitError('This down payment cannot be adjusted against the selected invoice because the invoice date is earlier than the down payment date. Advance can only be adjusted against same-date or later invoices as per accounting control.');
+                    continue;
+                }
                 await onRecordDownPaymentAdjustment({
                     supplierId: selectedDistributor.id,
                     date,
-                    downPaymentId,
+                    downPaymentId: downPaymentResult.ledgerEntryId,
                     referenceInvoiceId: invoice.id,
                     referenceInvoiceNumber: invoice.invoiceNumber,
                     amount: allocation.allocated,
@@ -498,6 +543,19 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const handleCancelEntry = async (entry: TransactionLedgerItem) => {
+        if (!selectedDistributor || entry.status === 'cancelled') return;
+        const reason = window.prompt('Enter cancellation reason', 'User requested cancellation');
+        if (!reason) return;
+        await onCancelPaymentEntry({
+            ownerType: 'supplier',
+            ownerId: selectedDistributor.id,
+            paymentEntryId: entry.id,
+            cancellationDate: new Date().toISOString().split('T')[0],
+            reason,
+        });
     };
 
     return (
@@ -561,12 +619,10 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                     <p className="text-[10px] font-black uppercase tracking-wider text-gray-500">Record Supplier Payment</p>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                         <div>
-                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Payment Against Invoice</label>
-                                            <select value={selectedInvoiceId} onChange={e => setSelectedInvoiceId(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50">
-                                                <option value="">Unallocated / On Account</option>
-                                                {invoiceRows.map(row => (
-                                                    <option key={row.id} value={row.id}>{row.invoiceNumber} • Balance ₹{row.balance.toFixed(2)}</option>
-                                                ))}
+                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Payment Type</label>
+                                            <select value={paymentType} onChange={e => setPaymentType(e.target.value as 'against_invoice' | 'on_account')} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50">
+                                                <option value="against_invoice">Against Invoice</option>
+                                                <option value="on_account">On Account</option>
                                             </select>
                                         </div>
                                         <div>
@@ -613,6 +669,20 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                             <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold uppercase outline-none focus:bg-yellow-50" placeholder="SUPPLIER PAYMENT" />
                                         </div>
                                     </div>
+                                    {paymentType === 'against_invoice' && (
+                                        <div className="space-y-2">
+                                            {invoiceRows.filter(row => row.balance > 0).map(row => (
+                                                <div key={row.id} className="grid grid-cols-1 md:grid-cols-6 gap-2">
+                                                    <div className="border border-gray-200 p-2 text-xs font-bold">{row.invoiceNumber}</div>
+                                                    <div className="border border-gray-200 p-2 text-xs">{formatDisplayDate(row.date)}</div>
+                                                    <div className="border border-gray-200 p-2 text-xs">Original ₹{row.invoiceAmount.toFixed(2)}</div>
+                                                    <div className="border border-gray-200 p-2 text-xs">Paid ₹{row.paid.toFixed(2)}</div>
+                                                    <div className="border border-gray-200 p-2 text-xs">Balance ₹{row.balance.toFixed(2)}</div>
+                                                    <input type="number" min={0} max={row.balance} value={invoiceAdjustments[row.id] ?? ''} onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [row.id]: parseFloat(e.target.value) || 0 }))} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Allocate amount" />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                     <div className="flex justify-end gap-2">
                                         <button type="button" onClick={() => setShowPaymentForm(false)} className="px-3 py-2 border border-gray-300 font-bold uppercase text-[10px] hover:bg-white">Discard</button>
                                         <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || (!isCashMode && !bankAccountId)} className="px-4 py-2 tally-button-primary font-black uppercase text-xs">
@@ -706,21 +776,27 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                 <p className="text-[10px] font-black uppercase tracking-wider mb-2">Supplier payment history / voucher history</p>
                                 <div className="overflow-auto border border-gray-200">
                                     <table className="min-w-full text-xs">
-                                        <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Payment Against</th><th className="p-2 text-left">Payment Mode</th><th className="p-2 text-left">Bank/Cash Account</th><th className="p-2 text-left">Narration</th><th className="p-2 text-left">Amount</th><th className="p-2 text-left">Voucher No.</th><th className="p-2 text-left">Print Voucher</th></tr></thead>
+                                        <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Payment Against</th><th className="p-2 text-left">Payment Mode</th><th className="p-2 text-left">Bank/Cash Account</th><th className="p-2 text-left">Narration</th><th className="p-2 text-left">Amount</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Voucher No.</th><th className="p-2 text-left">Actions</th></tr></thead>
                                         <tbody>
                                             {payableHistoryRows.length === 0 ? (
-                                                <tr><td className="p-3 text-center text-gray-500" colSpan={9}>No supplier payments posted yet.</td></tr>
+                                                <tr><td className="p-3 text-center text-gray-500" colSpan={10}>No supplier payments posted yet.</td></tr>
                                             ) : payableHistoryRows.map(item => (
                                                 <tr key={item.id} className="border-t">
                                                     <td className="p-2">{formatDisplayDate(item.date)}</td>
-                                                    <td className="p-2">{item.entryCategory === 'down_payment' ? 'DOWN PAYMENT' : item.entryCategory === 'down_payment_adjustment' ? 'DP ADJUSTMENT' : 'PAYMENT'}</td>
+                                                    <td className="p-2">{item.entryCategory === 'down_payment' ? 'DOWN PAYMENT' : item.entryCategory === 'down_payment_adjustment' ? 'DP ADJUSTMENT' : item.entryCategory === 'invoice_payment_adjustment' ? 'INVOICE ADJUSTMENT' : item.entryCategory === 'payment_cancellation' || item.entryCategory === 'down_payment_cancellation' ? 'CANCELLATION' : 'PAYMENT'}</td>
                                                     <td className="p-2">{item.referenceInvoiceNumber || item.referenceInvoiceId || '-'}</td>
                                                     <td className="p-2">{item.paymentMode || '-'}</td>
                                                     <td className="p-2">{item.bankName || '-'}</td>
                                                     <td className="p-2">{item.entryCategory === 'down_payment' ? 'Advance Paid' : item.description}</td>
                                                     <td className="p-2 font-bold">₹{Number(item.adjustedAmount || getPaymentAmount(item)).toFixed(2)}</td>
+                                                    <td className="p-2">{item.status === 'cancelled' ? 'Cancelled' : 'Open'}</td>
                                                     <td className="p-2">{item.journalEntryNumber || item.journalEntryId || '-'}</td>
-                                                    <td className="p-2"><button type="button" onClick={() => printVoucher(item)} className="px-2 py-1 border border-gray-300 font-bold uppercase text-[10px] hover:bg-gray-100">Print</button></td>
+                                                    <td className="p-2 flex gap-2">
+                                                        <button type="button" onClick={() => printVoucher(item)} className="px-2 py-1 border border-gray-300 font-bold uppercase text-[10px] hover:bg-gray-100">Print</button>
+                                                        {(item.entryCategory === 'invoice_payment' || item.entryCategory === 'down_payment') && item.status !== 'cancelled' && (
+                                                            <button type="button" onClick={() => handleCancelEntry(item)} className="px-2 py-1 border border-red-300 text-red-700 font-bold uppercase text-[10px] hover:bg-red-50">Cancel</button>
+                                                        )}
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>
