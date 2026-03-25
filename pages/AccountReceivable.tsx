@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
 import { Customer, RegisteredPharmacy, Transaction, TransactionLedgerItem } from '../types';
 import { getOutstandingBalance } from '../utils/helpers';
@@ -14,6 +14,7 @@ interface BankOption {
     accountName: string;
     accountNumber: string;
     isDefault: boolean;
+    accountType?: string;
 }
 
 
@@ -100,10 +101,35 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
     const [showDownPaymentForm, setShowDownPaymentForm] = useState(false);
     const [adjustAgainstInvoice, setAdjustAgainstInvoice] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState('');
     const [invoiceAdjustments, setInvoiceAdjustments] = useState<Record<string, number>>({});
     const [paymentType, setPaymentType] = useState<'against_invoice' | 'on_account'>('against_invoice');
 
-    const defaultBank = useMemo(() => bankOptions.find(b => b.isDefault), [bankOptions]);
+    const normalizedPaymentMode = paymentMode.trim().toLowerCase();
+    const isCashMode = normalizedPaymentMode === 'cash';
+
+    const bankOnlyOptions = useMemo(
+        () =>
+            bankOptions.filter((option) => {
+                const accountType = String(option.accountType || '').toLowerCase();
+                const compositeLabel = `${option.bankName} ${option.accountName} ${option.accountNumber}`.toLowerCase();
+                return accountType.includes('bank') || (!accountType.includes('cash') && !compositeLabel.includes('cash'));
+            }),
+        [bankOptions]
+    );
+
+    const cashOnlyOptions = useMemo(
+        () =>
+            bankOptions.filter((option) => {
+                const accountType = String(option.accountType || '').toLowerCase();
+                const compositeLabel = `${option.bankName} ${option.accountName} ${option.accountNumber}`.toLowerCase();
+                return accountType.includes('cash') || compositeLabel.includes('cash');
+            }),
+        [bankOptions]
+    );
+
+    const defaultBank = useMemo(() => bankOnlyOptions.find(b => b.isDefault) || bankOnlyOptions[0] || null, [bankOnlyOptions]);
+    const defaultCash = useMemo(() => cashOnlyOptions.find(b => b.isDefault) || cashOnlyOptions[0] || null, [cashOnlyOptions]);
 
     const filteredCustomers = useMemo(() => {
         if (!Array.isArray(customers)) return [];
@@ -269,7 +295,9 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         setSelectedInvoiceId('');
         setPaymentType('against_invoice');
         setInvoiceAdjustments({});
+        setPaymentMode('Bank');
         setBankAccountId(defaultBank?.id || '');
+        setSubmitError('');
     };
 
     const openDownPaymentPanel = () => {
@@ -277,15 +305,34 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         setShowPaymentForm(false);
         setAmount('');
         setDescription('Advance Received');
+        setPaymentMode('Bank');
         setSelectedInvoiceId('');
         setAdjustAgainstInvoice(false);
         setInvoiceAdjustments({});
         setBankAccountId(defaultBank?.id || '');
+        setSubmitError('');
     };
+
+    useEffect(() => {
+        if (isCashMode) {
+            if (!bankAccountId) {
+                setBankAccountId(defaultCash?.id || '');
+            } else if (!cashOnlyOptions.some((option) => option.id === bankAccountId)) {
+                setBankAccountId(defaultCash?.id || '');
+            }
+            return;
+        }
+        if (!bankAccountId) {
+            setBankAccountId(defaultBank?.id || '');
+        } else if (!bankOnlyOptions.some((option) => option.id === bankAccountId)) {
+            setBankAccountId(defaultBank?.id || '');
+        }
+    }, [isCashMode, bankAccountId, defaultBank, defaultCash, bankOnlyOptions, cashOnlyOptions]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedCustomer || !amount || amount <= 0 || !bankAccountId) return;
+        if (!selectedCustomer || !amount || amount <= 0) return;
+        if (!bankAccountId && !isCashMode) return;
         const paymentAmount = Number(amount);
         const allocations = Object.entries(invoiceAdjustments)
             .map(([invoiceId, allocated]) => ({ invoiceId, allocated: Number(allocated || 0) }))
@@ -304,6 +351,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         }
 
         setIsSubmitting(true);
+        setSubmitError('');
         try {
             const paymentResult = await onRecordPayment({
                 customerId: selectedCustomer.id,
@@ -334,6 +382,10 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             setShowPaymentForm(false);
             setAmount('');
             setDescription('Payment Received');
+            setSubmitError('');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to post customer receipt. Please try again.';
+            setSubmitError(message);
         } finally {
             setIsSubmitting(false);
         }
@@ -341,7 +393,8 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
 
     const handleDownPaymentSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedCustomer || !amount || amount <= 0 || !bankAccountId) return;
+        if (!selectedCustomer || !amount || amount <= 0) return;
+        if (!bankAccountId && !isCashMode) return;
 
         const enteredAmount = Number(amount);
         const allocations = Object.entries(invoiceAdjustments)
@@ -351,6 +404,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         if (adjustAgainstInvoice && totalAllocated > enteredAmount) return;
 
         setIsSubmitting(true);
+        setSubmitError('');
         try {
             const downPaymentResult = await onRecordPayment({
                 customerId: selectedCustomer.id,
@@ -383,6 +437,10 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             setDescription('Advance Received');
             setAdjustAgainstInvoice(false);
             setInvoiceAdjustments({});
+            setSubmitError('');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to post customer down payment. Please try again.';
+            setSubmitError(message);
         } finally {
             setIsSubmitting(false);
         }
@@ -465,10 +523,17 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                     <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
                                         <option>Bank</option><option>Cash</option><option>UPI</option><option>Card</option>
                                     </select>
-                                    <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
-                                        <option value="">Select Bank / Cash Account</option>
-                                        {bankOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber}</option>)}
-                                    </select>
+                                    {isCashMode ? (
+                                        <select value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                            <option value="">{cashOnlyOptions.length ? 'Select Cash Account' : 'Use Default Cash Ledger'}</option>
+                                            {cashOnlyOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber || b.accountName}</option>)}
+                                        </select>
+                                    ) : (
+                                        <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                            <option value="">Select Bank / Cash Account</option>
+                                            {bankOnlyOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber || b.accountName}</option>)}
+                                        </select>
+                                    )}
                                     <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Narration" />
                                     {paymentType === 'against_invoice' && invoiceRows.filter(inv => inv.balance > 0).map(inv => (
                                         <div key={inv.id} className="col-span-3 grid grid-cols-5 gap-2">
@@ -481,8 +546,9 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                     ))}
                                     <div className="col-span-3 flex justify-end gap-2">
                                         <button type="button" onClick={() => setShowPaymentForm(false)} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Cancel</button>
-                                        <button type="submit" disabled={isSubmitting} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Payment'}</button>
+                                        <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || (!isCashMode && !bankAccountId)} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Payment'}</button>
                                     </div>
+                                    {submitError && <p className="col-span-3 text-xs font-bold text-red-700">{submitError}</p>}
                                 </form>
                             )}
 
@@ -494,10 +560,17 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                     <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
                                         <option>Bank</option><option>Cash</option><option>UPI</option>
                                     </select>
-                                    <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
-                                        <option value="">Select Bank / Cash Account</option>
-                                        {bankOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber}</option>)}
-                                    </select>
+                                    {isCashMode ? (
+                                        <select value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                            <option value="">{cashOnlyOptions.length ? 'Select Cash Account' : 'Use Default Cash Ledger'}</option>
+                                            {cashOnlyOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber || b.accountName}</option>)}
+                                        </select>
+                                    ) : (
+                                        <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                            <option value="">Select Bank / Cash Account</option>
+                                            {bankOnlyOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber || b.accountName}</option>)}
+                                        </select>
+                                    )}
                                     <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Reference / note" />
                                     <label className="col-span-3 inline-flex items-center gap-2 text-xs font-black uppercase">
                                         <input type="checkbox" checked={adjustAgainstInvoice} onChange={e => setAdjustAgainstInvoice(e.target.checked)} />
@@ -519,8 +592,9 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                     ))}
                                     <div className="col-span-3 flex justify-end gap-2">
                                         <button type="button" onClick={() => setShowDownPaymentForm(false)} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Cancel</button>
-                                        <button type="submit" disabled={isSubmitting} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Down Payment'}</button>
+                                        <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || (!isCashMode && !bankAccountId)} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Down Payment'}</button>
                                     </div>
+                                    {submitError && <p className="col-span-3 text-xs font-bold text-red-700">{submitError}</p>}
                                 </form>
                             )}
 
