@@ -82,7 +82,7 @@ const ElegantTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 <h2 className="text-lg font-bold uppercase text-gray-400">
                     {isCredit ? 'CREDIT BILL' : (isNonGst ? 'Estimate' : 'Invoice')}
                 </h2>
-                <p className="text-sm font-semibold">#{bill.id}</p>
+                <p className="text-sm font-semibold">#{bill.invoiceNumber || bill.id}</p>
             </div>
         </header>
         )}

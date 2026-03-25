@@ -93,7 +93,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
       </div>
 
       <div className="border-t border-b border-dashed border-black py-0.5 mb-1 flex justify-between items-center gap-1 text-[9px]">
-        <span className="truncate">Bill: {bill.id}</span>
+        <span className="truncate">Bill: {bill.invoiceNumber || bill.id}</span>
         <span>{new Date(bill.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
       </div>
 

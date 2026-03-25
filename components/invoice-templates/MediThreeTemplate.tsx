@@ -298,7 +298,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                     <div><strong>GSTIN:</strong> {bill.pharmacy.gstin || '-'}</div>
                   </div>
                   <div className="invoice-meta">
-                    <div><strong>Invoice No:</strong> {bill.id}</div>
+                    <div><strong>Invoice No:</strong> {bill.invoiceNumber || bill.id}</div>
                     <div><strong>Invoice Date:</strong> {new Date(bill.date).toLocaleDateString('en-GB')}</div>
                     <div><strong>Terms:</strong> Cash</div>
                     <div><strong>Page:</strong> {pageIndex + 1} / {paginatedItems.length}</div>

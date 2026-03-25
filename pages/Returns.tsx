@@ -164,7 +164,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
         setView('create');
         setSearchInvoiceId(prefillSalesInvoiceId);
 
-        const foundTx = transactions.find(tx => tx.id === prefillSalesInvoiceId);
+        const foundTx = transactions.find(tx => tx.id === prefillSalesInvoiceId || tx.invoiceNumber === prefillSalesInvoiceId);
         if (foundTx) {
             const mappedItems = buildSalesReturnItems(foundTx, salesReturns || []);
             const totalReturnedQty = mappedItems.reduce((sum, item: any) => sum + Number(item.alreadyReturnedQuantity || 0), 0);
@@ -223,7 +223,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
         const lowerSearchId = searchInvoiceId.toLowerCase().trim();
         
         if (activeTab === 'sales') {
-            const foundTx = transactions.find(t => t.id.toLowerCase() === lowerSearchId);
+            const foundTx = transactions.find(t => t.id.toLowerCase() === lowerSearchId || (t.invoiceNumber && t.invoiceNumber.toLowerCase() === lowerSearchId));
             if (foundTx) {
                 const mappedItems = buildSalesReturnItems(foundTx, salesReturns || []);
                 const totalReturnedQty = mappedItems.reduce((sum, item: any) => sum + Number(item.alreadyReturnedQuantity || 0), 0);
@@ -326,6 +326,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                     organization_id: currentUser?.organization_id || '',
                     date: returnDate,
                     originalInvoiceId: salesInv.id,
+                    originalInvoiceNumber: salesInv.invoiceNumber || salesInv.id,
                     customerName: salesInv.customerName,
                     customerId: salesInv.customerId,
                     items: itemsToReturn as SalesReturnItem[],
@@ -417,7 +418,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                                             <td className="p-2 border-r border-gray-200 font-mono font-black text-primary group-hover:text-white">{ret.id}</td>
                                             <td className="p-2 border-r border-gray-200 font-bold group-hover:text-white">{new Date(ret.date).toLocaleDateString('en-IN')}</td>
                                             <td className="p-2 border-r border-gray-200 font-black uppercase group-hover:text-white">{ret.customerName || ret.supplier}</td>
-                                            <td className="p-2 border-r border-gray-200 font-mono text-[10px] text-gray-500 group-hover:text-white/70">{ret.originalInvoiceId || ret.originalPurchaseInvoiceId}</td>
+                                            <td className="p-2 border-r border-gray-200 font-mono text-[10px] text-gray-500 group-hover:text-white/70">{ret.originalInvoiceNumber || ret.originalInvoiceId || ret.originalPurchaseInvoiceId}</td>
                                             <td className="p-2 border-r border-gray-400 text-right font-black text-red-600 group-hover:text-white">₹{(ret.totalRefund || ret.totalValue || 0).toFixed(2)}</td>
                                             <td className="p-2 text-right">
                                                 <button className="text-[10px] font-black uppercase text-primary group-hover:text-white hover:underline">Print</button>

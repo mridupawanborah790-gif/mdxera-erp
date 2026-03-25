@@ -91,7 +91,7 @@ const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
         <div className="w-1/2 text-right">
           <h3 className="text-[10pt] font-black uppercase text-gray-400 mb-1 tracking-widest">Invoice Details</h3>
           <div className="text-[11pt] space-y-1 font-bold">
-            <p>Invoice No.: <span className="font-mono">{bill.id}</span></p>
+            <p>Invoice No.: <span className="font-mono">{bill.invoiceNumber || bill.id}</span></p>
             <p>Date: {new Date(bill.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</p>
           </div>
         </div>

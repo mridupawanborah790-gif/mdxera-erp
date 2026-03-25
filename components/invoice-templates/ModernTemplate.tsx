@@ -67,7 +67,7 @@ const ModernTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 <h2 className="text-2xl font-bold text-gray-300 uppercase tracking-widest">
                     {isCredit ? 'CREDIT BILL' : (isNonGst ? 'ESTIMATE' : 'INVOICE')}
                 </h2>
-                <p className="font-mono text-gray-800 font-bold text-lg">#{bill.id}</p>
+                <p className="font-mono text-gray-800 font-bold text-lg">#{bill.invoiceNumber || bill.id}</p>
             </div>
           </div>
           )}

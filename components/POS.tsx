@@ -692,6 +692,7 @@ const POS = forwardRef<any, POSProps>(({
         setIsSaving(true);
 
         let generatedId = transactionToEdit?.id;
+        let invoiceNumber = transactionToEdit?.invoiceNumber;
         let reservedNextNumber = nextVoucherNumberHint;
 
         // For new bills, we MUST perform a real reservation (isPreview: false) at the moment of save
@@ -702,7 +703,8 @@ const POS = forwardRef<any, POSProps>(({
                 setIsSaving(false);
                 return;
             }
-            generatedId = reservation.documentNumber;
+            generatedId = crypto.randomUUID();
+            invoiceNumber = reservation.documentNumber;
             reservedNextNumber = reservation.nextNumber;
         }
 
@@ -716,6 +718,7 @@ const POS = forwardRef<any, POSProps>(({
 
         const transaction: Transaction = {
             id: generatedId,
+            invoiceNumber,
             organization_id: currentUser?.organization_id || '',
             user_id: currentUser?.user_id, // Clerk identifier for audit
             date: new Date(invoiceDate).toISOString(),
@@ -2611,7 +2614,7 @@ const POS = forwardRef<any, POSProps>(({
                                 <span className="shrink-0 font-black text-primary group-hover:text-white">₹{sale.total.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between text-[9px] text-gray-400 font-bold uppercase group-hover:text-white/70">
-                                <span>{sale.id}</span>
+                                <span>{sale.invoiceNumber || sale.id}</span>
                                 <span>{(sale.date || '').split('T')[0]}</span>
                             </div>
                         </div>

@@ -96,7 +96,7 @@
     };
 
     const SALES_BILL_ALLOWED_FIELDS = [
-        'id', 'organization_id', 'user_id', 'created_by_id', 'date',
+        'id', 'invoiceNumber', 'organization_id', 'user_id', 'created_by_id', 'date',
         'customerName', 'customerId', 'customerPhone', 'referredBy',
         'items', 'item_count',
         'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'roundOff', 'total', 'amountReceived',
@@ -2171,9 +2171,11 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 id: `auto-sale-${tx.id}`,
                 date: tx.date,
                 type: 'sale',
-                description: `Sales Voucher ${tx.id}`,
+                description: `Sales Voucher ${tx.invoiceNumber || tx.id}`,
                 debit: Number(tx.total || 0),
                 credit: 0,
+                referenceInvoiceId: tx.id,
+                referenceInvoiceNumber: tx.invoiceNumber,
             },
             tx.status !== 'cancelled'
         );
@@ -2437,6 +2439,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 description: `Sales Return ${salesReturn.id}`,
                 debit: 0,
                 credit: Number(salesReturn.totalRefund || 0),
+                referenceInvoiceId: salesReturn.originalInvoiceId,
+                referenceInvoiceNumber: salesReturn.originalInvoiceNumber,
             },
             true
         );

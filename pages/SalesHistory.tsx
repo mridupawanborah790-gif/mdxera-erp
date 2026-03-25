@@ -80,7 +80,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
         if (searchTerm) {
             const lowercasedFilter = searchTerm.toLowerCase();
             filtered = filtered.filter(t =>
-                (t.id || '').toLowerCase().includes(lowercasedFilter) ||
+                (t.invoiceNumber || t.id || '').toLowerCase().includes(lowercasedFilter) ||
                 (t.customerName || '').toLowerCase().includes(lowercasedFilter) ||
                 (t.customerPhone || '').toLowerCase().includes(lowercasedFilter)
             );
@@ -411,9 +411,9 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                 <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white">
                     <div className="border-b border-gray-300 p-3 bg-gray-50 space-y-3">
                         <div className="text-[11px] font-bold text-gray-700">
-                            Selected Invoice: <span className="font-mono text-primary">{selectedTransaction?.id || 'None'}</span>
+                            Selected Invoice: <span className="font-mono text-primary">{selectedTransaction?.invoiceNumber || selectedTransaction?.id || 'None'}</span>
                             {' '}| Customer: <span className="uppercase">{selectedTransaction?.customerName || '-'}</span>
-                            {' '}| Voucher ID: <span className="font-mono">{selectedTransaction?.id || '-'}</span>
+                            {' '}| Voucher ID: <span className="font-mono">{selectedTransaction?.invoiceNumber || selectedTransaction?.id || '-'}</span>
                             {' '}| Amount: <span className="font-black">₹{(selectedTransaction?.total || 0).toFixed(2)}</span>
                         </div>
                         {actionWarning && <div className="text-[11px] font-bold text-red-700 bg-red-100 border border-red-200 px-2 py-1">{actionWarning}</div>}
@@ -449,7 +449,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                                         className={`cursor-pointer transition-colors group ${selectedTransactionId === tx.id ? 'bg-primary text-white shadow-md' : 'hover:bg-primary hover:text-white'} ${tx.status === 'cancelled' ? (selectedTransactionId === tx.id ? 'line-through text-white/50 bg-primary' : 'line-through text-red-500 bg-red-50/50') : ''}`}
                                     >
                                         <td className={`p-2 border-r border-gray-200 font-bold text-center ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white text-gray-400'}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
-                                        <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white text-primary'}`}>{tx.id}</td>
+                                        <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white text-primary'}`}>{tx.invoiceNumber || tx.id}</td>
                                         <td className={`p-2 border-r border-gray-200 ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>{new Date(tx.date).toLocaleDateString('en-IN')}</td>
                                         <td className={`p-2 border-r border-gray-200 font-bold uppercase ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>{tx.customerName}</td>
                                         <td className={`p-2 border-r border-gray-200 text-center font-bold ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>
@@ -531,7 +531,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                 isOpen={!!journalTransaction}
                 onClose={() => setJournalTransaction(null)}
                 invoiceId={journalTransaction?.id}
-                invoiceNumber={journalTransaction?.id}
+                invoiceNumber={journalTransaction?.invoiceNumber || journalTransaction?.id}
                 documentType="SALES"
                 currentUser={currentUser}
                 isPosted={(journalTransaction?.status || '') === 'completed'}
@@ -541,7 +541,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                 <Modal 
                     isOpen={!!viewingTransaction} 
                     onClose={() => setViewingTransaction(null)} 
-                    title={`View Sales Invoice: ${viewingTransaction.id}`}
+                    title={`View Sales Invoice: ${viewingTransaction.invoiceNumber || viewingTransaction.id}`}
                 >
                     <div className="h-[90vh] overflow-hidden flex flex-col">
                         <POS

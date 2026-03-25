@@ -20,6 +20,7 @@ interface BankOption {
 
 interface ReceivableInvoiceRow {
     id: string;
+    invoiceNumber?: string;
     date: string;
     invoiceAmount: number;
     received: number;
@@ -148,6 +149,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             .filter(t => t && t.status !== 'cancelled' && (t.customerId === selectedCustomer.id || (t.customerName || '').trim().toLowerCase() === (selectedCustomer.name || '').trim().toLowerCase()))
             .map(t => ({
                 id: t.id,
+                invoiceNumber: t.invoiceNumber,
                 date: t.date,
                 invoiceAmount: Number(t.total || 0),
                 received: 0,
@@ -583,7 +585,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                     <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Narration" />
                                     {paymentType === 'against_invoice' && openReceivableInvoiceRows.map(inv => (
                                         <div key={inv.id} className="col-span-3 grid grid-cols-5 gap-2">
-                                            <div className="border border-gray-200 p-2 text-xs font-bold">{inv.id}</div>
+                                            <div className="border border-gray-200 p-2 text-xs font-bold">{inv.invoiceNumber || inv.id}</div>
                                             <div className="border border-gray-200 p-2 text-xs">Date {formatDisplayDate(inv.date)}</div>
                                             <div className="border border-gray-200 p-2 text-xs">Original ₹{inv.invoiceAmount.toFixed(2)}</div>
                                             <div className="border border-gray-200 p-2 text-xs">Balance ₹{inv.balance.toFixed(2)}</div>
@@ -645,7 +647,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                     </label>
                                     {adjustAgainstInvoice && invoiceRows.filter(inv => inv.balance > 0).map(inv => (
                                         <div key={inv.id} className="col-span-3 grid grid-cols-3 gap-3">
-                                            <div className="border border-gray-200 p-2 text-xs font-bold">{inv.id} | Pending ₹{inv.balance.toFixed(2)}</div>
+                                            <div className="border border-gray-200 p-2 text-xs font-bold">{inv.invoiceNumber || inv.id} | Pending ₹{inv.balance.toFixed(2)}</div>
                                             <input
                                                 type="number"
                                                 min={0}
@@ -677,7 +679,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                         <tbody>
                                             {invoiceRows.map(row => (
                                                 <tr key={row.id} className="border-t">
-                                                    <td className="p-2 font-bold">{row.id}</td>
+                                                    <td className="p-2 font-bold">{row.invoiceNumber || row.id}</td>
                                                     <td className="p-2">₹{row.invoiceAmount.toFixed(2)}</td>
                                                     <td className="p-2 text-emerald-700">₹{row.received.toFixed(2)}</td>
                                                     <td className="p-2 text-red-700">₹{row.balance.toFixed(2)}</td>

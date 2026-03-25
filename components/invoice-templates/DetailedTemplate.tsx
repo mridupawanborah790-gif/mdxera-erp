@@ -95,7 +95,7 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
         <div className="text-left space-y-1.5">
             <div className="flex items-center">
                 <span className="font-bold w-20">Invoice No:</span>
-                <span className="font-mono text-sm">{bill.id}</span>
+                <span className="font-mono text-sm">{bill.invoiceNumber || bill.id}</span>
             </div>
             <div className="flex items-center">
                 <span className="font-bold w-20">Date:</span>
@@ -190,7 +190,7 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
                       <div className="text-center flex-shrink-0">
                           <div className="border border-gray-300 p-1 bg-white inline-block rounded">
                               <img
-                                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=${bill.pharmacy.bank_upi_id}&pn=${encodeURIComponent(bill.pharmacy.pharmacy_name)}&am=${(bill.total || 0).toFixed(2)}&cu=INR&tn=Bill%20${bill.id}`)}`}
+                                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=${bill.pharmacy.bank_upi_id}&pn=${encodeURIComponent(bill.pharmacy.pharmacy_name)}&am=${(bill.total || 0).toFixed(2)}&cu=INR&tn=Bill%20${bill.invoiceNumber || bill.id}`)}`}
                                   alt="UPI QR"
                                   className="w-20 h-20 rendering-pixelated"
                               />

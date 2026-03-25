@@ -83,7 +83,7 @@ const ProfessionalTemplate: React.FC<TemplateProps> = ({ bill }) => {
           </div>
         </div>
         <div className="text-right">
-          <p><span className="font-semibold">Inv No:</span> {bill.id}</p>
+          <p><span className="font-semibold">Inv No:</span> {bill.invoiceNumber || bill.id}</p>
           {bill.referredBy && <p><span className="font-semibold">Ref By:</span> {bill.referredBy}</p>}
         </div>
       </div>
