@@ -645,10 +645,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 ...item,
                 expiry: formatExpiryToMMYY(String(item.expiry || '')),
                 quantity: Number(item.quantity || 0),
+                looseQuantity: Number(item.looseQuantity || 0),
+                freeQuantity: Number(item.freeQuantity || 0),
                 purchasePrice: Number(item.purchasePrice || 0),
                 mrp: Number(item.mrp || 0),
                 gstPercent: Number(item.gstPercent || 0),
                 discountPercent: Number(item.discountPercent || 0),
+                schemeDiscountPercent: Number(item.schemeDiscountPercent || 0),
+                schemeDiscountAmount: Number(item.schemeDiscountAmount || 0),
+                lineBaseAmount: Number(item.purchasePrice || 0) * Number(item.quantity || 0),
                 matchStatus: (item.inventoryItemId) ? 'matched' as const : 'pending' as const
             }));
 
@@ -698,6 +703,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             return {
                 ...p,
+                lineBaseAmount: gross,
                 taxableValue: taxable,
                 gstAmount: gst,
                 itemGrossValue: gross,
@@ -1201,6 +1207,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (field === 'name') { updatedItem.matchStatus = 'pending'; updatedItem.inventoryItemId = undefined; }
             if (field === 'expiry') { updatedItem.expiry = normalizeExpiryInput(String(value)); }
             if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
+            if (field === 'quantity' || field === 'purchasePrice') {
+                updatedItem.lineBaseAmount = (Number(updatedItem.purchasePrice || 0) * Number(updatedItem.quantity || 0));
+            }
             const updated = prev.map(p => p.id === id ? updatedItem : p);
             if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
             return updated;
