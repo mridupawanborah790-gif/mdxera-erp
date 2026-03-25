@@ -13,7 +13,7 @@ import ProductInsightsPanel from './ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { supabase } from '../services/supabaseClient';
-import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
+import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput, MasterPriceMaintainRecord } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
@@ -104,6 +104,18 @@ const resolveSalesRate = (
     const tierRate = resolveCustomerTierRate(item, customerTier);
     if (tierRate !== null) return tierRate;
     return calculateRateExcludingGst(item.mrp, item.gstPercent);
+};
+
+const resolveActivePriceRecord = (batch: InventoryItem, medicines: Medicine[]): MasterPriceMaintainRecord | null => {
+    const normalizedCode = (batch.code || '').trim().toLowerCase();
+    const today = new Date().toISOString().slice(0, 10);
+    const med = medicines.find(m => (m.materialCode || '').trim().toLowerCase() === normalizedCode);
+    if (!med) return null;
+    return (med.masterPriceMaintains || []).find(r =>
+        r.status === 'active' &&
+        today >= r.validFrom &&
+        today <= r.validTo
+    ) || null;
 };
 
 const normalizePackConversion = (item: BillItem): BillItem => {
@@ -1179,7 +1191,15 @@ const POS = forwardRef<any, POSProps>(({
             return;
         }
 
-        const rateValue = resolveSalesRate(batch, selectedCustomer?.defaultRateTier);
+        const activePriceRecord = resolveActivePriceRecord(batch, medicines);
+        const pricingSource = activePriceRecord ? {
+            mrp: Number(activePriceRecord.mrp || batch.mrp || 0),
+            gstPercent: batch.gstPercent,
+            rateA: Number(activePriceRecord.rateA || batch.rateA || 0),
+            rateB: Number(activePriceRecord.rateB || batch.rateB || 0),
+            rateC: Number(activePriceRecord.rateC || batch.rateC || 0),
+        } : batch;
+        const rateValue = resolveSalesRate(pricingSource, selectedCustomer?.defaultRateTier);
 
         const newItemId = crypto.randomUUID();
         const selectedItem: BillItem = {
@@ -1187,18 +1207,21 @@ const POS = forwardRef<any, POSProps>(({
             inventoryItemId: batch.id,
             name: batch.name,
             brand: batch.brand,
-            mrp: batch.mrp,
+            mrp: Number(activePriceRecord?.mrp || batch.mrp),
             quantity: 1,
             looseQuantity: 0,
             freeQuantity: 0,
             unit: 'pack',
             gstPercent: batch.gstPercent,
-            discountPercent: selectedCustomer?.defaultDiscount || 0,
+            discountPercent: Number(activePriceRecord?.defaultDiscountPercent ?? selectedCustomer?.defaultDiscount ?? 0),
             itemFlatDiscount: 0,
             taxBasis: batch.taxBasis,
             batch: ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (batch.batch || ''),
             expiry: formatExpiryForInput(batch.expiry ? String(batch.expiry) : ''),
             rate: rateValue,
+            schemeDiscountPercent: Number(activePriceRecord?.schemePercent || 0),
+            schemeDisplayPercent: Number(activePriceRecord?.schemePercent || 0),
+            schemeCalculationBasis: activePriceRecord?.schemeType === 'before_discount' ? 'before_discount' : 'after_discount',
             unitsPerPack: resolveUnitsPerStrip(batch.unitsPerPack, batch.packType),
             packType: batch.packType
         };
