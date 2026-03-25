@@ -363,17 +363,19 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         e.preventDefault();
         if (!selectedCustomer || !amount || amount <= 0) return;
         if (!bankAccountId && !isCashMode) return;
-        const paymentAmount = Number(amount);
+        const enteredPaymentAmount = Number(amount);
         const allocations = Object.entries(invoiceAdjustments)
             .map(([invoiceId, allocated]) => ({ invoiceId, allocated: Number(allocated || 0) }))
             .filter(({ allocated }) => allocated > 0);
-        const totalAllocated = allocations.reduce((sum, item) => sum + item.allocated, 0);
+        const totalAllocated = Number(allocations.reduce((sum, item) => sum + item.allocated, 0).toFixed(2));
+        const paymentAmount = paymentType === 'against_invoice' && allocations.length > 0 ? totalAllocated : enteredPaymentAmount;
 
         if (paymentType === 'against_invoice') {
             if (allocations.length === 0) {
                 throw new Error('Please select at least one invoice allocation.');
             }
-            if (Math.abs(totalAllocated - paymentAmount) > 0.001) {
+            setAmount(paymentAmount);
+            if (isAmountManuallyEdited && Math.abs(totalAllocated - enteredPaymentAmount) > 0.001) {
                 throw new Error('Payment Amount does not match total invoice allocation. Please adjust invoice-wise amounts or payment amount before posting.');
             }
             for (const allocation of allocations) {
@@ -548,7 +550,17 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
 
                             {showPaymentForm && (
                                 <form onSubmit={handleSubmit} className="border border-gray-300 p-4 grid grid-cols-3 gap-3">
-                                    <select value={paymentType} onChange={e => setPaymentType(e.target.value as 'against_invoice' | 'on_account')} className="border border-gray-300 p-2 text-xs font-bold">
+                                    <select
+                                        value={paymentType}
+                                        onChange={e => {
+                                            const nextPaymentType = e.target.value as 'against_invoice' | 'on_account';
+                                            setPaymentType(nextPaymentType);
+                                            if (nextPaymentType === 'against_invoice') {
+                                                setIsAmountManuallyEdited(false);
+                                            }
+                                        }}
+                                        className="border border-gray-300 p-2 text-xs font-bold"
+                                    >
                                         <option value="against_invoice">Against Invoice</option>
                                         <option value="on_account">On Account</option>
                                     </select>
@@ -575,10 +587,28 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                             <div className="border border-gray-200 p-2 text-xs">Date {formatDisplayDate(inv.date)}</div>
                                             <div className="border border-gray-200 p-2 text-xs">Original ₹{inv.invoiceAmount.toFixed(2)}</div>
                                             <div className="border border-gray-200 p-2 text-xs">Balance ₹{inv.balance.toFixed(2)}</div>
-                                            <input type="number" min={0} max={inv.balance} value={invoiceAdjustments[inv.id] ?? ''} onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [inv.id]: Math.min(parseFloat(e.target.value) || 0, inv.balance) }))} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Allocate" />
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                max={inv.balance}
+                                                value={invoiceAdjustments[inv.id] ?? ''}
+                                                onChange={e => {
+                                                    const parsedValue = parseFloat(e.target.value);
+                                                    setIsAmountManuallyEdited(false);
+                                                    setInvoiceAdjustments(prev => {
+                                                        if (Number.isNaN(parsedValue) || parsedValue <= 0) {
+                                                            const { [inv.id]: _removed, ...rest } = prev;
+                                                            return rest;
+                                                        }
+                                                        return { ...prev, [inv.id]: Math.min(parsedValue, inv.balance) };
+                                                    });
+                                                }}
+                                                className="border border-gray-300 p-2 text-xs font-bold"
+                                                placeholder="Allocate"
+                                            />
                                         </div>
                                     ))}
-                                    {paymentType === 'against_invoice' && Math.abs(Number(amount || 0) - totalAllocatedAmount) > 0.001 && (
+                                    {paymentType === 'against_invoice' && isAmountManuallyEdited && Math.abs(Number(amount || 0) - totalAllocatedAmount) > 0.001 && (
                                         <p className="col-span-3 text-xs font-bold text-amber-700">Payment Amount does not match total invoice allocation. Please adjust invoice-wise amounts or payment amount before posting.</p>
                                     )}
                                     <div className="col-span-3 flex justify-end gap-2">

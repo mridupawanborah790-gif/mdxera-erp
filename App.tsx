@@ -45,6 +45,7 @@ import TallyPrompt from './components/TallyPrompt';
 import * as storage from './services/storageService';
 import { supabase } from './services/supabaseClient';
 import { parseNetworkAndApiError } from './utils/error';
+import { evaluateCustomerCredit, getCustomerOpenChallanExposure } from './utils/creditControl';
 import {
     RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier,
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
@@ -69,7 +70,7 @@ const PERSISTABLE_SCREENS = new Set([
     'dashboard', 'pos', 'nonGstPos', 'salesHistory', 'manualSalesEntry', 'salesChallans',
     'deliveryChallans', 'salesReturns', 'purchaseReturn', 'purchaseOrders', 'automatedPurchaseEntry',
     'manualPurchaseEntry', 'manualSupplierInvoice', 'purchaseHistory', 'inventory', 'physicalInventory',
-    'suppliers', 'customers', 'medicineMasterList', 'vendorNomenclature', 'bulkUtility',
+    'suppliers', 'customers', 'medicineMasterList', 'masterPriceMaintain', 'vendorNomenclature', 'bulkUtility',
     'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst',
     'businessUsers', 'businessRoles', 'companyConfiguration', 'configuration', 'settings',
     'classification', 'accountReceivable', 'accountPayable'
@@ -689,6 +690,26 @@ const App: React.FC = () => {
             throw new Error("Unauthorized: please log in again.");
         }
 
+        const selectedCustomer = tx.customerId
+            ? customers.find(c => c.id === tx.customerId)
+            : customers.find(c => (c.name || '').trim().toLowerCase() === (tx.customerName || '').trim().toLowerCase());
+        const openChallanExposure = getCustomerOpenChallanExposure(salesChallans, selectedCustomer?.id);
+        const creditCheck = evaluateCustomerCredit({
+            customer: selectedCustomer || null,
+            currentTransactionAmount: Number(tx.total || 0),
+            openChallanExposure,
+            moduleName: 'POS'
+        });
+
+        if (creditCheck && !creditCheck.canProceed) {
+            const detail = `Credit limit ₹${creditCheck.details.creditLimit.toFixed(2)}, projected exposure ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
+            if (creditCheck.mode === 'warning_only') {
+                addNotification(`${creditCheck.message} ${detail} (Saved due to warning-only mode).`, 'warning');
+            } else {
+                throw new Error(`${creditCheck.message} ${detail}`);
+            }
+        }
+
         const strictStock = configurations.displayOptions?.strictStock ?? false;
         const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
         const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
@@ -848,8 +869,42 @@ const App: React.FC = () => {
 
         if (normalizedCode) {
             const linkedMedicine = medicines.find(m => normalizeCode(m.materialCode) === normalizedCode);
-            if (linkedMedicine && Math.abs(oldMrp - newMrp) >= 0.0001) {
-                await storage.saveData('material_master', { ...linkedMedicine, mrp: newMrp.toFixed(2) }, currentUser, true);
+            if (linkedMedicine) {
+                const today = new Date().toISOString().slice(0, 10);
+                const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
+                    if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
+                    return {
+                        ...record,
+                        mrp: newMrp,
+                        rateA: Number(updatedItem.rateA || 0),
+                        rateB: Number(updatedItem.rateB || 0),
+                        rateC: Number(updatedItem.rateC || 0),
+                        lastUpdatedBy: currentUser.full_name || currentUser.email,
+                        lastUpdatedOn: new Date().toISOString(),
+                        auditTrail: [
+                            ...(record.auditTrail || []),
+                            {
+                                changedAt: new Date().toISOString(),
+                                changedBy: currentUser.full_name || currentUser.email,
+                                sourceModule: 'Inventory',
+                                field: 'mrp_rate_sync',
+                                oldValue: `MRP:${record.mrp} RateA:${record.rateA} RateB:${record.rateB} RateC:${record.rateC}`,
+                                newValue: `MRP:${newMrp} RateA:${Number(updatedItem.rateA || 0)} RateB:${Number(updatedItem.rateB || 0)} RateC:${Number(updatedItem.rateC || 0)}`
+                            }
+                        ]
+                    };
+                });
+
+                await storage.saveData('material_master', {
+                    ...linkedMedicine,
+                    mrp: newMrp.toFixed(2),
+                    rateA: Number(updatedItem.rateA || 0),
+                    rateB: Number(updatedItem.rateB || 0),
+                    rateC: Number(updatedItem.rateC || 0),
+                    masterPriceMaintains: nextPriceRecords
+                }, currentUser, true);
+
+                if (Math.abs(oldMrp - newMrp) >= 0.0001) {
                 await createMrpChangeLog(
                     'Inventory',
                     updatedItem.code || linkedMedicine.materialCode,
@@ -857,6 +912,7 @@ const App: React.FC = () => {
                     oldMrp,
                     newMrp
                 );
+                }
             }
         }
 
@@ -904,6 +960,9 @@ const App: React.FC = () => {
                         description: updatedMedicine.description || '',
                         gstPercent: Number(updatedMedicine.gstRate ?? 0),
                         mrp: nextMrp,
+                        rateA: Number(updatedMedicine.rateA || 0),
+                        rateB: Number(updatedMedicine.rateB || 0),
+                        rateC: Number(updatedMedicine.rateC || 0),
                         packType: updatedPack,
                         unitsPerPack: inferredUnitsPerPack,
                     }, currentUser)
@@ -924,6 +983,9 @@ const App: React.FC = () => {
                         description: updatedMedicine.description || '',
                         gstPercent: Number(updatedMedicine.gstRate ?? 0),
                         mrp: nextMrp,
+                        rateA: Number(updatedMedicine.rateA || 0),
+                        rateB: Number(updatedMedicine.rateB || 0),
+                        rateC: Number(updatedMedicine.rateC || 0),
                         packType: updatedPack,
                         unitsPerPack: inferredUnitsPerPack,
                     }
@@ -1405,6 +1467,7 @@ const App: React.FC = () => {
                         }}
                         transactionToEdit={editingSale}
                         onRefreshConfig={() => loadData(currentUser!, 'background')}
+                        salesChallans={salesChallans}
                     />;
                 case 'salesHistory':
                     return <SalesHistory
@@ -1443,6 +1506,19 @@ const App: React.FC = () => {
                         currentUser={currentUser}
                         configurations={configurations}
                         onAddChallan={async (challan) => {
+                            const customer = challan.customerId
+                                ? customers.find(c => c.id === challan.customerId)
+                                : customers.find(c => (c.name || '').trim().toLowerCase() === (challan.customerName || '').trim().toLowerCase());
+                            const openExposure = getCustomerOpenChallanExposure(salesChallans, customer?.id);
+                            const check = evaluateCustomerCredit({
+                                customer: customer || null,
+                                currentTransactionAmount: Number(challan.totalAmount || 0),
+                                openChallanExposure: openExposure,
+                                moduleName: 'Sales Challan'
+                            });
+                            if (check && !check.canProceed && check.mode !== 'warning_only') {
+                                throw new Error(`${check.message} Projected exposure ₹${check.details.projectedExposure.toFixed(2)} exceeds credit limit ₹${check.details.creditLimit.toFixed(2)}.`);
+                            }
                             await storage.saveData('sales_challans', challan, currentUser!);
                             await loadData(currentUser!, 'background');
                         }}
@@ -1748,6 +1824,7 @@ const App: React.FC = () => {
                         currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
                     />;
                 case 'medicineMasterList':
+                case 'masterPriceMaintain':
                 case 'vendorNomenclature':
                 case 'bulkUtility':
                     return <MaterialMaster
@@ -1758,8 +1835,9 @@ const App: React.FC = () => {
                         onSearchMedicines={() => { }} onMassUpdateClick={() => { }}
                         onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} onDeleteMapping={(id) => storage.deleteData('supplier_product_map', id).then(() => loadData(currentUser!, 'background'))}
                         mappings={mappings}
-                        initialSubModule={pageId === 'vendorNomenclature' ? 'sync' : pageId === 'bulkUtility' ? 'bulk' : 'master'}
+                        initialSubModule={pageId === 'vendorNomenclature' ? 'sync' : pageId === 'bulkUtility' ? 'bulk' : pageId === 'masterPriceMaintain' ? 'pricing' : 'master'}
                         mrpChangeLogs={mrpChangeLogs}
+                        addNotification={addNotification}
                     />;
                 case 'substituteFinder':
                     return <SubstituteFinder inventory={inventory} />;

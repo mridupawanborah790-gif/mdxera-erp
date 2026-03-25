@@ -6,6 +6,7 @@ import AddMedicineModal from '../components/AddMedicineModal';
 import SupplierSyncView from './SupplierSyncView';
 import ExportOptionsModal from './ExportOptionsModal';
 import MrpChangeLogModal from './MrpChangeLogModal';
+import MasterPriceMaintain from './MasterPriceMaintain';
 import type { Medicine, RegisteredPharmacy, Supplier, Purchase, SupplierProductMap, MrpChangeLogEntry } from '../types';
 import { fuzzyMatch } from '../utils/search';
 
@@ -48,16 +49,18 @@ interface MaterialMasterProps {
     mappings: SupplierProductMap[];
     initialSubModule?: SubModule;
     mrpChangeLogs?: MrpChangeLogEntry[];
+    addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
 }
 
-type SubModule = 'master' | 'sync' | 'bulk';
+type SubModule = 'master' | 'pricing' | 'sync' | 'bulk';
 
 const MaterialMaster: React.FC<MaterialMasterProps> = ({ 
     medicines, onAddMedicine, onUpdateMedicine, currentUser, 
     suppliers, onAddPurchase, onBulkAddMedicines, onSearchMedicines, 
     onMassUpdateClick, onSaveMapping, onDeleteMapping, mappings,
     initialSubModule = 'master',
-    mrpChangeLogs = []
+    mrpChangeLogs = [],
+    addNotification
 }) => {
     const [activeSubModule, setActiveSubModule] = useState<SubModule>(initialSubModule);
     const [medSearchTerm, setMedSearchTerm] = useState('');
@@ -124,6 +127,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
 
     const moduleTitles: Record<SubModule, string> = {
         master: 'Material Master Data',
+        pricing: 'Master Price Maintain',
         sync: 'Vendor Nomenclature',
         bulk: 'Bulk Utility'
     };
@@ -320,6 +324,14 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                 </div>
                             )}
                         </Card>
+                    )}
+                    {activeSubModule === 'pricing' && (
+                        <MasterPriceMaintain
+                            medicines={medicines}
+                            currentUser={currentUser}
+                            onUpdateMedicine={onUpdateMedicine}
+                            addNotification={addNotification}
+                        />
                     )}
 
                     {activeSubModule === 'sync' && (

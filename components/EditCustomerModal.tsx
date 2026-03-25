@@ -81,11 +81,17 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
             alert("Customer Group is required");
             return;
         }
+        if (!Number.isFinite(Number(formData.creditLimit ?? 0)) || Number(formData.creditLimit ?? 0) < 0) {
+            alert("Credit Limit must be a valid non-negative number");
+            return;
+        }
         onSave(formData);
         onClose();
     };
 
     const currentOutstandingBalance = getOutstandingBalance(formData);
+    const creditLimit = Number(formData.creditLimit || 0);
+    const availableCredit = creditLimit - currentOutstandingBalance;
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Edit ${customer.name}`}>
@@ -203,6 +209,44 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
                     </div>
                 </div>
 
+
+                <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-app-border space-y-3">
+                    <p className="text-xs font-bold text-app-text-secondary uppercase tracking-wide">Credit Control</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-app-text-secondary">Credit Limit (₹) <span className="text-red-500">*</span></label>
+                            <input name="creditLimit" type="number" min="0" step="0.01" value={formData.creditLimit || 0} onChange={handleChange} className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]"/>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-app-text-secondary">Credit Days</label>
+                            <input name="creditDays" type="number" min="0" value={formData.creditDays || 0} onChange={handleChange} className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]"/>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-app-text-secondary">Credit Status</label>
+                            <select name="creditStatus" value={formData.creditStatus || 'active'} onChange={handleChange} className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]">
+                                <option value="active">Active</option>
+                                <option value="blocked">Blocked</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-app-text-secondary">Credit Control Mode</label>
+                            <select name="creditControlMode" value={formData.creditControlMode || 'hard_block'} onChange={handleChange} className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]">
+                                <option value="hard_block">Hard Block</option>
+                                <option value="warning_only">Warning Only</option>
+                            </select>
+                        </div>
+                        <div>
+                            <Toggle label="Allow Override" enabled={formData.allowOverride === true} setEnabled={(enabled) => setFormData(prev => ({ ...prev, allowOverride: enabled }))} />
+                        </div>
+                        <div>
+                            <Toggle label="Override Approval Required" enabled={formData.overrideApprovalRequired === true} setEnabled={(enabled) => setFormData(prev => ({ ...prev, overrideApprovalRequired: enabled }))} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-app-text-secondary">Available Credit</label>
+                            <input name="availableCredit" type="number" value={availableCredit} readOnly className={`mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg text-app-text-primary ${availableCredit < 0 ? 'text-red-600' : 'text-emerald-700'}`} />
+                        </div>
+                    </div>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium text-app-text-secondary">Default Discount (%)</label>

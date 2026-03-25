@@ -283,6 +283,8 @@ export interface BillItem {
     schemeDisplayPercent?: number;
     schemeBaseRate?: number;
     schemeCalculationBasis?: 'before_discount' | 'after_discount';
+    schemeFormat?: string;
+    schemeRate?: number;
     amount?: number;
     finalAmount?: number;
     manufacturer?: string;
@@ -600,6 +602,12 @@ export interface Customer {
     opening_balance?: number;
     customerGroup?: string;
     controlGlId?: string;
+    creditLimit?: number;
+    creditDays?: number;
+    creditStatus?: 'active' | 'blocked';
+    creditControlMode?: 'warning_only' | 'hard_block';
+    allowOverride?: boolean;
+    overrideApprovalRequired?: boolean;
 }
 
 export interface Medicine {
@@ -621,6 +629,13 @@ export interface Medicine {
     rateA?: number;
     rateB?: number;
     rateC?: number;
+    defaultDiscountPercent?: number;
+    schemePercent?: number;
+    schemeType?: 'after_discount' | 'before_discount';
+    schemeCalculationBasis?: 'after_discount' | 'before_discount';
+    schemeFormat?: string;
+    schemeRate?: number;
+    masterPriceMaintains?: MasterPriceMaintainRecord[];
     isPrescriptionRequired?: boolean;
     is_active: boolean;
     countryOfOrigin?: string;
@@ -633,6 +648,36 @@ export interface Medicine {
     isInternalIssueEnabled?: boolean;
     created_at?: string;
     updated_at?: string;
+}
+
+export interface MasterPriceMaintainRecord {
+    id: string;
+    materialCode: string;
+    materialName: string;
+    mrp: number;
+    rateA: number;
+    rateB: number;
+    rateC: number;
+    defaultDiscountPercent: number;
+    schemePercent: number;
+    schemeType: 'after_discount' | 'before_discount';
+    schemeCalculationBasis?: 'after_discount' | 'before_discount';
+    schemeFormat?: string;
+    schemeRate?: number;
+    validFrom: string;
+    validTo: string;
+    status: 'active' | 'inactive';
+    remarks?: string;
+    lastUpdatedBy?: string;
+    lastUpdatedOn?: string;
+    auditTrail?: Array<{
+        changedAt: string;
+        changedBy?: string;
+        sourceModule: 'Master Price Maintain' | 'Inventory' | 'Material Master Data';
+        field: string;
+        oldValue: string;
+        newValue: string;
+    }>;
 }
 
 export interface MrpChangeLogEntry {

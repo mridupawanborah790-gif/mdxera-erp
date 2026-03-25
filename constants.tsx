@@ -244,6 +244,7 @@ export const navigation: NavItem[] = [
     roles: ['owner', 'admin', 'manager', 'purchase'],
     children: [
       { id: 'medicineMasterList', name: 'Material Master Data', href: '#', icon: MedicineIcon, roles: ['owner', 'admin', 'manager', 'purchase'] },
+      { id: 'masterPriceMaintain', name: 'Master Price Maintain', href: '#', icon: MedicineIcon, roles: ['owner', 'admin', 'manager', 'purchase'] },
       { id: 'vendorNomenclature', name: 'Vendor Nomenclature', href: '#', icon: SuppliersIcon, roles: ['owner', 'admin', 'manager', 'purchase'] },
       { id: 'bulkUtility', name: 'Bulk Utility', href: '#', icon: UploadIcon_Internal, roles: ['owner', 'admin', 'manager', 'purchase'] },
     ]
@@ -292,6 +293,7 @@ export const MASTER_SHORTCUT_OPTIONS = [
     { id: 'suppliers', label: 'Suppliers', group: 'Masters', color: 'text-cyan-600', icon: <SuppliersIcon /> },
     { id: 'customers', label: 'Customers', group: 'Masters', color: 'text-teal-600', icon: <CustomersIcon /> },
     { id: 'medicineMasterList', label: 'Material Master Data', group: 'Masters', color: 'text-purple-600', icon: <MedicineIcon /> },
+    { id: 'masterPriceMaintain', label: 'Master Price Maintain', group: 'Masters', color: 'text-violet-600', icon: <MedicineIcon /> },
     { id: 'vendorNomenclature', label: 'Vendor Nomenclature', group: 'Masters', color: 'text-fuchsia-700', icon: <SuppliersIcon /> },
     { id: 'bulkUtility', label: 'Bulk Utility', group: 'Masters', color: 'text-slate-700', icon: <UploadIcon_Internal /> },
 

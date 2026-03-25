@@ -55,6 +55,12 @@ const initialState = {
     assignedStaffName: '',
     organization_id: '',
     controlGlId: '',
+    creditLimit: 0,
+    creditDays: 0,
+    creditStatus: 'active' as 'active' | 'blocked',
+    creditControlMode: 'hard_block' as 'warning_only' | 'hard_block',
+    allowOverride: false,
+    overrideApprovalRequired: false,
 };
 
 const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, onAdd, teamMembers = [], organizationId, defaultControlGlId }) => {
@@ -121,6 +127,10 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
         }
         if (!formData.customerGroup.trim()) {
             alert("Customer Group is required");
+            return;
+        }
+        if (!Number.isFinite(formData.creditLimit) || formData.creditLimit < 0) {
+            alert("Credit Limit must be a valid non-negative number");
             return;
         }
         const { openingBalance, asOfDate, ...customerData } = formData;
@@ -256,6 +266,40 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
                         </div>
                     </div>
 
+
+                    <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-app-border space-y-3">
+                        <p className="text-xs font-bold text-app-text-secondary uppercase tracking-wide">Credit Control</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-app-text-secondary">Credit Limit (₹) <span className="text-red-500">*</span></label>
+                                <input name="creditLimit" type="number" min="0" step="0.01" value={formData.creditLimit} onChange={handleChange} className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]" placeholder="0.00"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-app-text-secondary">Credit Days</label>
+                                <input name="creditDays" type="number" min="0" value={formData.creditDays} onChange={handleChange} className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]" placeholder="0"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-app-text-secondary">Credit Status</label>
+                                <select name="creditStatus" value={formData.creditStatus} onChange={handleChange} className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]">
+                                    <option value="active">Active</option>
+                                    <option value="blocked">Blocked</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-app-text-secondary">Credit Control Mode</label>
+                                <select name="creditControlMode" value={formData.creditControlMode} onChange={handleChange} className="mt-1 block w-full p-2 border border-app-border rounded-md bg-input-bg focus:ring-[var(--modal-header-bg-light)] focus:border-[var(--modal-header-bg-light)]">
+                                    <option value="hard_block">Hard Block</option>
+                                    <option value="warning_only">Warning Only</option>
+                                </select>
+                            </div>
+                            <div>
+                                <Toggle label="Allow Override" enabled={formData.allowOverride === true} setEnabled={(enabled) => setFormData(prev => ({ ...prev, allowOverride: enabled }))} />
+                            </div>
+                            <div>
+                                <Toggle label="Override Approval Required" enabled={formData.overrideApprovalRequired === true} setEnabled={(enabled) => setFormData(prev => ({ ...prev, overrideApprovalRequired: enabled }))} />
+                            </div>
+                        </div>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-app-text-secondary">Default Discount (%)</label>

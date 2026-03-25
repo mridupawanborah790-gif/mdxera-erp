@@ -83,6 +83,9 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, scheme
     useEffect(() => {
         if (!isOpen) return;
         setSelectedBasis(schemeCalculationBasis === 'before_discount' ? 'before_discount' : 'after_discount');
+        const masterFormat = String(item.schemeFormat || '').trim();
+        const masterRate = Number(item.schemeRate || 0);
+        const masterPercent = Number(item.schemeDiscountPercent || 0);
 
         if (item.schemeMode === 'qty_ratio' && (item.schemeQty || 0) > 0 && (item.schemeTotalQty || 0) > 0) {
             setSchemeRule(`${item.schemeQty} in ${item.schemeTotalQty}`);
@@ -94,10 +97,25 @@ const SchemeModal: React.FC<SchemeModalProps> = ({ isOpen, onClose, item, scheme
             setSchemeRule('');
             setSelectedRule('custom');
             setSchemeRate(0);
+        } else if (masterRate > 0) {
+            setSchemeRate(masterRate);
+            setSchemeRule('');
+            setSchemePercent(0);
+            setSelectedRule('custom');
+        } else if (masterFormat) {
+            setSchemeRule(masterFormat);
+            setSchemePercent(0);
+            setSchemeRate(0);
+            setSelectedRule(masterFormat.toLowerCase() === '10+1' || masterFormat.toLowerCase() === '1 in 10' ? masterFormat.toLowerCase() : 'custom');
+        } else if (masterPercent > 0) {
+            setSchemePercent(masterPercent);
+            setSchemeRule('');
+            setSelectedRule('custom');
+            setSchemeRate(0);
         } else {
             setSchemeRule('');
             setSelectedRule('custom');
-            setSchemePercent(item.schemeDiscountPercent || 0);
+            setSchemePercent(0);
             setSchemeRate(0);
         }
 
