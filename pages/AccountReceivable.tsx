@@ -24,6 +24,7 @@ interface ReceivableInvoiceRow {
     invoiceAmount: number;
     received: number;
     balance: number;
+    status: 'Open' | 'Partially Received' | 'Fully Received';
     paymentDate: string;
     paymentMode: string;
     bankName: string;
@@ -104,6 +105,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
     const [submitError, setSubmitError] = useState('');
     const [invoiceAdjustments, setInvoiceAdjustments] = useState<Record<string, number>>({});
     const [paymentType, setPaymentType] = useState<'against_invoice' | 'on_account'>('against_invoice');
+    const [isAmountManuallyEdited, setIsAmountManuallyEdited] = useState(false);
 
     const normalizedPaymentMode = paymentMode.trim().toLowerCase();
     const isCashMode = normalizedPaymentMode === 'cash';
@@ -150,6 +152,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                 invoiceAmount: Number(t.total || 0),
                 received: 0,
                 balance: Number(t.total || 0),
+                status: 'Open',
                 paymentDate: '-',
                 paymentMode: String(t.paymentMode || 'Credit'),
                 bankName: '-',
@@ -162,13 +165,23 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
 
         for (const entry of ledger) {
             if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
+            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(String(entry.entryCategory || ''))) {
+                continue;
+            }
             const invoiceId = entry.referenceInvoiceId || '';
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (target) {
                 const adjustedAmount = Number(entry.adjustedAmount || 0);
-                const effectiveAmount = adjustedAmount !== 0 ? adjustedAmount : Number(entry.credit || 0);
-                target.received += effectiveAmount;
+                target.received += adjustedAmount;
                 target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
+                if (target.balance <= 0) {
+                    target.balance = 0;
+                    target.status = 'Fully Received';
+                } else if (target.received > 0) {
+                    target.status = 'Partially Received';
+                } else {
+                    target.status = 'Open';
+                }
                 target.paymentDate = entry.date || target.paymentDate;
                 target.paymentMode = entry.paymentMode || target.paymentMode;
                 target.bankName = entry.bankName || target.bankName;
@@ -183,6 +196,21 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA);
         });
     }, [selectedCustomer, transactions]);
+
+    const openReceivableInvoiceRows = useMemo(
+        () => invoiceRows.filter((row) => row.balance > 0 && (row.status === 'Open' || row.status === 'Partially Received')),
+        [invoiceRows]
+    );
+
+    const totalAllocatedAmount = useMemo(
+        () => Object.values(invoiceAdjustments).reduce((sum, value) => sum + Number(value || 0), 0),
+        [invoiceAdjustments]
+    );
+
+    useEffect(() => {
+        if (!showPaymentForm || paymentType !== 'against_invoice' || isAmountManuallyEdited) return;
+        setAmount(totalAllocatedAmount > 0 ? Number(totalAllocatedAmount.toFixed(2)) : '');
+    }, [showPaymentForm, paymentType, totalAllocatedAmount, isAmountManuallyEdited]);
 
     const ledgerRows = useMemo(() => {
         if (!selectedCustomer) return [];
@@ -295,6 +323,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         setSelectedInvoiceId('');
         setPaymentType('against_invoice');
         setInvoiceAdjustments({});
+        setIsAmountManuallyEdited(false);
         setPaymentMode('Bank');
         setBankAccountId(defaultBank?.id || '');
         setSubmitError('');
@@ -309,6 +338,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         setSelectedInvoiceId('');
         setAdjustAgainstInvoice(false);
         setInvoiceAdjustments({});
+        setIsAmountManuallyEdited(false);
         setBankAccountId(defaultBank?.id || '');
         setSubmitError('');
     };
@@ -341,12 +371,15 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
 
         if (paymentType === 'against_invoice') {
             if (allocations.length === 0) {
-                alert('Please select at least one invoice allocation.');
-                return;
+                throw new Error('Please select at least one invoice allocation.');
             }
             if (Math.abs(totalAllocated - paymentAmount) > 0.001) {
-                alert('Total allocation must exactly match payment amount.');
-                return;
+                throw new Error('Payment Amount does not match total invoice allocation. Please adjust invoice-wise amounts or payment amount before posting.');
+            }
+            for (const allocation of allocations) {
+                const invoice = openReceivableInvoiceRows.find((row) => row.id === allocation.invoiceId);
+                if (!invoice) throw new Error('One or more selected invoices are already fully settled or unavailable.');
+                if (allocation.allocated > invoice.balance + 0.001) throw new Error(`Allocated amount exceeds pending balance for invoice ${invoice.id}.`);
             }
         }
 
@@ -382,6 +415,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             setShowPaymentForm(false);
             setAmount('');
             setDescription('Payment Received');
+            setIsAmountManuallyEdited(false);
             setSubmitError('');
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unable to post customer receipt. Please try again.';
@@ -518,7 +552,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                         <option value="against_invoice">Against Invoice</option>
                                         <option value="on_account">On Account</option>
                                     </select>
-                                    <input type="number" required value={amount} onChange={e => setAmount(parseFloat(e.target.value) || '')} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Amount received" />
+                                    <input type="number" required value={amount} onChange={e => { setAmount(parseFloat(e.target.value) || ''); setIsAmountManuallyEdited(true); }} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Amount received" />
                                     <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" />
                                     <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
                                         <option>Bank</option><option>Cash</option><option>UPI</option><option>Card</option>
@@ -535,15 +569,18 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                         </select>
                                     )}
                                     <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Narration" />
-                                    {paymentType === 'against_invoice' && invoiceRows.filter(inv => inv.balance > 0).map(inv => (
+                                    {paymentType === 'against_invoice' && openReceivableInvoiceRows.map(inv => (
                                         <div key={inv.id} className="col-span-3 grid grid-cols-5 gap-2">
                                             <div className="border border-gray-200 p-2 text-xs font-bold">{inv.id}</div>
                                             <div className="border border-gray-200 p-2 text-xs">Date {formatDisplayDate(inv.date)}</div>
                                             <div className="border border-gray-200 p-2 text-xs">Original ₹{inv.invoiceAmount.toFixed(2)}</div>
                                             <div className="border border-gray-200 p-2 text-xs">Balance ₹{inv.balance.toFixed(2)}</div>
-                                            <input type="number" min={0} max={inv.balance} value={invoiceAdjustments[inv.id] ?? ''} onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [inv.id]: parseFloat(e.target.value) || 0 }))} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Allocate" />
+                                            <input type="number" min={0} max={inv.balance} value={invoiceAdjustments[inv.id] ?? ''} onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [inv.id]: Math.min(parseFloat(e.target.value) || 0, inv.balance) }))} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Allocate" />
                                         </div>
                                     ))}
+                                    {paymentType === 'against_invoice' && Math.abs(Number(amount || 0) - totalAllocatedAmount) > 0.001 && (
+                                        <p className="col-span-3 text-xs font-bold text-amber-700">Payment Amount does not match total invoice allocation. Please adjust invoice-wise amounts or payment amount before posting.</p>
+                                    )}
                                     <div className="col-span-3 flex justify-end gap-2">
                                         <button type="button" onClick={() => setShowPaymentForm(false)} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Cancel</button>
                                         <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || (!isCashMode && !bankAccountId)} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Payment'}</button>

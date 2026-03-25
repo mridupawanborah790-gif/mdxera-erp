@@ -25,6 +25,7 @@ interface PayableInvoiceRow {
     invoiceAmount: number;
     paid: number;
     balance: number;
+    status: 'Open' | 'Partially Paid' | 'Fully Paid';
     paymentDate: string;
     paymentMode: string;
     bankName: string;
@@ -118,6 +119,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const [ledgerVoucherMap, setLedgerVoucherMap] = useState<Record<string, LedgerVoucherMeta>>({});
     const [invoiceAdjustments, setInvoiceAdjustments] = useState<Record<string, number>>({});
     const [paymentType, setPaymentType] = useState<'against_invoice' | 'on_account'>('against_invoice');
+    const [isAmountManuallyEdited, setIsAmountManuallyEdited] = useState(false);
 
     const normalizedPaymentMode = paymentMode.trim().toLowerCase();
     const isCashMode = normalizedPaymentMode === 'cash';
@@ -242,6 +244,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                 invoiceAmount: Number(p.totalAmount || 0),
                 paid: 0,
                 balance: Number(p.totalAmount || 0),
+                status: 'Open',
                 paymentDate: '-',
                 paymentMode: 'Credit',
                 bankName: '-',
@@ -254,6 +257,9 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
 
         for (const entry of ledger) {
             if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
+            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(String(entry.entryCategory || ''))) {
+                continue;
+            }
             const invoiceId = entry.referenceInvoiceId || '';
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (!target) continue;
@@ -267,8 +273,16 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             };
 
             const adjustedAmount = Number(normalizedEntry.adjustedAmount || 0);
-            target.paid += adjustedAmount !== 0 ? adjustedAmount : getPaymentAmount(normalizedEntry);
+            target.paid += adjustedAmount;
             target.balance = Number((target.invoiceAmount - target.paid).toFixed(2));
+            if (target.balance <= 0) {
+                target.balance = 0;
+                target.status = 'Fully Paid';
+            } else if (target.paid > 0) {
+                target.status = 'Partially Paid';
+            } else {
+                target.status = 'Open';
+            }
             target.paymentDate = normalizedEntry.date || target.paymentDate;
             target.paymentMode = normalizedEntry.paymentMode || target.paymentMode;
             target.bankName = normalizedEntry.bankName || target.bankName;
@@ -282,6 +296,23 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             return (Number.isNaN(dateB) ? 0 : dateB) - (Number.isNaN(dateA) ? 0 : dateA);
         });
     }, [selectedDistributor, purchases, ledgerVoucherMap]);
+
+    const openPayableInvoiceRows = useMemo(
+        () => invoiceRows.filter((row) => row.balance > 0 && (row.status === 'Open' || row.status === 'Partially Paid')),
+        [invoiceRows]
+    );
+
+    const totalAllocatedAmount = useMemo(
+        () =>
+            Object.values(invoiceAdjustments)
+                .reduce((sum, value) => sum + Number(value || 0), 0),
+        [invoiceAdjustments]
+    );
+
+    useEffect(() => {
+        if (!showPaymentForm || paymentType !== 'against_invoice' || isAmountManuallyEdited) return;
+        setAmount(totalAllocatedAmount > 0 ? Number(totalAllocatedAmount.toFixed(2)) : '');
+    }, [showPaymentForm, paymentType, totalAllocatedAmount, isAmountManuallyEdited]);
 
     const ledgerRows = useMemo(() => {
         if (!selectedDistributor) return [];
@@ -406,6 +437,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         setSelectedInvoiceId('');
         setPaymentType('against_invoice');
         setInvoiceAdjustments({});
+        setIsAmountManuallyEdited(false);
         setPaymentMode('Bank');
         setBankAccountId(defaultBankOption?.id || '');
         setSubmitError('');
@@ -420,6 +452,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         setSelectedInvoiceId('');
         setAdjustAgainstInvoice(false);
         setInvoiceAdjustments({});
+        setIsAmountManuallyEdited(false);
         setBankAccountId(defaultBankOption?.id || '');
         setSubmitError('');
     };
@@ -447,7 +480,12 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         const totalAllocated = allocations.reduce((sum, item) => sum + item.allocated, 0);
         if (paymentType === 'against_invoice') {
             if (allocations.length === 0) throw new Error('Select invoice allocations for against-invoice payment.');
-            if (Math.abs(totalAllocated - paymentAmount) > 0.001) throw new Error('Allocated total must match payment amount.');
+            if (Math.abs(totalAllocated - paymentAmount) > 0.001) throw new Error('Payment Amount does not match total invoice allocation. Please adjust invoice-wise amounts or payment amount before posting.');
+            for (const allocation of allocations) {
+                const invoice = openPayableInvoiceRows.find((row) => row.id === allocation.invoiceId);
+                if (!invoice) throw new Error('One or more selected invoices are already fully settled or unavailable.');
+                if (allocation.allocated > invoice.balance + 0.001) throw new Error(`Allocated amount exceeds pending balance for invoice ${invoice.invoiceNumber}.`);
+            }
         }
 
         setIsSubmitting(true);
@@ -482,6 +520,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             setShowPaymentForm(false);
             setAmount('');
             setDescription('Supplier Payment');
+            setIsAmountManuallyEdited(false);
             setSubmitError('');
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unable to post supplier payment. Please try again.';
@@ -627,7 +666,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Payment Amount (₹)</label>
-                                            <input type="number" required value={amount} onChange={e => setAmount(parseFloat(e.target.value) || '')} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50" placeholder="0.00" />
+                                            <input type="number" required value={amount} onChange={e => { setAmount(parseFloat(e.target.value) || ''); setIsAmountManuallyEdited(true); }} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50" placeholder="0.00" />
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Payment Date</label>
@@ -671,16 +710,19 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                     </div>
                                     {paymentType === 'against_invoice' && (
                                         <div className="space-y-2">
-                                            {invoiceRows.filter(row => row.balance > 0).map(row => (
+                                            {openPayableInvoiceRows.map(row => (
                                                 <div key={row.id} className="grid grid-cols-1 md:grid-cols-6 gap-2">
                                                     <div className="border border-gray-200 p-2 text-xs font-bold">{row.invoiceNumber}</div>
                                                     <div className="border border-gray-200 p-2 text-xs">{formatDisplayDate(row.date)}</div>
                                                     <div className="border border-gray-200 p-2 text-xs">Original ₹{row.invoiceAmount.toFixed(2)}</div>
                                                     <div className="border border-gray-200 p-2 text-xs">Paid ₹{row.paid.toFixed(2)}</div>
                                                     <div className="border border-gray-200 p-2 text-xs">Balance ₹{row.balance.toFixed(2)}</div>
-                                                    <input type="number" min={0} max={row.balance} value={invoiceAdjustments[row.id] ?? ''} onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [row.id]: parseFloat(e.target.value) || 0 }))} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Allocate amount" />
+                                                    <input type="number" min={0} max={row.balance} value={invoiceAdjustments[row.id] ?? ''} onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [row.id]: Math.min(parseFloat(e.target.value) || 0, row.balance) }))} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Allocate amount" />
                                                 </div>
                                             ))}
+                                            {Math.abs(Number(amount || 0) - totalAllocatedAmount) > 0.001 && (
+                                                <p className="text-xs font-bold text-amber-700">Payment Amount does not match total invoice allocation. Please adjust invoice-wise amounts or payment amount before posting.</p>
+                                            )}
                                         </div>
                                     )}
                                     <div className="flex justify-end gap-2">
