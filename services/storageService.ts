@@ -1305,6 +1305,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             bankAccountId: string;
             referenceInvoiceId?: string;
             referenceInvoiceNumber?: string;
+            entryCategory?: 'invoice_payment' | 'down_payment';
         },
         user: RegisteredPharmacy
     ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
@@ -1375,7 +1376,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                     journal_entry_number: `RCPT-${Date.now()}`,
                     posting_date: args.date,
                     status: 'Posted',
-                    reference_type: 'CUSTOMER_PAYMENT',
+                    reference_type: args.entryCategory === 'down_payment' ? 'CUSTOMER_ADVANCE' : 'CUSTOMER_PAYMENT',
                     reference_id: args.referenceInvoiceId || args.customerId,
                     reference_document_id: args.referenceInvoiceId || args.customerId,
                     document_type: 'RECEIPT',
@@ -1430,6 +1431,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             date: args.date,
             type: 'payment',
             description: args.description,
+            entryCategory: args.entryCategory || 'invoice_payment',
             debit: 0,
             credit: Number(args.amount),
             balance: 0,
@@ -1455,6 +1457,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 bankAccountId: string;
                 referenceInvoiceId?: string;
                 referenceInvoiceNumber?: string;
+                entryCategory?: 'invoice_payment' | 'down_payment';
             },
             user: RegisteredPharmacy
     ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
@@ -1559,7 +1562,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 journal_entry_number: supplierPaymentVoucherNumber,
                 posting_date: args.date,
                 status: 'Posted',
-                reference_type: 'SUPPLIER_PAYMENT',
+                reference_type: args.entryCategory === 'down_payment' ? 'SUPPLIER_ADVANCE' : 'SUPPLIER_PAYMENT',
                 reference_id: args.referenceInvoiceId || resolvedSupplierId,
                 reference_document_id: args.referenceInvoiceId || resolvedSupplierId,
                 document_type: 'PAYMENT',
@@ -1610,6 +1613,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             date: args.date,
             type: 'payment',
             description: args.description,
+            entryCategory: args.entryCategory || 'invoice_payment',
             debit: 0,
             credit: Number(args.amount),
             balance: 0,
@@ -1627,6 +1631,58 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             journalEntryNumber: header.journal_entry_number,
         };
     };
+
+    export const recordCustomerDownPaymentAdjustment = async (
+        args: {
+            customerId: string;
+            date: string;
+            downPaymentId: string;
+            referenceInvoiceId: string;
+            referenceInvoiceNumber?: string;
+            amount: number;
+            description?: string;
+        },
+        user: RegisteredPharmacy
+    ) => addLedgerEntry({
+        id: generateUUID(),
+        date: args.date,
+        type: 'payment',
+        entryCategory: 'down_payment_adjustment',
+        description: args.description || 'Advance adjusted against invoice',
+        debit: 0,
+        credit: 0,
+        adjustedAmount: Number(args.amount),
+        sourceDownPaymentId: args.downPaymentId,
+        referenceInvoiceId: args.referenceInvoiceId,
+        referenceInvoiceNumber: args.referenceInvoiceNumber,
+        balance: 0,
+    }, { type: 'customer', id: args.customerId }, user);
+
+    export const recordSupplierDownPaymentAdjustment = async (
+        args: {
+            supplierId: string;
+            date: string;
+            downPaymentId: string;
+            referenceInvoiceId: string;
+            referenceInvoiceNumber?: string;
+            amount: number;
+            description?: string;
+        },
+        user: RegisteredPharmacy
+    ) => addLedgerEntry({
+        id: generateUUID(),
+        date: args.date,
+        type: 'payment',
+        entryCategory: 'down_payment_adjustment',
+        description: args.description || 'Advance adjusted against invoice',
+        debit: 0,
+        credit: 0,
+        adjustedAmount: Number(args.amount),
+        sourceDownPaymentId: args.downPaymentId,
+        referenceInvoiceId: args.referenceInvoiceId,
+        referenceInvoiceNumber: args.referenceInvoiceNumber,
+        balance: 0,
+    }, { type: 'supplier', id: args.supplierId }, user);
     const AUTO_LEDGER_PREFIX = '[AUTO_LEDGER]';
 
     const sortLedgerEntries = (entries: TransactionLedgerItem[]) => {

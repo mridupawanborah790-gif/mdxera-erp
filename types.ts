@@ -495,6 +495,7 @@ export interface TransactionLedgerItem {
     id: string;
     date: string;
     type: 'sale' | 'payment' | 'return' | 'purchase' | 'openingBalance';
+    entryCategory?: 'invoice_payment' | 'down_payment' | 'down_payment_adjustment';
     description: string;
     debit: number;
     credit: number;
@@ -504,6 +505,8 @@ export interface TransactionLedgerItem {
     bankName?: string;
     referenceInvoiceId?: string;
     referenceInvoiceNumber?: string;
+    sourceDownPaymentId?: string;
+    adjustedAmount?: number;
     journalEntryId?: string;
     journalEntryNumber?: string;
 }
