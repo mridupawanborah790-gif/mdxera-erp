@@ -283,6 +283,8 @@ export interface BillItem {
     schemeDisplayPercent?: number;
     schemeBaseRate?: number;
     schemeCalculationBasis?: 'before_discount' | 'after_discount';
+    schemeFormat?: string;
+    schemeRate?: number;
     amount?: number;
     finalAmount?: number;
     manufacturer?: string;
@@ -624,6 +626,9 @@ export interface Medicine {
     defaultDiscountPercent?: number;
     schemePercent?: number;
     schemeType?: 'after_discount' | 'before_discount';
+    schemeCalculationBasis?: 'after_discount' | 'before_discount';
+    schemeFormat?: string;
+    schemeRate?: number;
     masterPriceMaintains?: MasterPriceMaintainRecord[];
     isPrescriptionRequired?: boolean;
     is_active: boolean;
@@ -650,6 +655,9 @@ export interface MasterPriceMaintainRecord {
     defaultDiscountPercent: number;
     schemePercent: number;
     schemeType: 'after_discount' | 'before_discount';
+    schemeCalculationBasis?: 'after_discount' | 'before_discount';
+    schemeFormat?: string;
+    schemeRate?: number;
     validFrom: string;
     validTo: string;
     status: 'active' | 'inactive';

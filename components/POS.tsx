@@ -106,16 +106,18 @@ const resolveSalesRate = (
     return calculateRateExcludingGst(item.mrp, item.gstPercent);
 };
 
-const resolveActivePriceRecord = (batch: InventoryItem, medicines: Medicine[]): MasterPriceMaintainRecord | null => {
+const resolveActivePriceRecord = (batch: InventoryItem, medicines: Medicine[], transactionDate: string): MasterPriceMaintainRecord | null => {
     const normalizedCode = (batch.code || '').trim().toLowerCase();
-    const today = new Date().toISOString().slice(0, 10);
+    const effectiveDate = transactionDate || new Date().toISOString().slice(0, 10);
     const med = medicines.find(m => (m.materialCode || '').trim().toLowerCase() === normalizedCode);
     if (!med) return null;
-    return (med.masterPriceMaintains || []).find(r =>
+    return (med.masterPriceMaintains || [])
+        .filter(r =>
         r.status === 'active' &&
-        today >= r.validFrom &&
-        today <= r.validTo
-    ) || null;
+        effectiveDate >= r.validFrom &&
+        effectiveDate <= r.validTo
+        )
+        .sort((a, b) => b.validFrom.localeCompare(a.validFrom))[0] || null;
 };
 
 const normalizePackConversion = (item: BillItem): BillItem => {
@@ -1191,7 +1193,7 @@ const POS = forwardRef<any, POSProps>(({
             return;
         }
 
-        const activePriceRecord = resolveActivePriceRecord(batch, medicines);
+        const activePriceRecord = resolveActivePriceRecord(batch, medicines, invoiceDate);
         const pricingSource = activePriceRecord ? {
             mrp: Number(activePriceRecord.mrp || batch.mrp || 0),
             gstPercent: batch.gstPercent,
@@ -1221,7 +1223,9 @@ const POS = forwardRef<any, POSProps>(({
             rate: rateValue,
             schemeDiscountPercent: Number(activePriceRecord?.schemePercent || 0),
             schemeDisplayPercent: Number(activePriceRecord?.schemePercent || 0),
-            schemeCalculationBasis: activePriceRecord?.schemeType === 'before_discount' ? 'before_discount' : 'after_discount',
+            schemeCalculationBasis: (activePriceRecord?.schemeCalculationBasis || activePriceRecord?.schemeType) === 'before_discount' ? 'before_discount' : 'after_discount',
+            schemeFormat: activePriceRecord?.schemeFormat || '',
+            schemeRate: Number(activePriceRecord?.schemeRate || 0),
             unitsPerPack: resolveUnitsPerStrip(batch.unitsPerPack, batch.packType),
             packType: batch.packType
         };
