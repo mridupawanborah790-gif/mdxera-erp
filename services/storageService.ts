@@ -1327,14 +1327,20 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         if (!customer) throw new Error('Customer not found');
 
         if (!navigator.onLine) throw new Error('Payment posting with accounting requires online mode.');
-        const { data: bank, error: bankErr } = await supabase
-            .from('bank_master')
-            .select('*')
-            .eq('organization_id', user.organization_id)
-            .eq('id', args.bankAccountId)
-            .maybeSingle();
-        if (bankErr) throw bankErr;
-        if (!bank) throw new Error('Selected bank / cash account not found');
+        const isCashMode = String(args.paymentMode || '').trim().toLowerCase() === 'cash';
+        let bank: any = null;
+        if (args.bankAccountId) {
+            const { data: bankRow, error: bankErr } = await supabase
+                .from('bank_master')
+                .select('*')
+                .eq('organization_id', user.organization_id)
+                .eq('id', args.bankAccountId)
+                .maybeSingle();
+            if (bankErr) throw bankErr;
+            if (!bankRow) throw new Error('Selected bank / cash account not found');
+            bank = bankRow;
+        }
+        if (!isCashMode && !bank) throw new Error('Selected bank / cash account not found');
 
         const postingContext = await loadDefaultPostingContext(user.organization_id);
         const companyCodeId = postingContext.companyCodeId;
@@ -1342,6 +1348,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
         let journalEntryId: string | undefined;
         let journalEntryNumber: string | undefined;
+        let receiptAccountName = bank?.bankName || bank?.bank_name || (isCashMode ? 'Cash Account' : 'Bank Account');
 
         if (navigator.onLine) {
             const { data: books, error: bookErr } = await supabase
@@ -1352,22 +1359,58 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 .single();
             if (bookErr) throw bookErr;
             const customerControlGlId = books?.default_customer_gl_id;
-            const bankGlId = bank.linkedBankGlId || bank.linked_bank_gl_id;
+            const bankGlId = bank?.linkedBankGlId || bank?.linked_bank_gl_id;
             if (!customerControlGlId) throw new Error('Customer/Receivable GL is not configured for default set of books.');
-            if (!bankGlId) throw new Error('Selected bank has no linked bank GL. Configure in Bank Master.');
+            let receiptGl: any = null;
+            if (isCashMode) {
+                if (bankGlId) {
+                    const { data: cashBankGl, error: cashBankGlError } = await supabase
+                        .from('gl_master')
+                        .select('id, gl_code, gl_name')
+                        .eq('organization_id', user.organization_id)
+                        .eq('set_of_books_id', setOfBooksId)
+                        .eq('id', bankGlId)
+                        .maybeSingle();
+                    if (cashBankGlError) throw cashBankGlError;
+                    receiptGl = cashBankGl;
+                    receiptAccountName = bank?.bankName || bank?.bank_name || 'Cash Account';
+                }
+                if (!receiptGl) {
+                    const { data: cashGl, error: cashGlError } = await supabase
+                        .from('gl_master')
+                        .select('id, gl_code, gl_name')
+                        .eq('organization_id', user.organization_id)
+                        .eq('set_of_books_id', setOfBooksId)
+                        .eq('gl_code', '100001')
+                        .maybeSingle();
+                    if (cashGlError) throw cashGlError;
+                    if (!cashGl) throw new Error('No default cash account is configured. Please select or configure a cash account before posting cash receipt.');
+                    receiptGl = cashGl;
+                    receiptAccountName = 'Cash Account';
+                }
+            } else {
+                if (!bankGlId) throw new Error('Selected bank has no linked bank GL. Configure in Bank Master.');
+                const { data: bankGl, error: bankGlErr } = await supabase
+                    .from('gl_master')
+                    .select('id, gl_code, gl_name')
+                    .eq('organization_id', user.organization_id)
+                    .eq('set_of_books_id', setOfBooksId)
+                    .eq('id', bankGlId)
+                    .maybeSingle();
+                if (bankGlErr) throw bankGlErr;
+                if (!bankGl) throw new Error('GL Assignment missing for selected bank in active Set of Books.');
+                receiptGl = bankGl;
+            }
 
-            const { data: glRows, error: glErr } = await supabase
+            const { data: receivableGl, error: receivableErr } = await supabase
                 .from('gl_master')
                 .select('id, gl_code, gl_name')
                 .eq('organization_id', user.organization_id)
                 .eq('set_of_books_id', setOfBooksId)
-                .in('id', [customerControlGlId, bankGlId]);
-            if (glErr) throw glErr;
-
-            const glById = new Map((glRows || []).map((g: any) => [String(g.id), g]));
-            const bankGl = glById.get(String(bankGlId));
-            const receivableGl = glById.get(String(customerControlGlId));
-            if (!bankGl || !receivableGl) throw new Error('GL Assignment missing for selected bank/customer control in active Set of Books.');
+                .eq('id', customerControlGlId)
+                .maybeSingle();
+            if (receivableErr) throw receivableErr;
+            if (!receivableGl) throw new Error('GL Assignment missing for customer control in active Set of Books.');
 
             const { data: header, error: headerError } = await supabase
                 .from('journal_entry_header')
@@ -1404,11 +1447,11 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                         reference_document_id: args.referenceInvoiceId || args.customerId,
                         document_type: 'RECEIPT',
                         line_number: 1,
-                        gl_code: String(bankGl.gl_code),
-                        gl_name: String(bankGl.gl_name),
+                        gl_code: String(receiptGl.gl_code),
+                        gl_name: String(receiptGl.gl_name),
                         debit: Number(args.amount.toFixed(2)),
                         credit: 0,
-                        line_memo: 'Payment received in bank/cash',
+                        line_memo: isCashMode ? 'Payment received in cash' : 'Payment received in bank',
                     },
                     {
                         organization_id: user.organization_id,
@@ -1437,8 +1480,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             credit: Number(args.amount),
             balance: 0,
             paymentMode: args.paymentMode,
-            bankAccountId: args.bankAccountId,
-            bankName: bank.bankName || bank.bank_name,
+            bankAccountId: args.bankAccountId || undefined,
+            bankName: receiptAccountName,
             referenceInvoiceId: args.referenceInvoiceId,
             referenceInvoiceNumber: args.referenceInvoiceNumber,
             journalEntryId,
