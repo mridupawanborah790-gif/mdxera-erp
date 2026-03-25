@@ -13,13 +13,14 @@ import ProductInsightsPanel from './ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { supabase } from '../services/supabaseClient';
-import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput, MasterPriceMaintainRecord } from '../types';
+import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput, MasterPriceMaintainRecord, SalesChallan } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
 import { calculateBillingTotals, resolveBillingSettings, calculateLineNetAmount, isRateFieldAvailable } from '../utils/billing';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
+import { evaluateCustomerCredit } from '../utils/creditControl';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -45,6 +46,8 @@ interface POSProps {
         customerGroup?: string;
     }) => Promise<{ customer: Customer; isDuplicate: boolean }>;
     onRefreshConfig?: () => void;
+    openChallanExposure?: number;
+    salesChallans?: SalesChallan[];
 }
 
 interface UploadedFile {
@@ -233,7 +236,9 @@ const POS = forwardRef<any, POSProps>(({
     onCancel,
     onAddMedicineMaster,
     onQuickAddCustomer,
-    onRefreshConfig
+    onRefreshConfig,
+    openChallanExposure = 0,
+    salesChallans = []
 }, ref) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -451,6 +456,21 @@ const POS = forwardRef<any, POSProps>(({
         return parseFloat((totals.baseTotal + roundOff).toFixed(2));
     }, [totals.baseTotal, roundOff]);
 
+    const effectiveOpenChallanExposure = useMemo(() => {
+        if (!selectedCustomer?.id) return Number(openChallanExposure || 0);
+        const fromList = salesChallans
+            .filter(challan => challan.customerId === selectedCustomer.id && challan.status === 'open')
+            .reduce((sum, challan) => sum + Number(challan.totalAmount || 0), 0);
+        return fromList || Number(openChallanExposure || 0);
+    }, [salesChallans, selectedCustomer?.id, openChallanExposure]);
+
+    const creditCheck = useMemo(() => evaluateCustomerCredit({
+        customer: selectedCustomer,
+        currentTransactionAmount: grandTotal,
+        openChallanExposure: effectiveOpenChallanExposure,
+        moduleName: 'POS'
+    }), [selectedCustomer, grandTotal, effectiveOpenChallanExposure]);
+
 
     const activeBillItem = useMemo(() => {
         if (cartItems.length === 0) return null;
@@ -644,6 +664,17 @@ const POS = forwardRef<any, POSProps>(({
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
 
+        if (creditCheck && !creditCheck.canProceed) {
+            const formatted = `Credit Limit ₹${creditCheck.details.creditLimit.toFixed(2)} | Outstanding ₹${creditCheck.details.currentOutstanding.toFixed(2)} | Open Challan ₹${creditCheck.details.openChallanExposure.toFixed(2)} | Bill ₹${creditCheck.details.currentTransactionAmount.toFixed(2)} | Projected ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
+            if (creditCheck.mode === 'warning_only') {
+                const proceed = window.confirm(`${creditCheck.message}\n\n${formatted}\n\nDo you want to continue?`);
+                if (!proceed) return;
+            } else {
+                addNotification(`${creditCheck.message} ${formatted}`, 'error');
+                return;
+            }
+        }
+
         if (shouldPreventNegativeStock) {
             for (const item of cartItems) {
                 const invItem = inventory.find(i => i.id === item.inventoryItemId);
@@ -743,7 +774,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck]);
 
     const resetForm = useCallback(() => {
         setCartItems([]);
@@ -1709,6 +1740,18 @@ const POS = forwardRef<any, POSProps>(({
                         </div>
                     )}
                 </Card>
+
+                {selectedCustomer && creditCheck && (
+                    <Card className="p-2 bg-amber-50 border border-amber-300 rounded-none flex-shrink-0">
+                        <div className="text-[9px] font-black uppercase tracking-widest text-amber-800">Credit Control</div>
+                        <div className="text-[10px] font-semibold text-amber-900 mt-0.5">
+                            Limit: ₹{creditCheck.details.creditLimit.toFixed(2)} | Outstanding: ₹{creditCheck.details.currentOutstanding.toFixed(2)} | Available: ₹{(creditCheck.details.creditLimit - creditCheck.details.currentOutstanding).toFixed(2)}
+                        </div>
+                        <div className="text-[10px] font-semibold text-amber-900">
+                            Current Bill: ₹{creditCheck.details.currentTransactionAmount.toFixed(2)} | Open Challan: ₹{creditCheck.details.openChallanExposure.toFixed(2)} | Projected Exposure: ₹{creditCheck.details.projectedExposure.toFixed(2)}
+                        </div>
+                    </Card>
+                )}
 
                 <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800">
                     <div className="flex-1 overflow-auto">

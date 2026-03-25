@@ -51,7 +51,12 @@ CREATE TABLE public.customers (
     -- Sales & Commercial Logic
     default_discount numeric DEFAULT 0, -- Standard discount auto-applied in POS
     default_rate_tier text DEFAULT 'none', -- none, rateA, rateB, rateC
-    credit_limit numeric DEFAULT 0, -- Max outstanding allowed
+    credit_limit numeric DEFAULT 0 CHECK (credit_limit >= 0), -- Max outstanding allowed
+    credit_days integer DEFAULT 0,
+    credit_status text DEFAULT 'active' CHECK (credit_status IN ('active', 'blocked')),
+    credit_control_mode text DEFAULT 'hard_block' CHECK (credit_control_mode IN ('warning_only', 'hard_block')),
+    allow_override boolean DEFAULT false,
+    override_approval_required boolean DEFAULT false,
     payment_terms text DEFAULT 'Due on Receipt',
     
     -- CRM & Assignment

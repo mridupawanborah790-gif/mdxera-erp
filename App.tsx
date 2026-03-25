@@ -45,6 +45,7 @@ import TallyPrompt from './components/TallyPrompt';
 import * as storage from './services/storageService';
 import { supabase } from './services/supabaseClient';
 import { parseNetworkAndApiError } from './utils/error';
+import { evaluateCustomerCredit, getCustomerOpenChallanExposure } from './utils/creditControl';
 import {
     RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier,
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
@@ -687,6 +688,26 @@ const App: React.FC = () => {
     const handleSaveOrUpdateTransaction = async (tx: Transaction, isUpdate: boolean, nextCounter?: number) => {
         if (!currentUser) {
             throw new Error("Unauthorized: please log in again.");
+        }
+
+        const selectedCustomer = tx.customerId
+            ? customers.find(c => c.id === tx.customerId)
+            : customers.find(c => (c.name || '').trim().toLowerCase() === (tx.customerName || '').trim().toLowerCase());
+        const openChallanExposure = getCustomerOpenChallanExposure(salesChallans, selectedCustomer?.id);
+        const creditCheck = evaluateCustomerCredit({
+            customer: selectedCustomer || null,
+            currentTransactionAmount: Number(tx.total || 0),
+            openChallanExposure,
+            moduleName: 'POS'
+        });
+
+        if (creditCheck && !creditCheck.canProceed) {
+            const detail = `Credit limit ₹${creditCheck.details.creditLimit.toFixed(2)}, projected exposure ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
+            if (creditCheck.mode === 'warning_only') {
+                addNotification(`${creditCheck.message} ${detail} (Saved due to warning-only mode).`, 'warning');
+            } else {
+                throw new Error(`${creditCheck.message} ${detail}`);
+            }
         }
 
         const strictStock = configurations.displayOptions?.strictStock ?? false;
@@ -1446,6 +1467,7 @@ const App: React.FC = () => {
                         }}
                         transactionToEdit={editingSale}
                         onRefreshConfig={() => loadData(currentUser!, 'background')}
+                        salesChallans={salesChallans}
                     />;
                 case 'salesHistory':
                     return <SalesHistory
@@ -1484,6 +1506,19 @@ const App: React.FC = () => {
                         currentUser={currentUser}
                         configurations={configurations}
                         onAddChallan={async (challan) => {
+                            const customer = challan.customerId
+                                ? customers.find(c => c.id === challan.customerId)
+                                : customers.find(c => (c.name || '').trim().toLowerCase() === (challan.customerName || '').trim().toLowerCase());
+                            const openExposure = getCustomerOpenChallanExposure(salesChallans, customer?.id);
+                            const check = evaluateCustomerCredit({
+                                customer: customer || null,
+                                currentTransactionAmount: Number(challan.totalAmount || 0),
+                                openChallanExposure: openExposure,
+                                moduleName: 'Sales Challan'
+                            });
+                            if (check && !check.canProceed && check.mode !== 'warning_only') {
+                                throw new Error(`${check.message} Projected exposure ₹${check.details.projectedExposure.toFixed(2)} exceeds credit limit ₹${check.details.creditLimit.toFixed(2)}.`);
+                            }
                             await storage.saveData('sales_challans', challan, currentUser!);
                             await loadData(currentUser!, 'background');
                         }}
