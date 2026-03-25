@@ -1730,6 +1730,57 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         balance: 0,
     }, { type: 'supplier', id: args.supplierId }, user);
 
+    const getInvoiceAdjustedAmount = (ledger: TransactionLedgerItem[], invoiceId: string): number => {
+        if (!invoiceId) return 0;
+        return (ledger || []).reduce((sum, entry) => {
+            if (!entry || entry.status === 'cancelled') return sum;
+            if (entry.referenceInvoiceId !== invoiceId) return sum;
+            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(String(entry.entryCategory || ''))) {
+                return sum;
+            }
+            return sum + Number(entry.adjustedAmount || 0);
+        }, 0);
+    };
+
+    const getCustomerInvoiceTotal = async (customer: Customer, invoiceId: string, user: RegisteredPharmacy): Promise<number> => {
+        const localTxns = await idb.getAll(STORES.SALES_BILL) as Transaction[];
+        const localMatch = localTxns.find((row) => row?.id === invoiceId && row?.status !== 'cancelled' && (row?.customerId === customer.id || String(row?.customerName || '').trim().toLowerCase() === String(customer.name || '').trim().toLowerCase()));
+        if (localMatch) return Number(localMatch.total || 0);
+
+        if (navigator.onLine) {
+            const { data } = await supabase
+                .from('sales_bill')
+                .select('id, customerId, customerName, total, status')
+                .eq('organization_id', user.organization_id)
+                .eq('id', invoiceId)
+                .maybeSingle();
+            if (data && data.status !== 'cancelled') {
+                const belongsToCustomer = data.customerId === customer.id || String(data.customerName || '').trim().toLowerCase() === String(customer.name || '').trim().toLowerCase();
+                if (belongsToCustomer) return Number(data.total || 0);
+            }
+        }
+        throw new Error('Selected invoice is not available for this customer.');
+    };
+
+    const getSupplierInvoiceTotal = async (supplier: Supplier, invoiceId: string, user: RegisteredPharmacy): Promise<number> => {
+        const localPurchases = await idb.getAll(STORES.PURCHASES) as Purchase[];
+        const localMatch = localPurchases.find((row) => row?.id === invoiceId && row?.status !== 'cancelled' && String(row?.supplier || '').trim().toLowerCase() === String(supplier.name || '').trim().toLowerCase());
+        if (localMatch) return Number(localMatch.totalAmount || 0);
+
+        if (navigator.onLine) {
+            const { data } = await supabase
+                .from('purchases')
+                .select('id, supplier, totalAmount, status')
+                .eq('organization_id', user.organization_id)
+                .eq('id', invoiceId)
+                .maybeSingle();
+            if (data && data.status !== 'cancelled' && String(data.supplier || '').trim().toLowerCase() === String(supplier.name || '').trim().toLowerCase()) {
+                return Number(data.totalAmount || 0);
+            }
+        }
+        throw new Error('Selected invoice is not available for this supplier.');
+    };
+
     export const recordCustomerInvoicePaymentAdjustment = async (
         args: {
             customerId: string;
@@ -1741,20 +1792,31 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             description?: string;
         },
         user: RegisteredPharmacy
-    ) => addLedgerEntry({
-        id: generateUUID(),
-        date: args.date,
-        type: 'payment',
-        entryCategory: 'invoice_payment_adjustment',
-        description: args.description || 'Payment adjusted against invoice',
-        debit: 0,
-        credit: 0,
-        adjustedAmount: Number(args.amount),
-        sourcePaymentId: args.sourcePaymentId,
-        referenceInvoiceId: args.referenceInvoiceId,
-        referenceInvoiceNumber: args.referenceInvoiceNumber,
-        balance: 0,
-    }, { type: 'customer', id: args.customerId }, user);
+    ) => {
+        if (Number(args.amount) <= 0) throw new Error('Adjustment amount must be greater than zero.');
+        const customer = await getDataById<Customer>('customers', args.customerId, user);
+        if (!customer) throw new Error('Customer not found');
+        const invoiceTotal = await getCustomerInvoiceTotal(customer, args.referenceInvoiceId, user);
+        const currentAdjusted = getInvoiceAdjustedAmount(Array.isArray(customer.ledger) ? customer.ledger : [], args.referenceInvoiceId);
+        const pendingBalance = Number((invoiceTotal - currentAdjusted).toFixed(2));
+        if (pendingBalance <= 0) throw new Error('Invoice is already fully settled and cannot receive duplicate payment.');
+        if (Number(args.amount) > pendingBalance + 0.001) throw new Error('Cannot allocate more than invoice pending balance.');
+
+        return addLedgerEntry({
+            id: generateUUID(),
+            date: args.date,
+            type: 'payment',
+            entryCategory: 'invoice_payment_adjustment',
+            description: args.description || 'Payment adjusted against invoice',
+            debit: 0,
+            credit: 0,
+            adjustedAmount: Number(args.amount),
+            sourcePaymentId: args.sourcePaymentId,
+            referenceInvoiceId: args.referenceInvoiceId,
+            referenceInvoiceNumber: args.referenceInvoiceNumber,
+            balance: 0,
+        }, { type: 'customer', id: args.customerId }, user);
+    };
 
     export const recordSupplierInvoicePaymentAdjustment = async (
         args: {
@@ -1767,20 +1829,31 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             description?: string;
         },
         user: RegisteredPharmacy
-    ) => addLedgerEntry({
-        id: generateUUID(),
-        date: args.date,
-        type: 'payment',
-        entryCategory: 'invoice_payment_adjustment',
-        description: args.description || 'Payment adjusted against invoice',
-        debit: 0,
-        credit: 0,
-        adjustedAmount: Number(args.amount),
-        sourcePaymentId: args.sourcePaymentId,
-        referenceInvoiceId: args.referenceInvoiceId,
-        referenceInvoiceNumber: args.referenceInvoiceNumber,
-        balance: 0,
-    }, { type: 'supplier', id: args.supplierId }, user);
+    ) => {
+        if (Number(args.amount) <= 0) throw new Error('Adjustment amount must be greater than zero.');
+        const supplier = await getDataById<Supplier>('suppliers', args.supplierId, user);
+        if (!supplier) throw new Error('Supplier not found');
+        const invoiceTotal = await getSupplierInvoiceTotal(supplier, args.referenceInvoiceId, user);
+        const currentAdjusted = getInvoiceAdjustedAmount(Array.isArray(supplier.ledger) ? supplier.ledger : [], args.referenceInvoiceId);
+        const pendingBalance = Number((invoiceTotal - currentAdjusted).toFixed(2));
+        if (pendingBalance <= 0) throw new Error('Invoice is already fully settled and cannot receive duplicate payment.');
+        if (Number(args.amount) > pendingBalance + 0.001) throw new Error('Cannot allocate more than invoice pending balance.');
+
+        return addLedgerEntry({
+            id: generateUUID(),
+            date: args.date,
+            type: 'payment',
+            entryCategory: 'invoice_payment_adjustment',
+            description: args.description || 'Payment adjusted against invoice',
+            debit: 0,
+            credit: 0,
+            adjustedAmount: Number(args.amount),
+            sourcePaymentId: args.sourcePaymentId,
+            referenceInvoiceId: args.referenceInvoiceId,
+            referenceInvoiceNumber: args.referenceInvoiceNumber,
+            balance: 0,
+        }, { type: 'supplier', id: args.supplierId }, user);
+    };
     const AUTO_LEDGER_PREFIX = '[AUTO_LEDGER]';
 
     const sortLedgerEntries = (entries: TransactionLedgerItem[]) => {
