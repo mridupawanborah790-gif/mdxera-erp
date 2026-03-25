@@ -602,6 +602,7 @@ export interface Customer {
     opening_balance?: number;
     customerGroup?: string;
     controlGlId?: string;
+    enableCreditLimit?: boolean;
     creditLimit?: number;
     creditDays?: number;
     creditStatus?: 'active' | 'blocked';
