@@ -1308,7 +1308,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             entryCategory?: 'invoice_payment' | 'down_payment';
         },
         user: RegisteredPharmacy
-    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
+    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string; ledgerEntryId: string }> => {
         let customer = await idb.get(STORES.CUSTOMERS, args.customerId) as Customer | undefined;
 
         // Fallback to Supabase if local fetch fails (e.g. IndexedDB disabled)
@@ -1426,8 +1426,9 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             if (lineError) throw lineError;
         }
 
+        const ledgerEntryId = generateUUID();
         await addLedgerEntry({
-            id: generateUUID(),
+            id: ledgerEntryId,
             date: args.date,
             type: 'payment',
             description: args.description,
@@ -1444,7 +1445,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             journalEntryNumber,
         }, { type: 'customer', id: args.customerId }, user);
 
-        return { journalEntryId, journalEntryNumber };
+        return { journalEntryId, journalEntryNumber, ledgerEntryId };
     };
 
     export const recordSupplierPaymentWithAccounting = async (
@@ -1460,7 +1461,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 entryCategory?: 'invoice_payment' | 'down_payment';
             },
             user: RegisteredPharmacy
-    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
+    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string; ledgerEntryId: string }> => {
             let supplier = await idb.get(STORES.SUPPLIERS, args.supplierId as any) as Supplier | undefined;
 
             // Fallback to Supabase if local fetch fails (e.g. IndexedDB disabled)
@@ -1608,8 +1609,9 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             ]);
         if (lineError) throw lineError;
 
+        const ledgerEntryId = generateUUID();
         await addLedgerEntry({
-            id: generateUUID(),
+            id: ledgerEntryId,
             date: args.date,
             type: 'payment',
             description: args.description,
@@ -1629,6 +1631,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         return {
             journalEntryId: header.id,
             journalEntryNumber: header.journal_entry_number,
+            ledgerEntryId,
         };
     };
 
@@ -1683,6 +1686,58 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         referenceInvoiceNumber: args.referenceInvoiceNumber,
         balance: 0,
     }, { type: 'supplier', id: args.supplierId }, user);
+
+    export const recordCustomerInvoicePaymentAdjustment = async (
+        args: {
+            customerId: string;
+            date: string;
+            sourcePaymentId: string;
+            referenceInvoiceId: string;
+            referenceInvoiceNumber?: string;
+            amount: number;
+            description?: string;
+        },
+        user: RegisteredPharmacy
+    ) => addLedgerEntry({
+        id: generateUUID(),
+        date: args.date,
+        type: 'payment',
+        entryCategory: 'invoice_payment_adjustment',
+        description: args.description || 'Payment adjusted against invoice',
+        debit: 0,
+        credit: 0,
+        adjustedAmount: Number(args.amount),
+        sourcePaymentId: args.sourcePaymentId,
+        referenceInvoiceId: args.referenceInvoiceId,
+        referenceInvoiceNumber: args.referenceInvoiceNumber,
+        balance: 0,
+    }, { type: 'customer', id: args.customerId }, user);
+
+    export const recordSupplierInvoicePaymentAdjustment = async (
+        args: {
+            supplierId: string;
+            date: string;
+            sourcePaymentId: string;
+            referenceInvoiceId: string;
+            referenceInvoiceNumber?: string;
+            amount: number;
+            description?: string;
+        },
+        user: RegisteredPharmacy
+    ) => addLedgerEntry({
+        id: generateUUID(),
+        date: args.date,
+        type: 'payment',
+        entryCategory: 'invoice_payment_adjustment',
+        description: args.description || 'Payment adjusted against invoice',
+        debit: 0,
+        credit: 0,
+        adjustedAmount: Number(args.amount),
+        sourcePaymentId: args.sourcePaymentId,
+        referenceInvoiceId: args.referenceInvoiceId,
+        referenceInvoiceNumber: args.referenceInvoiceNumber,
+        balance: 0,
+    }, { type: 'supplier', id: args.supplierId }, user);
     const AUTO_LEDGER_PREFIX = '[AUTO_LEDGER]';
 
     const sortLedgerEntries = (entries: TransactionLedgerItem[]) => {
@@ -1703,6 +1758,113 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
     const isAutoLedgerEntry = (entry: TransactionLedgerItem, referenceKey: string): boolean => {
         return entry.id === referenceKey || (entry.description || '').includes(`${AUTO_LEDGER_PREFIX}:${referenceKey}`);
+    };
+
+    const canCancelLedgerPaymentEntry = (entry: TransactionLedgerItem): boolean => {
+        if (!entry || entry.type !== 'payment') return false;
+        if (entry.status === 'cancelled') return false;
+        return entry.entryCategory === 'invoice_payment' || entry.entryCategory === 'down_payment';
+    };
+
+    export const cancelPartyPaymentEntry = async (
+        args: {
+            ownerType: 'customer' | 'supplier';
+            ownerId: string;
+            paymentEntryId: string;
+            cancellationDate: string;
+            reason: string;
+            cancelledBy?: string;
+        },
+        user: RegisteredPharmacy
+    ): Promise<void> => {
+        const tableName = args.ownerType === 'customer' ? 'customers' : 'suppliers';
+        const entity = await getDataById<Customer | Supplier>(tableName, args.ownerId, user);
+        if (!entity) throw new Error(`${args.ownerType === 'customer' ? 'Customer' : 'Supplier'} not found`);
+
+        const ledger = Array.isArray(entity.ledger) ? [...entity.ledger] : [];
+        const targetIndex = ledger.findIndex((entry) => entry.id === args.paymentEntryId);
+        if (targetIndex < 0) throw new Error('Payment voucher not found in ledger.');
+
+        const targetEntry = ledger[targetIndex];
+        if (!canCancelLedgerPaymentEntry(targetEntry)) {
+            throw new Error('Cannot cancel this payment voucher.');
+        }
+
+        const cancellationVoucherNumber = `REV-${Date.now()}`;
+        const cancellationCategory = targetEntry.entryCategory === 'down_payment' ? 'down_payment_cancellation' : 'payment_cancellation';
+
+        ledger[targetIndex] = {
+            ...targetEntry,
+            status: 'cancelled',
+            cancelledAt: args.cancellationDate,
+            cancelledBy: args.cancelledBy || user.id,
+            cancellationReason: args.reason,
+            cancellationVoucherNumber,
+        };
+
+        const linkedAdjustments = ledger.filter((entry) => {
+            if (entry.status === 'cancelled') return false;
+            if (entry.entryCategory === 'down_payment_adjustment') {
+                return entry.sourceDownPaymentId === targetEntry.id;
+            }
+            if (entry.entryCategory === 'invoice_payment_adjustment') {
+                return entry.sourcePaymentId === targetEntry.id;
+            }
+            return false;
+        });
+
+        for (const adjustment of linkedAdjustments) {
+            const adjustmentIndex = ledger.findIndex((entry) => entry.id === adjustment.id);
+            if (adjustmentIndex >= 0) {
+                ledger[adjustmentIndex] = {
+                    ...ledger[adjustmentIndex],
+                    status: 'cancelled',
+                    cancelledAt: args.cancellationDate,
+                    cancelledBy: args.cancelledBy || user.id,
+                    cancellationReason: `Reversed by cancellation of payment ${targetEntry.journalEntryNumber || targetEntry.id}`,
+                    cancellationVoucherNumber,
+                };
+            }
+            ledger.push({
+                id: generateUUID(),
+                date: args.cancellationDate,
+                type: 'payment',
+                entryCategory: adjustment.entryCategory === 'down_payment_adjustment' ? 'down_payment_adjustment_reversal' : 'invoice_payment_adjustment_reversal',
+                description: `Reversal for ${adjustment.description || 'adjustment'}`,
+                debit: 0,
+                credit: 0,
+                adjustedAmount: -Math.abs(Number(adjustment.adjustedAmount || 0)),
+                sourceDownPaymentId: adjustment.sourceDownPaymentId,
+                sourcePaymentId: adjustment.sourcePaymentId,
+                referenceInvoiceId: adjustment.referenceInvoiceId,
+                referenceInvoiceNumber: adjustment.referenceInvoiceNumber,
+                reversedEntryId: adjustment.id,
+                cancellationVoucherNumber,
+                balance: 0,
+            });
+        }
+
+        ledger.push({
+            id: generateUUID(),
+            date: args.cancellationDate,
+            type: 'payment',
+            entryCategory: cancellationCategory,
+            description: `Cancellation reversal for ${targetEntry.description}`,
+            debit: Number(targetEntry.credit || 0),
+            credit: Number(targetEntry.debit || 0),
+            paymentMode: targetEntry.paymentMode,
+            bankAccountId: targetEntry.bankAccountId,
+            bankName: targetEntry.bankName,
+            referenceInvoiceId: targetEntry.referenceInvoiceId,
+            referenceInvoiceNumber: targetEntry.referenceInvoiceNumber,
+            reversedEntryId: targetEntry.id,
+            cancellationReason: args.reason,
+            cancellationVoucherNumber,
+            balance: 0,
+        });
+
+        entity.ledger = recalculateLedger(ledger, Number(entity.opening_balance || 0));
+        await saveData(tableName, entity, user, true);
     };
 
     const upsertAutoLedgerEntry = async (
