@@ -1305,9 +1305,10 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             bankAccountId: string;
             referenceInvoiceId?: string;
             referenceInvoiceNumber?: string;
+            entryCategory?: 'invoice_payment' | 'down_payment';
         },
         user: RegisteredPharmacy
-    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
+    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string; ledgerEntryId: string }> => {
         let customer = await idb.get(STORES.CUSTOMERS, args.customerId) as Customer | undefined;
 
         // Fallback to Supabase if local fetch fails (e.g. IndexedDB disabled)
@@ -1326,14 +1327,20 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         if (!customer) throw new Error('Customer not found');
 
         if (!navigator.onLine) throw new Error('Payment posting with accounting requires online mode.');
-        const { data: bank, error: bankErr } = await supabase
-            .from('bank_master')
-            .select('*')
-            .eq('organization_id', user.organization_id)
-            .eq('id', args.bankAccountId)
-            .maybeSingle();
-        if (bankErr) throw bankErr;
-        if (!bank) throw new Error('Selected bank / cash account not found');
+        const isCashMode = String(args.paymentMode || '').trim().toLowerCase() === 'cash';
+        let bank: any = null;
+        if (args.bankAccountId) {
+            const { data: bankRow, error: bankErr } = await supabase
+                .from('bank_master')
+                .select('*')
+                .eq('organization_id', user.organization_id)
+                .eq('id', args.bankAccountId)
+                .maybeSingle();
+            if (bankErr) throw bankErr;
+            if (!bankRow) throw new Error('Selected bank / cash account not found');
+            bank = bankRow;
+        }
+        if (!isCashMode && !bank) throw new Error('Selected bank / cash account not found');
 
         const postingContext = await loadDefaultPostingContext(user.organization_id);
         const companyCodeId = postingContext.companyCodeId;
@@ -1341,6 +1348,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
         let journalEntryId: string | undefined;
         let journalEntryNumber: string | undefined;
+        let receiptAccountName = bank?.bankName || bank?.bank_name || (isCashMode ? 'Cash Account' : 'Bank Account');
 
         if (navigator.onLine) {
             const { data: books, error: bookErr } = await supabase
@@ -1351,22 +1359,58 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 .single();
             if (bookErr) throw bookErr;
             const customerControlGlId = books?.default_customer_gl_id;
-            const bankGlId = bank.linkedBankGlId || bank.linked_bank_gl_id;
+            const bankGlId = bank?.linkedBankGlId || bank?.linked_bank_gl_id;
             if (!customerControlGlId) throw new Error('Customer/Receivable GL is not configured for default set of books.');
-            if (!bankGlId) throw new Error('Selected bank has no linked bank GL. Configure in Bank Master.');
+            let receiptGl: any = null;
+            if (isCashMode) {
+                if (bankGlId) {
+                    const { data: cashBankGl, error: cashBankGlError } = await supabase
+                        .from('gl_master')
+                        .select('id, gl_code, gl_name')
+                        .eq('organization_id', user.organization_id)
+                        .eq('set_of_books_id', setOfBooksId)
+                        .eq('id', bankGlId)
+                        .maybeSingle();
+                    if (cashBankGlError) throw cashBankGlError;
+                    receiptGl = cashBankGl;
+                    receiptAccountName = bank?.bankName || bank?.bank_name || 'Cash Account';
+                }
+                if (!receiptGl) {
+                    const { data: cashGl, error: cashGlError } = await supabase
+                        .from('gl_master')
+                        .select('id, gl_code, gl_name')
+                        .eq('organization_id', user.organization_id)
+                        .eq('set_of_books_id', setOfBooksId)
+                        .eq('gl_code', '100001')
+                        .maybeSingle();
+                    if (cashGlError) throw cashGlError;
+                    if (!cashGl) throw new Error('No default cash account is configured. Please select or configure a cash account before posting cash receipt.');
+                    receiptGl = cashGl;
+                    receiptAccountName = 'Cash Account';
+                }
+            } else {
+                if (!bankGlId) throw new Error('Selected bank has no linked bank GL. Configure in Bank Master.');
+                const { data: bankGl, error: bankGlErr } = await supabase
+                    .from('gl_master')
+                    .select('id, gl_code, gl_name')
+                    .eq('organization_id', user.organization_id)
+                    .eq('set_of_books_id', setOfBooksId)
+                    .eq('id', bankGlId)
+                    .maybeSingle();
+                if (bankGlErr) throw bankGlErr;
+                if (!bankGl) throw new Error('GL Assignment missing for selected bank in active Set of Books.');
+                receiptGl = bankGl;
+            }
 
-            const { data: glRows, error: glErr } = await supabase
+            const { data: receivableGl, error: receivableErr } = await supabase
                 .from('gl_master')
                 .select('id, gl_code, gl_name')
                 .eq('organization_id', user.organization_id)
                 .eq('set_of_books_id', setOfBooksId)
-                .in('id', [customerControlGlId, bankGlId]);
-            if (glErr) throw glErr;
-
-            const glById = new Map((glRows || []).map((g: any) => [String(g.id), g]));
-            const bankGl = glById.get(String(bankGlId));
-            const receivableGl = glById.get(String(customerControlGlId));
-            if (!bankGl || !receivableGl) throw new Error('GL Assignment missing for selected bank/customer control in active Set of Books.');
+                .eq('id', customerControlGlId)
+                .maybeSingle();
+            if (receivableErr) throw receivableErr;
+            if (!receivableGl) throw new Error('GL Assignment missing for customer control in active Set of Books.');
 
             const { data: header, error: headerError } = await supabase
                 .from('journal_entry_header')
@@ -1375,7 +1419,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                     journal_entry_number: `RCPT-${Date.now()}`,
                     posting_date: args.date,
                     status: 'Posted',
-                    reference_type: 'CUSTOMER_PAYMENT',
+                    reference_type: args.entryCategory === 'down_payment' ? 'CUSTOMER_ADVANCE' : 'CUSTOMER_PAYMENT',
                     reference_id: args.referenceInvoiceId || args.customerId,
                     reference_document_id: args.referenceInvoiceId || args.customerId,
                     document_type: 'RECEIPT',
@@ -1403,11 +1447,11 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                         reference_document_id: args.referenceInvoiceId || args.customerId,
                         document_type: 'RECEIPT',
                         line_number: 1,
-                        gl_code: String(bankGl.gl_code),
-                        gl_name: String(bankGl.gl_name),
+                        gl_code: String(receiptGl.gl_code),
+                        gl_name: String(receiptGl.gl_name),
                         debit: Number(args.amount.toFixed(2)),
                         credit: 0,
-                        line_memo: 'Payment received in bank/cash',
+                        line_memo: isCashMode ? 'Payment received in cash' : 'Payment received in bank',
                     },
                     {
                         organization_id: user.organization_id,
@@ -1425,24 +1469,26 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             if (lineError) throw lineError;
         }
 
+        const ledgerEntryId = generateUUID();
         await addLedgerEntry({
-            id: generateUUID(),
+            id: ledgerEntryId,
             date: args.date,
             type: 'payment',
             description: args.description,
+            entryCategory: args.entryCategory || 'invoice_payment',
             debit: 0,
             credit: Number(args.amount),
             balance: 0,
             paymentMode: args.paymentMode,
-            bankAccountId: args.bankAccountId,
-            bankName: bank.bankName || bank.bank_name,
+            bankAccountId: args.bankAccountId || undefined,
+            bankName: receiptAccountName,
             referenceInvoiceId: args.referenceInvoiceId,
             referenceInvoiceNumber: args.referenceInvoiceNumber,
             journalEntryId,
             journalEntryNumber,
         }, { type: 'customer', id: args.customerId }, user);
 
-        return { journalEntryId, journalEntryNumber };
+        return { journalEntryId, journalEntryNumber, ledgerEntryId };
     };
 
     export const recordSupplierPaymentWithAccounting = async (
@@ -1455,9 +1501,10 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 bankAccountId: string;
                 referenceInvoiceId?: string;
                 referenceInvoiceNumber?: string;
+                entryCategory?: 'invoice_payment' | 'down_payment';
             },
             user: RegisteredPharmacy
-    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
+    ): Promise<{ journalEntryId?: string; journalEntryNumber?: string; ledgerEntryId: string }> => {
             let supplier = await idb.get(STORES.SUPPLIERS, args.supplierId as any) as Supplier | undefined;
 
             // Fallback to Supabase if local fetch fails (e.g. IndexedDB disabled)
@@ -1559,7 +1606,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 journal_entry_number: supplierPaymentVoucherNumber,
                 posting_date: args.date,
                 status: 'Posted',
-                reference_type: 'SUPPLIER_PAYMENT',
+                reference_type: args.entryCategory === 'down_payment' ? 'SUPPLIER_ADVANCE' : 'SUPPLIER_PAYMENT',
                 reference_id: args.referenceInvoiceId || resolvedSupplierId,
                 reference_document_id: args.referenceInvoiceId || resolvedSupplierId,
                 document_type: 'PAYMENT',
@@ -1605,11 +1652,13 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             ]);
         if (lineError) throw lineError;
 
+        const ledgerEntryId = generateUUID();
         await addLedgerEntry({
-            id: generateUUID(),
+            id: ledgerEntryId,
             date: args.date,
             type: 'payment',
             description: args.description,
+            entryCategory: args.entryCategory || 'invoice_payment',
             debit: 0,
             credit: Number(args.amount),
             balance: 0,
@@ -1625,7 +1674,185 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         return {
             journalEntryId: header.id,
             journalEntryNumber: header.journal_entry_number,
+            ledgerEntryId,
         };
+    };
+
+    export const recordCustomerDownPaymentAdjustment = async (
+        args: {
+            customerId: string;
+            date: string;
+            downPaymentId: string;
+            referenceInvoiceId: string;
+            referenceInvoiceNumber?: string;
+            amount: number;
+            description?: string;
+        },
+        user: RegisteredPharmacy
+    ) => addLedgerEntry({
+        id: generateUUID(),
+        date: args.date,
+        type: 'payment',
+        entryCategory: 'down_payment_adjustment',
+        description: args.description || 'Advance adjusted against invoice',
+        debit: 0,
+        credit: 0,
+        adjustedAmount: Number(args.amount),
+        sourceDownPaymentId: args.downPaymentId,
+        referenceInvoiceId: args.referenceInvoiceId,
+        referenceInvoiceNumber: args.referenceInvoiceNumber,
+        balance: 0,
+    }, { type: 'customer', id: args.customerId }, user);
+
+    export const recordSupplierDownPaymentAdjustment = async (
+        args: {
+            supplierId: string;
+            date: string;
+            downPaymentId: string;
+            referenceInvoiceId: string;
+            referenceInvoiceNumber?: string;
+            amount: number;
+            description?: string;
+        },
+        user: RegisteredPharmacy
+    ) => addLedgerEntry({
+        id: generateUUID(),
+        date: args.date,
+        type: 'payment',
+        entryCategory: 'down_payment_adjustment',
+        description: args.description || 'Advance adjusted against invoice',
+        debit: 0,
+        credit: 0,
+        adjustedAmount: Number(args.amount),
+        sourceDownPaymentId: args.downPaymentId,
+        referenceInvoiceId: args.referenceInvoiceId,
+        referenceInvoiceNumber: args.referenceInvoiceNumber,
+        balance: 0,
+    }, { type: 'supplier', id: args.supplierId }, user);
+
+    const getInvoiceAdjustedAmount = (ledger: TransactionLedgerItem[], invoiceId: string): number => {
+        if (!invoiceId) return 0;
+        return (ledger || []).reduce((sum, entry) => {
+            if (!entry || entry.status === 'cancelled') return sum;
+            if (entry.referenceInvoiceId !== invoiceId) return sum;
+            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(String(entry.entryCategory || ''))) {
+                return sum;
+            }
+            return sum + Number(entry.adjustedAmount || 0);
+        }, 0);
+    };
+
+    const getCustomerInvoiceTotal = async (customer: Customer, invoiceId: string, user: RegisteredPharmacy): Promise<number> => {
+        const localTxns = await idb.getAll(STORES.SALES_BILL) as Transaction[];
+        const localMatch = localTxns.find((row) => row?.id === invoiceId && row?.status !== 'cancelled' && (row?.customerId === customer.id || String(row?.customerName || '').trim().toLowerCase() === String(customer.name || '').trim().toLowerCase()));
+        if (localMatch) return Number(localMatch.total || 0);
+
+        if (navigator.onLine) {
+            const { data } = await supabase
+                .from('sales_bill')
+                .select('id, customerId, customerName, total, status')
+                .eq('organization_id', user.organization_id)
+                .eq('id', invoiceId)
+                .maybeSingle();
+            if (data && data.status !== 'cancelled') {
+                const belongsToCustomer = data.customerId === customer.id || String(data.customerName || '').trim().toLowerCase() === String(customer.name || '').trim().toLowerCase();
+                if (belongsToCustomer) return Number(data.total || 0);
+            }
+        }
+        throw new Error('Selected invoice is not available for this customer.');
+    };
+
+    const getSupplierInvoiceTotal = async (supplier: Supplier, invoiceId: string, user: RegisteredPharmacy): Promise<number> => {
+        const localPurchases = await idb.getAll(STORES.PURCHASES) as Purchase[];
+        const localMatch = localPurchases.find((row) => row?.id === invoiceId && row?.status !== 'cancelled' && String(row?.supplier || '').trim().toLowerCase() === String(supplier.name || '').trim().toLowerCase());
+        if (localMatch) return Number(localMatch.totalAmount || 0);
+
+        if (navigator.onLine) {
+            const { data } = await supabase
+                .from('purchases')
+                .select('id, supplier, totalAmount, status')
+                .eq('organization_id', user.organization_id)
+                .eq('id', invoiceId)
+                .maybeSingle();
+            if (data && data.status !== 'cancelled' && String(data.supplier || '').trim().toLowerCase() === String(supplier.name || '').trim().toLowerCase()) {
+                return Number(data.totalAmount || 0);
+            }
+        }
+        throw new Error('Selected invoice is not available for this supplier.');
+    };
+
+    export const recordCustomerInvoicePaymentAdjustment = async (
+        args: {
+            customerId: string;
+            date: string;
+            sourcePaymentId: string;
+            referenceInvoiceId: string;
+            referenceInvoiceNumber?: string;
+            amount: number;
+            description?: string;
+        },
+        user: RegisteredPharmacy
+    ) => {
+        if (Number(args.amount) <= 0) throw new Error('Adjustment amount must be greater than zero.');
+        const customer = await getDataById<Customer>('customers', args.customerId, user);
+        if (!customer) throw new Error('Customer not found');
+        const invoiceTotal = await getCustomerInvoiceTotal(customer, args.referenceInvoiceId, user);
+        const currentAdjusted = getInvoiceAdjustedAmount(Array.isArray(customer.ledger) ? customer.ledger : [], args.referenceInvoiceId);
+        const pendingBalance = Number((invoiceTotal - currentAdjusted).toFixed(2));
+        if (pendingBalance <= 0) throw new Error('Invoice is already fully settled and cannot receive duplicate payment.');
+        if (Number(args.amount) > pendingBalance + 0.001) throw new Error('Cannot allocate more than invoice pending balance.');
+
+        return addLedgerEntry({
+            id: generateUUID(),
+            date: args.date,
+            type: 'payment',
+            entryCategory: 'invoice_payment_adjustment',
+            description: args.description || 'Payment adjusted against invoice',
+            debit: 0,
+            credit: 0,
+            adjustedAmount: Number(args.amount),
+            sourcePaymentId: args.sourcePaymentId,
+            referenceInvoiceId: args.referenceInvoiceId,
+            referenceInvoiceNumber: args.referenceInvoiceNumber,
+            balance: 0,
+        }, { type: 'customer', id: args.customerId }, user);
+    };
+
+    export const recordSupplierInvoicePaymentAdjustment = async (
+        args: {
+            supplierId: string;
+            date: string;
+            sourcePaymentId: string;
+            referenceInvoiceId: string;
+            referenceInvoiceNumber?: string;
+            amount: number;
+            description?: string;
+        },
+        user: RegisteredPharmacy
+    ) => {
+        if (Number(args.amount) <= 0) throw new Error('Adjustment amount must be greater than zero.');
+        const supplier = await getDataById<Supplier>('suppliers', args.supplierId, user);
+        if (!supplier) throw new Error('Supplier not found');
+        const invoiceTotal = await getSupplierInvoiceTotal(supplier, args.referenceInvoiceId, user);
+        const currentAdjusted = getInvoiceAdjustedAmount(Array.isArray(supplier.ledger) ? supplier.ledger : [], args.referenceInvoiceId);
+        const pendingBalance = Number((invoiceTotal - currentAdjusted).toFixed(2));
+        if (pendingBalance <= 0) throw new Error('Invoice is already fully settled and cannot receive duplicate payment.');
+        if (Number(args.amount) > pendingBalance + 0.001) throw new Error('Cannot allocate more than invoice pending balance.');
+
+        return addLedgerEntry({
+            id: generateUUID(),
+            date: args.date,
+            type: 'payment',
+            entryCategory: 'invoice_payment_adjustment',
+            description: args.description || 'Payment adjusted against invoice',
+            debit: 0,
+            credit: 0,
+            adjustedAmount: Number(args.amount),
+            sourcePaymentId: args.sourcePaymentId,
+            referenceInvoiceId: args.referenceInvoiceId,
+            referenceInvoiceNumber: args.referenceInvoiceNumber,
+            balance: 0,
+        }, { type: 'supplier', id: args.supplierId }, user);
     };
     const AUTO_LEDGER_PREFIX = '[AUTO_LEDGER]';
 
@@ -1647,6 +1874,113 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
     const isAutoLedgerEntry = (entry: TransactionLedgerItem, referenceKey: string): boolean => {
         return entry.id === referenceKey || (entry.description || '').includes(`${AUTO_LEDGER_PREFIX}:${referenceKey}`);
+    };
+
+    const canCancelLedgerPaymentEntry = (entry: TransactionLedgerItem): boolean => {
+        if (!entry || entry.type !== 'payment') return false;
+        if (entry.status === 'cancelled') return false;
+        return entry.entryCategory === 'invoice_payment' || entry.entryCategory === 'down_payment';
+    };
+
+    export const cancelPartyPaymentEntry = async (
+        args: {
+            ownerType: 'customer' | 'supplier';
+            ownerId: string;
+            paymentEntryId: string;
+            cancellationDate: string;
+            reason: string;
+            cancelledBy?: string;
+        },
+        user: RegisteredPharmacy
+    ): Promise<void> => {
+        const tableName = args.ownerType === 'customer' ? 'customers' : 'suppliers';
+        const entity = await getDataById<Customer | Supplier>(tableName, args.ownerId, user);
+        if (!entity) throw new Error(`${args.ownerType === 'customer' ? 'Customer' : 'Supplier'} not found`);
+
+        const ledger = Array.isArray(entity.ledger) ? [...entity.ledger] : [];
+        const targetIndex = ledger.findIndex((entry) => entry.id === args.paymentEntryId);
+        if (targetIndex < 0) throw new Error('Payment voucher not found in ledger.');
+
+        const targetEntry = ledger[targetIndex];
+        if (!canCancelLedgerPaymentEntry(targetEntry)) {
+            throw new Error('Cannot cancel this payment voucher.');
+        }
+
+        const cancellationVoucherNumber = `REV-${Date.now()}`;
+        const cancellationCategory = targetEntry.entryCategory === 'down_payment' ? 'down_payment_cancellation' : 'payment_cancellation';
+
+        ledger[targetIndex] = {
+            ...targetEntry,
+            status: 'cancelled',
+            cancelledAt: args.cancellationDate,
+            cancelledBy: args.cancelledBy || user.id,
+            cancellationReason: args.reason,
+            cancellationVoucherNumber,
+        };
+
+        const linkedAdjustments = ledger.filter((entry) => {
+            if (entry.status === 'cancelled') return false;
+            if (entry.entryCategory === 'down_payment_adjustment') {
+                return entry.sourceDownPaymentId === targetEntry.id;
+            }
+            if (entry.entryCategory === 'invoice_payment_adjustment') {
+                return entry.sourcePaymentId === targetEntry.id;
+            }
+            return false;
+        });
+
+        for (const adjustment of linkedAdjustments) {
+            const adjustmentIndex = ledger.findIndex((entry) => entry.id === adjustment.id);
+            if (adjustmentIndex >= 0) {
+                ledger[adjustmentIndex] = {
+                    ...ledger[adjustmentIndex],
+                    status: 'cancelled',
+                    cancelledAt: args.cancellationDate,
+                    cancelledBy: args.cancelledBy || user.id,
+                    cancellationReason: `Reversed by cancellation of payment ${targetEntry.journalEntryNumber || targetEntry.id}`,
+                    cancellationVoucherNumber,
+                };
+            }
+            ledger.push({
+                id: generateUUID(),
+                date: args.cancellationDate,
+                type: 'payment',
+                entryCategory: adjustment.entryCategory === 'down_payment_adjustment' ? 'down_payment_adjustment_reversal' : 'invoice_payment_adjustment_reversal',
+                description: `Reversal for ${adjustment.description || 'adjustment'}`,
+                debit: 0,
+                credit: 0,
+                adjustedAmount: -Math.abs(Number(adjustment.adjustedAmount || 0)),
+                sourceDownPaymentId: adjustment.sourceDownPaymentId,
+                sourcePaymentId: adjustment.sourcePaymentId,
+                referenceInvoiceId: adjustment.referenceInvoiceId,
+                referenceInvoiceNumber: adjustment.referenceInvoiceNumber,
+                reversedEntryId: adjustment.id,
+                cancellationVoucherNumber,
+                balance: 0,
+            });
+        }
+
+        ledger.push({
+            id: generateUUID(),
+            date: args.cancellationDate,
+            type: 'payment',
+            entryCategory: cancellationCategory,
+            description: `Cancellation reversal for ${targetEntry.description}`,
+            debit: Number(targetEntry.credit || 0),
+            credit: Number(targetEntry.debit || 0),
+            paymentMode: targetEntry.paymentMode,
+            bankAccountId: targetEntry.bankAccountId,
+            bankName: targetEntry.bankName,
+            referenceInvoiceId: targetEntry.referenceInvoiceId,
+            referenceInvoiceNumber: targetEntry.referenceInvoiceNumber,
+            reversedEntryId: targetEntry.id,
+            cancellationReason: args.reason,
+            cancellationVoucherNumber,
+            balance: 0,
+        });
+
+        entity.ledger = recalculateLedger(ledger, Number(entity.opening_balance || 0));
+        await saveData(tableName, entity, user, true);
     };
 
     const upsertAutoLedgerEntry = async (

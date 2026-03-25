@@ -1221,11 +1221,13 @@ const App: React.FC = () => {
         bankAccountId: string;
         referenceInvoiceId?: string;
         referenceInvoiceNumber?: string;
-    }) => {
-        if (!currentUser) return;
-        await storage.recordCustomerPaymentWithAccounting(args, currentUser);
+        entryCategory?: 'invoice_payment' | 'down_payment';
+    }): Promise<{ ledgerEntryId: string }> => {
+        if (!currentUser) throw new Error('User context not available');
+        const result = await storage.recordCustomerPaymentWithAccounting(args, currentUser);
         await loadData(currentUser, 'background');
-        addNotification('Customer payment posted with accounting entry.', 'success');
+        addNotification(args.entryCategory === 'down_payment' ? 'Customer down payment posted with accounting entry.' : 'Customer payment posted with accounting entry.', 'success');
+        return { ledgerEntryId: result.ledgerEntryId };
     };
 
     const handleRecordSupplierPaymentWithAccounting = async (args: {
@@ -1237,11 +1239,85 @@ const App: React.FC = () => {
         bankAccountId: string;
         referenceInvoiceId?: string;
         referenceInvoiceNumber?: string;
+        entryCategory?: 'invoice_payment' | 'down_payment';
+    }): Promise<{ ledgerEntryId: string }> => {
+        if (!currentUser) throw new Error('User context not available');
+        const result = await storage.recordSupplierPaymentWithAccounting(args, currentUser);
+        await loadData(currentUser, 'background');
+        addNotification(args.entryCategory === 'down_payment' ? 'Supplier down payment posted with accounting entry.' : 'Supplier payment posted with accounting entry.', 'success');
+        return { ledgerEntryId: result.ledgerEntryId };
+    };
+
+    const handleRecordCustomerDownPaymentAdjustment = async (args: {
+        customerId: string;
+        date: string;
+        downPaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
     }) => {
         if (!currentUser) return;
-        await storage.recordSupplierPaymentWithAccounting(args, currentUser);
+        await storage.recordCustomerDownPaymentAdjustment(args, currentUser);
         await loadData(currentUser, 'background');
-        addNotification('Supplier payment posted with accounting entry.', 'success');
+    };
+
+    const handleRecordSupplierDownPaymentAdjustment = async (args: {
+        supplierId: string;
+        date: string;
+        downPaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
+    }) => {
+        if (!currentUser) return;
+        await storage.recordSupplierDownPaymentAdjustment(args, currentUser);
+        await loadData(currentUser, 'background');
+    };
+
+    const handleRecordCustomerInvoicePaymentAdjustment = async (args: {
+        customerId: string;
+        date: string;
+        sourcePaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
+    }) => {
+        if (!currentUser) return;
+        await storage.recordCustomerInvoicePaymentAdjustment(args, currentUser);
+        await loadData(currentUser, 'background');
+    };
+
+    const handleRecordSupplierInvoicePaymentAdjustment = async (args: {
+        supplierId: string;
+        date: string;
+        sourcePaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
+    }) => {
+        if (!currentUser) return;
+        await storage.recordSupplierInvoicePaymentAdjustment(args, currentUser);
+        await loadData(currentUser, 'background');
+    };
+
+    const handleCancelPartyPaymentEntry = async (args: {
+        ownerType: 'customer' | 'supplier';
+        ownerId: string;
+        paymentEntryId: string;
+        cancellationDate: string;
+        reason: string;
+    }) => {
+        if (!currentUser) return;
+        await storage.cancelPartyPaymentEntry({
+            ...args,
+            cancelledBy: currentUser.id,
+        }, currentUser);
+        await loadData(currentUser, 'background');
+        addNotification('Payment cancelled using reversal entry and bill reopened.', 'warning');
     };
 
     const handleCancelTransaction = async (id: string) => {
@@ -1763,9 +1839,27 @@ const App: React.FC = () => {
                         onDeleteSubCategory={(id) => storage.deleteData('sub_categories', id).then(() => loadData(currentUser!, 'background'))}
                     />;
                 case 'accountReceivable':
-                    return <AccountReceivable customers={customers} transactions={transactions} bankOptions={bankOptions as any} onRecordPayment={handleRecordCustomerPaymentWithAccounting} currentUser={currentUser} />;
+                    return <AccountReceivable
+                        customers={customers}
+                        transactions={transactions}
+                        bankOptions={bankOptions as any}
+                        onRecordPayment={handleRecordCustomerPaymentWithAccounting}
+                        onRecordDownPaymentAdjustment={handleRecordCustomerDownPaymentAdjustment}
+                        onRecordInvoicePaymentAdjustment={handleRecordCustomerInvoicePaymentAdjustment}
+                        onCancelPaymentEntry={handleCancelPartyPaymentEntry}
+                        currentUser={currentUser}
+                    />;
                 case 'accountPayable':
-                    return <AccountPayable distributors={suppliers} purchases={purchases} bankOptions={bankOptions as any} onRecordPayment={handleRecordSupplierPaymentWithAccounting} currentUser={currentUser} />;
+                    return <AccountPayable
+                        distributors={suppliers}
+                        purchases={purchases}
+                        bankOptions={bankOptions as any}
+                        onRecordPayment={handleRecordSupplierPaymentWithAccounting}
+                        onRecordDownPaymentAdjustment={handleRecordSupplierDownPaymentAdjustment}
+                        onRecordInvoicePaymentAdjustment={handleRecordSupplierInvoicePaymentAdjustment}
+                        onCancelPaymentEntry={handleCancelPartyPaymentEntry}
+                        currentUser={currentUser}
+                    />;
                 default:
                     return <Dashboard
                         currentUser={currentUser} configurations={configurations} inventory={inventory}

@@ -495,6 +495,15 @@ export interface TransactionLedgerItem {
     id: string;
     date: string;
     type: 'sale' | 'payment' | 'return' | 'purchase' | 'openingBalance';
+    entryCategory?:
+        | 'invoice_payment'
+        | 'down_payment'
+        | 'down_payment_adjustment'
+        | 'invoice_payment_adjustment'
+        | 'payment_cancellation'
+        | 'down_payment_cancellation'
+        | 'down_payment_adjustment_reversal'
+        | 'invoice_payment_adjustment_reversal';
     description: string;
     debit: number;
     credit: number;
@@ -504,8 +513,17 @@ export interface TransactionLedgerItem {
     bankName?: string;
     referenceInvoiceId?: string;
     referenceInvoiceNumber?: string;
+    sourceDownPaymentId?: string;
+    sourcePaymentId?: string;
+    adjustedAmount?: number;
     journalEntryId?: string;
     journalEntryNumber?: string;
+    status?: 'active' | 'cancelled';
+    cancelledAt?: string;
+    cancelledBy?: string;
+    cancellationReason?: string;
+    cancellationVoucherNumber?: string;
+    reversedEntryId?: string;
 }
 
 export interface Supplier {

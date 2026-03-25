@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
 import { Customer, RegisteredPharmacy, Transaction, TransactionLedgerItem } from '../types';
 import { getOutstandingBalance } from '../utils/helpers';
@@ -14,6 +14,7 @@ interface BankOption {
     accountName: string;
     accountNumber: string;
     isDefault: boolean;
+    accountType?: string;
 }
 
 
@@ -23,6 +24,7 @@ interface ReceivableInvoiceRow {
     invoiceAmount: number;
     received: number;
     balance: number;
+    status: 'Open' | 'Partially Received' | 'Fully Received';
     paymentDate: string;
     paymentMode: string;
     bankName: string;
@@ -43,6 +45,32 @@ interface AccountReceivableProps {
         bankAccountId: string;
         referenceInvoiceId?: string;
         referenceInvoiceNumber?: string;
+        entryCategory?: 'invoice_payment' | 'down_payment';
+    }) => Promise<{ ledgerEntryId: string }>;
+    onRecordDownPaymentAdjustment: (args: {
+        customerId: string;
+        date: string;
+        downPaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
+    }) => Promise<void>;
+    onRecordInvoicePaymentAdjustment: (args: {
+        customerId: string;
+        date: string;
+        sourcePaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
+    }) => Promise<void>;
+    onCancelPaymentEntry: (args: {
+        ownerType: 'customer' | 'supplier';
+        ownerId: string;
+        paymentEntryId: string;
+        cancellationDate: string;
+        reason: string;
     }) => Promise<void>;
     currentUser: RegisteredPharmacy | null;
 }
@@ -61,7 +89,7 @@ const formatDisplayDate = (value?: string): string => {
     return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transactions, bankOptions, onRecordPayment, currentUser }) => {
+const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transactions, bankOptions, onRecordPayment, onRecordDownPaymentAdjustment, onRecordInvoicePaymentAdjustment, onCancelPaymentEntry, currentUser }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
@@ -71,9 +99,39 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
     const [paymentMode, setPaymentMode] = useState('Bank');
     const [bankAccountId, setBankAccountId] = useState('');
     const [showPaymentForm, setShowPaymentForm] = useState(false);
+    const [showDownPaymentForm, setShowDownPaymentForm] = useState(false);
+    const [adjustAgainstInvoice, setAdjustAgainstInvoice] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState('');
+    const [invoiceAdjustments, setInvoiceAdjustments] = useState<Record<string, number>>({});
+    const [paymentType, setPaymentType] = useState<'against_invoice' | 'on_account'>('against_invoice');
+    const [isAmountManuallyEdited, setIsAmountManuallyEdited] = useState(false);
 
-    const defaultBank = useMemo(() => bankOptions.find(b => b.isDefault), [bankOptions]);
+    const normalizedPaymentMode = paymentMode.trim().toLowerCase();
+    const isCashMode = normalizedPaymentMode === 'cash';
+
+    const bankOnlyOptions = useMemo(
+        () =>
+            bankOptions.filter((option) => {
+                const accountType = String(option.accountType || '').toLowerCase();
+                const compositeLabel = `${option.bankName} ${option.accountName} ${option.accountNumber}`.toLowerCase();
+                return accountType.includes('bank') || (!accountType.includes('cash') && !compositeLabel.includes('cash'));
+            }),
+        [bankOptions]
+    );
+
+    const cashOnlyOptions = useMemo(
+        () =>
+            bankOptions.filter((option) => {
+                const accountType = String(option.accountType || '').toLowerCase();
+                const compositeLabel = `${option.bankName} ${option.accountName} ${option.accountNumber}`.toLowerCase();
+                return accountType.includes('cash') || compositeLabel.includes('cash');
+            }),
+        [bankOptions]
+    );
+
+    const defaultBank = useMemo(() => bankOnlyOptions.find(b => b.isDefault) || bankOnlyOptions[0] || null, [bankOnlyOptions]);
+    const defaultCash = useMemo(() => cashOnlyOptions.find(b => b.isDefault) || cashOnlyOptions[0] || null, [cashOnlyOptions]);
 
     const filteredCustomers = useMemo(() => {
         if (!Array.isArray(customers)) return [];
@@ -94,6 +152,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                 invoiceAmount: Number(t.total || 0),
                 received: 0,
                 balance: Number(t.total || 0),
+                status: 'Open',
                 paymentDate: '-',
                 paymentMode: String(t.paymentMode || 'Credit'),
                 bankName: '-',
@@ -105,12 +164,24 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         const ledger = Array.isArray(selectedCustomer.ledger) ? selectedCustomer.ledger : [];
 
         for (const entry of ledger) {
-            if (!entry || entry.type !== 'payment') continue;
+            if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
+            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(String(entry.entryCategory || ''))) {
+                continue;
+            }
             const invoiceId = entry.referenceInvoiceId || '';
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (target) {
-                target.received += Number(entry.credit || 0);
+                const adjustedAmount = Number(entry.adjustedAmount || 0);
+                target.received += adjustedAmount;
                 target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
+                if (target.balance <= 0) {
+                    target.balance = 0;
+                    target.status = 'Fully Received';
+                } else if (target.received > 0) {
+                    target.status = 'Partially Received';
+                } else {
+                    target.status = 'Open';
+                }
                 target.paymentDate = entry.date || target.paymentDate;
                 target.paymentMode = entry.paymentMode || target.paymentMode;
                 target.bankName = entry.bankName || target.bankName;
@@ -126,6 +197,21 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         });
     }, [selectedCustomer, transactions]);
 
+    const openReceivableInvoiceRows = useMemo(
+        () => invoiceRows.filter((row) => row.balance > 0 && (row.status === 'Open' || row.status === 'Partially Received')),
+        [invoiceRows]
+    );
+
+    const totalAllocatedAmount = useMemo(
+        () => Object.values(invoiceAdjustments).reduce((sum, value) => sum + Number(value || 0), 0),
+        [invoiceAdjustments]
+    );
+
+    useEffect(() => {
+        if (!showPaymentForm || paymentType !== 'against_invoice' || isAmountManuallyEdited) return;
+        setAmount(totalAllocatedAmount > 0 ? Number(totalAllocatedAmount.toFixed(2)) : '');
+    }, [showPaymentForm, paymentType, totalAllocatedAmount, isAmountManuallyEdited]);
+
     const ledgerRows = useMemo(() => {
         if (!selectedCustomer) return [];
         const ledger = Array.isArray(selectedCustomer.ledger) ? selectedCustomer.ledger : [];
@@ -138,7 +224,18 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             });
     }, [selectedCustomer]);
 
-    const paymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && Number(item.credit || 0) > 0), [ledgerRows]);
+    const receiptHistoryRows = useMemo(
+        () => ledgerRows.filter(item => item.type === 'payment' && (Number(item.credit || 0) > 0 || Number(item.adjustedAmount || 0) !== 0)),
+        [ledgerRows]
+    );
+    const downPaymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && item.entryCategory === 'down_payment' && item.status !== 'cancelled' && Number(item.credit || 0) > 0), [ledgerRows]);
+    const availableAdvanceBalance = useMemo(() => {
+        const totalAdvance = downPaymentRows.reduce((sum, row) => sum + Number(row.credit || 0), 0);
+        const totalAdjusted = ledgerRows
+            .filter(item => item.entryCategory === 'down_payment_adjustment' || item.entryCategory === 'down_payment_adjustment_reversal')
+            .reduce((sum, item) => sum + Number(item.adjustedAmount || 0), 0);
+        return Number((totalAdvance - totalAdjusted).toFixed(2));
+    }, [downPaymentRows, ledgerRows]);
 
     const printVoucher = (entry: TransactionLedgerItem) => {
         if (!selectedCustomer) return;
@@ -220,35 +317,180 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
 
     const openPaymentPanel = () => {
         setShowPaymentForm(true);
+        setShowDownPaymentForm(false);
         setAmount('');
         setDescription('Payment Received');
         setSelectedInvoiceId('');
+        setPaymentType('against_invoice');
+        setInvoiceAdjustments({});
+        setIsAmountManuallyEdited(false);
+        setPaymentMode('Bank');
         setBankAccountId(defaultBank?.id || '');
+        setSubmitError('');
     };
+
+    const openDownPaymentPanel = () => {
+        setShowDownPaymentForm(true);
+        setShowPaymentForm(false);
+        setAmount('');
+        setDescription('Advance Received');
+        setPaymentMode('Bank');
+        setSelectedInvoiceId('');
+        setAdjustAgainstInvoice(false);
+        setInvoiceAdjustments({});
+        setIsAmountManuallyEdited(false);
+        setBankAccountId(defaultBank?.id || '');
+        setSubmitError('');
+    };
+
+    useEffect(() => {
+        if (isCashMode) {
+            if (!bankAccountId) {
+                setBankAccountId(defaultCash?.id || '');
+            } else if (!cashOnlyOptions.some((option) => option.id === bankAccountId)) {
+                setBankAccountId(defaultCash?.id || '');
+            }
+            return;
+        }
+        if (!bankAccountId) {
+            setBankAccountId(defaultBank?.id || '');
+        } else if (!bankOnlyOptions.some((option) => option.id === bankAccountId)) {
+            setBankAccountId(defaultBank?.id || '');
+        }
+    }, [isCashMode, bankAccountId, defaultBank, defaultCash, bankOnlyOptions, cashOnlyOptions]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedCustomer || !amount || amount <= 0 || !bankAccountId) return;
-        const invoice = invoiceRows.find(i => i.id === selectedInvoiceId);
+        if (!selectedCustomer || !amount || amount <= 0) return;
+        if (!bankAccountId && !isCashMode) return;
+        const paymentAmount = Number(amount);
+        const allocations = Object.entries(invoiceAdjustments)
+            .map(([invoiceId, allocated]) => ({ invoiceId, allocated: Number(allocated || 0) }))
+            .filter(({ allocated }) => allocated > 0);
+        const totalAllocated = allocations.reduce((sum, item) => sum + item.allocated, 0);
+
+        if (paymentType === 'against_invoice') {
+            if (allocations.length === 0) {
+                throw new Error('Please select at least one invoice allocation.');
+            }
+            if (Math.abs(totalAllocated - paymentAmount) > 0.001) {
+                throw new Error('Payment Amount does not match total invoice allocation. Please adjust invoice-wise amounts or payment amount before posting.');
+            }
+            for (const allocation of allocations) {
+                const invoice = openReceivableInvoiceRows.find((row) => row.id === allocation.invoiceId);
+                if (!invoice) throw new Error('One or more selected invoices are already fully settled or unavailable.');
+                if (allocation.allocated > invoice.balance + 0.001) throw new Error(`Allocated amount exceeds pending balance for invoice ${invoice.id}.`);
+            }
+        }
 
         setIsSubmitting(true);
+        setSubmitError('');
         try {
-            await onRecordPayment({
+            const paymentResult = await onRecordPayment({
                 customerId: selectedCustomer.id,
-                amount: Number(amount),
+                amount: paymentAmount,
                 date,
                 description,
                 paymentMode,
                 bankAccountId,
-                referenceInvoiceId: invoice?.id,
-                referenceInvoiceNumber: invoice?.id,
+                referenceInvoiceId: paymentType === 'against_invoice' && allocations.length === 1 ? allocations[0].invoiceId : undefined,
+                referenceInvoiceNumber: paymentType === 'against_invoice' && allocations.length === 1 ? allocations[0].invoiceId : undefined,
+                entryCategory: 'invoice_payment',
             });
+            if (paymentType === 'against_invoice') {
+                for (const allocation of allocations) {
+                    const invoice = invoiceRows.find(i => i.id === allocation.invoiceId);
+                    if (!invoice) continue;
+                    await onRecordInvoicePaymentAdjustment({
+                        customerId: selectedCustomer.id,
+                        date,
+                        sourcePaymentId: paymentResult.ledgerEntryId,
+                        referenceInvoiceId: invoice.id,
+                        referenceInvoiceNumber: invoice.id,
+                        amount: allocation.allocated,
+                        description: 'Payment adjusted against invoice',
+                    });
+                }
+            }
             setShowPaymentForm(false);
             setAmount('');
             setDescription('Payment Received');
+            setIsAmountManuallyEdited(false);
+            setSubmitError('');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to post customer receipt. Please try again.';
+            setSubmitError(message);
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const handleDownPaymentSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedCustomer || !amount || amount <= 0) return;
+        if (!bankAccountId && !isCashMode) return;
+
+        const enteredAmount = Number(amount);
+        const allocations = Object.entries(invoiceAdjustments)
+            .map(([invoiceId, allocated]) => ({ invoiceId, allocated: Number(allocated || 0) }))
+            .filter(({ allocated }) => allocated > 0);
+        const totalAllocated = allocations.reduce((sum, item) => sum + item.allocated, 0);
+        if (adjustAgainstInvoice && totalAllocated > enteredAmount) return;
+
+        setIsSubmitting(true);
+        setSubmitError('');
+        try {
+            const downPaymentResult = await onRecordPayment({
+                customerId: selectedCustomer.id,
+                amount: enteredAmount,
+                date,
+                description: description || 'Advance Received',
+                paymentMode,
+                bankAccountId,
+                entryCategory: 'down_payment',
+            });
+            for (const allocation of allocations) {
+                const invoice = invoiceRows.find(row => row.id === allocation.invoiceId);
+                if (!invoice) continue;
+                if (new Date(invoice.date).getTime() < new Date(date).getTime()) {
+                    alert('This down payment cannot be adjusted against the selected invoice because the invoice date is earlier than the down payment date. Advance can only be adjusted against same-date or later invoices as per accounting control.');
+                    continue;
+                }
+                await onRecordDownPaymentAdjustment({
+                    customerId: selectedCustomer.id,
+                    date,
+                    downPaymentId: downPaymentResult.ledgerEntryId,
+                    referenceInvoiceId: invoice.id,
+                    referenceInvoiceNumber: invoice.id,
+                    amount: allocation.allocated,
+                    description: 'Advance adjusted against invoice',
+                });
+            }
+            setShowDownPaymentForm(false);
+            setAmount('');
+            setDescription('Advance Received');
+            setAdjustAgainstInvoice(false);
+            setInvoiceAdjustments({});
+            setSubmitError('');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to post customer down payment. Please try again.';
+            setSubmitError(message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleCancelEntry = async (entry: TransactionLedgerItem) => {
+        if (!selectedCustomer || entry.status === 'cancelled') return;
+        const reason = window.prompt('Enter cancellation reason', 'User requested cancellation');
+        if (!reason) return;
+        await onCancelPaymentEntry({
+            ownerType: 'customer',
+            ownerId: selectedCustomer.id,
+            paymentEntryId: entry.id,
+            cancellationDate: new Date().toISOString().split('T')[0],
+            reason,
+        });
     };
 
     return (
@@ -296,30 +538,100 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                 <div>
                                     <h2 className={`${uniformTextStyle} !text-3xl text-primary`}>{selectedCustomer.name}</h2>
                                     <p className="text-xs font-black uppercase text-gray-500">Outstanding: ₹{getOutstandingBalance(selectedCustomer).toFixed(2)}</p>
+                                    <p className="text-xs font-black uppercase text-emerald-700 mt-1">Available Advance: ₹{availableAdvanceBalance.toFixed(2)}</p>
                                 </div>
-                                <button className="px-6 py-2 tally-button-primary text-xs font-black uppercase" onClick={openPaymentPanel}>Payment</button>
+                                <div className="flex gap-2">
+                                    <button className="px-6 py-2 tally-button-primary text-xs font-black uppercase" onClick={openPaymentPanel}>Payment</button>
+                                    <button className="px-6 py-2 tally-button-primary text-xs font-black uppercase" onClick={openDownPaymentPanel}>Down Payment</button>
+                                </div>
                             </div>
 
                             {showPaymentForm && (
                                 <form onSubmit={handleSubmit} className="border border-gray-300 p-4 grid grid-cols-3 gap-3">
-                                    <select value={selectedInvoiceId} onChange={e => setSelectedInvoiceId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
-                                        <option value="">Select Invoice (optional)</option>
-                                        {invoiceRows.map(inv => <option key={inv.id} value={inv.id}>{inv.id} | Balance ₹{inv.balance.toFixed(2)}</option>)}
+                                    <select value={paymentType} onChange={e => setPaymentType(e.target.value as 'against_invoice' | 'on_account')} className="border border-gray-300 p-2 text-xs font-bold">
+                                        <option value="against_invoice">Against Invoice</option>
+                                        <option value="on_account">On Account</option>
                                     </select>
-                                    <input type="number" required value={amount} onChange={e => setAmount(parseFloat(e.target.value) || '')} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Amount received" />
+                                    <input type="number" required value={amount} onChange={e => { setAmount(parseFloat(e.target.value) || ''); setIsAmountManuallyEdited(true); }} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Amount received" />
                                     <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" />
                                     <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
                                         <option>Bank</option><option>Cash</option><option>UPI</option><option>Card</option>
                                     </select>
-                                    <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
-                                        <option value="">Select Bank / Cash Account</option>
-                                        {bankOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber}</option>)}
-                                    </select>
+                                    {isCashMode ? (
+                                        <select value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                            <option value="">{cashOnlyOptions.length ? 'Select Cash Account' : 'Use Default Cash Ledger'}</option>
+                                            {cashOnlyOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber || b.accountName}</option>)}
+                                        </select>
+                                    ) : (
+                                        <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                            <option value="">Select Bank / Cash Account</option>
+                                            {bankOnlyOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber || b.accountName}</option>)}
+                                        </select>
+                                    )}
                                     <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Narration" />
+                                    {paymentType === 'against_invoice' && openReceivableInvoiceRows.map(inv => (
+                                        <div key={inv.id} className="col-span-3 grid grid-cols-5 gap-2">
+                                            <div className="border border-gray-200 p-2 text-xs font-bold">{inv.id}</div>
+                                            <div className="border border-gray-200 p-2 text-xs">Date {formatDisplayDate(inv.date)}</div>
+                                            <div className="border border-gray-200 p-2 text-xs">Original ₹{inv.invoiceAmount.toFixed(2)}</div>
+                                            <div className="border border-gray-200 p-2 text-xs">Balance ₹{inv.balance.toFixed(2)}</div>
+                                            <input type="number" min={0} max={inv.balance} value={invoiceAdjustments[inv.id] ?? ''} onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [inv.id]: Math.min(parseFloat(e.target.value) || 0, inv.balance) }))} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Allocate" />
+                                        </div>
+                                    ))}
+                                    {paymentType === 'against_invoice' && Math.abs(Number(amount || 0) - totalAllocatedAmount) > 0.001 && (
+                                        <p className="col-span-3 text-xs font-bold text-amber-700">Payment Amount does not match total invoice allocation. Please adjust invoice-wise amounts or payment amount before posting.</p>
+                                    )}
                                     <div className="col-span-3 flex justify-end gap-2">
                                         <button type="button" onClick={() => setShowPaymentForm(false)} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Cancel</button>
-                                        <button type="submit" disabled={isSubmitting} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Payment'}</button>
+                                        <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || (!isCashMode && !bankAccountId)} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Payment'}</button>
                                     </div>
+                                    {submitError && <p className="col-span-3 text-xs font-bold text-red-700">{submitError}</p>}
+                                </form>
+                            )}
+
+                            {showDownPaymentForm && (
+                                <form onSubmit={handleDownPaymentSubmit} className="border border-gray-300 p-4 grid grid-cols-3 gap-3">
+                                    <input type="text" disabled value={selectedCustomer.name} className="border border-gray-300 p-2 text-xs font-bold bg-gray-100" />
+                                    <input type="number" required value={amount} onChange={e => setAmount(parseFloat(e.target.value) || '')} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Down payment amount" />
+                                    <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" />
+                                    <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                        <option>Bank</option><option>Cash</option><option>UPI</option>
+                                    </select>
+                                    {isCashMode ? (
+                                        <select value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                            <option value="">{cashOnlyOptions.length ? 'Select Cash Account' : 'Use Default Cash Ledger'}</option>
+                                            {cashOnlyOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber || b.accountName}</option>)}
+                                        </select>
+                                    ) : (
+                                        <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                            <option value="">Select Bank / Cash Account</option>
+                                            {bankOnlyOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber || b.accountName}</option>)}
+                                        </select>
+                                    )}
+                                    <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Reference / note" />
+                                    <label className="col-span-3 inline-flex items-center gap-2 text-xs font-black uppercase">
+                                        <input type="checkbox" checked={adjustAgainstInvoice} onChange={e => setAdjustAgainstInvoice(e.target.checked)} />
+                                        Adjust Against Invoice
+                                    </label>
+                                    {adjustAgainstInvoice && invoiceRows.filter(inv => inv.balance > 0).map(inv => (
+                                        <div key={inv.id} className="col-span-3 grid grid-cols-3 gap-3">
+                                            <div className="border border-gray-200 p-2 text-xs font-bold">{inv.id} | Pending ₹{inv.balance.toFixed(2)}</div>
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                max={inv.balance}
+                                                value={invoiceAdjustments[inv.id] ?? ''}
+                                                onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [inv.id]: parseFloat(e.target.value) || 0 }))}
+                                                className="border border-gray-300 p-2 text-xs font-bold"
+                                                placeholder="Adjust amount"
+                                            />
+                                        </div>
+                                    ))}
+                                    <div className="col-span-3 flex justify-end gap-2">
+                                        <button type="button" onClick={() => setShowDownPaymentForm(false)} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Cancel</button>
+                                        <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || (!isCashMode && !bankAccountId)} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Down Payment'}</button>
+                                    </div>
+                                    {submitError && <p className="col-span-3 text-xs font-bold text-red-700">{submitError}</p>}
                                 </form>
                             )}
 
@@ -361,20 +673,27 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                 <p className="text-[10px] font-black uppercase tracking-wider mb-2">Receipt / Payment history</p>
                                 <div className="overflow-auto border border-gray-200">
                                     <table className="min-w-full text-xs">
-                                        <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Receipt Against</th><th className="p-2 text-left">Payment Mode</th><th className="p-2 text-left">Bank/Cash Account</th><th className="p-2 text-left">Narration</th><th className="p-2 text-left">Amount</th><th className="p-2 text-left">Voucher No.</th><th className="p-2 text-left">Print Voucher</th></tr></thead>
+                                        <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Receipt Against</th><th className="p-2 text-left">Payment Mode</th><th className="p-2 text-left">Bank/Cash Account</th><th className="p-2 text-left">Narration</th><th className="p-2 text-left">Amount</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Voucher No.</th><th className="p-2 text-left">Actions</th></tr></thead>
                                         <tbody>
-                                            {paymentRows.length === 0 ? (
-                                                <tr><td className="p-3 text-center text-gray-500" colSpan={8}>No payment receipts posted yet.</td></tr>
-                                            ) : paymentRows.map(item => (
+                                            {receiptHistoryRows.length === 0 ? (
+                                                <tr><td className="p-3 text-center text-gray-500" colSpan={10}>No payment receipts posted yet.</td></tr>
+                                            ) : receiptHistoryRows.map(item => (
                                                 <tr key={item.id} className="border-t">
                                                     <td className="p-2">{formatDisplayDate(item.date)}</td>
+                                                    <td className="p-2">{item.entryCategory === 'down_payment' ? 'DOWN PAYMENT' : item.entryCategory === 'down_payment_adjustment' ? 'DP ADJUSTMENT' : item.entryCategory === 'invoice_payment_adjustment' ? 'INVOICE ADJUSTMENT' : item.entryCategory === 'payment_cancellation' || item.entryCategory === 'down_payment_cancellation' ? 'CANCELLATION' : 'PAYMENT'}</td>
                                                     <td className="p-2">{item.referenceInvoiceNumber || item.referenceInvoiceId || '-'}</td>
                                                     <td className="p-2">{item.paymentMode || '-'}</td>
                                                     <td className="p-2">{item.bankName || '-'}</td>
-                                                    <td className="p-2">{item.description}</td>
-                                                    <td className="p-2 font-bold">₹{Number(item.credit || 0).toFixed(2)}</td>
+                                                    <td className="p-2">{item.entryCategory === 'down_payment' ? 'Advance Received' : item.description}</td>
+                                                    <td className="p-2 font-bold">₹{Number(item.adjustedAmount || item.credit || 0).toFixed(2)}</td>
+                                                    <td className="p-2">{item.status === 'cancelled' ? 'Cancelled' : 'Open'}</td>
                                                     <td className="p-2">{item.journalEntryNumber || item.journalEntryId || '-'}</td>
-                                                    <td className="p-2"><button type="button" onClick={() => printVoucher(item)} className="px-2 py-1 border border-gray-300 font-bold uppercase text-[10px] hover:bg-gray-100">Print</button></td>
+                                                    <td className="p-2 flex gap-2">
+                                                        <button type="button" onClick={() => printVoucher(item)} className="px-2 py-1 border border-gray-300 font-bold uppercase text-[10px] hover:bg-gray-100">Print</button>
+                                                        {(item.entryCategory === 'invoice_payment' || item.entryCategory === 'down_payment') && item.status !== 'cancelled' && (
+                                                            <button type="button" onClick={() => handleCancelEntry(item)} className="px-2 py-1 border border-red-300 text-red-700 font-bold uppercase text-[10px] hover:bg-red-50">Cancel</button>
+                                                        )}
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>
