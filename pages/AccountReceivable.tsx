@@ -119,7 +119,9 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             const invoiceId = entry.referenceInvoiceId || '';
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (target) {
-                target.received += Number(entry.credit || 0);
+                const adjustedAmount = Number(entry.adjustedAmount || 0);
+                const effectiveAmount = adjustedAmount > 0 ? adjustedAmount : Number(entry.credit || 0);
+                target.received += effectiveAmount;
                 target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
                 target.paymentDate = entry.date || target.paymentDate;
                 target.paymentMode = entry.paymentMode || target.paymentMode;
@@ -148,7 +150,18 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             });
     }, [selectedCustomer]);
 
-    const paymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && Number(item.credit || 0) > 0), [ledgerRows]);
+    const receiptHistoryRows = useMemo(
+        () => ledgerRows.filter(item => item.type === 'payment' && (Number(item.credit || 0) > 0 || Number(item.adjustedAmount || 0) > 0)),
+        [ledgerRows]
+    );
+    const downPaymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && item.entryCategory === 'down_payment' && Number(item.credit || 0) > 0), [ledgerRows]);
+    const availableAdvanceBalance = useMemo(() => {
+        const totalAdvance = downPaymentRows.reduce((sum, row) => sum + Number(row.credit || 0), 0);
+        const totalAdjusted = ledgerRows
+            .filter(item => item.entryCategory === 'down_payment_adjustment')
+            .reduce((sum, item) => sum + Number(item.adjustedAmount || 0), 0);
+        return Number((totalAdvance - totalAdjusted).toFixed(2));
+    }, [downPaymentRows, ledgerRows]);
 
     const printVoucher = (entry: TransactionLedgerItem) => {
         if (!selectedCustomer) return;
@@ -342,6 +355,11 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                 <div>
                                     <h2 className={`${uniformTextStyle} !text-3xl text-primary`}>{selectedCustomer.name}</h2>
                                     <p className="text-xs font-black uppercase text-gray-500">Outstanding: ₹{getOutstandingBalance(selectedCustomer).toFixed(2)}</p>
+                                    <p className="text-xs font-black uppercase text-emerald-700 mt-1">Available Advance: ₹{availableAdvanceBalance.toFixed(2)}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button className="px-6 py-2 tally-button-primary text-xs font-black uppercase" onClick={openPaymentPanel}>Payment</button>
+                                    <button className="px-6 py-2 tally-button-primary text-xs font-black uppercase" onClick={openDownPaymentPanel}>Down Payment</button>
                                 </div>
                                 <div className="flex gap-2">
                                     <button className="px-6 py-2 tally-button-primary text-xs font-black uppercase" onClick={openPaymentPanel}>Payment</button>
@@ -391,6 +409,44 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                         {bankOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber}</option>)}
                                     </select>
                                     <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Reference / Narration" />
+                                    <div className="col-span-3 flex justify-end gap-2">
+                                        <button type="button" onClick={() => setShowDownPaymentForm(false)} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Cancel</button>
+                                        <button type="submit" disabled={isSubmitting} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Down Payment'}</button>
+                                    </div>
+                                </form>
+                            )}
+
+                            {showDownPaymentForm && (
+                                <form onSubmit={handleDownPaymentSubmit} className="border border-gray-300 p-4 grid grid-cols-3 gap-3">
+                                    <input type="text" disabled value={selectedCustomer.name} className="border border-gray-300 p-2 text-xs font-bold bg-gray-100" />
+                                    <input type="number" required value={amount} onChange={e => setAmount(parseFloat(e.target.value) || '')} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Down payment amount" />
+                                    <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" />
+                                    <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                        <option>Bank</option><option>Cash</option><option>UPI</option>
+                                    </select>
+                                    <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold">
+                                        <option value="">Select Bank / Cash Account</option>
+                                        {bankOptions.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountNumber}</option>)}
+                                    </select>
+                                    <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Reference / note" />
+                                    <label className="col-span-3 inline-flex items-center gap-2 text-xs font-black uppercase">
+                                        <input type="checkbox" checked={adjustAgainstInvoice} onChange={e => setAdjustAgainstInvoice(e.target.checked)} />
+                                        Adjust Against Invoice
+                                    </label>
+                                    {adjustAgainstInvoice && invoiceRows.filter(inv => inv.balance > 0).map(inv => (
+                                        <div key={inv.id} className="col-span-3 grid grid-cols-3 gap-3">
+                                            <div className="border border-gray-200 p-2 text-xs font-bold">{inv.id} | Pending ₹{inv.balance.toFixed(2)}</div>
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                max={inv.balance}
+                                                value={invoiceAdjustments[inv.id] ?? ''}
+                                                onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [inv.id]: parseFloat(e.target.value) || 0 }))}
+                                                className="border border-gray-300 p-2 text-xs font-bold"
+                                                placeholder="Adjust amount"
+                                            />
+                                        </div>
+                                    ))}
                                     <div className="col-span-3 flex justify-end gap-2">
                                         <button type="button" onClick={() => setShowDownPaymentForm(false)} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Cancel</button>
                                         <button type="submit" disabled={isSubmitting} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Posting...' : 'Post Down Payment'}</button>

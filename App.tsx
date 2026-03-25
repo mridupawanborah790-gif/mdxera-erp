@@ -1231,7 +1231,7 @@ const App: React.FC = () => {
         if (!currentUser) return;
         await storage.recordCustomerPaymentWithAccounting(args, currentUser);
         await loadData(currentUser, 'background');
-        addNotification('Customer payment posted with accounting entry.', 'success');
+        addNotification(args.entryCategory === 'down_payment' ? 'Customer down payment posted with accounting entry.' : 'Customer payment posted with accounting entry.', 'success');
     };
 
     const handleRecordSupplierPaymentWithAccounting = async (args: {
@@ -1253,7 +1253,35 @@ const App: React.FC = () => {
         if (!currentUser) return;
         await storage.recordSupplierPaymentWithAccounting(args, currentUser);
         await loadData(currentUser, 'background');
-        addNotification('Supplier payment posted with accounting entry.', 'success');
+        addNotification(args.entryCategory === 'down_payment' ? 'Supplier down payment posted with accounting entry.' : 'Supplier payment posted with accounting entry.', 'success');
+    };
+
+    const handleRecordCustomerDownPaymentAdjustment = async (args: {
+        customerId: string;
+        date: string;
+        downPaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
+    }) => {
+        if (!currentUser) return;
+        await storage.recordCustomerDownPaymentAdjustment(args, currentUser);
+        await loadData(currentUser, 'background');
+    };
+
+    const handleRecordSupplierDownPaymentAdjustment = async (args: {
+        supplierId: string;
+        date: string;
+        downPaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
+    }) => {
+        if (!currentUser) return;
+        await storage.recordSupplierDownPaymentAdjustment(args, currentUser);
+        await loadData(currentUser, 'background');
     };
 
     const handleCancelCustomerLedgerVoucher = async (args: { customerId: string; ledgerEntryId: string; reason: string; cancellationDate: string }) => {

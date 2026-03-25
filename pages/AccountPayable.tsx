@@ -247,7 +247,8 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                 referenceInvoiceNumber: entry.referenceInvoiceNumber || resolvedMeta?.referenceInvoiceNumber,
             };
 
-            target.paid += getPaymentAmount(normalizedEntry);
+            const adjustedAmount = Number(normalizedEntry.adjustedAmount || 0);
+            target.paid += adjustedAmount > 0 ? adjustedAmount : getPaymentAmount(normalizedEntry);
             target.balance = Number((target.invoiceAmount - target.paid).toFixed(2));
             target.paymentDate = normalizedEntry.date || target.paymentDate;
             target.paymentMode = normalizedEntry.paymentMode || target.paymentMode;
@@ -284,7 +285,21 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             });
     }, [selectedDistributor, ledgerVoucherMap]);
 
-    const paymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && getPaymentAmount(item) > 0), [ledgerRows]);
+    const payableHistoryRows = useMemo(
+        () => ledgerRows.filter(item => item.type === 'payment' && (getPaymentAmount(item) > 0 || Number(item.adjustedAmount || 0) > 0)),
+        [ledgerRows]
+    );
+    const downPaymentRows = useMemo(
+        () => ledgerRows.filter(item => item.type === 'payment' && item.entryCategory === 'down_payment' && getPaymentAmount(item) > 0),
+        [ledgerRows]
+    );
+    const availableAdvanceBalance = useMemo(() => {
+        const totalAdvance = downPaymentRows.reduce((sum, row) => sum + getPaymentAmount(row), 0);
+        const totalAdjusted = ledgerRows
+            .filter(item => item.entryCategory === 'down_payment_adjustment')
+            .reduce((sum, row) => sum + Number(row.adjustedAmount || 0), 0);
+        return Number((totalAdvance - totalAdjusted).toFixed(2));
+    }, [downPaymentRows, ledgerRows]);
 
     const printVoucher = (entry: TransactionLedgerItem) => {
         if (!selectedDistributor) return;
@@ -367,6 +382,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const openPaymentPanel = () => {
         setEntryRole('normal_payment');
         setShowPaymentForm(true);
+        setShowDownPaymentForm(false);
         setAmount('');
         setDescription('Supplier Payment');
         setSelectedInvoiceId('');
@@ -499,6 +515,11 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Active Ledger Selection</p>
                                     <h2 className={`${uniformTextStyle} !text-4xl text-primary`}>{selectedDistributor.name}</h2>
                                     <div className="mt-2 text-xs font-black uppercase text-gray-500">Current Payable: <span className="text-red-600 text-lg">₹{getOutstandingBalance(selectedDistributor).toFixed(2)}</span></div>
+                                    <div className="mt-1 text-xs font-black uppercase text-emerald-700">Available Advance: ₹{availableAdvanceBalance.toFixed(2)}</div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={openPaymentPanel} className="px-4 py-2 tally-button-primary text-xs uppercase font-black tracking-wider">Add Payment</button>
+                                    <button type="button" onClick={openDownPaymentPanel} className="px-4 py-2 tally-button-primary text-xs uppercase font-black tracking-wider">Down Payment</button>
                                 </div>
                                 <div className="flex gap-2">
                                     <button type="button" onClick={openPaymentPanel} className="px-4 py-2 tally-button-primary text-xs uppercase font-black tracking-wider">Payment</button>
@@ -579,6 +600,50 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                     {submitError && (
                                         <p className="text-xs font-bold text-red-700">{submitError}</p>
                                     )}
+                                </form>
+                            )}
+
+                            {showDownPaymentForm && (
+                                <form onSubmit={handleDownPaymentSubmit} className="border border-gray-300 p-4 bg-gray-50 space-y-4">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-gray-500">Record Supplier Down Payment</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <input type="text" disabled value={selectedDistributor.name} className="w-full border border-gray-300 bg-gray-100 p-2 text-sm font-bold text-gray-600" />
+                                        <input type="number" required value={amount} onChange={e => setAmount(parseFloat(e.target.value) || '')} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50" placeholder="Down payment amount" />
+                                        <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50" />
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50">
+                                            <option value="Bank">Bank</option><option value="Cash">Cash</option><option value="UPI">UPI</option>
+                                        </select>
+                                        {isCashMode ? (
+                                            <input type="text" value="Cash Account" disabled className="w-full border border-gray-300 bg-gray-100 p-2 text-sm font-bold text-gray-600" />
+                                        ) : (
+                                            <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50">
+                                                <option value="">Select Bank Account</option>
+                                                {bankOnlyOptions.map(option => (
+                                                    <option key={option.id} value={option.id}>{option.bankName} • {option.accountNumber || option.accountName}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                        <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold uppercase outline-none focus:bg-yellow-50" placeholder="Reference / Note" />
+                                    </div>
+                                    <label className="inline-flex items-center gap-2 text-xs font-black uppercase">
+                                        <input type="checkbox" checked={adjustAgainstInvoice} onChange={e => setAdjustAgainstInvoice(e.target.checked)} />
+                                        Adjust Against Invoice
+                                    </label>
+                                    {adjustAgainstInvoice && invoiceRows.filter(row => row.balance > 0).map(row => (
+                                        <div key={row.id} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="border border-gray-200 p-2 text-xs font-bold">{row.invoiceNumber} • Pending ₹{row.balance.toFixed(2)}</div>
+                                            <input type="number" min={0} max={row.balance} value={invoiceAdjustments[row.id] ?? ''} onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [row.id]: parseFloat(e.target.value) || 0 }))} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Adjust amount" />
+                                        </div>
+                                    ))}
+                                    <div className="flex justify-end gap-2">
+                                        <button type="button" onClick={() => setShowDownPaymentForm(false)} className="px-3 py-2 border border-gray-300 font-bold uppercase text-[10px] hover:bg-white">Discard</button>
+                                        <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || (!isCashMode && !bankAccountId)} className="px-4 py-2 tally-button-primary font-black uppercase text-xs">
+                                            {isSubmitting ? 'Posting...' : 'Post Down Payment'}
+                                        </button>
+                                    </div>
+                                    {submitError && <p className="text-xs font-bold text-red-700">{submitError}</p>}
                                 </form>
                             )}
 
