@@ -509,6 +509,23 @@ export interface TransactionLedgerItem {
     adjustedAmount?: number;
     journalEntryId?: string;
     journalEntryNumber?: string;
+    voucherType?: 'PAYMENT_RECEIPT' | 'PAYMENT_VOUCHER' | 'ADVANCE_RECEIPT' | 'ADVANCE_PAYMENT' | 'ADJUSTMENT' | 'REVERSAL';
+    paymentType?: 'against_invoice' | 'on_account';
+    transactionRole?: 'normal_payment' | 'down_payment' | 'adjustment' | 'reversal';
+    allocationEntries?: Array<{
+        invoiceId: string;
+        invoiceNumber?: string;
+        invoiceDate?: string;
+        allocatedAmount: number;
+    }>;
+    adjustedAmount?: number;
+    unadjustedAmount?: number;
+    status?: 'open' | 'partially_adjusted' | 'fully_adjusted' | 'cancelled';
+    cancellationReason?: string;
+    cancelledBy?: string;
+    cancelledAt?: string;
+    cancellationVoucherId?: string;
+    originalVoucherId?: string;
 }
 
 export interface Supplier {

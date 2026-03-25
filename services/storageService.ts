@@ -1270,6 +1270,57 @@
         return await saveData(tableName, entity, user, true);
     };
 
+    export const cancelPartyLedgerVoucher = async (
+        args: {
+            ownerType: 'customer' | 'supplier';
+            ownerId: string;
+            ledgerEntryId: string;
+            reason: string;
+            cancellationDate: string;
+        },
+        user: RegisteredPharmacy
+    ): Promise<void> => {
+        const tableName = args.ownerType === 'customer' ? 'customers' : 'suppliers';
+        const entity = await getDataById<Customer | Supplier>(tableName, args.ownerId, user);
+        if (!entity) throw new Error(`${args.ownerType} not found`);
+
+        const ledger = Array.isArray(entity.ledger) ? [...entity.ledger] : [];
+        const target = ledger.find((entry) => entry.id === args.ledgerEntryId);
+        if (!target) throw new Error('Voucher not found in ledger');
+        if (target.status === 'cancelled') throw new Error('Cannot cancel already cancelled voucher');
+
+        const cancelledAt = new Date().toISOString();
+        const cancellationVoucherId = generateUUID();
+        target.status = 'cancelled';
+        target.cancelledAt = cancelledAt;
+        target.cancelledBy = user.id || user.full_name || 'system';
+        target.cancellationReason = args.reason;
+        target.cancellationVoucherId = cancellationVoucherId;
+
+        const reversalEntry: TransactionLedgerItem = {
+            id: cancellationVoucherId,
+            date: args.cancellationDate,
+            type: 'payment',
+            description: `Reversal for ${target.journalEntryNumber || target.id}: ${args.reason}`,
+            debit: Number(target.credit || 0),
+            credit: Number(target.debit || 0),
+            balance: 0,
+            paymentMode: target.paymentMode,
+            bankAccountId: target.bankAccountId,
+            bankName: target.bankName,
+            referenceInvoiceId: target.referenceInvoiceId,
+            referenceInvoiceNumber: target.referenceInvoiceNumber,
+            voucherType: 'REVERSAL',
+            transactionRole: 'reversal',
+            originalVoucherId: target.id,
+            status: 'open',
+        };
+
+        const opening = Number((entity as any).opening_balance || 0);
+        entity.ledger = recalculateLedger([...ledger, reversalEntry], opening);
+        await saveData(tableName, entity, user, true);
+    };
+
 
 
 export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<{ id: string; bankName: string; accountName: string; accountNumber: string; accountType?: string; linkedBankGlId?: string; defaultBank?: boolean; activeStatus?: string }>> => {
@@ -1305,7 +1356,12 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             bankAccountId: string;
             referenceInvoiceId?: string;
             referenceInvoiceNumber?: string;
-            entryCategory?: 'invoice_payment' | 'down_payment';
+            voucherType?: TransactionLedgerItem['voucherType'];
+            paymentType?: TransactionLedgerItem['paymentType'];
+            transactionRole?: TransactionLedgerItem['transactionRole'];
+            allocationEntries?: TransactionLedgerItem['allocationEntries'];
+            adjustedAmount?: number;
+            unadjustedAmount?: number;
         },
         user: RegisteredPharmacy
     ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
@@ -1442,6 +1498,13 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             referenceInvoiceNumber: args.referenceInvoiceNumber,
             journalEntryId,
             journalEntryNumber,
+            voucherType: args.voucherType || 'PAYMENT_RECEIPT',
+            paymentType: args.paymentType || 'on_account',
+            transactionRole: args.transactionRole || 'normal_payment',
+            allocationEntries: args.allocationEntries,
+            adjustedAmount: Number(args.adjustedAmount || 0),
+            unadjustedAmount: Number(args.unadjustedAmount ?? args.amount),
+            status: 'open',
         }, { type: 'customer', id: args.customerId }, user);
 
         return { journalEntryId, journalEntryNumber };
@@ -1457,7 +1520,12 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 bankAccountId: string;
                 referenceInvoiceId?: string;
                 referenceInvoiceNumber?: string;
-                entryCategory?: 'invoice_payment' | 'down_payment';
+                voucherType?: TransactionLedgerItem['voucherType'];
+                paymentType?: TransactionLedgerItem['paymentType'];
+                transactionRole?: TransactionLedgerItem['transactionRole'];
+                allocationEntries?: TransactionLedgerItem['allocationEntries'];
+                adjustedAmount?: number;
+                unadjustedAmount?: number;
             },
             user: RegisteredPharmacy
     ): Promise<{ journalEntryId?: string; journalEntryNumber?: string }> => {
@@ -1624,6 +1692,13 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             referenceInvoiceNumber: args.referenceInvoiceNumber,
             journalEntryId: header.id,
             journalEntryNumber: header.journal_entry_number,
+            voucherType: args.voucherType || 'PAYMENT_VOUCHER',
+            paymentType: args.paymentType || 'on_account',
+            transactionRole: args.transactionRole || 'normal_payment',
+            allocationEntries: args.allocationEntries,
+            adjustedAmount: Number(args.adjustedAmount || 0),
+            unadjustedAmount: Number(args.unadjustedAmount ?? args.amount),
+            status: 'open',
         }, { type: 'supplier', id: resolvedSupplierId }, user);
 
         return {
