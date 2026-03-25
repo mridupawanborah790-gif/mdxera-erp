@@ -621,6 +621,10 @@ export interface Medicine {
     rateA?: number;
     rateB?: number;
     rateC?: number;
+    defaultDiscountPercent?: number;
+    schemePercent?: number;
+    schemeType?: 'after_discount' | 'before_discount';
+    masterPriceMaintains?: MasterPriceMaintainRecord[];
     isPrescriptionRequired?: boolean;
     is_active: boolean;
     countryOfOrigin?: string;
@@ -633,6 +637,33 @@ export interface Medicine {
     isInternalIssueEnabled?: boolean;
     created_at?: string;
     updated_at?: string;
+}
+
+export interface MasterPriceMaintainRecord {
+    id: string;
+    materialCode: string;
+    materialName: string;
+    mrp: number;
+    rateA: number;
+    rateB: number;
+    rateC: number;
+    defaultDiscountPercent: number;
+    schemePercent: number;
+    schemeType: 'after_discount' | 'before_discount';
+    validFrom: string;
+    validTo: string;
+    status: 'active' | 'inactive';
+    remarks?: string;
+    lastUpdatedBy?: string;
+    lastUpdatedOn?: string;
+    auditTrail?: Array<{
+        changedAt: string;
+        changedBy?: string;
+        sourceModule: 'Master Price Maintain' | 'Inventory' | 'Material Master Data';
+        field: string;
+        oldValue: string;
+        newValue: string;
+    }>;
 }
 
 export interface MrpChangeLogEntry {

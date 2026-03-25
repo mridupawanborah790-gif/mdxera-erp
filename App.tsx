@@ -69,7 +69,7 @@ const PERSISTABLE_SCREENS = new Set([
     'dashboard', 'pos', 'nonGstPos', 'salesHistory', 'manualSalesEntry', 'salesChallans',
     'deliveryChallans', 'salesReturns', 'purchaseReturn', 'purchaseOrders', 'automatedPurchaseEntry',
     'manualPurchaseEntry', 'manualSupplierInvoice', 'purchaseHistory', 'inventory', 'physicalInventory',
-    'suppliers', 'customers', 'medicineMasterList', 'vendorNomenclature', 'bulkUtility',
+    'suppliers', 'customers', 'medicineMasterList', 'masterPriceMaintain', 'vendorNomenclature', 'bulkUtility',
     'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst',
     'businessUsers', 'businessRoles', 'companyConfiguration', 'configuration', 'settings',
     'classification', 'accountReceivable', 'accountPayable'
@@ -848,8 +848,42 @@ const App: React.FC = () => {
 
         if (normalizedCode) {
             const linkedMedicine = medicines.find(m => normalizeCode(m.materialCode) === normalizedCode);
-            if (linkedMedicine && Math.abs(oldMrp - newMrp) >= 0.0001) {
-                await storage.saveData('material_master', { ...linkedMedicine, mrp: newMrp.toFixed(2) }, currentUser, true);
+            if (linkedMedicine) {
+                const today = new Date().toISOString().slice(0, 10);
+                const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
+                    if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
+                    return {
+                        ...record,
+                        mrp: newMrp,
+                        rateA: Number(updatedItem.rateA || 0),
+                        rateB: Number(updatedItem.rateB || 0),
+                        rateC: Number(updatedItem.rateC || 0),
+                        lastUpdatedBy: currentUser.full_name || currentUser.email,
+                        lastUpdatedOn: new Date().toISOString(),
+                        auditTrail: [
+                            ...(record.auditTrail || []),
+                            {
+                                changedAt: new Date().toISOString(),
+                                changedBy: currentUser.full_name || currentUser.email,
+                                sourceModule: 'Inventory',
+                                field: 'mrp_rate_sync',
+                                oldValue: `MRP:${record.mrp} RateA:${record.rateA} RateB:${record.rateB} RateC:${record.rateC}`,
+                                newValue: `MRP:${newMrp} RateA:${Number(updatedItem.rateA || 0)} RateB:${Number(updatedItem.rateB || 0)} RateC:${Number(updatedItem.rateC || 0)}`
+                            }
+                        ]
+                    };
+                });
+
+                await storage.saveData('material_master', {
+                    ...linkedMedicine,
+                    mrp: newMrp.toFixed(2),
+                    rateA: Number(updatedItem.rateA || 0),
+                    rateB: Number(updatedItem.rateB || 0),
+                    rateC: Number(updatedItem.rateC || 0),
+                    masterPriceMaintains: nextPriceRecords
+                }, currentUser, true);
+
+                if (Math.abs(oldMrp - newMrp) >= 0.0001) {
                 await createMrpChangeLog(
                     'Inventory',
                     updatedItem.code || linkedMedicine.materialCode,
@@ -857,6 +891,7 @@ const App: React.FC = () => {
                     oldMrp,
                     newMrp
                 );
+                }
             }
         }
 
@@ -904,6 +939,9 @@ const App: React.FC = () => {
                         description: updatedMedicine.description || '',
                         gstPercent: Number(updatedMedicine.gstRate ?? 0),
                         mrp: nextMrp,
+                        rateA: Number(updatedMedicine.rateA || 0),
+                        rateB: Number(updatedMedicine.rateB || 0),
+                        rateC: Number(updatedMedicine.rateC || 0),
                         packType: updatedPack,
                         unitsPerPack: inferredUnitsPerPack,
                     }, currentUser)
@@ -924,6 +962,9 @@ const App: React.FC = () => {
                         description: updatedMedicine.description || '',
                         gstPercent: Number(updatedMedicine.gstRate ?? 0),
                         mrp: nextMrp,
+                        rateA: Number(updatedMedicine.rateA || 0),
+                        rateB: Number(updatedMedicine.rateB || 0),
+                        rateC: Number(updatedMedicine.rateC || 0),
                         packType: updatedPack,
                         unitsPerPack: inferredUnitsPerPack,
                     }
@@ -1748,6 +1789,7 @@ const App: React.FC = () => {
                         currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
                     />;
                 case 'medicineMasterList':
+                case 'masterPriceMaintain':
                 case 'vendorNomenclature':
                 case 'bulkUtility':
                     return <MaterialMaster
@@ -1758,8 +1800,9 @@ const App: React.FC = () => {
                         onSearchMedicines={() => { }} onMassUpdateClick={() => { }}
                         onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} onDeleteMapping={(id) => storage.deleteData('supplier_product_map', id).then(() => loadData(currentUser!, 'background'))}
                         mappings={mappings}
-                        initialSubModule={pageId === 'vendorNomenclature' ? 'sync' : pageId === 'bulkUtility' ? 'bulk' : 'master'}
+                        initialSubModule={pageId === 'vendorNomenclature' ? 'sync' : pageId === 'bulkUtility' ? 'bulk' : pageId === 'masterPriceMaintain' ? 'pricing' : 'master'}
                         mrpChangeLogs={mrpChangeLogs}
+                        addNotification={addNotification}
                     />;
                 case 'substituteFinder':
                     return <SubstituteFinder inventory={inventory} />;
