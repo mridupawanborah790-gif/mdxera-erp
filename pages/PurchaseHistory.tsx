@@ -163,8 +163,9 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         }
 
         setActionWarning('');
-        onEditPurchase(purchase);
-    }, [requireSelectedPurchase, currentUser, onEditPurchase]);
+        const latestSelected = purchases.find((p) => p.id === purchase.id) || purchase;
+        onEditPurchase(latestSelected);
+    }, [requireSelectedPurchase, currentUser, onEditPurchase, purchases]);
 
     const handleReturnSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
