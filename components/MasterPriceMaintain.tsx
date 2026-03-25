@@ -10,10 +10,20 @@ interface MasterPriceMaintainProps {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+const isSupportedSchemeFormat = (value: string): boolean => {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return true;
+  if (/^\d+(?:\.\d+)?\s*\+\s*\d+(?:\.\d+)?$/.test(normalized)) return true;
+  if (/^\d+(?:\.\d+)?\s*in\s*\d+(?:\.\d+)?$/.test(normalized)) return true;
+  return false;
+};
+
 const isOverlapping = (incoming: MasterPriceMaintainRecord, records: MasterPriceMaintainRecord[]) => {
+  if (incoming.status !== 'active') return false;
   const startA = new Date(incoming.validFrom).getTime();
   const endA = new Date(incoming.validTo).getTime();
   return records.some(record => {
+    if (record.status !== 'active') return false;
     if (record.id === incoming.id) return false;
     const startB = new Date(record.validFrom).getTime();
     const endB = new Date(record.validTo).getTime();
@@ -37,7 +47,10 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
     rateC: Number(medicine.rateC || 0),
     defaultDiscountPercent: Number(medicine.defaultDiscountPercent || 0),
     schemePercent: Number(medicine.schemePercent || 0),
-    schemeType: medicine.schemeType || 'after_discount',
+    schemeType: medicine.schemeCalculationBasis || medicine.schemeType || 'after_discount',
+    schemeCalculationBasis: medicine.schemeCalculationBasis || medicine.schemeType || 'after_discount',
+    schemeFormat: medicine.schemeFormat || '',
+    schemeRate: Number(medicine.schemeRate || 0),
     validFrom: todayIso(),
     validTo: '2099-12-31',
     status: 'active',
@@ -84,6 +97,21 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
       addNotification('Discount and Scheme must be between 0 and 100.', 'error');
       return;
     }
+    if (Number(draft.schemeRate || 0) < 0) {
+      addNotification('Scheme Rate must be >= 0.', 'error');
+      return;
+    }
+
+    const normalizedSchemeFormat = String(draft.schemeFormat || '').trim();
+    const hasSchemeData = draft.schemePercent > 0 || Number(draft.schemeRate || 0) > 0 || normalizedSchemeFormat.length > 0;
+    if (hasSchemeData && !(draft.schemeCalculationBasis || draft.schemeType)) {
+      addNotification('Scheme Calculation Basis is required when scheme is maintained.', 'error');
+      return;
+    }
+    if (normalizedSchemeFormat && !isSupportedSchemeFormat(normalizedSchemeFormat)) {
+      addNotification('Scheme Format supports patterns like "10+1" or "1 in 10".', 'error');
+      return;
+    }
 
     const medicine = medicines.find(m => m.id === editingMaterialId);
     if (!medicine) return;
@@ -106,7 +134,7 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
           sourceModule: 'Master Price Maintain' as const,
           field: 'pricing_record',
           oldValue: 'N/A',
-          newValue: `MRP:${draft.mrp} RateA:${draft.rateA} RateB:${draft.rateB} RateC:${draft.rateC} Disc:${draft.defaultDiscountPercent} Sch:${draft.schemePercent}`
+          newValue: `MRP:${draft.mrp} RateA:${draft.rateA} RateB:${draft.rateB} RateC:${draft.rateC} Disc:${draft.defaultDiscountPercent} Sch:${draft.schemePercent} Basis:${draft.schemeCalculationBasis || draft.schemeType} Format:${normalizedSchemeFormat || '-'} SchRate:${Number(draft.schemeRate || 0)}`
         }
       ]
     }];
@@ -119,7 +147,10 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
       rateC: draft.rateC,
       defaultDiscountPercent: draft.defaultDiscountPercent,
       schemePercent: draft.schemePercent,
-      schemeType: draft.schemeType,
+      schemeType: draft.schemeCalculationBasis || draft.schemeType,
+      schemeCalculationBasis: draft.schemeCalculationBasis || draft.schemeType,
+      schemeFormat: normalizedSchemeFormat || undefined,
+      schemeRate: Number(draft.schemeRate || 0),
       masterPriceMaintains: nextRecords
     });
 
@@ -149,7 +180,7 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
         <table className="min-w-full text-xs">
           <thead className="bg-gray-100 sticky top-0">
             <tr>
-              <th className="p-2 text-left">Material Code</th><th className="p-2 text-left">Material Name</th><th className="p-2 text-right">MRP</th><th className="p-2 text-right">Rate A</th><th className="p-2 text-right">Rate B</th><th className="p-2 text-right">Rate C</th><th className="p-2 text-right">Disc %</th><th className="p-2 text-right">Sch %</th><th className="p-2 text-left">Valid From</th><th className="p-2 text-left">Valid To</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Actions</th>
+              <th className="p-2 text-left">Material Code</th><th className="p-2 text-left">Material Name</th><th className="p-2 text-right">MRP</th><th className="p-2 text-right">Rate A</th><th className="p-2 text-right">Rate B</th><th className="p-2 text-right">Rate C</th><th className="p-2 text-right">Disc %</th><th className="p-2 text-right">Sch %</th><th className="p-2 text-left">Scheme Basis</th><th className="p-2 text-left">Scheme Format</th><th className="p-2 text-right">Scheme Rate</th><th className="p-2 text-left">Valid From</th><th className="p-2 text-left">Valid To</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -168,6 +199,24 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
                       {isEditing ? <input type="number" min={0} className="w-20 border border-gray-300 px-1 py-0.5 text-right" value={Number((value as any)[field] || 0)} onChange={e => setDraft(prev => prev ? ({ ...prev, [field]: Number(e.target.value) }) : prev)} /> : Number((value as any)[field] || 0).toFixed(2)}
                     </td>
                   ))}
+                  <td className="p-2">
+                    {isEditing ? (
+                      <select className="border border-gray-300 px-1 py-0.5 text-xs" value={value.schemeCalculationBasis || value.schemeType || 'after_discount'} onChange={e => setDraft(prev => prev ? ({ ...prev, schemeCalculationBasis: e.target.value as 'after_discount' | 'before_discount', schemeType: e.target.value as 'after_discount' | 'before_discount' }) : prev)}>
+                        <option value="after_discount">After Disc% (Recommended)</option>
+                        <option value="before_discount">At Same Level / Before Discount</option>
+                      </select>
+                    ) : ((value.schemeCalculationBasis || value.schemeType) === 'before_discount' ? 'Before Discount' : 'After Disc%')}
+                  </td>
+                  <td className="p-2">
+                    {isEditing ? (
+                      <input type="text" className="w-28 border border-gray-300 px-1 py-0.5 text-xs uppercase" value={value.schemeFormat || ''} onChange={e => setDraft(prev => prev ? ({ ...prev, schemeFormat: e.target.value }) : prev)} placeholder="10+1 / 1 in 10" />
+                    ) : (value.schemeFormat || '—')}
+                  </td>
+                  <td className="p-2 text-right">
+                    {isEditing ? (
+                      <input type="number" min={0} className="w-20 border border-gray-300 px-1 py-0.5 text-right" value={Number(value.schemeRate || 0)} onChange={e => setDraft(prev => prev ? ({ ...prev, schemeRate: Number(e.target.value) }) : prev)} />
+                    ) : Number(value.schemeRate || 0).toFixed(2)}
+                  </td>
                   <td className="p-2">{isEditing ? <input type="date" className="border border-gray-300 px-1 py-0.5" value={value.validFrom} onChange={e => setDraft(prev => prev ? ({ ...prev, validFrom: e.target.value }) : prev)} /> : value.validFrom}</td>
                   <td className="p-2">{isEditing ? <input type="date" className="border border-gray-300 px-1 py-0.5" value={value.validTo} onChange={e => setDraft(prev => prev ? ({ ...prev, validTo: e.target.value }) : prev)} /> : value.validTo}</td>
                   <td className="p-2">
