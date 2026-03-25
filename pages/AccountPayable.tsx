@@ -51,6 +51,16 @@ interface AccountPayableProps {
         bankAccountId: string;
         referenceInvoiceId?: string;
         referenceInvoiceNumber?: string;
+        entryCategory?: 'invoice_payment' | 'down_payment';
+    }) => Promise<void>;
+    onRecordDownPaymentAdjustment: (args: {
+        supplierId: string;
+        date: string;
+        downPaymentId: string;
+        referenceInvoiceId: string;
+        referenceInvoiceNumber?: string;
+        amount: number;
+        description?: string;
     }) => Promise<void>;
     currentUser: RegisteredPharmacy | null;
 }
@@ -75,7 +85,7 @@ const getPaymentAmount = (entry: TransactionLedgerItem): number => {
     return Number(entry.debit || 0);
 };
 
-const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases, bankOptions, onRecordPayment, currentUser }) => {
+const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases, bankOptions, onRecordPayment, onRecordDownPaymentAdjustment, currentUser }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedDistributor, setSelectedDistributor] = useState<Distributor | null>(null);
     const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
@@ -85,9 +95,12 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const [paymentMode, setPaymentMode] = useState('Bank');
     const [bankAccountId, setBankAccountId] = useState('');
     const [showPaymentForm, setShowPaymentForm] = useState(false);
+    const [showDownPaymentForm, setShowDownPaymentForm] = useState(false);
+    const [adjustAgainstInvoice, setAdjustAgainstInvoice] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState('');
     const [ledgerVoucherMap, setLedgerVoucherMap] = useState<Record<string, LedgerVoucherMeta>>({});
+    const [invoiceAdjustments, setInvoiceAdjustments] = useState<Record<string, number>>({});
 
     const normalizedPaymentMode = paymentMode.trim().toLowerCase();
     const isCashMode = normalizedPaymentMode === 'cash';
@@ -236,7 +249,8 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                 referenceInvoiceNumber: entry.referenceInvoiceNumber || resolvedMeta?.referenceInvoiceNumber,
             };
 
-            target.paid += getPaymentAmount(normalizedEntry);
+            const adjustedAmount = Number(normalizedEntry.adjustedAmount || 0);
+            target.paid += adjustedAmount > 0 ? adjustedAmount : getPaymentAmount(normalizedEntry);
             target.balance = Number((target.invoiceAmount - target.paid).toFixed(2));
             target.paymentDate = normalizedEntry.date || target.paymentDate;
             target.paymentMode = normalizedEntry.paymentMode || target.paymentMode;
@@ -273,7 +287,21 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             });
     }, [selectedDistributor, ledgerVoucherMap]);
 
-    const paymentRows = useMemo(() => ledgerRows.filter(item => item.type === 'payment' && getPaymentAmount(item) > 0), [ledgerRows]);
+    const payableHistoryRows = useMemo(
+        () => ledgerRows.filter(item => item.type === 'payment' && (getPaymentAmount(item) > 0 || Number(item.adjustedAmount || 0) > 0)),
+        [ledgerRows]
+    );
+    const downPaymentRows = useMemo(
+        () => ledgerRows.filter(item => item.type === 'payment' && item.entryCategory === 'down_payment' && getPaymentAmount(item) > 0),
+        [ledgerRows]
+    );
+    const availableAdvanceBalance = useMemo(() => {
+        const totalAdvance = downPaymentRows.reduce((sum, row) => sum + getPaymentAmount(row), 0);
+        const totalAdjusted = ledgerRows
+            .filter(item => item.entryCategory === 'down_payment_adjustment')
+            .reduce((sum, row) => sum + Number(row.adjustedAmount || 0), 0);
+        return Number((totalAdvance - totalAdjusted).toFixed(2));
+    }, [downPaymentRows, ledgerRows]);
 
     const printVoucher = (entry: TransactionLedgerItem) => {
         if (!selectedDistributor) return;
@@ -355,10 +383,24 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
 
     const openPaymentPanel = () => {
         setShowPaymentForm(true);
+        setShowDownPaymentForm(false);
         setAmount('');
         setDescription('Supplier Payment');
         setSelectedInvoiceId('');
         setPaymentMode('Bank');
+        setBankAccountId(defaultBankOption?.id || '');
+        setSubmitError('');
+    };
+
+    const openDownPaymentPanel = () => {
+        setShowDownPaymentForm(true);
+        setShowPaymentForm(false);
+        setAmount('');
+        setDescription('Advance Paid');
+        setPaymentMode('Bank');
+        setSelectedInvoiceId('');
+        setAdjustAgainstInvoice(false);
+        setInvoiceAdjustments({});
         setBankAccountId(defaultBankOption?.id || '');
         setSubmitError('');
     };
@@ -393,6 +435,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                 bankAccountId: isCashMode ? '' : bankAccountId,
                 referenceInvoiceId: invoice?.id,
                 referenceInvoiceNumber: invoice?.invoiceNumber,
+                entryCategory: 'invoice_payment',
             });
             setShowPaymentForm(false);
             setAmount('');
@@ -400,6 +443,57 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             setSubmitError('');
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unable to post supplier payment. Please try again.';
+            setSubmitError(message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleDownPaymentSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedDistributor || !amount || amount <= 0) return;
+        if (!isCashMode && !bankAccountId) return;
+
+        const enteredAmount = Number(amount);
+        const allocations = Object.entries(invoiceAdjustments)
+            .map(([invoiceId, allocated]) => ({ invoiceId, allocated: Number(allocated || 0) }))
+            .filter(({ allocated }) => allocated > 0);
+        const totalAllocated = allocations.reduce((sum, item) => sum + item.allocated, 0);
+        if (adjustAgainstInvoice && totalAllocated > enteredAmount) return;
+
+        setIsSubmitting(true);
+        setSubmitError('');
+        try {
+            await onRecordPayment({
+                supplierId: selectedDistributor.id,
+                amount: enteredAmount,
+                date,
+                description: description || 'Advance Paid',
+                paymentMode,
+                bankAccountId: isCashMode ? '' : bankAccountId,
+                entryCategory: 'down_payment',
+            });
+            const downPaymentId = `DP-${Date.now()}`;
+            for (const allocation of allocations) {
+                const invoice = invoiceRows.find(row => row.id === allocation.invoiceId);
+                if (!invoice) continue;
+                await onRecordDownPaymentAdjustment({
+                    supplierId: selectedDistributor.id,
+                    date,
+                    downPaymentId,
+                    referenceInvoiceId: invoice.id,
+                    referenceInvoiceNumber: invoice.invoiceNumber,
+                    amount: allocation.allocated,
+                    description: 'Advance adjusted against invoice',
+                });
+            }
+            setShowDownPaymentForm(false);
+            setAmount('');
+            setDescription('Advance Paid');
+            setAdjustAgainstInvoice(false);
+            setInvoiceAdjustments({});
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to post supplier down payment. Please try again.';
             setSubmitError(message);
         } finally {
             setIsSubmitting(false);
@@ -454,8 +548,12 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Active Ledger Selection</p>
                                     <h2 className={`${uniformTextStyle} !text-4xl text-primary`}>{selectedDistributor.name}</h2>
                                     <div className="mt-2 text-xs font-black uppercase text-gray-500">Current Payable: <span className="text-red-600 text-lg">₹{getOutstandingBalance(selectedDistributor).toFixed(2)}</span></div>
+                                    <div className="mt-1 text-xs font-black uppercase text-emerald-700">Available Advance: ₹{availableAdvanceBalance.toFixed(2)}</div>
                                 </div>
-                                <button type="button" onClick={openPaymentPanel} className="px-4 py-2 tally-button-primary text-xs uppercase font-black tracking-wider">Add Payment</button>
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={openPaymentPanel} className="px-4 py-2 tally-button-primary text-xs uppercase font-black tracking-wider">Add Payment</button>
+                                    <button type="button" onClick={openDownPaymentPanel} className="px-4 py-2 tally-button-primary text-xs uppercase font-black tracking-wider">Down Payment</button>
+                                </div>
                             </div>
 
                             {showPaymentForm && (
@@ -527,6 +625,50 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                 </form>
                             )}
 
+                            {showDownPaymentForm && (
+                                <form onSubmit={handleDownPaymentSubmit} className="border border-gray-300 p-4 bg-gray-50 space-y-4">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-gray-500">Record Supplier Down Payment</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <input type="text" disabled value={selectedDistributor.name} className="w-full border border-gray-300 bg-gray-100 p-2 text-sm font-bold text-gray-600" />
+                                        <input type="number" required value={amount} onChange={e => setAmount(parseFloat(e.target.value) || '')} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50" placeholder="Down payment amount" />
+                                        <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50" />
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50">
+                                            <option value="Bank">Bank</option><option value="Cash">Cash</option><option value="UPI">UPI</option>
+                                        </select>
+                                        {isCashMode ? (
+                                            <input type="text" value="Cash Account" disabled className="w-full border border-gray-300 bg-gray-100 p-2 text-sm font-bold text-gray-600" />
+                                        ) : (
+                                            <select required value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none focus:bg-yellow-50">
+                                                <option value="">Select Bank Account</option>
+                                                {bankOnlyOptions.map(option => (
+                                                    <option key={option.id} value={option.id}>{option.bankName} • {option.accountNumber || option.accountName}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                        <input type="text" value={description} onChange={e => setDescription(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold uppercase outline-none focus:bg-yellow-50" placeholder="Reference / Note" />
+                                    </div>
+                                    <label className="inline-flex items-center gap-2 text-xs font-black uppercase">
+                                        <input type="checkbox" checked={adjustAgainstInvoice} onChange={e => setAdjustAgainstInvoice(e.target.checked)} />
+                                        Adjust Against Invoice
+                                    </label>
+                                    {adjustAgainstInvoice && invoiceRows.filter(row => row.balance > 0).map(row => (
+                                        <div key={row.id} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="border border-gray-200 p-2 text-xs font-bold">{row.invoiceNumber} • Pending ₹{row.balance.toFixed(2)}</div>
+                                            <input type="number" min={0} max={row.balance} value={invoiceAdjustments[row.id] ?? ''} onChange={e => setInvoiceAdjustments(prev => ({ ...prev, [row.id]: parseFloat(e.target.value) || 0 }))} className="border border-gray-300 p-2 text-xs font-bold" placeholder="Adjust amount" />
+                                        </div>
+                                    ))}
+                                    <div className="flex justify-end gap-2">
+                                        <button type="button" onClick={() => setShowDownPaymentForm(false)} className="px-3 py-2 border border-gray-300 font-bold uppercase text-[10px] hover:bg-white">Discard</button>
+                                        <button type="submit" disabled={isSubmitting || !amount || Number(amount) <= 0 || (!isCashMode && !bankAccountId)} className="px-4 py-2 tally-button-primary font-black uppercase text-xs">
+                                            {isSubmitting ? 'Posting...' : 'Post Down Payment'}
+                                        </button>
+                                    </div>
+                                    {submitError && <p className="text-xs font-bold text-red-700">{submitError}</p>}
+                                </form>
+                            )}
+
                             <div>
                                 <p className="text-[10px] font-black uppercase tracking-wider mb-2">Invoice-wise supplier payable tracking</p>
                                 <div className="overflow-auto border border-gray-200">
@@ -564,18 +706,19 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                 <p className="text-[10px] font-black uppercase tracking-wider mb-2">Supplier payment history / voucher history</p>
                                 <div className="overflow-auto border border-gray-200">
                                     <table className="min-w-full text-xs">
-                                        <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Payment Against</th><th className="p-2 text-left">Payment Mode</th><th className="p-2 text-left">Bank/Cash Account</th><th className="p-2 text-left">Narration</th><th className="p-2 text-left">Amount</th><th className="p-2 text-left">Voucher No.</th><th className="p-2 text-left">Print Voucher</th></tr></thead>
+                                        <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Payment Against</th><th className="p-2 text-left">Payment Mode</th><th className="p-2 text-left">Bank/Cash Account</th><th className="p-2 text-left">Narration</th><th className="p-2 text-left">Amount</th><th className="p-2 text-left">Voucher No.</th><th className="p-2 text-left">Print Voucher</th></tr></thead>
                                         <tbody>
-                                            {paymentRows.length === 0 ? (
-                                                <tr><td className="p-3 text-center text-gray-500" colSpan={8}>No supplier payments posted yet.</td></tr>
-                                            ) : paymentRows.map(item => (
+                                            {payableHistoryRows.length === 0 ? (
+                                                <tr><td className="p-3 text-center text-gray-500" colSpan={9}>No supplier payments posted yet.</td></tr>
+                                            ) : payableHistoryRows.map(item => (
                                                 <tr key={item.id} className="border-t">
                                                     <td className="p-2">{formatDisplayDate(item.date)}</td>
+                                                    <td className="p-2">{item.entryCategory === 'down_payment' ? 'DOWN PAYMENT' : item.entryCategory === 'down_payment_adjustment' ? 'DP ADJUSTMENT' : 'PAYMENT'}</td>
                                                     <td className="p-2">{item.referenceInvoiceNumber || item.referenceInvoiceId || '-'}</td>
                                                     <td className="p-2">{item.paymentMode || '-'}</td>
                                                     <td className="p-2">{item.bankName || '-'}</td>
-                                                    <td className="p-2">{item.description}</td>
-                                                    <td className="p-2 font-bold">₹{getPaymentAmount(item).toFixed(2)}</td>
+                                                    <td className="p-2">{item.entryCategory === 'down_payment' ? 'Advance Paid' : item.description}</td>
+                                                    <td className="p-2 font-bold">₹{Number(item.adjustedAmount || getPaymentAmount(item)).toFixed(2)}</td>
                                                     <td className="p-2">{item.journalEntryNumber || item.journalEntryId || '-'}</td>
                                                     <td className="p-2"><button type="button" onClick={() => printVoucher(item)} className="px-2 py-1 border border-gray-300 font-bold uppercase text-[10px] hover:bg-gray-100">Print</button></td>
                                                 </tr>
