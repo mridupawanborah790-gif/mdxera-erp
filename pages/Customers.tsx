@@ -15,6 +15,7 @@ import { handleEnterToNextField } from '../utils/navigation';
 import { fetchCustomerPriceList, saveCustomerPriceList, fetchInventory } from '../services/storageService';
 import { fuzzyMatch } from '../utils/search';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
+import { getOutstandingBalance } from '../utils/helpers';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
@@ -180,11 +181,23 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                                     </div>
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Credit Limit</p>
-                                        <p className="text-sm font-bold text-gray-900">₹{Number(selectedCustomerExtra?.credit_limit || 0).toFixed(2)}</p>
+                                        <p className="text-sm font-bold text-gray-900">₹{Number(selectedCustomer.creditLimit || 0).toFixed(2)}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Current Outstanding</p>
+                                        <p className="text-sm font-bold text-gray-900">₹{Number(getOutstandingBalance(selectedCustomer)).toFixed(2)}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Available Credit</p>
+                                        <p className="text-sm font-bold text-gray-900">₹{Number((selectedCustomer.creditLimit || 0) - getOutstandingBalance(selectedCustomer)).toFixed(2)}</p>
+                                    </div>
+                                    <div className="p-3 border border-gray-200">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Credit Status</p>
+                                        <p className="text-sm font-bold text-gray-900">{(selectedCustomer.creditStatus || 'active').toUpperCase()}</p>
                                     </div>
                                     <div className="p-3 border border-gray-200">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Credit Days</p>
-                                        <p className="text-sm font-bold text-gray-900">{String(selectedCustomerExtra?.credit_days || 'N/A')}</p>
+                                        <p className="text-sm font-bold text-gray-900">{Number(selectedCustomer.creditDays || 0)}</p>
                                     </div>
                                 </div>
                             </div>

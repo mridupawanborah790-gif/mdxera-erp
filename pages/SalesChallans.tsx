@@ -6,6 +6,7 @@ import Modal from '../components/Modal';
 import { SalesChallan, BillItem, InventoryItem, Customer, RegisteredPharmacy, AppConfigurations, SalesChallanStatus, Medicine, Purchase } from '../types';
 // Fix: Verified storage service exports include updateSalesChallanStatus and updateChallanStatus
 import { reserveVoucherNumber, updateSalesChallanStatus, updateChallanStatus } from '../services/storageService';
+import { evaluateCustomerCredit, getCustomerOpenChallanExposure } from '../utils/creditControl';
 
 interface SalesChallansProps {
     salesChallans: SalesChallan[];
@@ -85,6 +86,30 @@ const SalesChallans = React.forwardRef<any, SalesChallansProps>(({
             addNotification('User context missing for voucher number generation.', 'error');
             return;
         }
+        const selectedCustomer = customers.find(c => c.id === tx.customerId) || customers.find(c => (c.name || '').trim().toLowerCase() === (tx.customerName || '').trim().toLowerCase()) || null;
+        const openChallanExposure = getCustomerOpenChallanExposure(salesChallans, selectedCustomer?.id);
+        const creditCheck = evaluateCustomerCredit({
+            customer: selectedCustomer,
+            currentTransactionAmount: Number(tx.total || 0),
+            openChallanExposure,
+            moduleName: 'Sales Challan'
+        });
+
+        if (creditCheck && !creditCheck.canProceed) {
+            const formatted = `Credit Limit ₹${creditCheck.details.creditLimit.toFixed(2)} | Outstanding ₹${creditCheck.details.currentOutstanding.toFixed(2)} | Open Challan ₹${creditCheck.details.openChallanExposure.toFixed(2)} | Challan ₹${creditCheck.details.currentTransactionAmount.toFixed(2)} | Projected ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
+            if (creditCheck.mode === 'warning_only') {
+                const proceed = window.confirm(`${creditCheck.message}
+
+${formatted}
+
+Do you want to continue?`);
+                if (!proceed) return;
+            } else {
+                addNotification(`${creditCheck.message} ${formatted}`, 'error');
+                return;
+            }
+        }
+
         const reserved = await reserveVoucherNumber('sales-challan', currentUser);
         const serialId = reserved.documentNumber;
         const challan: SalesChallan = {
@@ -155,6 +180,7 @@ const SalesChallans = React.forwardRef<any, SalesChallansProps>(({
                             addNotification={addNotification}
                             onAddMedicineMaster={onAddMedicineMaster}
                             onCancel={() => setActiveTab('list')}
+                            salesChallans={salesChallans}
                         />
                     </div>
                 ) : (

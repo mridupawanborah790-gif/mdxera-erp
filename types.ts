@@ -602,6 +602,12 @@ export interface Customer {
     opening_balance?: number;
     customerGroup?: string;
     controlGlId?: string;
+    creditLimit?: number;
+    creditDays?: number;
+    creditStatus?: 'active' | 'blocked';
+    creditControlMode?: 'warning_only' | 'hard_block';
+    allowOverride?: boolean;
+    overrideApprovalRequired?: boolean;
 }
 
 export interface Medicine {
