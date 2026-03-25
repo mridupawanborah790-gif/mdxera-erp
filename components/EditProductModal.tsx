@@ -256,6 +256,18 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                                 <label className="block text-[9px] font-black uppercase text-yellow-700 mb-1 ml-1">M.R.P</label>
                                 <input type="number" name="mrp" value={product.mrp} onChange={handleChange} className="w-full tally-input !text-lg border-yellow-400 !bg-white" />
                             </div>
+                            <div>
+                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Rate A</label>
+                                <input type="number" name="rateA" value={product.rateA || 0} onChange={handleChange} className="w-full tally-input !text-base" />
+                            </div>
+                            <div>
+                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Rate B</label>
+                                <input type="number" name="rateB" value={product.rateB || 0} onChange={handleChange} className="w-full tally-input !text-base" />
+                            </div>
+                            <div>
+                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Rate C</label>
+                                <input type="number" name="rateC" value={product.rateC || 0} onChange={handleChange} className="w-full tally-input !text-base" />
+                            </div>
                         </div>
                     </div>
 
