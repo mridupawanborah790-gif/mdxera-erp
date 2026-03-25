@@ -50,7 +50,7 @@ import {
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
     Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
     PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
-    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry
+    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, TransactionLedgerItem
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
@@ -1221,6 +1221,12 @@ const App: React.FC = () => {
         bankAccountId: string;
         referenceInvoiceId?: string;
         referenceInvoiceNumber?: string;
+        voucherType?: TransactionLedgerItem['voucherType'];
+        paymentType?: TransactionLedgerItem['paymentType'];
+        transactionRole?: TransactionLedgerItem['transactionRole'];
+        allocationEntries?: TransactionLedgerItem['allocationEntries'];
+        adjustedAmount?: number;
+        unadjustedAmount?: number;
     }) => {
         if (!currentUser) return;
         await storage.recordCustomerPaymentWithAccounting(args, currentUser);
@@ -1237,11 +1243,31 @@ const App: React.FC = () => {
         bankAccountId: string;
         referenceInvoiceId?: string;
         referenceInvoiceNumber?: string;
+        voucherType?: TransactionLedgerItem['voucherType'];
+        paymentType?: TransactionLedgerItem['paymentType'];
+        transactionRole?: TransactionLedgerItem['transactionRole'];
+        allocationEntries?: TransactionLedgerItem['allocationEntries'];
+        adjustedAmount?: number;
+        unadjustedAmount?: number;
     }) => {
         if (!currentUser) return;
         await storage.recordSupplierPaymentWithAccounting(args, currentUser);
         await loadData(currentUser, 'background');
         addNotification('Supplier payment posted with accounting entry.', 'success');
+    };
+
+    const handleCancelCustomerLedgerVoucher = async (args: { customerId: string; ledgerEntryId: string; reason: string; cancellationDate: string }) => {
+        if (!currentUser) return;
+        await storage.cancelPartyLedgerVoucher({ ownerType: 'customer', ownerId: args.customerId, ledgerEntryId: args.ledgerEntryId, reason: args.reason, cancellationDate: args.cancellationDate }, currentUser);
+        await loadData(currentUser, 'background');
+        addNotification('Customer voucher cancelled with reversal entry.', 'warning');
+    };
+
+    const handleCancelSupplierLedgerVoucher = async (args: { supplierId: string; ledgerEntryId: string; reason: string; cancellationDate: string }) => {
+        if (!currentUser) return;
+        await storage.cancelPartyLedgerVoucher({ ownerType: 'supplier', ownerId: args.supplierId, ledgerEntryId: args.ledgerEntryId, reason: args.reason, cancellationDate: args.cancellationDate }, currentUser);
+        await loadData(currentUser, 'background');
+        addNotification('Supplier voucher cancelled with reversal entry.', 'warning');
     };
 
     const handleCancelTransaction = async (id: string) => {
@@ -1763,9 +1789,9 @@ const App: React.FC = () => {
                         onDeleteSubCategory={(id) => storage.deleteData('sub_categories', id).then(() => loadData(currentUser!, 'background'))}
                     />;
                 case 'accountReceivable':
-                    return <AccountReceivable customers={customers} transactions={transactions} bankOptions={bankOptions as any} onRecordPayment={handleRecordCustomerPaymentWithAccounting} currentUser={currentUser} />;
+                    return <AccountReceivable customers={customers} transactions={transactions} bankOptions={bankOptions as any} onRecordPayment={handleRecordCustomerPaymentWithAccounting} onCancelVoucher={handleCancelCustomerLedgerVoucher} currentUser={currentUser} />;
                 case 'accountPayable':
-                    return <AccountPayable distributors={suppliers} purchases={purchases} bankOptions={bankOptions as any} onRecordPayment={handleRecordSupplierPaymentWithAccounting} currentUser={currentUser} />;
+                    return <AccountPayable distributors={suppliers} purchases={purchases} bankOptions={bankOptions as any} onRecordPayment={handleRecordSupplierPaymentWithAccounting} onCancelVoucher={handleCancelSupplierLedgerVoucher} currentUser={currentUser} />;
                 default:
                     return <Dashboard
                         currentUser={currentUser} configurations={configurations} inventory={inventory}
