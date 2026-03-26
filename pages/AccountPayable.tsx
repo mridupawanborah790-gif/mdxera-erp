@@ -711,24 +711,16 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                     </div>
                     <div className="flex-1 overflow-y-auto divide-y divide-gray-200">
                         {filteredDistributors.map(d => {
-                            const balance = getOutstandingBalance(d);
                             const isSelected = selectedDistributor?.id === d.id;
                             return (
                                 <button 
                                     key={d.id} 
                                     onClick={() => { setSelectedDistributor(d); setShowPaymentForm(false); }} 
-                                    className={`w-full text-left p-4 transition-all group ${isSelected ? 'bg-primary text-white shadow-lg' : 'hover:bg-primary hover:text-white'}`}
+                                    className={`w-full text-left px-3 py-2 transition-all group ${isSelected ? 'bg-primary text-white shadow-lg' : 'hover:bg-primary hover:text-white'}`}
                                 >
-                                    <div className="flex justify-between items-start">
-                                        <div className="min-w-0 flex-1">
-                                            <p className={`${uniformTextStyle} truncate ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{d.name}</p>
-                                            <p className={`${uniformTextStyle} !text-base mt-1 ${isSelected ? 'text-white/70' : 'text-gray-500 group-hover:text-white/70'}`}>{d.gst_number || 'NO GSTIN'}</p>
-                                        </div>
-                                        <div className="text-right ml-2">
-                                            <p className={`${uniformTextStyle} ${isSelected ? 'text-white' : (balance > 0 ? 'text-red-700 font-black group-hover:text-white' : 'text-emerald-700 font-black group-hover:text-white')}`}>
-                                                ₹{balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                            </p>
-                                        </div>
+                                    <div className="min-w-0">
+                                        <p className={`${uniformTextStyle} !text-lg truncate ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{d.name}</p>
+                                        <p className={`${uniformTextStyle} !text-xs mt-0.5 ${isSelected ? 'text-white/70' : 'text-gray-500 group-hover:text-white/70'}`}>{d.gst_number || 'NO GSTIN'}</p>
                                     </div>
                                 </button>
                             );
