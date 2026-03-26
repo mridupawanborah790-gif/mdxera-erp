@@ -635,7 +635,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                 {items.map((p, idx) => (
                                     <tr 
                                         key={p.id} 
-                                        className={`group h-10 transition-colors ${activeRowId === p.id ? 'bg-primary text-white shadow-md hover:bg-primary' : 'hover:bg-primary hover:text-white'}`}
+                                        style={activeRowId === p.id ? { backgroundColor: '#004242', color: 'white' } : {}}
+                                        className={`group h-10 transition-colors ${activeRowId === p.id ? 'shadow-md' : 'hover:bg-primary hover:text-white'}`}
                                     >
                                         <td className={`p-1 border-r border-gray-200 font-bold text-center ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white text-gray-400'}`}>{idx + 1}</td>
                                         <td className={`p-1 border-r border-gray-200 font-bold uppercase relative ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white text-primary'}`}>
