@@ -762,6 +762,30 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                                 <option value="after_all_discounts">After All Discounts (Recommended Default)</option>
                                             </select>
                                         </div>
+
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Purchase Entry Calculation Mode</label>
+                                            <select
+                                                value={localConfigs.displayOptions?.purchaseLineAmountCalculationMode || 'excluding_discount'}
+                                                onChange={e => handleConfigChange('displayOptions', 'purchaseLineAmountCalculationMode', e.target.value)}
+                                                className="w-full tally-input !text-sm"
+                                            >
+                                                <option value="excluding_discount">Excluding Discount (Recommended) — Amount = Qty × Rate</option>
+                                                <option value="including_discount">Including Discount — Amount = Qty × Rate − Discount</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">POS Sales Calculation Mode</label>
+                                            <select
+                                                value={localConfigs.displayOptions?.posLineAmountCalculationMode || 'excluding_discount'}
+                                                onChange={e => handleConfigChange('displayOptions', 'posLineAmountCalculationMode', e.target.value)}
+                                                className="w-full tally-input !text-sm"
+                                            >
+                                                <option value="excluding_discount">Excluding Discount (Recommended) — Amount = Qty × Rate</option>
+                                                <option value="including_discount">Including Discount — Amount = Qty × Rate − Discount</option>
+                                            </select>
+                                        </div>
                                         
                                         <div className="py-4 border-b border-gray-100 flex items-center justify-between">
                                             <div>

@@ -1,4 +1,4 @@
-import type { AppConfigurations, BillItem } from '../types';
+import type { AppConfigurations, BillItem, LineAmountCalculationMode } from '../types';
 
 export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount' | 'ask_user';
 export type TaxCalculationBaseOption = 'subtotal' | 'after_trade_discount' | 'after_all_discounts';
@@ -91,6 +91,10 @@ export const resolveBillingSettings = (configurations?: AppConfigurations) => {
   const schemeBase = rawSchemeBase === 'ask_user' ? 'after_trade_discount' : rawSchemeBase;
   const taxBase = (configurations?.displayOptions?.taxCalculationBase || 'after_all_discounts') as TaxCalculationBaseOption;
   return { schemeBase, taxBase };
+};
+
+export const resolvePosLineAmountCalculationMode = (configurations?: AppConfigurations): LineAmountCalculationMode => {
+  return configurations?.displayOptions?.posLineAmountCalculationMode || 'excluding_discount';
 };
 
 export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = false, configurations, organizationType, pricingMode }: TotalsInput): BillingTotals => {
@@ -190,6 +194,8 @@ export const calculateLineNetAmount = (item: BillItem, configurations?: AppConfi
   const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
   const effectivePricingMode = resolveEffectivePricingMode(organizationType, pricingMode, configurations);
   const gross = billedQty * getDisplayRateForLine(item, organizationType, effectivePricingMode, configurations);
+  const lineAmountMode = resolvePosLineAmountCalculationMode(configurations);
+  if (lineAmountMode === 'excluding_discount') return Math.max(0, gross);
   const trade = gross * ((item.discountPercent || 0) / 100);
   const flat = Math.max(0, item.itemFlatDiscount || 0);
   const afterTrade = Math.max(0, gross - trade - flat);

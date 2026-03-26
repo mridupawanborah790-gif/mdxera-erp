@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import Modal from './Modal';
 import JournalEntryViewerModal from './JournalEntryViewerModal';
-import type { Transaction, BillItem, Customer, RegisteredPharmacy, SalesReturn } from '../types';
+import type { Transaction, BillItem, Customer, RegisteredPharmacy, SalesReturn, AppConfigurations } from '../types';
 import { formatPackLooseQuantity } from '../utils/quantity';
 
 interface TransactionDetailModalProps {
@@ -15,6 +15,7 @@ interface TransactionDetailModalProps {
     pharmacyName?: string;
     currentUser?: RegisteredPharmacy | null;
     salesReturns?: SalesReturn[];
+    configurations?: AppConfigurations;
 }
 
 const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ 
@@ -26,7 +27,8 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     onProcessReturn, 
     pharmacyName, 
     currentUser,
-    salesReturns = []
+    salesReturns = [],
+    configurations
 }) => {
     const [isJournalOpen, setIsJournalOpen] = React.useState(false);
 
@@ -55,6 +57,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         const pack = item.packType?.trim();
         return pack ? `${item.name} (${pack})` : item.name;
     };
+    const posLineAmountMode = configurations?.displayOptions?.posLineAmountCalculationMode || 'excluding_discount';
 
     const { 
         total, 
@@ -242,7 +245,9 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                                                 const uPP = item.unitsPerPack || 1;
                                                 const tU = (netQty * uPP) + (item.looseQuantity || 0);
                                                 const uR = (item.taxBasis === 'I-Incl.MRP' ? (item.mrp || 0) : (item.rate || item.mrp || 0)) / uPP;
-                                                return (uR * tU * (1 - (item.discountPercent || 0) / 100));
+                                                const gross = (uR * tU);
+                                                if (posLineAmountMode === 'excluding_discount') return gross;
+                                                return gross * (1 - (item.discountPercent || 0) / 100);
                                             })().toFixed(2)}
                                         </td>
                                     </tr>
