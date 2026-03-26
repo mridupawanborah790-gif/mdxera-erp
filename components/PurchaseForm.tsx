@@ -190,6 +190,9 @@ interface PurchaseFormProps {
     purchaseToEdit: Purchase | null;
     draftItems: PurchaseOrderItem[] | null;
     draftSupplier?: string;
+    draftInvoiceNumber?: string;
+    draftDate?: string;
+    draftSourceId?: string;
     linkedChallans?: string[];
     onClearDraft: () => void;
     currentUser: RegisteredPharmacy | null;
@@ -216,7 +219,7 @@ interface PurchaseFormProps {
 }
 
 const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
-    onAddPurchase, onUpdatePurchase, inventory, suppliers, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, onClearDraft, currentUser, onAddMedicineMaster, onAddsupplier, onSaveMapping, onCancel, onPrint, title, className, configurations, addNotification, isReadOnly = false,
+    onAddPurchase, onUpdatePurchase, inventory, suppliers, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, draftInvoiceNumber, draftDate, draftSourceId, onClearDraft, currentUser, onAddMedicineMaster, onAddsupplier, onSaveMapping, onCancel, onPrint, title, className, configurations, addNotification, isReadOnly = false,
     isManualEntry = false, isChallan = false, disableAIInput = false, mobileSyncSessionId, setMobileSyncSessionId,
     organizationId, config,
 }, ref) => {
@@ -611,7 +614,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [medicines, mappings]);
 
     useEffect(() => {
-        const sourceId = purchaseToEdit?.id || (draftItems ? 'draft' : 'new');
+        const sourceId = purchaseToEdit?.id || (draftSourceId ? `draft:${draftSourceId}` : (draftItems ? 'draft' : 'new'));
 
         if (!purchaseToEdit && !draftItems && lockImportUIReset && purchaseVoucherDraft) {
             setSupplier(purchaseVoucherDraft.supplier);
@@ -662,6 +665,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setRateTierHandledRows(new Set());
         } else if (draftItems) {
             setSupplier(draftSupplier || '');
+            setInvoiceNumber(draftInvoiceNumber || '');
+            setDate(draftDate || new Date().toISOString().split('T')[0]);
             const matchedDist = suppliers.find(d => (d.name || '').toLowerCase().trim() === (draftSupplier || '').toLowerCase().trim());
             const newItems = Array.isArray(draftItems) ? draftItems.map(item => ({
                 ...createBlankItem(), ...item, expiry: formatExpiryToMMYY(String(item.expiry || '')), quantity: item.quantity, freeQuantity: item.freeQuantity || 0, purchasePrice: item.purchasePrice, matchStatus: 'pending' as const
@@ -674,7 +679,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             // Focus Date on new voucher
             setTimeout(() => dateInputRef.current?.focus(), 200);
         }
-    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, attemptAutoLink, resetFormForNewEntry, lockImportUIReset, purchaseVoucherDraft, voucherScreenOpen]);
+    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, draftInvoiceNumber, draftDate, draftSourceId, attemptAutoLink, resetFormForNewEntry, lockImportUIReset, purchaseVoucherDraft, voucherScreenOpen]);
 
     const calculatedTotals = useMemo(() => {
         const billDiscount = 0;
