@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
+import Modal from '../components/Modal';
 import { Distributor, Purchase, RegisteredPharmacy, TransactionLedgerItem } from '../types';
 import { getOutstandingBalance } from '../utils/helpers';
 import { fuzzyMatch } from '../utils/search';
@@ -37,6 +38,12 @@ interface LedgerVoucherMeta {
     journalEntryId?: string;
     journalEntryNumber?: string;
     referenceInvoiceNumber?: string;
+}
+
+interface VoucherAllocationSummary {
+    adjustedAmount: number;
+    remainingAmount: number;
+    status: 'Open / Unadjusted' | 'Partially Adjusted' | 'Fully Adjusted' | 'Cancelled';
 }
 
 interface AccountPayableProps {
@@ -120,6 +127,9 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const [invoiceAdjustments, setInvoiceAdjustments] = useState<Record<string, number>>({});
     const [paymentType, setPaymentType] = useState<'against_invoice' | 'on_account'>('against_invoice');
     const [isAmountManuallyEdited, setIsAmountManuallyEdited] = useState(false);
+    const [adjustmentVoucher, setAdjustmentVoucher] = useState<TransactionLedgerItem | null>(null);
+    const [adjustmentDate, setAdjustmentDate] = useState(new Date().toISOString().split('T')[0]);
+    const [voucherInvoiceAdjustments, setVoucherInvoiceAdjustments] = useState<Record<string, number>>({});
 
     const normalizedPaymentMode = paymentMode.trim().toLowerCase();
     const isCashMode = normalizedPaymentMode === 'cash';
@@ -351,6 +361,40 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         return Number((totalAdvance - totalAdjusted).toFixed(2));
     }, [downPaymentRows, ledgerRows]);
 
+    const getVoucherAllocationSummary = (voucher: TransactionLedgerItem): VoucherAllocationSummary => {
+        const originalAmount = getPaymentAmount(voucher);
+        const adjustedAmount = ledgerRows
+            .filter((row) => row.status !== 'cancelled')
+            .reduce((sum, row) => {
+                if (voucher.entryCategory === 'down_payment' && row.entryCategory === 'down_payment_adjustment' && row.sourceDownPaymentId === voucher.id) {
+                    return sum + Number(row.adjustedAmount || 0);
+                }
+                if (voucher.entryCategory !== 'down_payment' && row.entryCategory === 'invoice_payment_adjustment' && row.sourcePaymentId === voucher.id) {
+                    return sum + Number(row.adjustedAmount || 0);
+                }
+                return sum;
+            }, 0);
+        const remainingAmount = Number((originalAmount - adjustedAmount).toFixed(2));
+        if (voucher.status === 'cancelled') return { adjustedAmount, remainingAmount: 0, status: 'Cancelled' };
+        if (remainingAmount <= 0.001) return { adjustedAmount, remainingAmount: 0, status: 'Fully Adjusted' };
+        if (adjustedAmount > 0) return { adjustedAmount, remainingAmount, status: 'Partially Adjusted' };
+        return { adjustedAmount, remainingAmount, status: 'Open / Unadjusted' };
+    };
+
+    const grossOutstanding = useMemo(() => Number(invoiceRows.reduce((sum, row) => sum + row.balance, 0).toFixed(2)), [invoiceRows]);
+    const totalAdjustedPayment = useMemo(
+        () => Number(ledgerRows.filter(row => row.status !== 'cancelled' && (row.entryCategory === 'invoice_payment_adjustment' || row.entryCategory === 'down_payment_adjustment')).reduce((sum, row) => sum + Number(row.adjustedAmount || 0), 0).toFixed(2)),
+        [ledgerRows]
+    );
+    const totalUnadjustedPayment = useMemo(
+        () => Number(ledgerRows.filter(row => row.type === 'payment' && row.status !== 'cancelled' && (row.entryCategory === 'invoice_payment' || row.entryCategory === 'down_payment')).reduce((sum, row) => {
+            const summary = getVoucherAllocationSummary(row);
+            return sum + Math.max(summary.remainingAmount, 0);
+        }, 0).toFixed(2)),
+        [ledgerRows]
+    );
+    const netPayable = useMemo(() => Number(Math.max(grossOutstanding - totalUnadjustedPayment, 0).toFixed(2)), [grossOutstanding, totalUnadjustedPayment]);
+
     const printVoucher = (entry: TransactionLedgerItem) => {
         if (!selectedDistributor) return;
         const popup = window.open('', '_blank', 'width=900,height=700');
@@ -557,10 +601,6 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             for (const allocation of allocations) {
                 const invoice = invoiceRows.find(row => row.id === allocation.invoiceId);
                 if (!invoice) continue;
-                if (new Date(invoice.date).getTime() < new Date(date).getTime()) {
-                    setSubmitError('This down payment cannot be adjusted against the selected invoice because the invoice date is earlier than the down payment date. Advance can only be adjusted against same-date or later invoices as per accounting control.');
-                    continue;
-                }
                 await onRecordDownPaymentAdjustment({
                     supplierId: selectedDistributor.id,
                     date,
@@ -578,6 +618,65 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
             setInvoiceAdjustments({});
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unable to post supplier down payment. Please try again.';
+            setSubmitError(message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const openVoucherAdjustmentModal = (voucher: TransactionLedgerItem) => {
+        const summary = getVoucherAllocationSummary(voucher);
+        if (voucher.status === 'cancelled' || summary.remainingAmount <= 0) return;
+        setAdjustmentVoucher(voucher);
+        setVoucherInvoiceAdjustments({});
+        setAdjustmentDate(new Date().toISOString().split('T')[0]);
+        setSubmitError('');
+    };
+
+    const handleVoucherAdjustmentSubmit = async () => {
+        if (!selectedDistributor || !adjustmentVoucher) return;
+        const summary = getVoucherAllocationSummary(adjustmentVoucher);
+        if (summary.remainingAmount <= 0) throw new Error('Selected voucher is already fully adjusted.');
+        const allocations = Object.entries(voucherInvoiceAdjustments)
+            .map(([invoiceId, allocated]) => ({ invoiceId, allocated: Number(allocated || 0) }))
+            .filter(({ allocated }) => allocated > 0);
+        if (allocations.length === 0) throw new Error('Enter at least one invoice allocation.');
+        const totalAllocation = allocations.reduce((sum, row) => sum + row.allocated, 0);
+        if (totalAllocation > summary.remainingAmount + 0.001) throw new Error('Cannot allocate more than voucher unadjusted balance.');
+
+        setIsSubmitting(true);
+        setSubmitError('');
+        try {
+            for (const allocation of allocations) {
+                const invoice = openPayableInvoiceRows.find((row) => row.id === allocation.invoiceId);
+                if (!invoice) throw new Error('One or more invoices are unavailable for adjustment.');
+                if (allocation.allocated > invoice.balance + 0.001) throw new Error(`Allocated amount exceeds pending balance for invoice ${invoice.invoiceNumber}.`);
+                if (adjustmentVoucher.entryCategory === 'down_payment') {
+                    await onRecordDownPaymentAdjustment({
+                        supplierId: selectedDistributor.id,
+                        date: adjustmentDate,
+                        downPaymentId: adjustmentVoucher.id,
+                        referenceInvoiceId: invoice.id,
+                        referenceInvoiceNumber: invoice.invoiceNumber,
+                        amount: allocation.allocated,
+                        description: 'Advance adjusted against old / pending invoice',
+                    });
+                } else {
+                    await onRecordInvoicePaymentAdjustment({
+                        supplierId: selectedDistributor.id,
+                        date: adjustmentDate,
+                        sourcePaymentId: adjustmentVoucher.id,
+                        referenceInvoiceId: invoice.id,
+                        referenceInvoiceNumber: invoice.invoiceNumber,
+                        amount: allocation.allocated,
+                        description: 'Payment adjusted against old / pending invoice',
+                    });
+                }
+            }
+            setAdjustmentVoucher(null);
+            setVoucherInvoiceAdjustments({});
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to adjust voucher against invoice.';
             setSubmitError(message);
         } finally {
             setIsSubmitting(false);
@@ -644,8 +743,12 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                 <div>
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Active Ledger Selection</p>
                                     <h2 className={`${uniformTextStyle} !text-4xl text-primary`}>{selectedDistributor.name}</h2>
-                                    <div className="mt-2 text-xs font-black uppercase text-gray-500">Current Payable: <span className="text-red-600 text-lg">₹{getOutstandingBalance(selectedDistributor).toFixed(2)}</span></div>
-                                    <div className="mt-1 text-xs font-black uppercase text-emerald-700">Available Advance: ₹{availableAdvanceBalance.toFixed(2)}</div>
+                                    <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-black uppercase">
+                                        <div className="text-gray-500">Gross Payable: <span className="text-red-600">₹{grossOutstanding.toFixed(2)}</span></div>
+                                        <div className="text-gray-500">Adjusted Payment: <span className="text-primary">₹{totalAdjustedPayment.toFixed(2)}</span></div>
+                                        <div className="text-emerald-700">Available Advance / Unadjusted Payment: ₹{totalUnadjustedPayment.toFixed(2)}</div>
+                                        <div className="text-gray-500">Net Outstanding Payable: <span className="text-red-700 text-lg">₹{netPayable.toFixed(2)}</span></div>
+                                    </div>
                                 </div>
                                 <div className="flex gap-2">
                                     <button type="button" onClick={openPaymentPanel} className="px-4 py-2 tally-button-primary text-xs uppercase font-black tracking-wider">Add Payment</button>
@@ -818,27 +921,40 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                 <p className="text-[10px] font-black uppercase tracking-wider mb-2">Supplier payment history / voucher history</p>
                                 <div className="overflow-auto border border-gray-200">
                                     <table className="min-w-full text-xs">
-                                        <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Payment Against</th><th className="p-2 text-left">Payment Mode</th><th className="p-2 text-left">Bank/Cash Account</th><th className="p-2 text-left">Narration</th><th className="p-2 text-left">Amount</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Voucher No.</th><th className="p-2 text-left">Actions</th></tr></thead>
+                                        <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Payment Against</th><th className="p-2 text-left">Payment Mode</th><th className="p-2 text-left">Bank/Cash Account</th><th className="p-2 text-left">Narration</th><th className="p-2 text-left">Voucher Amount</th><th className="p-2 text-left">Adjusted</th><th className="p-2 text-left">Unadjusted</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Voucher No.</th><th className="p-2 text-left">Actions</th></tr></thead>
                                         <tbody>
                                             {payableHistoryRows.length === 0 ? (
-                                                <tr><td className="p-3 text-center text-gray-500" colSpan={10}>No supplier payments posted yet.</td></tr>
+                                                <tr><td className="p-3 text-center text-gray-500" colSpan={12}>No supplier payments posted yet.</td></tr>
                                             ) : payableHistoryRows.map(item => (
                                                 <tr key={item.id} className="border-t">
+                                                    {(() => {
+                                                        const summary = getVoucherAllocationSummary(item);
+                                                        const isAdjustableVoucher = (item.entryCategory === 'invoice_payment' || item.entryCategory === 'down_payment') && item.status !== 'cancelled' && summary.remainingAmount > 0;
+                                                        return (
+                                                            <>
                                                     <td className="p-2">{formatDisplayDate(item.date)}</td>
                                                     <td className="p-2">{item.entryCategory === 'down_payment' ? 'DOWN PAYMENT' : item.entryCategory === 'down_payment_adjustment' ? 'DP ADJUSTMENT' : item.entryCategory === 'invoice_payment_adjustment' ? 'INVOICE ADJUSTMENT' : item.entryCategory === 'payment_cancellation' || item.entryCategory === 'down_payment_cancellation' ? 'CANCELLATION' : 'PAYMENT'}</td>
                                                     <td className="p-2">{item.referenceInvoiceNumber || item.referenceInvoiceId || '-'}</td>
                                                     <td className="p-2">{item.paymentMode || '-'}</td>
                                                     <td className="p-2">{item.bankName || '-'}</td>
                                                     <td className="p-2">{item.entryCategory === 'down_payment' ? 'Advance Paid' : item.description}</td>
-                                                    <td className="p-2 font-bold">₹{Number(item.adjustedAmount || getPaymentAmount(item)).toFixed(2)}</td>
-                                                    <td className="p-2">{item.status === 'cancelled' ? 'Cancelled' : 'Open'}</td>
+                                                    <td className="p-2 font-bold">₹{getPaymentAmount(item).toFixed(2)}</td>
+                                                    <td className="p-2">₹{summary.adjustedAmount.toFixed(2)}</td>
+                                                    <td className="p-2">₹{summary.remainingAmount.toFixed(2)}</td>
+                                                    <td className="p-2">{summary.status}</td>
                                                     <td className="p-2">{item.journalEntryNumber || item.journalEntryId || '-'}</td>
                                                     <td className="p-2 flex gap-2">
                                                         <button type="button" onClick={() => printVoucher(item)} className="px-2 py-1 border border-gray-300 font-bold uppercase text-[10px] hover:bg-gray-100">Print</button>
                                                         {(item.entryCategory === 'invoice_payment' || item.entryCategory === 'down_payment') && item.status !== 'cancelled' && (
                                                             <button type="button" onClick={() => handleCancelEntry(item)} className="px-2 py-1 border border-red-300 text-red-700 font-bold uppercase text-[10px] hover:bg-red-50">Cancel</button>
                                                         )}
+                                                        {isAdjustableVoucher && (
+                                                            <button type="button" onClick={() => openVoucherAdjustmentModal(item)} className="px-2 py-1 border border-primary text-primary font-bold uppercase text-[10px] hover:bg-blue-50">Adjust Payment</button>
+                                                        )}
                                                     </td>
+                                                            </>
+                                                        );
+                                                    })()}
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -867,6 +983,57 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
                                     </table>
                                 </div>
                             </div>
+                            <Modal isOpen={Boolean(adjustmentVoucher)} onClose={() => setAdjustmentVoucher(null)} title="Adjust Payment / Clear Against Invoice" widthClass="max-w-5xl">
+                                {adjustmentVoucher && (
+                                    <div className="space-y-4">
+                                        {(() => {
+                                            const summary = getVoucherAllocationSummary(adjustmentVoucher);
+                                            const voucherNumber = adjustmentVoucher.journalEntryNumber || adjustmentVoucher.journalEntryId || adjustmentVoucher.id;
+                                            return (
+                                                <>
+                                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                                                        <div><span className="font-black uppercase text-gray-500">Voucher No.</span><div>{voucherNumber}</div></div>
+                                                        <div><span className="font-black uppercase text-gray-500">Voucher Date</span><div>{formatDisplayDate(adjustmentVoucher.date)}</div></div>
+                                                        <div><span className="font-black uppercase text-gray-500">Party Name</span><div>{selectedDistributor.name}</div></div>
+                                                        <div><span className="font-black uppercase text-gray-500">Original Voucher Amount</span><div>₹{getPaymentAmount(adjustmentVoucher).toFixed(2)}</div></div>
+                                                        <div><span className="font-black uppercase text-gray-500">Already Adjusted</span><div>₹{summary.adjustedAmount.toFixed(2)}</div></div>
+                                                        <div><span className="font-black uppercase text-gray-500">Remaining Unadjusted</span><div>₹{summary.remainingAmount.toFixed(2)}</div></div>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                                                        <label className="text-xs font-black uppercase text-gray-500">Adjustment Date
+                                                            <input type="date" value={adjustmentDate} onChange={(e) => setAdjustmentDate(e.target.value)} className="mt-1 w-full border border-gray-300 p-2" />
+                                                        </label>
+                                                    </div>
+                                                    <div className="overflow-auto border border-gray-200">
+                                                        <table className="min-w-full text-xs">
+                                                            <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Invoice No.</th><th className="p-2 text-left">Invoice Date</th><th className="p-2 text-left">Invoice Amount</th><th className="p-2 text-left">Already Paid</th><th className="p-2 text-left">Outstanding</th><th className="p-2 text-left">Allocate Amount</th></tr></thead>
+                                                            <tbody>
+                                                                {openPayableInvoiceRows.length === 0 ? (
+                                                                    <tr><td colSpan={6} className="p-3 text-center text-gray-500">No open invoices available.</td></tr>
+                                                                ) : openPayableInvoiceRows.map((row) => (
+                                                                    <tr key={row.id} className="border-t">
+                                                                        <td className="p-2">{row.invoiceNumber}</td>
+                                                                        <td className="p-2">{formatDisplayDate(row.date)}</td>
+                                                                        <td className="p-2">₹{row.invoiceAmount.toFixed(2)}</td>
+                                                                        <td className="p-2">₹{row.paid.toFixed(2)}</td>
+                                                                        <td className="p-2">₹{row.balance.toFixed(2)}</td>
+                                                                        <td className="p-2"><input type="number" min={0} max={Math.min(row.balance, summary.remainingAmount)} value={voucherInvoiceAdjustments[row.id] ?? ''} onChange={e => setVoucherInvoiceAdjustments(prev => ({ ...prev, [row.id]: Math.min(parseFloat(e.target.value) || 0, row.balance) }))} className="w-full border border-gray-300 p-2" placeholder="Allocate" /></td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                    <div className="flex justify-end gap-2">
+                                                        <button type="button" onClick={() => setAdjustmentVoucher(null)} className="px-3 py-2 border border-gray-300 text-xs font-black uppercase">Close</button>
+                                                        <button type="button" disabled={isSubmitting} onClick={handleVoucherAdjustmentSubmit} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Adjusting...' : 'Adjust Payment'}</button>
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
+                                        {submitError && <p className="text-xs font-bold text-red-700">{submitError}</p>}
+                                    </div>
+                                )}
+                            </Modal>
                         </div>
                     ) : (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
