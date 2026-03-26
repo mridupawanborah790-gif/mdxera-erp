@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import Modal from './Modal';
 import JournalEntryViewerModal from './JournalEntryViewerModal';
-import type { Purchase, RegisteredPharmacy, PurchaseReturn } from '../types';
+import type { Purchase, RegisteredPharmacy, PurchaseReturn, AppConfigurations } from '../types';
 
 interface PurchaseDetailModalProps {
     isOpen: boolean;
@@ -10,9 +10,10 @@ interface PurchaseDetailModalProps {
     purchase: Purchase | null;
     purchaseReturns?: PurchaseReturn[];
     currentUser?: RegisteredPharmacy | null;
+    configurations?: AppConfigurations;
 }
 
-const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClose, purchase, purchaseReturns = [], currentUser }) => {
+const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClose, purchase, purchaseReturns = [], currentUser, configurations }) => {
     const [isJournalOpen, setIsJournalOpen] = React.useState(false);
     
     // Calculate returned quantities per item
@@ -77,6 +78,7 @@ const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClo
     const subtotal = purchase.subtotal ?? 0;
     const totalGst = purchase.totalGst ?? (purchase as any).total_gst ?? 0;
     const roundOff = purchase.roundOff ?? (purchase as any).round_off ?? 0;
+    const purchaseLineAmountMode = configurations?.displayOptions?.purchaseLineAmountCalculationMode || 'excluding_discount';
 
     const totalReturnVal = useMemo(() => {
         return purchaseReturns
@@ -137,7 +139,10 @@ const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClo
                                   const rate = item.purchasePrice;
                                   const disc = item.discountPercent;
                                   const schDisc = item.schemeDiscountAmount;
-                                  const lineTotal = (netQty * rate * (1 - disc/100)) - (netQty > 0 ? schDisc : 0);
+                                  const lineGross = netQty * rate;
+                                  const lineTotal = purchaseLineAmountMode === 'excluding_discount'
+                                      ? lineGross
+                                      : ((lineGross * (1 - disc / 100)) - (netQty > 0 ? schDisc : 0));
 
                                   return (
                                     <tr key={item.id || idx} className="hover:bg-slate-50 transition-colors">

@@ -4,7 +4,7 @@ import Modal from './Modal';
 import AddMedicineModal from './AddMedicineModal';
 import { AddSupplierModal } from './AddSupplierModal';
 import { extractPurchaseDetailsFromBill } from '../services/geminiService';
-import type { Purchase, InventoryItem, Supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, SupplierProductMap, Medicine, AppConfigurations, FileInput, Transaction } from '../types';
+import type { Purchase, InventoryItem, Supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, SupplierProductMap, Medicine, AppConfigurations, FileInput, Transaction, LineAmountCalculationMode } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import MobileSyncModal from './MobileSyncModal';
@@ -178,6 +178,20 @@ const getSyncStatusLabel = (status: MobileSyncStatus) => {
     }
 };
 
+const resolvePurchaseLineAmountMode = (configurations?: AppConfigurations): LineAmountCalculationMode => (
+    configurations?.displayOptions?.purchaseLineAmountCalculationMode || 'excluding_discount'
+);
+
+const calculatePurchaseLineBaseAmount = (item: PurchaseItem, mode: LineAmountCalculationMode): number => {
+    const gross = (item.purchasePrice || 0) * (item.quantity || 0);
+    if (mode === 'excluding_discount') return gross;
+    const tradeDisc = gross * ((item.discountPercent || 0) / 100);
+    const afterTrade = gross - tradeDisc;
+    const schemeDiscPercentAmount = afterTrade * ((item.schemeDiscountPercent || 0) / 100);
+    const schemeDisc = item.schemeDiscountAmount > 0 ? item.schemeDiscountAmount : schemeDiscPercentAmount;
+    return Math.max(0, afterTrade - schemeDisc);
+};
+
 interface PurchaseFormProps {
     onAddPurchase: (purchase: any, supplierGst: string, nextCounter?: number) => Promise<void>;
     onUpdatePurchase: (purchase: Purchase, supplierGst?: string) => Promise<void>;
@@ -261,6 +275,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
+    const purchaseLineAmountMode = useMemo(() => resolvePurchaseLineAmountMode(configurations), [configurations]);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
     const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
     const [isInsightsLoading, setIsInsightsLoading] = useState(false);
@@ -656,7 +671,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 discountPercent: Number(item.discountPercent || 0),
                 schemeDiscountPercent: Number(item.schemeDiscountPercent || 0),
                 schemeDiscountAmount: Number(item.schemeDiscountAmount || 0),
-                lineBaseAmount: Number(item.purchasePrice || 0) * Number(item.quantity || 0),
+                lineBaseAmount: calculatePurchaseLineBaseAmount(item as PurchaseItem, purchaseLineAmountMode),
                 matchStatus: (item.inventoryItemId) ? 'matched' as const : 'pending' as const
             }));
 
@@ -679,7 +694,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             // Focus Date on new voucher
             setTimeout(() => dateInputRef.current?.focus(), 200);
         }
-    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, draftInvoiceNumber, draftDate, draftSourceId, attemptAutoLink, resetFormForNewEntry, lockImportUIReset, purchaseVoucherDraft, voucherScreenOpen]);
+    }, [purchaseToEdit, draftItems, suppliers, draftSupplier, draftInvoiceNumber, draftDate, draftSourceId, attemptAutoLink, resetFormForNewEntry, lockImportUIReset, purchaseVoucherDraft, voucherScreenOpen, purchaseLineAmountMode]);
 
     const calculatedTotals = useMemo(() => {
         const billDiscount = 0;
@@ -708,7 +723,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
             return {
                 ...p,
-                lineBaseAmount: gross,
+                lineBaseAmount: calculatePurchaseLineBaseAmount(p, purchaseLineAmountMode),
                 taxableValue: taxable,
                 gstAmount: gst,
                 itemGrossValue: gross,
@@ -735,7 +750,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             totalItemDiscount,
             totalItemSchemeDiscount
         };
-    }, [items]);
+    }, [items, purchaseLineAmountMode]);
 
     const hasDuplicateSupplierInvoice = useCallback(() => {
         const normalizedSupplier = supplier.toLowerCase().trim();
@@ -1213,7 +1228,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (field === 'expiry') { updatedItem.expiry = normalizeExpiryInput(String(value)); }
             if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
             if (field === 'quantity' || field === 'purchasePrice') {
-                updatedItem.lineBaseAmount = (Number(updatedItem.purchasePrice || 0) * Number(updatedItem.quantity || 0));
+                updatedItem.lineBaseAmount = calculatePurchaseLineBaseAmount(updatedItem, purchaseLineAmountMode);
             }
             const updated = prev.map(p => p.id === id ? updatedItem : p);
             if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
@@ -2149,7 +2164,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                     />
                                                 </td>
                                             )}
-                                            {isFieldVisible('colAmount') && <td className={`p-1 text-right font-black font-mono whitespace-nowrap ${isActive ? 'text-white' : 'text-gray-950'} ${uniformTextStyle}`}>₹{((p.purchasePrice || 0) * (p.quantity || 0)).toFixed(2)}</td>}
+                                            {isFieldVisible('colAmount') && <td className={`p-1 text-right font-black font-mono whitespace-nowrap ${isActive ? 'text-white' : 'text-gray-950'} ${uniformTextStyle}`}>₹{calculatePurchaseLineBaseAmount(p, purchaseLineAmountMode).toFixed(2)}</td>}
                                         </tr>
                                     );
                                 })}

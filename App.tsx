@@ -2098,6 +2098,7 @@ const App: React.FC = () => {
                     onProcessReturn={() => { }}
                     currentUser={currentUser}
                     salesReturns={salesReturns}
+                    configurations={configurations}
                 />            )}
             {viewPurchase && (
                 <PurchaseDetailModal 
@@ -2105,7 +2106,8 @@ const App: React.FC = () => {
                     onClose={() => setViewPurchase(null)} 
                     purchase={viewPurchase} 
                     purchaseReturns={purchaseReturns}
-                    currentUser={currentUser} 
+                    currentUser={currentUser}
+                    configurations={configurations}
                 />
             )}
             {printPO && <PrintPurchaseOrderModal isOpen={!!printPO} onClose={() => setPrintPO(null)} purchaseOrder={printPO as any} pharmacy={currentUser} />}
