@@ -127,6 +127,7 @@ const App: React.FC = () => {
     const [bankOptions, setBankOptions] = useState<Array<{ id: string; bankName: string; accountName: string; accountNumber: string; linkedBankGlId?: string; defaultBank?: boolean; activeStatus?: string }>>([]);
 
     const [sourceChallansForPurchase, setSourceChallansForPurchase] = useState<{ items: PurchaseItem[], supplier: string, ids: string[] } | null>(null);
+    const [purchaseCopyDraft, setPurchaseCopyDraft] = useState<{ sourceId: string; items: PurchaseItem[]; supplier: string; invoiceNumber: string; date: string } | null>(null);
     const [mobileSyncSessionId, setMobileSyncSessionId] = useState<string | null>(null);
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
     const [editingSale, setEditingSale] = useState<Transaction | null>(null);
@@ -573,6 +574,7 @@ const App: React.FC = () => {
         setCurrentPage(resolvedPageId);
         if (resolvedPageId !== 'manualSupplierInvoice' && resolvedPageId !== 'manualPurchaseEntry' && resolvedPageId !== 'automatedPurchaseEntry') {
             setEditingPurchase(null);
+            setPurchaseCopyDraft(null);
         }
     }, [currentPage, shouldPromptBeforeLeaving]);
 
@@ -1702,8 +1704,12 @@ const App: React.FC = () => {
                         onAddPurchase={handleAddPurchase} onUpdatePurchase={handleUpdatePurchase}
                         inventory={inventory} suppliers={suppliers} medicines={medicines}
                         mappings={mappings} purchases={purchases} purchaseToEdit={editingPurchase}
-                        draftItems={null}
-                        onClearDraft={() => { }}
+                        draftItems={purchaseCopyDraft?.items || null}
+                        draftSupplier={purchaseCopyDraft?.supplier}
+                        draftInvoiceNumber={purchaseCopyDraft?.invoiceNumber}
+                        draftDate={purchaseCopyDraft?.date}
+                        draftSourceId={purchaseCopyDraft?.sourceId}
+                        onClearDraft={() => setPurchaseCopyDraft(null)}
                         currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
                         onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                         setIsDirty={() => { }} addNotification={addNotification}
@@ -1734,7 +1740,23 @@ const App: React.FC = () => {
                     return <PurchaseHistory
                         purchases={purchases} distributors={suppliers} onViewDetails={setViewPurchase}
                         onCancelPurchase={handleCancelPurchase} inventory={inventory} medicines={medicines}
-                        onUpdatePurchase={handleUpdatePurchase} onEditPurchase={(p) => { setEditingPurchase(p); handleNavigate('manualPurchaseEntry'); }}
+                        onUpdatePurchase={handleUpdatePurchase}
+                        onEditPurchase={(p) => {
+                            setPurchaseCopyDraft(null);
+                            setEditingPurchase(p);
+                            handleNavigate('manualPurchaseEntry');
+                        }}
+                        onCopyPurchase={(p) => {
+                            setEditingPurchase(null);
+                            setPurchaseCopyDraft({
+                                sourceId: p.id,
+                                items: (p.items || []).map(item => ({ ...item, id: storage.generateUUID() })),
+                                supplier: p.supplier || '',
+                                invoiceNumber: p.invoiceNumber || '',
+                                date: p.date ? p.date.split('T')[0] : new Date().toISOString().split('T')[0],
+                            });
+                            handleNavigate('manualPurchaseEntry');
+                        }}
                         onCreateReturn={(p) => { setPurchaseReturnPrefillInvoiceId(p.id); handleNavigate('purchaseReturn'); }}
                         purchaseReturns={purchaseReturns}
                         onRefresh={async () => loadData(currentUser!, 'background')}
