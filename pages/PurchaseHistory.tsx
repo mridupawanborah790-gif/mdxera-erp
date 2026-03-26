@@ -28,6 +28,7 @@ interface PurchaseHistoryProps {
     onViewDetails: (purchase: Purchase) => void;
     onCancelPurchase: (purchaseId: string) => void;
     onEditPurchase?: (purchase: Purchase) => void;
+    onCopyPurchase?: (purchase: Purchase) => void;
     onCreateReturn?: (purchase: Purchase) => void;
     inventory: InventoryItem[];
     medicines: Medicine[];
@@ -57,6 +58,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     onCancelPurchase,
     currentUser,
     onEditPurchase,
+    onCopyPurchase,
     onCreateReturn,
     purchaseReturns,
     onRefresh,
@@ -166,6 +168,21 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         const latestSelected = purchases.find((p) => p.id === purchase.id) || purchase;
         onEditPurchase(latestSelected);
     }, [requireSelectedPurchase, currentUser, onEditPurchase, purchases]);
+
+    const handleCopySelected = useCallback(() => {
+        const purchase = requireSelectedPurchase();
+        if (!purchase) return;
+
+        const hasCopyPermission = ['owner', 'admin', 'manager', 'purchase'].includes(currentUser?.role || '');
+        if (!hasCopyPermission || !onCopyPurchase) {
+            setActionWarning('Selected bill cannot be copied.');
+            return;
+        }
+
+        setActionWarning('');
+        const latestSelected = purchases.find((p) => p.id === purchase.id) || purchase;
+        onCopyPurchase(latestSelected);
+    }, [requireSelectedPurchase, currentUser, onCopyPurchase, purchases]);
 
     const handleReturnSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
@@ -347,6 +364,9 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             } else if (e.key === 'F5') {
                 e.preventDefault();
                 handleRefresh();
+            } else if (e.key === 'F9') {
+                e.preventDefault();
+                handleCopySelected();
             }
         };
 
@@ -363,6 +383,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         handleCancelSelected,
         handleExportSelected,
         handleRefresh,
+        handleCopySelected,
     ]);
 
     const totalValue = useMemo(() => filteredAndSortedPurchases.reduce((sum, p) => sum + (p.status !== 'cancelled' ? p.totalAmount : 0), 0), [filteredAndSortedPurchases]);
@@ -450,6 +471,8 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                         <div className="flex flex-wrap gap-2">
                             <button disabled={!selectedPurchase} onClick={handleViewSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Enter: View</button>
                             <button disabled={!selectedPurchase || !['owner', 'admin', 'manager'].includes(currentUser?.role || '')} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
+                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager'].includes(currentUser?.role || '')} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Modify Purchase Bill</button>
+                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager', 'purchase'].includes(currentUser?.role || '')} onClick={handleCopySelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F9: Copy Purchase Bill</button>
                             <button disabled={!selectedPurchase || !['owner', 'admin', 'manager', 'purchase'].includes(currentUser?.role || '')} onClick={handleReturnSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Purchase Return</button>
                             <button disabled={!selectedPurchase} onClick={handleViewJournalSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F7: View Journal Entry</button>
                             <button disabled={!selectedPurchase} onClick={handlePrintSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F8: Print</button>

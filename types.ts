@@ -131,6 +131,7 @@ export type DiscountValueType = 'flat' | 'percentage';
 export type DiscCalculationBase = 'mrp' | 'ptr' | 'selling_price' | 'net_amount' | 'total_amount';
 export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount' | 'ask_user';
 export type TaxCalculationBaseOption = 'subtotal' | 'after_trade_discount' | 'after_all_discounts';
+export type LineAmountCalculationMode = 'excluding_discount' | 'including_discount';
 
 export interface AppConfigurations {
     id?: string;
@@ -164,6 +165,8 @@ export interface AppConfigurations {
         printCopies?: number;
         schemeDiscountCalculationBase?: SchemeDiscountCalculationBase;
         taxCalculationBase?: TaxCalculationBaseOption;
+        purchaseLineAmountCalculationMode?: LineAmountCalculationMode;
+        posLineAmountCalculationMode?: LineAmountCalculationMode;
         pricingMode?: 'mrp' | 'rate';
         pharmacy_logo_url?: string;
         dashboard_logo_url?: string;
@@ -603,6 +606,7 @@ export interface Customer {
     opening_balance?: number;
     customerGroup?: string;
     controlGlId?: string;
+    enableCreditLimit?: boolean;
     creditLimit?: number;
     creditDays?: number;
     creditStatus?: 'active' | 'blocked';
