@@ -143,7 +143,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
                     {isNonGst ? 'Estimate' : 'Tax Invoice'}
                 </h2>
                 <div className="mt-2 text-[8pt] font-bold">
-                    <p>INV NO: <span className="font-mono text-blue-900">{bill.id}</span></p>
+                    <p>INV NO: <span className="font-mono text-blue-900">{bill.invoiceNumber || bill.id}</span></p>
                     <p>DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</p>
                 </div>
             </div>

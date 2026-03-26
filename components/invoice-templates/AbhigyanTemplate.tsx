@@ -129,7 +129,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
           <div className="grid grid-cols-2">
               <div className="p-1 border-r border-b border-black">
                   <p className="text-[7pt] font-bold text-gray-500 uppercase leading-none">Invoice No.</p>
-                  <p className="font-bold text-[9pt]">{bill.id}</p>
+                  <p className="font-bold text-[9pt]">{bill.invoiceNumber || bill.id}</p>
               </div>
               <div className="p-1 border-b border-black">
                   <p className="text-[7pt] font-bold text-gray-500 uppercase leading-none">Dated</p>

@@ -372,6 +372,7 @@ const POS = forwardRef<any, POSProps>(({
 
         const transaction: Transaction = {
             id: generatedId,
+            invoiceNumber: generatedId, // Fallback, will be overridden by real reservation in handleSave if using that
             organization_id: currentUser?.organization_id || '',
             date: new Date(invoiceDate).toISOString(),
             customerName: selectedCustomer?.name || customerSearch || 'Walking Customer',
@@ -401,7 +402,7 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch('');
             setLumpsumDiscount(0);
             setReferredBy('');
-            addNotification(`Bill saved successfully. Bill No: ${transaction.id}`, "success");
+            addNotification(`Bill saved successfully. Bill No: ${transaction.invoiceNumber || transaction.id}`, "success");
             fetchStats();
         } catch (e: any) {
             const errorMessage = e?.message || String(e) || "Unknown error";
@@ -1832,7 +1833,7 @@ const POS = forwardRef<any, POSProps>(({
                                 <span className="shrink-0 font-black text-primary">₹{sale.total.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between text-[10px] text-gray-500 font-bold uppercase">
-                                <span>{sale.id}</span>
+                                <span>{sale.invoiceNumber || sale.id}</span>
                                 <span>{sale.date}</span>
                             </div>
                             <div className="mt-1 flex items-center gap-2">

@@ -227,7 +227,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                   <h2 className="text-lg font-black uppercase tracking-[0.2em] text-gray-900 leading-none">{isNonGst ? 'ESTIMATE' : 'GST INVOICE'}</h2>
               </div>
               <div className="p-0.5 pl-2 flex flex-col justify-center text-[8pt]">
-                  <p className="font-bold leading-none">INV: <span className="font-mono font-black text-blue-900">{bill.id}</span></p>
+                  <p className="font-bold leading-none">INV: <span className="font-mono font-black text-blue-900">{bill.invoiceNumber || bill.id}</span></p>
                   <p className="font-bold uppercase text-[6.5pt] mt-0.5">DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</p>
               </div>
           </div>

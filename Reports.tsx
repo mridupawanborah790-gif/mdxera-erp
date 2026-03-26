@@ -53,9 +53,10 @@ const Reports: React.FC<ReportsProps> = ({
         switch (reportId) {
             case 'salesRegister':
                 title = 'Sales Register';
-                headers = ['Invoice ID', 'Date', 'Customer Name', 'Total Amount', 'Items Count', 'Payment Mode', 'Status'];
+                headers = ['Invoice ID', 'Invoice Number', 'Date', 'Customer Name', 'Total Amount', 'Items Count', 'Payment Mode', 'Status'];
                 filteredData = applyDateFilter(transactions).map(tx => ({
                     'Invoice ID': tx.id,
+                    'Invoice Number': tx.invoiceNumber || tx.id,
                     'Date': new Date(tx.date).toLocaleDateString('en-GB'),
                     'Customer Name': tx.customerName,
                     'Total Amount': tx.total,

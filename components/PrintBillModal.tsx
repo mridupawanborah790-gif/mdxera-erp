@@ -43,7 +43,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   const triggerBrowserPrint = () => {
     const originalTitle = document.title;
     const sanitizedCustomerName = (bill.customerName || 'Customer').replace(/[^a-z0-9]/gi, '_');
-    document.title = `Invoice_${bill.id}_${sanitizedCustomerName}`;
+    const invoiceNo = bill.invoiceNumber || bill.id;
+    document.title = `Invoice_${invoiceNo}_${sanitizedCustomerName}`;
     
     // Use a tiny delay to ensure title update and template renders are flushed
     setTimeout(() => {
@@ -68,8 +69,9 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     }
     
     const phone = rawPhone.replace(/[^0-9]/g, '');
+    const invoiceNo = bill.invoiceNumber || bill.id;
     /* Fixed: Changed pharmacyName to pharmacy_name for RegisteredPharmacy type */
-    const message = `Greetings from ${bill.pharmacy.pharmacy_name}. Please find your Invoice #${bill.id} attached. Total Payable: ₹${bill.total.toFixed(2)}. Thank you!`;
+    const message = `Greetings from ${bill.pharmacy.pharmacy_name}. Please find your Invoice #${invoiceNo} attached. Total Payable: ₹${bill.total.toFixed(2)}. Thank you!`;
 
     if (typeof html2pdf === 'undefined') {
         alert("PDF generation library is not loaded. Please try printing to PDF instead.");
@@ -81,7 +83,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     const element = document.getElementById('print-area');
     const opt = {
         margin: 0,
-        filename: `Invoice_${bill.id}.pdf`,
+        filename: `Invoice_${invoiceNo}.pdf`,
         image: { type: 'jpeg', quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
         jsPDF: {
@@ -94,12 +96,12 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     try {
         const worker = html2pdf().set(opt).from(element).toPdf();
         const pdfBlob = await worker.output('blob').then((blob: Blob) => blob);
-        const pdfFile = new File([pdfBlob], `Invoice_${bill.id}.pdf`, { type: 'application/pdf' });
+        const pdfFile = new File([pdfBlob], `Invoice_${invoiceNo}.pdf`, { type: 'application/pdf' });
 
         if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
             await navigator.share({
                 files: [pdfFile],
-                title: `Invoice ${bill.id}`,
+                title: `Invoice ${invoiceNo}`,
                 text: message
             });
         } else {

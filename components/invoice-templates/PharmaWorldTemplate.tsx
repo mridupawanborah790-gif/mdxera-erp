@@ -117,7 +117,7 @@ const PharmaWorldTemplate: React.FC<TemplateProps> = ({ bill }) => {
               </>
           </div>
           <div className="pl-2">
-            <p><strong>Invoice No.:</strong> {bill.id}</p>
+            <p><strong>Invoice No.:</strong> {bill.invoiceNumber || bill.id}</p>
             <p><strong>Inv. Date:</strong> {new Date(bill.date).toLocaleDateString('en-IN')}</p>
           </div>
       </div>

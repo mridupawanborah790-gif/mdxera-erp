@@ -312,6 +312,7 @@ export interface BillItem {
 
 export interface Transaction {
     id: string;
+    invoiceNumber?: string;
     organization_id: string;
     user_id?: string; 
     date: string;
@@ -777,6 +778,7 @@ export interface SalesReturn {
     organization_id: string;
     date: string;
     originalInvoiceId: string;
+    originalInvoiceNumber?: string;
     customerName: string;
     customerId?: string | null;
     items: SalesReturnItem[];

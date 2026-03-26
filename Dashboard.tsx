@@ -158,7 +158,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                                             <tbody className="divide-y divide-gray-100">
                                                 {transactions.slice(0, 15).map(tx => (
                                                     <tr key={tx.id} className="hover:bg-accent transition-colors cursor-pointer group">
-                                                        <td className="p-4 font-black font-mono text-primary group-hover:text-black">{tx.id}</td>
+                                                        <td className="p-4 font-black font-mono text-primary group-hover:text-black">{tx.invoiceNumber || tx.id}</td>
                                                         <td className="p-4 truncate font-bold group-hover:text-black uppercase">{tx.customerName}</td>
                                                         <td className="p-4 text-right font-black group-hover:text-black font-mono">₹{tx.total}</td>
                                                     </tr>

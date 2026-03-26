@@ -315,7 +315,7 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
         .from('sales_bill')
         .select('id')
         .eq('organization_id', currentUser.organization_id)
-        .eq('id', voucherNo)
+        .eq('invoice_number', voucherNo)
         .maybeSingle();
       if (duplicate?.id) return `Voucher number ${voucherNo} already exists.`;
     }
@@ -325,7 +325,8 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
   const buildTransaction = (status: 'draft' | 'completed', docNumber: string): Transaction => {
     const selectedCustomer = customers.find((c) => c.id === customerId);
     return {
-      id: docNumber,
+      id: crypto.randomUUID(),
+      invoiceNumber: docNumber,
       organization_id: currentUser!.organization_id,
       user_id: currentUser!.user_id,
       date,
@@ -635,7 +636,7 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
                   <span className="shrink-0 font-black text-primary">₹{sale.total.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-[9px] text-gray-400 font-bold uppercase">
-                  <span>{sale.id}</span>
+                  <span>{sale.invoiceNumber || sale.id}</span>
                   <span>{(sale.date || '').split('T')[0]}</span>
                 </div>
               </div>
