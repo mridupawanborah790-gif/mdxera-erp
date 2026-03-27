@@ -1,4 +1,108 @@
 import type { Customer, Distributor } from '../types';
+import type { TransactionLedgerItem } from '../types';
+
+const round2 = (value: number): number => Number((Number(value || 0)).toFixed(2));
+
+const getLedgerAmount = (entry: TransactionLedgerItem): number => {
+    const credit = Number(entry.credit || 0);
+    if (credit > 0) return credit;
+    return Number(entry.debit || 0);
+};
+
+const getOpeningBalanceSignedFromLedger = (ledger: TransactionLedgerItem[]): number | null => {
+    const openingEntries = ledger.filter((entry) => entry && entry.type === 'openingBalance' && entry.status !== 'cancelled');
+    if (openingEntries.length === 0) return null;
+    return round2(openingEntries.reduce((sum, entry) => sum + Number(entry.credit || 0) - Number(entry.debit || 0), 0));
+};
+
+const getLinkedAdjustedAmount = (ledger: TransactionLedgerItem[], paymentEntry: TransactionLedgerItem): number => {
+    if (!paymentEntry?.id) return 0;
+    const adjusted = ledger
+        .filter((row) => row && row.status !== 'cancelled')
+        .reduce((sum, row) => {
+            if (paymentEntry.entryCategory === 'down_payment' && row.entryCategory === 'down_payment_adjustment' && row.sourceDownPaymentId === paymentEntry.id) {
+                return sum + Number(row.adjustedAmount || 0);
+            }
+            if (paymentEntry.entryCategory !== 'down_payment' && row.entryCategory === 'invoice_payment_adjustment' && row.sourcePaymentId === paymentEntry.id) {
+                return sum + Number(row.adjustedAmount || 0);
+            }
+            return sum;
+        }, 0);
+    return round2(adjusted);
+};
+
+export interface SupplierPayableBreakdown {
+    openingBalanceSigned: number;
+    purchaseInvoices: number;
+    purchaseReturns: number;
+    adjustedPayments: number;
+    unadjustedAdvanceSigned: number;
+    grossPayable: number;
+    netOutstanding: number;
+}
+
+export const calculateSupplierPayableBreakdown = (supplier: Distributor | null | undefined): SupplierPayableBreakdown => {
+    if (!supplier) {
+        return {
+            openingBalanceSigned: 0,
+            purchaseInvoices: 0,
+            purchaseReturns: 0,
+            adjustedPayments: 0,
+            unadjustedAdvanceSigned: 0,
+            grossPayable: 0,
+            netOutstanding: 0,
+        };
+    }
+
+    const ledger = Array.isArray(supplier.ledger) ? supplier.ledger.filter(Boolean) : [];
+    const openingFromLedger = getOpeningBalanceSignedFromLedger(ledger);
+    const openingBalanceSigned = round2(openingFromLedger ?? Number((supplier as any).opening_balance || (supplier as any).openingBalance || 0));
+
+    const purchaseInvoices = round2(
+        ledger
+            .filter((row) => row.status !== 'cancelled' && row.type === 'purchase')
+            .reduce((sum, row) => sum + Number(row.debit || 0), 0)
+    );
+
+    const purchaseReturns = round2(
+        ledger
+            .filter((row) => row.status !== 'cancelled' && row.type === 'return')
+            .reduce((sum, row) => sum + Number(row.credit || 0), 0)
+    );
+
+    const adjustedPayments = round2(
+        ledger
+            .filter((row) => row.status !== 'cancelled' && (row.entryCategory === 'invoice_payment_adjustment' || row.entryCategory === 'down_payment_adjustment'))
+            .reduce((sum, row) => sum + Number(row.adjustedAmount || 0), 0)
+    );
+
+    const paymentVouchers = ledger.filter(
+        (row) =>
+            row.status !== 'cancelled' &&
+            row.type === 'payment' &&
+            (row.entryCategory === 'invoice_payment' || row.entryCategory === 'down_payment')
+    );
+
+    const unadjustedAdvanceSigned = round2(
+        paymentVouchers.reduce((sum, row) => {
+            const remaining = Math.max(round2(getLedgerAmount(row) - getLinkedAdjustedAmount(ledger, row)), 0);
+            return sum - remaining;
+        }, 0)
+    );
+
+    const grossPayable = round2(openingBalanceSigned + purchaseInvoices - purchaseReturns - adjustedPayments);
+    const netOutstanding = round2(grossPayable + unadjustedAdvanceSigned);
+
+    return {
+        openingBalanceSigned,
+        purchaseInvoices,
+        purchaseReturns,
+        adjustedPayments,
+        unadjustedAdvanceSigned,
+        grossPayable,
+        netOutstanding,
+    };
+};
 
 /**
  * Calculates the outstanding balance for a given customer or distributor.
@@ -6,6 +110,11 @@ import type { Customer, Distributor } from '../types';
  */
 export const getOutstandingBalance = (entity: Customer | Distributor | null | undefined): number => {
     if (!entity) return 0;
+
+    const looksLikeSupplier = 'supplier_group' in (entity as any) || 'control_gl_id' in (entity as any);
+    if (looksLikeSupplier) {
+        return calculateSupplierPayableBreakdown(entity as Distributor).netOutstanding;
+    }
     
     // 1. Check if there are entries in the ledger
     if (Array.isArray(entity.ledger) && entity.ledger.length > 0) {
