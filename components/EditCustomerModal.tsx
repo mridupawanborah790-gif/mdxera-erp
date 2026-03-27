@@ -44,6 +44,8 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
         if (isOpen) {
             setFormData({
                 ...customer,
+                controlGlCode: customer.controlGlCode || '',
+                controlGlName: customer.controlGlName || '',
                 enableCreditLimit: customer.enableCreditLimit ?? Number(customer.creditLimit || 0) > 0,
             });
         }
@@ -144,7 +146,7 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
                         <label className="block text-sm font-medium text-app-text-secondary">Customer Control GL</label>
                         <input
                             type="text"
-                            value={formData.controlGlId || defaultControlGlId ? `Mapped (${formData.controlGlId || defaultControlGlId})` : 'Auto-map from Company Configuration'}
+                            value={formData.controlGlCode ? `${formData.controlGlCode} - ${formData.controlGlName}` : (formData.controlGlId || defaultControlGlId ? `Mapped (${formData.controlGlId || defaultControlGlId})` : 'Auto-map from Company Configuration')}
                             readOnly
                             className="mt-1 block w-full p-2 border border-app-border rounded-md bg-gray-100 dark:bg-gray-800"
                         />

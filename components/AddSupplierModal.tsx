@@ -47,7 +47,9 @@ const createInitialState = (): Omit<Supplier, 'ledger' | 'organization_id'> => (
     is_blocked: false,
     remarks: '',
     supplier_group: 'Sundry Creditors',
-    control_gl_id: ''
+    control_gl_id: '',
+    control_gl_code: '',
+    control_gl_name: ''
 });
 
 export const AddSupplierModal: React.FC<{
@@ -186,7 +188,12 @@ export const AddSupplierModal: React.FC<{
                             </div>
                             <div>
                                 <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Control GL</label>
-                                <input type="text" readOnly value={form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
+                                <input 
+                                    type="text" 
+                                    readOnly 
+                                    value={form.control_gl_code ? `${form.control_gl_code} - ${form.control_gl_name}` : (form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration')} 
+                                    className="w-full border border-gray-400 p-2 text-sm bg-gray-100" 
+                                />
                             </div>
                         </div>
                     </section>
@@ -343,6 +350,8 @@ export const EditSupplierModal: React.FC<{
             setForm({
                 ...supplier,
                 control_gl_id: supplier.control_gl_id || defaultControlGlId || '',
+                control_gl_code: supplier.control_gl_code || '',
+                control_gl_name: supplier.control_gl_name || '',
                 address_line1: supplier.address_line1 || supplier.address || '',
                 address: supplier.address_line1 || supplier.address || '',
                 payment_details: { 
@@ -438,7 +447,12 @@ export const EditSupplierModal: React.FC<{
                         </div>
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Control GL</label>
-                            <input type="text" readOnly value={form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
+                            <input 
+                                type="text" 
+                                readOnly 
+                                value={form.control_gl_code ? `${form.control_gl_code} - ${form.control_gl_name}` : (form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration')} 
+                                className="w-full border border-gray-400 p-2 text-sm bg-gray-100" 
+                            />
                         </div>
                     </div>
                 </section>

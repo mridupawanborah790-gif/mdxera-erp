@@ -571,6 +571,8 @@ export interface Supplier {
     remarks?: string;
     supplier_group?: string;
     control_gl_id?: string;
+    control_gl_code?: string;
+    control_gl_name?: string;
     created_at?: string;
     updated_at?: string;
 }
@@ -606,6 +608,8 @@ export interface Customer {
     opening_balance?: number;
     customerGroup?: string;
     controlGlId?: string;
+    controlGlCode?: string;
+    controlGlName?: string;
     enableCreditLimit?: boolean;
     creditLimit?: number;
     creditDays?: number;

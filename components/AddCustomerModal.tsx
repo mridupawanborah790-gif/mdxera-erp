@@ -55,6 +55,8 @@ const initialState = {
     assignedStaffName: '',
     organization_id: '',
     controlGlId: '',
+    controlGlCode: '',
+    controlGlName: '',
     enableCreditLimit: false,
     creditLimit: 0,
     creditDays: 0,
@@ -82,7 +84,13 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
     }, [formData]);
 
     useEffect(() => {
-        if (isOpen) setFormData({ ...initialState, organization_id: organizationId, controlGlId: effectiveControlGlId });
+        if (isOpen) setFormData({ 
+            ...initialState, 
+            organization_id: organizationId, 
+            controlGlId: effectiveControlGlId,
+            controlGlCode: '',
+            controlGlName: ''
+        });
     }, [isOpen, organizationId, effectiveControlGlId]);
 
     const handleCloseAttempt = () => {
@@ -199,7 +207,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
                             <label className="block text-sm font-medium text-app-text-secondary">Customer Control GL</label>
                             <input
                                 type="text"
-                                value={effectiveControlGlId ? `Mapped (${effectiveControlGlId})` : 'Auto-map from Set of Books'}
+                                value={formData.controlGlCode ? `${formData.controlGlCode} - ${formData.controlGlName}` : (effectiveControlGlId ? `Mapped (${effectiveControlGlId})` : 'Auto-map from Set of Books')}
                                 readOnly
                                 className="mt-1 block w-full p-2 border border-app-border rounded-md bg-gray-100 dark:bg-gray-800"
                             />

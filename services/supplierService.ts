@@ -71,8 +71,10 @@ export const createSupplierQuick = async (
         name,
         supplier_group: supplierPayload.supplier_group || 'Sundry Creditors',
         control_gl_id: supplierPayload.control_gl_id || context.defaultControlGlId || '',
+        control_gl_code: supplierPayload.control_gl_code || '',
+        control_gl_name: supplierPayload.control_gl_name || '',
         updated_at: now,
-    };
+        };
 
     if (!supplierPayload.id) payload.created_at = now;
 
