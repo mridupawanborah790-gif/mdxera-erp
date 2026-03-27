@@ -130,6 +130,17 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
         setActionWarning('');
     };
 
+    const hasLinkedPayments = useCallback((tx: Transaction) => {
+        const customer = customers.find(c => c.id === tx.customerId || (c.name && c.name.trim().toLowerCase() === (tx.customerName || '').trim().toLowerCase()));
+        if (!customer || !customer.ledger) return false;
+
+        return customer.ledger.some((entry: any) => 
+            entry.status !== 'cancelled' && 
+            entry.referenceInvoiceId === tx.id &&
+            (entry.type === 'payment' || (entry.entryCategory && entry.entryCategory.includes('payment')))
+        );
+    }, [customers]);
+
     const handleViewSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
         if (!tx) return;
@@ -145,9 +156,14 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
             return;
         }
 
+        if (hasLinkedPayments(tx)) {
+            setActionWarning('Cannot edit this bill because a payment has already been received against it. Please cancel the linked payment voucher in Accounts Receivable first.');
+            return;
+        }
+
         setActionWarning('');
         onEditSale(tx);
-    }, [requireSelectedTransaction, onEditSale]);
+    }, [requireSelectedTransaction, onEditSale, hasLinkedPayments]);
 
     const handleReturnOrderSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
@@ -155,6 +171,11 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
 
         if (tx.status !== 'completed') {
             setActionWarning('Selected invoice is not eligible for return.');
+            return;
+        }
+
+        if (hasLinkedPayments(tx)) {
+            setActionWarning('Cannot process return for this bill because a payment has already been received. Please reverse payments before modifying billing state.');
             return;
         }
 
@@ -171,7 +192,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
 
         setActionWarning('');
         onCreateReturn(tx);
-    }, [requireSelectedTransaction, onCreateReturn, salesReturns]);
+    }, [requireSelectedTransaction, onCreateReturn, salesReturns, hasLinkedPayments]);
 
     const handleViewJournalSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
@@ -193,8 +214,15 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
             setActionWarning('Selected invoice is already cancelled.');
             return;
         }
+
+        if (hasLinkedPayments(tx)) {
+            setActionWarning('Cannot cancel this bill because a payment has already been received against it. Please cancel the linked payment voucher in Accounts Receivable first.');
+            return;
+        }
+
+        setActionWarning('');
         handleCancelClick(tx.id);
-    }, [requireSelectedTransaction]);
+    }, [requireSelectedTransaction, hasLinkedPayments]);
 
     const handleExportSelected = useCallback(() => {
         const tx = requireSelectedTransaction();

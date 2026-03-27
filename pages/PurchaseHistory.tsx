@@ -148,6 +148,17 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         setActionWarning('');
     };
 
+    const hasLinkedPayments = useCallback((purchase: Purchase) => {
+        const distributor = distributors.find((d: Distributor) => (d.name || '').trim().toLowerCase() === (purchase.supplier || '').trim().toLowerCase());
+        if (!distributor || !distributor.ledger) return false;
+
+        return distributor.ledger.some((entry: any) => 
+            entry.status !== 'cancelled' && 
+            entry.referenceInvoiceId === purchase.id &&
+            (entry.type === 'payment' || (entry.entryCategory && entry.entryCategory.includes('payment')))
+        );
+    }, [distributors]);
+
     const handleViewSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
@@ -164,10 +175,15 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             return;
         }
 
+        if (hasLinkedPayments(purchase)) {
+            setActionWarning('Cannot edit this purchase bill because a payment has already been made against it. Please cancel the linked payment voucher in Accounts Payable first.');
+            return;
+        }
+
         setActionWarning('');
         const latestSelected = purchases.find((p) => p.id === purchase.id) || purchase;
         onEditPurchase(latestSelected);
-    }, [requireSelectedPurchase, currentUser, onEditPurchase, purchases]);
+    }, [requireSelectedPurchase, currentUser, onEditPurchase, purchases, hasLinkedPayments]);
 
     const handleCopySelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
@@ -194,10 +210,16 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             return;
         }
 
+        if (hasLinkedPayments(purchase)) {
+            setActionWarning('Cannot process return for this purchase bill because a payment has already been made. Please reverse payments before modifying billing state.');
+            return;
+        }
+
         const totalReturnedQty = (purchaseReturns || [])
             .filter(ret => ret.originalPurchaseInvoiceId === purchase.purchaseSerialId)
             .flatMap(ret => ret.items || [])
             .reduce((sum, item) => sum + Number(item.returnQuantity || 0), 0);
+
         const totalPurchasedQty = (purchase.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
         if (totalPurchasedQty > 0 && totalReturnedQty >= totalPurchasedQty) {
@@ -207,7 +229,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
 
         setActionWarning('');
         onCreateReturn(purchase);
-    }, [requireSelectedPurchase, currentUser, onCreateReturn, purchaseReturns]);
+    }, [requireSelectedPurchase, currentUser, onCreateReturn, purchaseReturns, hasLinkedPayments]);
 
     const handleViewJournalSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
@@ -241,8 +263,13 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             return;
         }
 
+        if (hasLinkedPayments(purchase)) {
+            setActionWarning('Cannot cancel this purchase bill because a payment has already been made against it. Please cancel the linked payment voucher in Accounts Payable first.');
+            return;
+        }
+
         handleCancelClick(purchase.id);
-    }, [requireSelectedPurchase, currentUser]);
+    }, [requireSelectedPurchase, currentUser, hasLinkedPayments]);
 
     const handleExportSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();

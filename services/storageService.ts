@@ -737,8 +737,38 @@
         }
     };
 
+    const checkLinkedPayments = async (type: 'sales' | 'purchase', id: string, user: RegisteredPharmacy) => {
+        if (type === 'sales') {
+            const tx = await idb.get(STORES.SALES_BILL, id) as Transaction | undefined;
+            if (!tx) return;
+            const customer = await findCustomerForTransaction(tx);
+            if (!customer || !customer.ledger) return;
+            const hasPayment = customer.ledger.some(entry => 
+                entry.status !== 'cancelled' && 
+                entry.referenceInvoiceId === id &&
+                (entry.type === 'payment' || (entry.entryCategory && entry.entryCategory.includes('payment')))
+            );
+            if (hasPayment) throw new Error('Cannot modify this bill because a payment has already been received against it. Please cancel the payment voucher first.');
+        } else {
+            const p = await idb.get(STORES.PURCHASES, id) as Purchase | undefined;
+            if (!p) return;
+            const supplier = await findSupplierForPurchase(p);
+            if (!supplier || !supplier.ledger) return;
+            const hasPayment = supplier.ledger.some(entry => 
+                entry.status !== 'cancelled' && 
+                entry.referenceInvoiceId === id &&
+                (entry.type === 'payment' || (entry.entryCategory && entry.entryCategory.includes('payment')))
+            );
+            if (hasPayment) throw new Error('Cannot modify this purchase bill because a payment has already been made against it. Please cancel the payment voucher first.');
+        }
+    };
+
     export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
         if (!tx.user_id) tx.user_id = user.user_id;
+
+        if (isUpdate) {
+            await checkLinkedPayments('sales', tx.id, user);
+        }
 
         try {
             const postingContext = await ensurePostingContext(tx, user);
@@ -1031,6 +1061,7 @@
     };
 
     export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
+        await checkLinkedPayments('purchase', p.id, user);
         const original = await idb.get(STORES.PURCHASES, p.id) as Purchase;
         const res = await saveData('purchases', p, user, true);
         if (!original) return res;
