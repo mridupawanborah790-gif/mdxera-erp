@@ -140,22 +140,20 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
         const tx = requireSelectedTransaction();
         if (!tx) return;
 
-        const hasEditPermission = ['owner', 'admin', 'manager'].includes(currentUser?.role || '');
-        if (!hasEditPermission || tx.status !== 'completed') {
+        if (tx.status !== 'completed') {
             setActionWarning('Selected invoice cannot be modified.');
             return;
         }
 
         setActionWarning('');
         onEditSale(tx);
-    }, [requireSelectedTransaction, currentUser, onEditSale]);
+    }, [requireSelectedTransaction, onEditSale]);
 
     const handleReturnOrderSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
         if (!tx) return;
 
-        const hasReturnPermission = ['owner', 'admin', 'manager', 'clerk'].includes(currentUser?.role || '');
-        if (!hasReturnPermission || tx.status !== 'completed') {
+        if (tx.status !== 'completed') {
             setActionWarning('Selected invoice is not eligible for return.');
             return;
         }
@@ -173,7 +171,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
 
         setActionWarning('');
         onCreateReturn(tx);
-    }, [requireSelectedTransaction, currentUser, onCreateReturn, salesReturns]);
+    }, [requireSelectedTransaction, onCreateReturn, salesReturns]);
 
     const handleViewJournalSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
@@ -191,18 +189,12 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
         const tx = requireSelectedTransaction();
         if (!tx) return;
 
-        const hasCancelPermission = ['owner', 'admin', 'manager'].includes(currentUser?.role || '');
-        if (!hasCancelPermission) {
-            setActionWarning('Selected invoice cannot be modified.');
-            return;
-        }
-
         if (tx.status === 'cancelled') {
             setActionWarning('Selected invoice is already cancelled.');
             return;
         }
         handleCancelClick(tx.id);
-    }, [requireSelectedTransaction, currentUser]);
+    }, [requireSelectedTransaction]);
 
     const handleExportSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
@@ -419,11 +411,11 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                         {actionWarning && <div className="text-[11px] font-bold text-red-700 bg-red-100 border border-red-200 px-2 py-1">{actionWarning}</div>}
                         <div className="flex flex-wrap gap-2">
                             <button disabled={!selectedTransaction} onClick={handleViewSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Enter: View</button>
-                            <button disabled={!selectedTransaction || !['owner','admin','manager'].includes(currentUser?.role || '')} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
-                            <button disabled={!selectedTransaction || !['owner','admin','manager','clerk'].includes(currentUser?.role || '')} onClick={handleReturnOrderSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Return Order</button>
+                            <button disabled={!selectedTransaction} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
+                            <button disabled={!selectedTransaction} onClick={handleReturnOrderSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Return Order</button>
                             <button disabled={!selectedTransaction} onClick={handleViewJournalSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F7: View Journal Entry</button>
                             <button disabled={!selectedTransaction} onClick={handlePrintSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F8: Print</button>
-                            <button disabled={!selectedTransaction || !['owner','admin','manager'].includes(currentUser?.role || '')} onClick={handleCancelSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase text-red-700 disabled:opacity-50">Delete: Cancel</button>
+                            <button disabled={!selectedTransaction} onClick={handleCancelSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase text-red-700 disabled:opacity-50">Delete: Cancel</button>
                             <button disabled={!selectedTransaction} onClick={handleExportSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F3: Export</button>
                             <button onClick={handleRefresh} disabled={isSyncing} className="px-3 py-1.5 tally-button-primary text-[10px] font-black uppercase disabled:opacity-60">F5: Refresh</button>
                         </div>

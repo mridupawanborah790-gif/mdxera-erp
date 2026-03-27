@@ -1964,7 +1964,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         <tr 
                                             key={p.id} 
                                             onClick={() => setActiveRowId(p.id)}
-                                            className={`hover:bg-gray-50 group h-10 cursor-pointer transition-colors ${isActive ? 'bg-primary text-white shadow-md' : ''}`}
+                                            style={isActive ? { backgroundColor: '#004242', color: 'white' } : {}}
+                                            className={`group h-10 cursor-pointer transition-colors ${isActive ? 'shadow-md' : 'hover:bg-primary hover:text-white'}`}
                                         >
                                             <td className={`p-1 border-r border-gray-200 text-center ${isActive ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (
