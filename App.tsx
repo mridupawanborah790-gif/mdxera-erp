@@ -695,6 +695,22 @@ const App: React.FC = () => {
         const selectedCustomer = tx.customerId
             ? customers.find(c => c.id === tx.customerId)
             : customers.find(c => (c.name || '').trim().toLowerCase() === (tx.customerName || '').trim().toLowerCase());
+
+        // Check for linked payments if it's an update
+        if (isUpdate && selectedCustomer && Array.isArray(selectedCustomer.ledger)) {
+            const hasPayments = selectedCustomer.ledger.some(entry => 
+                entry.type === 'payment' && 
+                entry.status !== 'cancelled' &&
+                (entry.referenceInvoiceId === tx.id || (entry.referenceInvoiceNumber === tx.invoiceNumber && tx.invoiceNumber)) &&
+                ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                (entry.adjustedAmount || 0) > 0
+            );
+
+            if (hasPayments) {
+                throw new Error("Cannot edit bill: A payment has been received against this invoice. Cancel the payment voucher first.");
+            }
+        }
+
         const openChallanExposure = getCustomerOpenChallanExposure(salesChallans, selectedCustomer?.id);
         const creditCheck = evaluateCustomerCredit({
             customer: selectedCustomer || null,
@@ -783,6 +799,27 @@ const App: React.FC = () => {
 
     const handleUpdatePurchase = async (p: Purchase, supplierGst?: string) => {
         if (!currentUser) return;
+
+        // Check for linked payments
+        const distributor = suppliers.find(d => 
+            (d.name || '').trim().toLowerCase() === (p.supplier || '').trim().toLowerCase()
+        );
+        
+        if (distributor && Array.isArray(distributor.ledger)) {
+            const hasPayments = distributor.ledger.some(entry => 
+                entry.type === 'payment' && 
+                entry.status !== 'cancelled' &&
+                (entry.referenceInvoiceId === p.id || entry.referenceInvoiceNumber === p.invoiceNumber) &&
+                ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                (entry.adjustedAmount || 0) > 0
+            );
+
+            if (hasPayments) {
+                addNotification("Cannot edit bill: A payment has been made against this purchase bill. Cancel the payment voucher first.", "error");
+                return;
+            }
+        }
+
         try {
             const savedPurchase = await storage.updatePurchase(p, currentUser);
             // Immediate local state update
@@ -817,6 +854,26 @@ const App: React.FC = () => {
         if (!currentUser) return;
         const purchase = purchases.find(p => p.id === purchaseId);
         if (!purchase) return;
+
+        // Check for linked payments
+        const distributor = suppliers.find(d => 
+            (d.name || '').trim().toLowerCase() === (purchase.supplier || '').trim().toLowerCase()
+        );
+        
+        if (distributor && Array.isArray(distributor.ledger)) {
+            const hasPayments = distributor.ledger.some(entry => 
+                entry.type === 'payment' && 
+                entry.status !== 'cancelled' &&
+                (entry.referenceInvoiceId === purchase.id || entry.referenceInvoiceNumber === purchase.invoiceNumber) &&
+                ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                (entry.adjustedAmount || 0) > 0
+            );
+
+            if (hasPayments) {
+                addNotification("Cannot cancel bill: A payment has been made against this purchase bill. Cancel the payment voucher first.", "error");
+                return;
+            }
+        }
 
         try {
             // 1. Mark status as cancelled
@@ -1388,6 +1445,27 @@ const App: React.FC = () => {
         if (!currentUser) return;
         const tx = transactions.find(t => t.id === id);
         if (tx) {
+            // Check for linked payments
+            const customer = customers.find(c => 
+                c.id === tx.customerId || 
+                (c.name || '').trim().toLowerCase() === (tx.customerName || '').trim().toLowerCase()
+            );
+            
+            if (customer && Array.isArray(customer.ledger)) {
+                const hasPayments = customer.ledger.some(entry => 
+                    entry.type === 'payment' && 
+                    entry.status !== 'cancelled' &&
+                    (entry.referenceInvoiceId === tx.id || (entry.referenceInvoiceNumber === tx.invoiceNumber && tx.invoiceNumber)) &&
+                    ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                    (entry.adjustedAmount || 0) > 0
+                );
+
+                if (hasPayments) {
+                    addNotification("Cannot cancel bill: A payment has been received against this invoice. Cancel the payment voucher first.", "error");
+                    return;
+                }
+            }
+
             const cancelledTx = { ...tx, status: 'cancelled' as const };
             await storage.saveData('sales_bill', cancelledTx, currentUser, true);
             await storage.syncSalesLedger(cancelledTx, currentUser);

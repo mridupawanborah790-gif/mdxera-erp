@@ -136,6 +136,24 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
         setViewingTransaction(tx);
     }, [requireSelectedTransaction]);
 
+    const checkLinkedPayments = useCallback((tx: Transaction) => {
+        const customer = customers.find(c => 
+            c.id === tx.customerId || 
+            (c.name || '').trim().toLowerCase() === (tx.customerName || '').trim().toLowerCase()
+        );
+        
+        if (!customer || !Array.isArray(customer.ledger)) return false;
+
+        // Check if there are any non-cancelled payment entries linked to this invoice
+        return customer.ledger.some(entry => 
+            entry.type === 'payment' && 
+            entry.status !== 'cancelled' &&
+            (entry.referenceInvoiceId === tx.id || (entry.referenceInvoiceNumber === tx.invoiceNumber && tx.invoiceNumber)) &&
+            ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+            (entry.adjustedAmount || 0) > 0
+        );
+    }, [customers]);
+
     const handleEditSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
         if (!tx) return;
@@ -145,9 +163,14 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
             return;
         }
 
+        if (checkLinkedPayments(tx)) {
+            setActionWarning('Cannot edit bill: A payment has been received against this invoice. Cancel the payment voucher first.');
+            return;
+        }
+
         setActionWarning('');
         onEditSale(tx);
-    }, [requireSelectedTransaction, onEditSale]);
+    }, [requireSelectedTransaction, onEditSale, checkLinkedPayments]);
 
     const handleReturnOrderSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
@@ -193,8 +216,14 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
             setActionWarning('Selected invoice is already cancelled.');
             return;
         }
+
+        if (checkLinkedPayments(tx)) {
+            setActionWarning('Cannot cancel bill: A payment has been received against this invoice. Cancel the payment voucher first.');
+            return;
+        }
+
         handleCancelClick(tx.id);
-    }, [requireSelectedTransaction]);
+    }, [requireSelectedTransaction, checkLinkedPayments]);
 
     const handleExportSelected = useCallback(() => {
         const tx = requireSelectedTransaction();
