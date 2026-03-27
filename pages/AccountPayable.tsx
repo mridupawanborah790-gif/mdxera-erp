@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
 import { Distributor, Purchase, RegisteredPharmacy, TransactionLedgerItem } from '../types';
-import { getOutstandingBalance } from '../utils/helpers';
+import { calculateSupplierPayableBreakdown, getOutstandingBalance } from '../utils/helpers';
 import { fuzzyMatch } from '../utils/search';
 import { handleEnterToNextField } from '../utils/navigation';
 import { numberToWords } from '../utils/numberToWords';
@@ -381,11 +381,12 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         return { adjustedAmount, remainingAmount, status: 'Open / Unadjusted' };
     };
 
-    const grossOutstanding = useMemo(() => Number(invoiceRows.reduce((sum, row) => sum + row.balance, 0).toFixed(2)), [invoiceRows]);
-    const totalAdjustedPayment = useMemo(
-        () => Number(ledgerRows.filter(row => row.status !== 'cancelled' && (row.entryCategory === 'invoice_payment_adjustment' || row.entryCategory === 'down_payment_adjustment')).reduce((sum, row) => sum + Number(row.adjustedAmount || 0), 0).toFixed(2)),
-        [ledgerRows]
+    const payableBreakdown = useMemo(
+        () => calculateSupplierPayableBreakdown(selectedDistributor),
+        [selectedDistributor]
     );
+    const grossOutstanding = payableBreakdown.grossPayable;
+    const totalAdjustedPayment = payableBreakdown.adjustedPayments;
     const totalUnadjustedPayment = useMemo(
         () => Number(ledgerRows.filter(row => row.type === 'payment' && row.status !== 'cancelled' && (row.entryCategory === 'invoice_payment' || row.entryCategory === 'down_payment')).reduce((sum, row) => {
             const summary = getVoucherAllocationSummary(row);
@@ -393,7 +394,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         }, 0).toFixed(2)),
         [ledgerRows]
     );
-    const netPayable = useMemo(() => Number(Math.max(grossOutstanding - totalUnadjustedPayment, 0).toFixed(2)), [grossOutstanding, totalUnadjustedPayment]);
+    const netPayable = payableBreakdown.netOutstanding;
 
     const printVoucher = (entry: TransactionLedgerItem) => {
         if (!selectedDistributor) return;
