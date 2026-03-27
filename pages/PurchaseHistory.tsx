@@ -166,8 +166,8 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             entry.type === 'payment' && 
             entry.status !== 'cancelled' &&
             (entry.referenceInvoiceId === purchase.id || entry.referenceInvoiceNumber === purchase.invoiceNumber) &&
-            ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
-            (entry.adjustedAmount || 0) > 0
+            ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+            ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
         );
     }, [distributors]);
 

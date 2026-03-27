@@ -576,6 +576,9 @@ const App: React.FC = () => {
             setEditingPurchase(null);
             setPurchaseCopyDraft(null);
         }
+        if (resolvedPageId !== 'pos' && resolvedPageId !== 'nonGstPos') {
+            setEditingSale(null);
+        }
     }, [currentPage, shouldPromptBeforeLeaving]);
 
     useEffect(() => {
@@ -702,8 +705,8 @@ const App: React.FC = () => {
                 entry.type === 'payment' && 
                 entry.status !== 'cancelled' &&
                 (entry.referenceInvoiceId === tx.id || (entry.referenceInvoiceNumber === tx.invoiceNumber && tx.invoiceNumber)) &&
-                ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
-                (entry.adjustedAmount || 0) > 0
+                ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
             );
 
             if (hasPayments) {
@@ -810,8 +813,8 @@ const App: React.FC = () => {
                 entry.type === 'payment' && 
                 entry.status !== 'cancelled' &&
                 (entry.referenceInvoiceId === p.id || entry.referenceInvoiceNumber === p.invoiceNumber) &&
-                ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
-                (entry.adjustedAmount || 0) > 0
+                ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
             );
 
             if (hasPayments) {
@@ -865,8 +868,8 @@ const App: React.FC = () => {
                 entry.type === 'payment' && 
                 entry.status !== 'cancelled' &&
                 (entry.referenceInvoiceId === purchase.id || entry.referenceInvoiceNumber === purchase.invoiceNumber) &&
-                ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
-                (entry.adjustedAmount || 0) > 0
+                ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
             );
 
             if (hasPayments) {
@@ -1456,8 +1459,8 @@ const App: React.FC = () => {
                     entry.type === 'payment' && 
                     entry.status !== 'cancelled' &&
                     (entry.referenceInvoiceId === tx.id || (entry.referenceInvoiceNumber === tx.invoiceNumber && tx.invoiceNumber)) &&
-                    ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
-                    (entry.adjustedAmount || 0) > 0
+                    ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                    ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
                 );
 
                 if (hasPayments) {
@@ -1542,8 +1545,9 @@ const App: React.FC = () => {
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
                         onQuickAddCustomer={handleQuickAddCustomerFromPos}
                         onCancel={() => {
+                            const wasEditing = !!editingSale;
                             setEditingSale(null);
-                            handleNavigate('dashboard');
+                            handleNavigate(wasEditing ? 'salesHistory' : 'dashboard');
                         }}
                         transactionToEdit={editingSale}
                         onRefreshConfig={() => loadData(currentUser!, 'background')}
@@ -1773,7 +1777,11 @@ const App: React.FC = () => {
                         configurations={configurations}
                         config={configurations.modules?.['purchase']}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
-                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
+                        organizationId={currentUser?.organization_id || ''} onCancel={() => {
+                            const wasEditing = !!editingPurchase;
+                            setEditingPurchase(null);
+                            handleNavigate(wasEditing ? 'purchaseHistory' : 'dashboard', true);
+                        }}
                         onPrint={setViewPurchase}
                     />;
                 case 'manualPurchaseEntry':
@@ -1796,7 +1804,11 @@ const App: React.FC = () => {
                         configurations={configurations}
                         config={configurations.modules?.['purchase']}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
-                        organizationId={currentUser?.organization_id || ''} onCancel={() => handleNavigate('purchaseHistory', true)}
+                        organizationId={currentUser?.organization_id || ''} onCancel={() => {
+                            const wasEditing = !!editingPurchase;
+                            setEditingPurchase(null);
+                            handleNavigate(wasEditing ? 'purchaseHistory' : 'dashboard', true);
+                        }}
                         onPrint={setViewPurchase}
                     />;
 

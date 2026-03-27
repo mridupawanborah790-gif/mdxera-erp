@@ -149,8 +149,8 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
             entry.type === 'payment' && 
             entry.status !== 'cancelled' &&
             (entry.referenceInvoiceId === tx.id || (entry.referenceInvoiceNumber === tx.invoiceNumber && tx.invoiceNumber)) &&
-            ['invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
-            (entry.adjustedAmount || 0) > 0
+            ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+            ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
         );
     }, [customers]);
 
