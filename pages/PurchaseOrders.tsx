@@ -57,6 +57,43 @@ const createEmptyLineItem = (): PurchaseOrderItem => ({
   notes: ''
 });
 
+const isLineItemEmpty = (line: PurchaseOrderItem): boolean => {
+    const hasText = [
+        line.name,
+        line.brand,
+        line.itemCode,
+        line.sku,
+        line.supplierItemName,
+        line.packType,
+        line.unitOfMeasurement,
+        line.expectedDeliveryDate,
+        line.notes
+    ].some(value => (value || '').toString().trim().length > 0);
+
+    const hasNumbers = [
+        Number(line.quantity || 0),
+        Number(line.freeQuantity || 0),
+        Number(line.estimatedRate ?? line.purchasePrice ?? 0),
+        Number(line.discountPercent || 0),
+        Number(line.gstPercent || 0),
+        Number(line.mrp || 0)
+    ].some(value => value > 0);
+
+    return !hasText && !hasNumbers && !line.inventoryItemId && !line.medicineId;
+};
+
+const isLineItemComplete = (line: PurchaseOrderItem): boolean => {
+    if (!line.name?.trim()) return false;
+    if (Number(line.quantity || 0) <= 0) return false;
+    const rate = Number(line.estimatedRate ?? line.purchasePrice ?? 0);
+    return Number.isFinite(rate) && rate >= 0;
+};
+
+const normalizeLineItems = (rows: PurchaseOrderItem[]): PurchaseOrderItem[] => {
+    const nonEmptyRows = rows.filter(row => !isLineItemEmpty(row));
+    return [...nonEmptyRows, createEmptyLineItem()];
+};
+
 const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({ 
     distributors, 
     inventory,
@@ -86,28 +123,21 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [orderDate, setOrderDate] = useState(getDefaultOrderDate());
     const [items, setItems] = useState<PurchaseOrderItem[]>([]);
     const [remarks, setRemarks] = useState('');
-    const [searchTerm, setSearchTerm] = useState('');
     const [isSaving, setIsSaving] = useState(false);
-    const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
-    const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [isMatrixOpen, setIsMatrixOpen] = useState(false);
     const [matrixSearchTerm, setMatrixSearchTerm] = useState('');
     const [selectedMatrixIndex, setSelectedMatrixIndex] = useState(0);
     const [activeMatrixRowId, setActiveMatrixRowId] = useState<string | null>(null);
 
     const supplierSelectRef = useRef<HTMLSelectElement>(null);
-    const itemSearchRef = useRef<HTMLInputElement>(null);
     const matrixSearchRef = useRef<HTMLInputElement>(null);
     const rowItemInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
     const resetCreateForm = () => {
         setSelectedDistributorId('');
         setOrderDate(getDefaultOrderDate());
-        setItems([]);
+        setItems([createEmptyLineItem()]);
         setRemarks('');
-        setSearchTerm('');
-        setIsSearchDropdownOpen(false);
-        setSelectedSearchIndex(0);
         onClearDraft();
     };
 
@@ -121,10 +151,16 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
     useEffect(() => {
         if (draftItems && draftItems.length > 0) {
-            setItems(draftItems.map(item => ({ ...createEmptyLineItem(), ...item, id: item.id || crypto.randomUUID() })));
+            setItems(normalizeLineItems(draftItems.map(item => ({ ...createEmptyLineItem(), ...item, id: item.id || crypto.randomUUID() }))));
             setView('create');
         }
     }, [draftItems]);
+
+    useEffect(() => {
+        if (view === 'create' && items.length === 0) {
+            setItems([createEmptyLineItem()]);
+        }
+    }, [view, items.length]);
 
     useEffect(() => {
         if (view === 'create') {
@@ -193,26 +229,6 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         return Array.from(byKey.values());
     }, [inventory, medicines, mappings]);
 
-    const searchResults = useMemo(() => {
-        const lower = searchTerm.trim().toLowerCase();
-        if (!lower) return [];
-
-        const scored = catalog
-          .filter(c =>
-            c.name.toLowerCase().includes(lower) ||
-            (c.code || '').toLowerCase().includes(lower) ||
-            (c.sku || '').toLowerCase().includes(lower) ||
-            (c.supplierItemName || '').toLowerCase().includes(lower)
-          )
-          .map(c => ({
-            ...c,
-            supplierBoost: selectedDistributorId && c.mappedSupplierIds.includes(selectedDistributorId) ? 100 : 0
-          }))
-          .sort((a, b) => b.supplierBoost - a.supplierBoost || a.name.localeCompare(b.name));
-
-        return scored.slice(0, 12);
-    }, [searchTerm, catalog, selectedDistributorId]);
-    
     const matrixResults = useMemo(() => {
         const lower = matrixSearchTerm.trim().toLowerCase();
         const source = lower
@@ -255,69 +271,44 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         };
     };
 
-    const handleAddItem = (picked: SearchCatalogItem) => {
-        const inv = picked.inventoryItem;
-        const med = picked.medicine;
-
-        const newLine: PurchaseOrderItem = recalculateLine({
-            ...createEmptyLineItem(),
-            inventoryItemId: inv?.id,
-            medicineId: med?.id,
-            name: picked.name,
-            itemCode: picked.code || inv?.code || med?.materialCode,
-            sku: picked.sku || inv?.code || med?.materialCode,
-            supplierItemName: picked.supplierItemName,
-            brand: inv?.brand || med?.brand || '',
-            quantity: 1,
-            estimatedRate: Number(inv?.purchasePrice || med?.rateA || 0),
-            purchasePrice: Number(inv?.purchasePrice || med?.rateA || 0),
-            packType: inv?.packType || med?.pack || '',
-            unitOfMeasurement: inv?.unitOfMeasurement || inv?.packUnit || 'Unit',
-            manufacturer: inv?.manufacturer || med?.manufacturer,
-            hsnCode: inv?.hsnCode || med?.hsnCode || '',
-            mrp: Number(inv?.mrp || med?.mrp || 0),
-            gstPercent: Number(inv?.gstPercent || med?.gstRate || 0),
-            expectedDeliveryDate: orderDate,
-        });
-
-        setItems(prev => [...prev, newLine]);
-        setSearchTerm('');
-        setIsSearchDropdownOpen(false);
-        setSelectedSearchIndex(0);
-        itemSearchRef.current?.focus();
-    };
-
     const pickCatalogItemForRow = (picked: SearchCatalogItem, rowId: string) => {
         const inv = picked.inventoryItem;
         const med = picked.medicine;
-
-        setItems(prev => prev.map(line => {
-            if (line.id !== rowId) return line;
-            return recalculateLine({
-                ...line,
-                inventoryItemId: inv?.id,
-                medicineId: med?.id,
-                name: picked.name,
-                itemCode: picked.code || inv?.code || med?.materialCode || line.itemCode,
-                sku: picked.sku || inv?.code || med?.materialCode || line.sku,
-                supplierItemName: picked.supplierItemName || line.supplierItemName,
-                brand: inv?.brand || med?.brand || line.brand || '',
-                quantity: line.quantity > 0 ? line.quantity : 1,
-                estimatedRate: Number(inv?.purchasePrice || med?.rateA || line.estimatedRate || line.purchasePrice || 0),
-                purchasePrice: Number(inv?.purchasePrice || med?.rateA || line.purchasePrice || 0),
-                packType: inv?.packType || med?.pack || line.packType || '',
-                unitOfMeasurement: inv?.unitOfMeasurement || inv?.packUnit || line.unitOfMeasurement || 'Unit',
-                manufacturer: inv?.manufacturer || med?.manufacturer || line.manufacturer,
-                hsnCode: inv?.hsnCode || med?.hsnCode || line.hsnCode || '',
-                mrp: Number(inv?.mrp || med?.mrp || line.mrp || 0),
-                gstPercent: Number(inv?.gstPercent || med?.gstRate || line.gstPercent || 0),
-                expectedDeliveryDate: line.expectedDeliveryDate || orderDate,
+        let focusRowId: string | null = null;
+        setItems(prev => {
+            const updated = prev.map(line => {
+                if (line.id !== rowId) return line;
+                return recalculateLine({
+                    ...line,
+                    inventoryItemId: inv?.id,
+                    medicineId: med?.id,
+                    name: picked.name,
+                    itemCode: picked.code || inv?.code || med?.materialCode || line.itemCode,
+                    sku: picked.sku || inv?.code || med?.materialCode || line.sku,
+                    supplierItemName: picked.supplierItemName || line.supplierItemName,
+                    brand: inv?.brand || med?.brand || line.brand || '',
+                    quantity: line.quantity > 0 ? line.quantity : 1,
+                    estimatedRate: Number(inv?.purchasePrice || med?.rateA || line.estimatedRate || line.purchasePrice || 0),
+                    purchasePrice: Number(inv?.purchasePrice || med?.rateA || line.purchasePrice || 0),
+                    packType: inv?.packType || med?.pack || line.packType || '',
+                    unitOfMeasurement: inv?.unitOfMeasurement || inv?.packUnit || line.unitOfMeasurement || 'Unit',
+                    manufacturer: inv?.manufacturer || med?.manufacturer || line.manufacturer,
+                    hsnCode: inv?.hsnCode || med?.hsnCode || line.hsnCode || '',
+                    mrp: Number(inv?.mrp || med?.mrp || line.mrp || 0),
+                    gstPercent: Number(inv?.gstPercent || med?.gstRate || line.gstPercent || 0),
+                    expectedDeliveryDate: line.expectedDeliveryDate || orderDate,
+                });
             });
-        }));
+            const normalized = normalizeLineItems(updated);
+            focusRowId = normalized[normalized.length - 1]?.id || null;
+            return normalized;
+        });
         setIsMatrixOpen(false);
         setSelectedMatrixIndex(0);
         setActiveMatrixRowId(null);
-        requestAnimationFrame(() => rowItemInputRefs.current[rowId]?.focus());
+        requestAnimationFrame(() => {
+            if (focusRowId) rowItemInputRefs.current[focusRowId]?.focus();
+        });
     };
 
     const openMatrixForRow = (rowId: string, initialTerm = '') => {
@@ -329,19 +320,37 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     };
 
     const handleUpdateItem = (id: string, field: keyof PurchaseOrderItem, value: any) => {
-        setItems(prev => prev.map(i => i.id === id ? recalculateLine({ ...i, [field]: value }) : i));
+        let focusRowId: string | null = null;
+        setItems(prev => {
+            const updated = prev.map(i => i.id === id ? recalculateLine({ ...i, [field]: value }) : i);
+            const normalized = normalizeLineItems(updated);
+
+            const editedRow = normalized.find(row => row.id === id);
+            const trailingBlank = normalized[normalized.length - 1];
+            if (editedRow && editedRow.id !== trailingBlank?.id && isLineItemComplete(editedRow)) {
+                focusRowId = trailingBlank?.id || null;
+            }
+
+            return normalized;
+        });
+
+        if (focusRowId) {
+            requestAnimationFrame(() => rowItemInputRefs.current[focusRowId!]?.focus());
+        }
     };
 
-    const handleRemoveItem = (id: string) => setItems(prev => prev.filter(i => i.id !== id));
+    const handleRemoveItem = (id: string) => setItems(prev => normalizeLineItems(prev.filter(i => i.id !== id)));
 
-    const handleInsertBlankRow = (afterIndex?: number) => {
-        const row = createEmptyLineItem();
+    const handleInsertBlankRow = (_afterIndex?: number) => {
+        let focusRowId: string | null = null;
         setItems(prev => {
-            if (afterIndex === undefined || afterIndex < 0 || afterIndex >= prev.length) return [...prev, row];
-            const copy = [...prev];
-            copy.splice(afterIndex + 1, 0, row);
-            return copy;
+            const trailingBlank = prev.find(line => isLineItemEmpty(line)) || prev[prev.length - 1];
+            focusRowId = trailingBlank?.id || null;
+            return normalizeLineItems(prev);
         });
+        if (focusRowId) {
+            requestAnimationFrame(() => rowItemInputRefs.current[focusRowId!]?.focus());
+        }
     };
 
     const estimatedSubtotal = useMemo(() => items.reduce((sum, item) => sum + Number(item.lineAmount || 0), 0), [items]);
@@ -350,11 +359,12 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const totalAmount = useMemo(() => items.reduce((sum, item) => sum + Number(item.estimatedAmount || 0), 0), [items]);
 
     const validateBeforeSave = () => {
+        const enteredItems = items.filter(item => !isLineItemEmpty(item));
         if (!selectedDistributorId) return 'Supplier is required.';
-        if (items.length === 0) return 'Please add at least one item.';
+        if (enteredItems.length === 0) return 'Please add at least one item.';
 
-        for (let i = 0; i < items.length; i++) {
-            const row = items[i];
+        for (let i = 0; i < enteredItems.length; i++) {
+            const row = enteredItems[i];
             if (!row.name?.trim()) return `Item name is missing in row ${i + 1}.`;
             if (!row.quantity || Number(row.quantity) <= 0) return `Quantity should be greater than zero in row ${i + 1}.`;
         }
@@ -372,7 +382,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         setIsSaving(true);
         const distributor = distributors.find(d => d.id === selectedDistributorId);
 
-        const cleanItems = items.map(recalculateLine);
+        const cleanItems = items.filter(item => !isLineItemEmpty(item)).map(recalculateLine);
 
         const newPO: Omit<PurchaseOrder, 'id' | 'serialId'> = {
             organization_id: currentUserOrgId || '',
@@ -408,20 +418,6 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         },
         isDirty: view === 'create' && (items.length > 0 || selectedDistributorId !== '' || remarks !== '')
     }), [view, items, selectedDistributorId, remarks]);
-
-    const handleSearchKeyDown = (e: React.KeyboardEvent) => {
-        if (searchResults.length === 0) return;
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setSelectedSearchIndex(prev => (prev + 1) % searchResults.length);
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setSelectedSearchIndex(prev => (prev - 1 + searchResults.length) % searchResults.length);
-        } else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (searchResults[selectedSearchIndex]) handleAddItem(searchResults[selectedSearchIndex]);
-        }
-    };
 
     const handleMatrixKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -576,44 +572,6 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                                 </td>
                                             </tr>
                                         ))}
-                                        <tr className="bg-yellow-50/40">
-                                            <td className="p-1 border-r text-center text-xs font-bold">{items.length + 1}</td>
-                                            <td className="p-1 border-r relative" colSpan={2}>
-                                                <input
-                                                    ref={itemSearchRef}
-                                                    type="text"
-                                                    className="w-full bg-transparent font-bold uppercase outline-none p-1"
-                                                    placeholder="Type item from Material/Inventory master"
-                                                    value={searchTerm}
-                                                    onChange={e => { setSearchTerm(e.target.value); setIsSearchDropdownOpen(true); }}
-                                                    onFocus={() => setIsSearchDropdownOpen(true)}
-                                                    onKeyDown={handleSearchKeyDown}
-                                                    autoComplete="off"
-                                                />
-                                                {isSearchDropdownOpen && searchTerm && searchResults.length > 0 && (
-                                                    <div className="absolute top-full left-0 w-[620px] bg-white border border-gray-400 shadow-2xl z-50 overflow-hidden max-h-72 overflow-y-auto">
-                                                        {searchResults.map((i, sIdx) => (
-                                                            <div
-                                                                key={i.id}
-                                                                onClick={() => handleAddItem(i)}
-                                                                onMouseEnter={() => setSelectedSearchIndex(sIdx)}
-                                                                className={`p-2 cursor-pointer flex justify-between text-xs font-bold border-b border-gray-100 uppercase transition-colors ${sIdx === selectedSearchIndex ? 'bg-primary text-white' : 'hover:bg-gray-50'}`}
-                                                            >
-                                                                <div>
-                                                                    <div>{i.name}</div>
-                                                                    <div className={`text-[9px] ${sIdx === selectedSearchIndex ? 'text-white/70' : 'text-gray-500'}`}>{i.code || '-'} • {i.source}</div>
-                                                                </div>
-                                                                <div className="text-right">
-                                                                    {selectedDistributorId && i.mappedSupplierIds.includes(selectedDistributorId) && <div className="text-[9px]">Supplier mapped</div>}
-                                                                    <div className={`text-[9px] ${sIdx === selectedSearchIndex ? 'text-white/70' : 'text-gray-500'}`}>{i.supplierItemName || ''}</div>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td colSpan={11} className="p-1 text-xs text-gray-500">Press ↑/↓ and Enter to select item quickly.</td>
-                                        </tr>
                                     </tbody>
                                 </table>
                             </div>
