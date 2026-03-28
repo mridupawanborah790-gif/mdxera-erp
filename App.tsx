@@ -461,13 +461,20 @@ const App: React.FC = () => {
 
     const handleEscDiscard = () => {
         setShowEscSavePrompt(false);
+        const wasEditing = !!editingSale || !!editingPurchase;
+        
         if (currentPage === 'pos' || currentPage === 'nonGstPos') {
             posRef.current?.resetForm?.();
+            setEditingSale(null);
+            handleNavigate(wasEditing ? 'salesHistory' : 'dashboard', true);
         } else {
             purchaseFormRef.current?.resetForm?.();
             if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
                 setEditingPurchase(null);
                 setSourceChallansForPurchase(null);
+                handleNavigate(wasEditing ? 'purchaseHistory' : 'dashboard', true);
+            } else {
+                handleNavigate('dashboard', true);
             }
         }
         setScreenResetNonce(prev => ({ ...prev, [currentPage]: (prev[currentPage] ?? 0) + 1 }));
