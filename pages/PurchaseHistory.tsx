@@ -175,8 +175,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
 
-        const hasEditPermission = ['owner', 'admin', 'manager'].includes(currentUser?.role || '');
-        if (!hasEditPermission || purchase.status !== 'completed' || !onEditPurchase) {
+        if (purchase.status !== 'completed' || !onEditPurchase) {
             setActionWarning('Selected bill cannot be modified.');
             return;
         }
@@ -189,14 +188,13 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         setActionWarning('');
         const latestSelected = purchases.find((p) => p.id === purchase.id) || purchase;
         onEditPurchase(latestSelected);
-    }, [requireSelectedPurchase, currentUser, onEditPurchase, purchases, checkLinkedPayments]);
+    }, [requireSelectedPurchase, onEditPurchase, purchases, checkLinkedPayments]);
 
     const handleCopySelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
 
-        const hasCopyPermission = ['owner', 'admin', 'manager', 'purchase'].includes(currentUser?.role || '');
-        if (!hasCopyPermission || !onCopyPurchase) {
+        if (!onCopyPurchase) {
             setActionWarning('Selected bill cannot be copied.');
             return;
         }
@@ -204,14 +202,13 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         setActionWarning('');
         const latestSelected = purchases.find((p) => p.id === purchase.id) || purchase;
         onCopyPurchase(latestSelected);
-    }, [requireSelectedPurchase, currentUser, onCopyPurchase, purchases]);
+    }, [requireSelectedPurchase, onCopyPurchase, purchases]);
 
     const handleReturnSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
 
-        const hasReturnPermission = ['owner', 'admin', 'manager', 'purchase'].includes(currentUser?.role || '');
-        if (!hasReturnPermission || purchase.status !== 'completed' || !onCreateReturn) {
+        if (purchase.status !== 'completed' || !onCreateReturn) {
             setActionWarning('Selected bill is not eligible for purchase return.');
             return;
         }
@@ -252,8 +249,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
 
-        const hasCancelPermission = ['owner', 'admin', 'manager'].includes(currentUser?.role || '');
-        if (!hasCancelPermission || purchase.status === 'draft') {
+        if (purchase.status === 'draft') {
             setActionWarning('Selected bill cannot be cancelled.');
             return;
         }
@@ -497,13 +493,13 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                         {actionWarning && <div className="text-[11px] font-bold text-red-700 bg-red-100 border border-red-200 px-2 py-1">{actionWarning}</div>}
                         <div className="flex flex-wrap gap-2">
                             <button disabled={!selectedPurchase} onClick={handleViewSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Enter: View</button>
-                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager'].includes(currentUser?.role || '')} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
-                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager'].includes(currentUser?.role || '')} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Modify Purchase Bill</button>
-                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager', 'purchase'].includes(currentUser?.role || '')} onClick={handleCopySelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F9: Copy Purchase Bill</button>
-                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager', 'purchase'].includes(currentUser?.role || '')} onClick={handleReturnSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Purchase Return</button>
+                            <button disabled={!selectedPurchase} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
+                            <button disabled={!selectedPurchase} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Modify Purchase Bill</button>
+                            <button disabled={!selectedPurchase} onClick={handleCopySelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F9: Copy Purchase Bill</button>
+                            <button disabled={!selectedPurchase} onClick={handleReturnSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Purchase Return</button>
                             <button disabled={!selectedPurchase} onClick={handleViewJournalSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F7: View Journal Entry</button>
                             <button disabled={!selectedPurchase} onClick={handlePrintSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F8: Print</button>
-                            <button disabled={!selectedPurchase || !['owner', 'admin', 'manager'].includes(currentUser?.role || '')} onClick={handleCancelSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase text-red-700 disabled:opacity-50">Delete: Cancel</button>
+                            <button disabled={!selectedPurchase} onClick={handleCancelSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase text-red-700 disabled:opacity-50">Delete: Cancel</button>
                             <button disabled={!selectedPurchase} onClick={handleExportSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F3: Export</button>
                             <button onClick={handleRefresh} disabled={isSyncing} className="px-3 py-1.5 tally-button-primary text-[10px] font-black uppercase disabled:opacity-60">F5: Refresh</button>
                         </div>

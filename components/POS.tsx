@@ -828,6 +828,19 @@ const POS = forwardRef<any, POSProps>(({
             }
 
             switch (e.key) {
+                case 'Escape':
+                    e.preventDefault();
+                    if (isSearchModalOpen) {
+                        setIsSearchModalOpen(false);
+                        setIsInsightsOpen(false);
+                    } else if (isCustomerSearchModalOpen) {
+                        setIsCustomerSearchModalOpen(false);
+                    } else if (isQuickAddCustomerOpen) {
+                        setIsQuickAddCustomerOpen(false);
+                    } else if (onCancel) {
+                        onCancel();
+                    }
+                    return;
                 case 'F2':
                     e.preventDefault();
                     setIsCustomerSearchModalOpen(true);
