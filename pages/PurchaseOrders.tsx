@@ -37,6 +37,33 @@ type SearchCatalogItem = {
   mappedSupplierIds: string[];
 };
 
+type GridColumnKey =
+    | 'name'
+    | 'itemCode'
+    | 'supplierItemName'
+    | 'packType'
+    | 'unitOfMeasurement'
+    | 'quantity'
+    | 'estimatedRate'
+    | 'discountPercent'
+    | 'gstPercent'
+    | 'expectedDeliveryDate'
+    | 'notes';
+
+const GRID_COLUMN_ORDER: GridColumnKey[] = [
+    'name',
+    'itemCode',
+    'supplierItemName',
+    'packType',
+    'unitOfMeasurement',
+    'quantity',
+    'estimatedRate',
+    'discountPercent',
+    'gstPercent',
+    'expectedDeliveryDate',
+    'notes'
+];
+
 const getDefaultOrderDate = () => new Date().toISOString().split('T')[0];
 
 const createEmptyLineItem = (): PurchaseOrderItem => ({
@@ -128,10 +155,36 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [matrixSearchTerm, setMatrixSearchTerm] = useState('');
     const [selectedMatrixIndex, setSelectedMatrixIndex] = useState(0);
     const [activeMatrixRowId, setActiveMatrixRowId] = useState<string | null>(null);
+    const [activeCell, setActiveCell] = useState<{ rowId: string; column: GridColumnKey } | null>(null);
 
     const supplierSelectRef = useRef<HTMLSelectElement>(null);
     const matrixSearchRef = useRef<HTMLInputElement>(null);
-    const rowItemInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+    const cellInputRefs = useRef<Record<string, Partial<Record<GridColumnKey, HTMLInputElement | null>>>>({});
+
+    const setCellRef = (rowId: string, column: GridColumnKey, node: HTMLInputElement | null) => {
+        if (!cellInputRefs.current[rowId]) cellInputRefs.current[rowId] = {};
+        cellInputRefs.current[rowId][column] = node;
+    };
+
+    const isEditableCell = (node: HTMLInputElement | null | undefined) => Boolean(node && !node.disabled && !node.readOnly);
+
+    const focusCell = (rowId: string, column: GridColumnKey): boolean => {
+        const node = cellInputRefs.current[rowId]?.[column];
+        if (!isEditableCell(node)) return false;
+        node!.focus();
+        node!.select?.();
+        return true;
+    };
+
+    const focusFirstEditableCellInRow = (rowId: string): boolean => {
+        for (const column of GRID_COLUMN_ORDER) {
+            if (focusCell(rowId, column)) return true;
+        }
+        return false;
+    };
+
+    const getCellClassName = (rowId: string, column: GridColumnKey, base: string) =>
+        `${base} ${activeCell?.rowId === rowId && activeCell.column === column ? 'bg-blue-50 ring-2 ring-blue-500 ring-inset' : ''}`;
 
     const resetCreateForm = () => {
         setSelectedDistributorId('');
@@ -274,7 +327,6 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const pickCatalogItemForRow = (picked: SearchCatalogItem, rowId: string) => {
         const inv = picked.inventoryItem;
         const med = picked.medicine;
-        let focusRowId: string | null = null;
         setItems(prev => {
             const updated = prev.map(line => {
                 if (line.id !== rowId) return line;
@@ -299,15 +351,23 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                     expectedDeliveryDate: line.expectedDeliveryDate || orderDate,
                 });
             });
-            const normalized = normalizeLineItems(updated);
-            focusRowId = normalized[normalized.length - 1]?.id || null;
-            return normalized;
+            return normalizeLineItems(updated);
         });
         setIsMatrixOpen(false);
         setSelectedMatrixIndex(0);
         setActiveMatrixRowId(null);
         requestAnimationFrame(() => {
-            if (focusRowId) rowItemInputRefs.current[focusRowId]?.focus();
+            const currentColIndex = GRID_COLUMN_ORDER.indexOf('name');
+            let moved = false;
+            for (let col = currentColIndex + 1; col < GRID_COLUMN_ORDER.length; col++) {
+                if (focusCell(rowId, GRID_COLUMN_ORDER[col])) {
+                    moved = true;
+                    break;
+                }
+            }
+            if (!moved) {
+                focusFirstEditableCellInRow(rowId);
+            }
         });
     };
 
@@ -320,26 +380,24 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     };
 
     const handleUpdateItem = (id: string, field: keyof PurchaseOrderItem, value: any) => {
-        let focusRowId: string | null = null;
         setItems(prev => {
             const updated = prev.map(i => i.id === id ? recalculateLine({ ...i, [field]: value }) : i);
-            const normalized = normalizeLineItems(updated);
-
-            const editedRow = normalized.find(row => row.id === id);
-            const trailingBlank = normalized[normalized.length - 1];
-            if (editedRow && editedRow.id !== trailingBlank?.id && isLineItemComplete(editedRow)) {
-                focusRowId = trailingBlank?.id || null;
-            }
-
-            return normalized;
+            return normalizeLineItems(updated);
         });
-
-        if (focusRowId) {
-            requestAnimationFrame(() => rowItemInputRefs.current[focusRowId!]?.focus());
-        }
     };
 
-    const handleRemoveItem = (id: string) => setItems(prev => normalizeLineItems(prev.filter(i => i.id !== id)));
+    const handleRemoveItem = (id: string, preferredColumn?: GridColumnKey) => {
+        const currentRows = [...items];
+        const removedIndex = currentRows.findIndex(row => row.id === id);
+        setItems(prev => normalizeLineItems(prev.filter(i => i.id !== id)));
+        requestAnimationFrame(() => {
+            const nextRow = currentRows[removedIndex + 1] || currentRows[Math.max(removedIndex - 1, 0)];
+            const targetRowId = nextRow?.id;
+            if (!targetRowId) return;
+            if (preferredColumn && focusCell(targetRowId, preferredColumn)) return;
+            focusFirstEditableCellInRow(targetRowId);
+        });
+    };
 
     const handleInsertBlankRow = (_afterIndex?: number) => {
         let focusRowId: string | null = null;
@@ -349,7 +407,67 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             return normalizeLineItems(prev);
         });
         if (focusRowId) {
-            requestAnimationFrame(() => rowItemInputRefs.current[focusRowId!]?.focus());
+            requestAnimationFrame(() => focusFirstEditableCellInRow(focusRowId!));
+        }
+    };
+
+    const handleGridNavigation = (
+        e: React.KeyboardEvent<HTMLInputElement>,
+        rowId: string,
+        column: GridColumnKey
+    ) => {
+        const rowIndex = items.findIndex(r => r.id === rowId);
+        if (rowIndex < 0) return;
+        const colIndex = GRID_COLUMN_ORDER.indexOf(column);
+        if (colIndex < 0) return;
+
+        const focusByLinearStep = (step: 1 | -1) => {
+            const maxIndex = items.length * GRID_COLUMN_ORDER.length - 1;
+            let linearIndex = rowIndex * GRID_COLUMN_ORDER.length + colIndex;
+            while (true) {
+                linearIndex += step;
+                if (linearIndex < 0 || linearIndex > maxIndex) break;
+                const targetRow = items[Math.floor(linearIndex / GRID_COLUMN_ORDER.length)];
+                const targetColumn = GRID_COLUMN_ORDER[linearIndex % GRID_COLUMN_ORDER.length];
+                if (targetRow && focusCell(targetRow.id, targetColumn)) break;
+            }
+        };
+
+        const focusVertical = (direction: 1 | -1) => {
+            let targetRowIndex = rowIndex + direction;
+            while (targetRowIndex >= 0 && targetRowIndex < items.length) {
+                if (focusCell(items[targetRowIndex].id, column)) return;
+                targetRowIndex += direction;
+            }
+        };
+
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            focusVertical(-1);
+            return;
+        }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            focusVertical(1);
+            return;
+        }
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            focusByLinearStep(-1);
+            return;
+        }
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            focusByLinearStep(1);
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (column === 'name') {
+                openMatrixForRow(rowId, items[rowIndex]?.name || '');
+                return;
+            }
+            focusByLinearStep(1);
         }
     };
 
@@ -429,7 +547,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                 }
                 alert('No item found. Please register a new Material Master record from the Material Master screen.');
                 setIsMatrixOpen(false);
-                requestAnimationFrame(() => rowItemInputRefs.current[activeMatrixRowId]?.focus());
+                requestAnimationFrame(() => focusCell(activeMatrixRowId, 'name'));
             }
             return;
         }
@@ -539,36 +657,32 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     </thead>
                                     <tbody>
                                         {items.map((item, idx) => (
-                                            <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50">
+                                            <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50 focus-within:bg-blue-50/40">
                                                 <td className="p-1 border-r text-center text-xs font-bold">{idx + 1}</td>
                                                 <td className="p-1 border-r">
                                                     <input
-                                                        ref={el => { rowItemInputRefs.current[item.id] = el; }}
+                                                        ref={el => setCellRef(item.id, 'name', el)}
                                                         value={item.name || ''}
                                                         onChange={e => handleUpdateItem(item.id, 'name', e.target.value)}
-                                                        onKeyDown={e => {
-                                                            if (e.key === 'Enter') {
-                                                                e.preventDefault();
-                                                                openMatrixForRow(item.id, item.name || '');
-                                                            }
-                                                        }}
-                                                        className="w-full bg-transparent p-1 outline-none font-semibold"
+                                                        onFocus={() => setActiveCell({ rowId: item.id, column: 'name' })}
+                                                        onKeyDown={e => handleGridNavigation(e, item.id, 'name')}
+                                                        className={getCellClassName(item.id, 'name', 'w-full bg-transparent p-1 outline-none font-semibold')}
                                                     />
                                                 </td>
-                                                <td className="p-1 border-r"><input value={item.itemCode || item.sku || ''} onChange={e => { handleUpdateItem(item.id, 'itemCode', e.target.value); handleUpdateItem(item.id, 'sku', e.target.value); }} className="w-full bg-transparent p-1 outline-none" /></td>
-                                                <td className="p-1 border-r"><input value={item.supplierItemName || ''} onChange={e => handleUpdateItem(item.id, 'supplierItemName', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
-                                                <td className="p-1 border-r"><input value={item.packType || ''} onChange={e => handleUpdateItem(item.id, 'packType', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
-                                                <td className="p-1 border-r"><input value={item.unitOfMeasurement || ''} onChange={e => handleUpdateItem(item.id, 'unitOfMeasurement', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
-                                                <td className="p-1 border-r"><input type="number" min={0} value={item.quantity} onChange={e => handleUpdateItem(item.id, 'quantity', Number(e.target.value) || 0)} className="w-24 bg-transparent p-1 outline-none text-right" /></td>
-                                                <td className="p-1 border-r"><input type="number" min={0} value={item.estimatedRate ?? item.purchasePrice ?? 0} onChange={e => handleUpdateItem(item.id, 'estimatedRate', Number(e.target.value) || 0)} className="w-28 bg-transparent p-1 outline-none text-right" /></td>
-                                                <td className="p-1 border-r"><input type="number" min={0} value={item.discountPercent || 0} onChange={e => handleUpdateItem(item.id, 'discountPercent', Number(e.target.value) || 0)} className="w-20 bg-transparent p-1 outline-none text-right" /></td>
-                                                <td className="p-1 border-r"><input type="number" min={0} value={item.gstPercent || 0} onChange={e => handleUpdateItem(item.id, 'gstPercent', Number(e.target.value) || 0)} className="w-20 bg-transparent p-1 outline-none text-right" /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'itemCode', el)} value={item.itemCode || item.sku || ''} onFocus={() => setActiveCell({ rowId: item.id, column: 'itemCode' })} onKeyDown={e => handleGridNavigation(e, item.id, 'itemCode')} onChange={e => { handleUpdateItem(item.id, 'itemCode', e.target.value); handleUpdateItem(item.id, 'sku', e.target.value); }} className={getCellClassName(item.id, 'itemCode', 'w-full bg-transparent p-1 outline-none')} /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'supplierItemName', el)} value={item.supplierItemName || ''} onFocus={() => setActiveCell({ rowId: item.id, column: 'supplierItemName' })} onKeyDown={e => handleGridNavigation(e, item.id, 'supplierItemName')} onChange={e => handleUpdateItem(item.id, 'supplierItemName', e.target.value)} className={getCellClassName(item.id, 'supplierItemName', 'w-full bg-transparent p-1 outline-none')} /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'packType', el)} value={item.packType || ''} onFocus={() => setActiveCell({ rowId: item.id, column: 'packType' })} onKeyDown={e => handleGridNavigation(e, item.id, 'packType')} onChange={e => handleUpdateItem(item.id, 'packType', e.target.value)} className={getCellClassName(item.id, 'packType', 'w-full bg-transparent p-1 outline-none')} /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'unitOfMeasurement', el)} value={item.unitOfMeasurement || ''} onFocus={() => setActiveCell({ rowId: item.id, column: 'unitOfMeasurement' })} onKeyDown={e => handleGridNavigation(e, item.id, 'unitOfMeasurement')} onChange={e => handleUpdateItem(item.id, 'unitOfMeasurement', e.target.value)} className={getCellClassName(item.id, 'unitOfMeasurement', 'w-full bg-transparent p-1 outline-none')} /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'quantity', el)} type="number" min={0} value={item.quantity} onFocus={() => setActiveCell({ rowId: item.id, column: 'quantity' })} onKeyDown={e => handleGridNavigation(e, item.id, 'quantity')} onChange={e => handleUpdateItem(item.id, 'quantity', Number(e.target.value) || 0)} className={getCellClassName(item.id, 'quantity', 'w-24 bg-transparent p-1 outline-none text-right')} /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'estimatedRate', el)} type="number" min={0} value={item.estimatedRate ?? item.purchasePrice ?? 0} onFocus={() => setActiveCell({ rowId: item.id, column: 'estimatedRate' })} onKeyDown={e => handleGridNavigation(e, item.id, 'estimatedRate')} onChange={e => handleUpdateItem(item.id, 'estimatedRate', Number(e.target.value) || 0)} className={getCellClassName(item.id, 'estimatedRate', 'w-28 bg-transparent p-1 outline-none text-right')} /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'discountPercent', el)} type="number" min={0} value={item.discountPercent || 0} onFocus={() => setActiveCell({ rowId: item.id, column: 'discountPercent' })} onKeyDown={e => handleGridNavigation(e, item.id, 'discountPercent')} onChange={e => handleUpdateItem(item.id, 'discountPercent', Number(e.target.value) || 0)} className={getCellClassName(item.id, 'discountPercent', 'w-20 bg-transparent p-1 outline-none text-right')} /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'gstPercent', el)} type="number" min={0} value={item.gstPercent || 0} onFocus={() => setActiveCell({ rowId: item.id, column: 'gstPercent' })} onKeyDown={e => handleGridNavigation(e, item.id, 'gstPercent')} onChange={e => handleUpdateItem(item.id, 'gstPercent', Number(e.target.value) || 0)} className={getCellClassName(item.id, 'gstPercent', 'w-20 bg-transparent p-1 outline-none text-right')} /></td>
                                                 <td className="p-1 border-r text-right font-bold">₹{Number(item.estimatedAmount || 0).toFixed(2)}</td>
-                                                <td className="p-1 border-r"><input type="date" value={item.expectedDeliveryDate || ''} onChange={e => handleUpdateItem(item.id, 'expectedDeliveryDate', e.target.value)} className="w-36 bg-transparent p-1 outline-none" /></td>
-                                                <td className="p-1 border-r"><input value={item.notes || ''} onChange={e => handleUpdateItem(item.id, 'notes', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'expectedDeliveryDate', el)} type="date" value={item.expectedDeliveryDate || ''} onFocus={() => setActiveCell({ rowId: item.id, column: 'expectedDeliveryDate' })} onKeyDown={e => handleGridNavigation(e, item.id, 'expectedDeliveryDate')} onChange={e => handleUpdateItem(item.id, 'expectedDeliveryDate', e.target.value)} className={getCellClassName(item.id, 'expectedDeliveryDate', 'w-36 bg-transparent p-1 outline-none')} /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'notes', el)} value={item.notes || ''} onFocus={() => setActiveCell({ rowId: item.id, column: 'notes' })} onKeyDown={e => handleGridNavigation(e, item.id, 'notes')} onChange={e => handleUpdateItem(item.id, 'notes', e.target.value)} className={getCellClassName(item.id, 'notes', 'w-full bg-transparent p-1 outline-none')} /></td>
                                                 <td className="p-1 text-center">
                                                     <button onClick={() => handleInsertBlankRow(idx)} className="mr-2 text-xs text-blue-700">+row</button>
-                                                    <button onClick={() => handleRemoveItem(item.id)} className="text-xs text-red-600">del</button>
+                                                    <button onClick={() => handleRemoveItem(item.id, activeCell?.column)} className="text-xs text-red-600">del</button>
                                                 </td>
                                             </tr>
                                         ))}
@@ -702,7 +816,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                 onClose={() => {
                     setIsMatrixOpen(false);
                     if (activeMatrixRowId) {
-                        requestAnimationFrame(() => rowItemInputRefs.current[activeMatrixRowId]?.focus());
+                        requestAnimationFrame(() => focusCell(activeMatrixRowId, 'name'));
                     }
                 }}
                 title="Product Selection Matrix"
