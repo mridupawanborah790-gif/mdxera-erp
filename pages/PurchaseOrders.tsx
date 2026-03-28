@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Card from '../components/Card';
+import Modal from '../components/Modal';
 import type { Distributor, InventoryItem, PurchaseOrderItem, PurchaseOrder, Medicine, SupplierProductMap } from '../types';
 import { PurchaseOrderStatus } from '../types';
 import SharePurchaseOrderModal from '../components/SharePurchaseOrderModal';
@@ -89,9 +90,15 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [isSaving, setIsSaving] = useState(false);
     const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
+    const [isMatrixOpen, setIsMatrixOpen] = useState(false);
+    const [matrixSearchTerm, setMatrixSearchTerm] = useState('');
+    const [selectedMatrixIndex, setSelectedMatrixIndex] = useState(0);
+    const [activeMatrixRowId, setActiveMatrixRowId] = useState<string | null>(null);
 
     const supplierSelectRef = useRef<HTMLSelectElement>(null);
     const itemSearchRef = useRef<HTMLInputElement>(null);
+    const matrixSearchRef = useRef<HTMLInputElement>(null);
+    const rowItemInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
     const resetCreateForm = () => {
         setSelectedDistributorId('');
@@ -205,6 +212,26 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
         return scored.slice(0, 12);
     }, [searchTerm, catalog, selectedDistributorId]);
+    
+    const matrixResults = useMemo(() => {
+        const lower = matrixSearchTerm.trim().toLowerCase();
+        const source = lower
+            ? catalog.filter(c =>
+                c.name.toLowerCase().includes(lower) ||
+                (c.code || '').toLowerCase().includes(lower) ||
+                (c.sku || '').toLowerCase().includes(lower) ||
+                (c.supplierItemName || '').toLowerCase().includes(lower)
+            )
+            : catalog;
+
+        return source
+            .map(c => ({
+                ...c,
+                supplierBoost: selectedDistributorId && c.mappedSupplierIds.includes(selectedDistributorId) ? 100 : 0
+            }))
+            .sort((a, b) => b.supplierBoost - a.supplierBoost || a.name.localeCompare(b.name))
+            .slice(0, 50);
+    }, [catalog, matrixSearchTerm, selectedDistributorId]);
 
     const recalculateLine = (line: PurchaseOrderItem): PurchaseOrderItem => {
         const qty = Number(line.quantity || 0);
@@ -258,6 +285,47 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         setIsSearchDropdownOpen(false);
         setSelectedSearchIndex(0);
         itemSearchRef.current?.focus();
+    };
+
+    const pickCatalogItemForRow = (picked: SearchCatalogItem, rowId: string) => {
+        const inv = picked.inventoryItem;
+        const med = picked.medicine;
+
+        setItems(prev => prev.map(line => {
+            if (line.id !== rowId) return line;
+            return recalculateLine({
+                ...line,
+                inventoryItemId: inv?.id,
+                medicineId: med?.id,
+                name: picked.name,
+                itemCode: picked.code || inv?.code || med?.materialCode || line.itemCode,
+                sku: picked.sku || inv?.code || med?.materialCode || line.sku,
+                supplierItemName: picked.supplierItemName || line.supplierItemName,
+                brand: inv?.brand || med?.brand || line.brand || '',
+                quantity: line.quantity > 0 ? line.quantity : 1,
+                estimatedRate: Number(inv?.purchasePrice || med?.rateA || line.estimatedRate || line.purchasePrice || 0),
+                purchasePrice: Number(inv?.purchasePrice || med?.rateA || line.purchasePrice || 0),
+                packType: inv?.packType || med?.pack || line.packType || '',
+                unitOfMeasurement: inv?.unitOfMeasurement || inv?.packUnit || line.unitOfMeasurement || 'Unit',
+                manufacturer: inv?.manufacturer || med?.manufacturer || line.manufacturer,
+                hsnCode: inv?.hsnCode || med?.hsnCode || line.hsnCode || '',
+                mrp: Number(inv?.mrp || med?.mrp || line.mrp || 0),
+                gstPercent: Number(inv?.gstPercent || med?.gstRate || line.gstPercent || 0),
+                expectedDeliveryDate: line.expectedDeliveryDate || orderDate,
+            });
+        }));
+        setIsMatrixOpen(false);
+        setSelectedMatrixIndex(0);
+        setActiveMatrixRowId(null);
+        requestAnimationFrame(() => rowItemInputRefs.current[rowId]?.focus());
+    };
+
+    const openMatrixForRow = (rowId: string, initialTerm = '') => {
+        setActiveMatrixRowId(rowId);
+        setMatrixSearchTerm(initialTerm);
+        setSelectedMatrixIndex(0);
+        setIsMatrixOpen(true);
+        requestAnimationFrame(() => matrixSearchRef.current?.focus());
     };
 
     const handleUpdateItem = (id: string, field: keyof PurchaseOrderItem, value: any) => {
@@ -355,6 +423,36 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         }
     };
 
+    const handleMatrixKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (matrixResults.length === 0 && activeMatrixRowId) {
+                const pendingName = matrixSearchTerm.trim();
+                if (pendingName) {
+                    handleUpdateItem(activeMatrixRowId, 'name', pendingName);
+                }
+                alert('No item found. Please register a new Material Master record from the Material Master screen.');
+                setIsMatrixOpen(false);
+                requestAnimationFrame(() => rowItemInputRefs.current[activeMatrixRowId]?.focus());
+            }
+            return;
+        }
+
+        if (matrixResults.length === 0) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedMatrixIndex(prev => (prev + 1) % matrixResults.length);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedMatrixIndex(prev => (prev - 1 + matrixResults.length) % matrixResults.length);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeMatrixRowId && matrixResults[selectedMatrixIndex]) {
+                pickCatalogItemForRow(matrixResults[selectedMatrixIndex], activeMatrixRowId);
+            }
+        }
+    };
+
     const getStatusClass = (status: PurchaseOrderStatus) => {
         switch (status) {
             case PurchaseOrderStatus.ORDERED: return 'bg-blue-100 text-blue-800 border-blue-200';
@@ -447,7 +545,20 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                         {items.map((item, idx) => (
                                             <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50">
                                                 <td className="p-1 border-r text-center text-xs font-bold">{idx + 1}</td>
-                                                <td className="p-1 border-r"><input value={item.name || ''} onChange={e => handleUpdateItem(item.id, 'name', e.target.value)} className="w-full bg-transparent p-1 outline-none font-semibold" /></td>
+                                                <td className="p-1 border-r">
+                                                    <input
+                                                        ref={el => { rowItemInputRefs.current[item.id] = el; }}
+                                                        value={item.name || ''}
+                                                        onChange={e => handleUpdateItem(item.id, 'name', e.target.value)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                openMatrixForRow(item.id, item.name || '');
+                                                            }
+                                                        }}
+                                                        className="w-full bg-transparent p-1 outline-none font-semibold"
+                                                    />
+                                                </td>
                                                 <td className="p-1 border-r"><input value={item.itemCode || item.sku || ''} onChange={e => { handleUpdateItem(item.id, 'itemCode', e.target.value); handleUpdateItem(item.id, 'sku', e.target.value); }} className="w-full bg-transparent p-1 outline-none" /></td>
                                                 <td className="p-1 border-r"><input value={item.supplierItemName || ''} onChange={e => handleUpdateItem(item.id, 'supplierItemName', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
                                                 <td className="p-1 border-r"><input value={item.packType || ''} onChange={e => handleUpdateItem(item.id, 'packType', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
@@ -627,6 +738,78 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                     senderOrgId={currentUserOrgId}
                 />
             )}
+
+            <Modal
+                isOpen={isMatrixOpen}
+                onClose={() => {
+                    setIsMatrixOpen(false);
+                    if (activeMatrixRowId) {
+                        requestAnimationFrame(() => rowItemInputRefs.current[activeMatrixRowId]?.focus());
+                    }
+                }}
+                title="Product Selection Matrix"
+            >
+                <div className="flex flex-col h-full bg-[#fffde7]" onKeyDown={handleMatrixKeyDown}>
+                    <div className="py-1.5 px-4 bg-primary text-white flex justify-between items-center">
+                        <span className="text-xs font-black uppercase tracking-[0.2em]">Material / Inventory Lookup</span>
+                        <span className="text-[10px] font-bold uppercase opacity-80">↑/↓ Navigate | Enter Select | Ctrl+Enter Register Material</span>
+                    </div>
+                    <div className="p-2 border-b border-gray-300 bg-white">
+                        <input
+                            ref={matrixSearchRef}
+                            type="text"
+                            value={matrixSearchTerm}
+                            onChange={e => {
+                                setMatrixSearchTerm(e.target.value);
+                                setSelectedMatrixIndex(0);
+                            }}
+                            placeholder="Search item name, code, SKU, supplier item..."
+                            className="w-full border border-gray-400 p-2 text-sm font-black uppercase outline-none focus:bg-yellow-50"
+                        />
+                        {matrixResults.length === 0 && (
+                            <p className="mt-2 text-[10px] font-black uppercase text-amber-700">No item found. Press Ctrl + Enter to register new Material Master record.</p>
+                        )}
+                    </div>
+                    <div className="flex-1 overflow-auto bg-white">
+                        <table className="min-w-full border-collapse text-xs">
+                            <thead className="sticky top-0 bg-gray-100 border-b border-gray-400">
+                                <tr className="text-[10px] font-black uppercase text-gray-500">
+                                    <th className="p-2 text-left border-r border-gray-300">Item Name</th>
+                                    <th className="p-2 text-left border-r border-gray-300">Item Code / SKU</th>
+                                    <th className="p-2 text-left border-r border-gray-300">Pack</th>
+                                    <th className="p-2 text-left border-r border-gray-300">Unit</th>
+                                    <th className="p-2 text-left border-r border-gray-300">Supplier Item</th>
+                                    <th className="p-2 text-left border-r border-gray-300">Est. Rate</th>
+                                    <th className="p-2 text-left">GST %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {matrixResults.map((result, idx) => {
+                                    const inv = result.inventoryItem;
+                                    const med = result.medicine;
+                                    const isSelected = idx === selectedMatrixIndex;
+                                    return (
+                                        <tr
+                                            key={`${result.id}-${idx}`}
+                                            onMouseEnter={() => setSelectedMatrixIndex(idx)}
+                                            onClick={() => activeMatrixRowId && pickCatalogItemForRow(result, activeMatrixRowId)}
+                                            className={`cursor-pointer border-b border-gray-100 ${isSelected ? 'bg-primary text-white' : 'hover:bg-yellow-50'}`}
+                                        >
+                                            <td className="p-2 border-r border-gray-200 font-bold uppercase">{result.name}</td>
+                                            <td className="p-2 border-r border-gray-200 font-mono">{result.code || result.sku || '-'}</td>
+                                            <td className="p-2 border-r border-gray-200 uppercase">{inv?.packType || med?.pack || '-'}</td>
+                                            <td className="p-2 border-r border-gray-200 uppercase">{inv?.unitOfMeasurement || inv?.packUnit || 'Unit'}</td>
+                                            <td className="p-2 border-r border-gray-200 uppercase">{result.supplierItemName || '-'}</td>
+                                            <td className="p-2 border-r border-gray-200 text-right">₹{Number(inv?.purchasePrice || med?.rateA || 0).toFixed(2)}</td>
+                                            <td className="p-2 text-right">{Number(inv?.gstPercent || med?.gstRate || 0).toFixed(2)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </Modal>
         </main>
     );
 });
