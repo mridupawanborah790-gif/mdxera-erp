@@ -33,11 +33,26 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, addNotific
         loadMembers();
     }, [loadMembers]);
 
-    const handleAddMember = async (email: string, role: string, name: string, pass: string) => {
+    const handleAddMember = async (payload: {
+        name: string;
+        username: string;
+        password: string;
+        department: string;
+        mobile: string;
+        email: string;
+        isActive: boolean;
+        assignedRoleIds: string[];
+    }) => {
         try {
-            // Explicitly cast the role string from the modal to UserRole type
-            await addTeamMember(email, role as UserRole, name, pass, currentUser.organization_id);
-            addNotification(`User ${name} invited successfully.`, 'success');
+            await addTeamMember(payload.email, 'viewer', payload.name, payload.password, currentUser.organization_id, {
+                department: payload.department,
+                employeeId: payload.username,
+                company: payload.mobile,
+                assignedRoles: payload.assignedRoleIds,
+                status: payload.isActive ? 'active' : 'suspended',
+                isLocked: !payload.isActive,
+            });
+            addNotification(`User ${payload.name} invited successfully.`, 'success');
             loadMembers();
         } catch (err: any) {
             addNotification(err.message || "Failed to invite user.", "error");

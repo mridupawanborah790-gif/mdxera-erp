@@ -1235,9 +1235,26 @@
         return cached || null;
     };
 
-    export const addTeamMember = async (email: string, role: UserRole, name: string, pass: string, organization_id: string) => {
+    export const addTeamMember = async (
+        email: string,
+        role: UserRole,
+        name: string,
+        pass: string,
+        organization_id: string,
+        extra?: Partial<OrganizationMember>
+    ) => {
         const id = generateUUID();
-        const newMember: OrganizationMember = { id, email, name, role, status: 'active', isLocked: false, passwordLocked: false };
+        const newMember: OrganizationMember = {
+            id,
+            email,
+            name,
+            role,
+            status: 'active',
+            isLocked: false,
+            passwordLocked: false,
+            ...extra,
+            assignedRoles: extra?.assignedRoles || [],
+        };
         await idb.put(STORES.TEAM_MEMBERS, { ...newMember, organization_id });
         if (navigator.onLine) await supabase.from('team_members').upsert(toSnake({ ...newMember, organization_id }));
     };
