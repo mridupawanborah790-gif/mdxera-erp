@@ -154,6 +154,23 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         setViewingPurchase(purchase);
     }, [requireSelectedPurchase]);
 
+    const checkLinkedPayments = useCallback((purchase: Purchase) => {
+        const distributor = distributors.find(d => 
+            (d.name || '').trim().toLowerCase() === (purchase.supplier || '').trim().toLowerCase()
+        );
+        
+        if (!distributor || !Array.isArray(distributor.ledger)) return false;
+
+        // Check if there are any non-cancelled payment entries linked to this purchase invoice
+        return distributor.ledger.some(entry => 
+            entry.type === 'payment' && 
+            entry.status !== 'cancelled' &&
+            (entry.referenceInvoiceId === purchase.id || entry.referenceInvoiceNumber === purchase.invoiceNumber) &&
+            ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+            ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
+        );
+    }, [distributors]);
+
     const handleEditSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
@@ -164,10 +181,15 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             return;
         }
 
+        if (checkLinkedPayments(purchase)) {
+            setActionWarning('Cannot edit bill: A payment has been made against this purchase bill. Cancel the payment voucher first.');
+            return;
+        }
+
         setActionWarning('');
         const latestSelected = purchases.find((p) => p.id === purchase.id) || purchase;
         onEditPurchase(latestSelected);
-    }, [requireSelectedPurchase, currentUser, onEditPurchase, purchases]);
+    }, [requireSelectedPurchase, currentUser, onEditPurchase, purchases, checkLinkedPayments]);
 
     const handleCopySelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
@@ -241,8 +263,13 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             return;
         }
 
+        if (checkLinkedPayments(purchase)) {
+            setActionWarning('Cannot cancel bill: A payment has been made against this purchase bill. Cancel the payment voucher first.');
+            return;
+        }
+
         handleCancelClick(purchase.id);
-    }, [requireSelectedPurchase, currentUser]);
+    }, [requireSelectedPurchase, currentUser, checkLinkedPayments]);
 
     const handleExportSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
