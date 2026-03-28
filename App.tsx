@@ -1717,6 +1717,8 @@ const App: React.FC = () => {
                         ref={isActive ? purchaseFormRef : undefined}
                         distributors={suppliers}
                         inventory={inventory}
+                        medicines={medicines}
+                        mappings={mappings}
                         purchaseOrders={purchaseOrders}
                         onAddPurchaseOrder={async (po) => {
                             const newPO = await storage.saveData('purchase_orders', po, currentUser!);
