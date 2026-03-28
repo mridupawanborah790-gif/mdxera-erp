@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
 import { Customer, RegisteredPharmacy, Transaction, TransactionLedgerItem } from '../types';
-import { getOutstandingBalance } from '../utils/helpers';
+import { calculateCustomerReceivableBreakdown, getOutstandingBalance } from '../utils/helpers';
 import { fuzzyMatch } from '../utils/search';
 import { handleEnterToNextField } from '../utils/navigation';
 import { numberToWords } from '../utils/numberToWords';
@@ -269,19 +269,18 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         return { adjustedAmount, remainingAmount, status: 'Open / Unadjusted' };
     };
 
-    const grossOutstanding = useMemo(() => Number(invoiceRows.reduce((sum, row) => sum + row.balance, 0).toFixed(2)), [invoiceRows]);
-    const totalAdjustedReceipt = useMemo(
-        () => Number(ledgerRows.filter(row => row.status !== 'cancelled' && (row.entryCategory === 'invoice_payment_adjustment' || row.entryCategory === 'down_payment_adjustment')).reduce((sum, row) => sum + Number(row.adjustedAmount || 0), 0).toFixed(2)),
-        [ledgerRows]
+    const invoiceOutstandingTotal = useMemo(
+        () => Number(invoiceRows.reduce((sum, row) => sum + Number(row.balance || 0), 0).toFixed(2)),
+        [invoiceRows]
     );
-    const totalUnadjustedReceipt = useMemo(
-        () => Number(ledgerRows.filter(row => row.type === 'payment' && row.status !== 'cancelled' && (row.entryCategory === 'invoice_payment' || row.entryCategory === 'down_payment')).reduce((sum, row) => {
-            const summary = getVoucherAllocationSummary(row);
-            return sum + Math.max(summary.remainingAmount, 0);
-        }, 0).toFixed(2)),
-        [ledgerRows]
+    const receivableBreakdown = useMemo(
+        () => calculateCustomerReceivableBreakdown(selectedCustomer, invoiceOutstandingTotal),
+        [selectedCustomer, invoiceOutstandingTotal]
     );
-    const netReceivable = useMemo(() => Number(Math.max(grossOutstanding - totalUnadjustedReceipt, 0).toFixed(2)), [grossOutstanding, totalUnadjustedReceipt]);
+    const grossOutstanding = receivableBreakdown.grossReceivable;
+    const totalAdjustedReceipt = receivableBreakdown.adjustedReceipts;
+    const totalUnadjustedReceipt = receivableBreakdown.unadjustedAdvance;
+    const netReceivable = receivableBreakdown.netOutstanding;
 
     const printVoucher = (entry: TransactionLedgerItem) => {
         if (!selectedCustomer) return;

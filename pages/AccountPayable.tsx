@@ -381,19 +381,17 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         return { adjustedAmount, remainingAmount, status: 'Open / Unadjusted' };
     };
 
+    const invoiceOutstandingTotal = useMemo(
+        () => Number(invoiceRows.reduce((sum, row) => sum + Number(row.balance || 0), 0).toFixed(2)),
+        [invoiceRows]
+    );
     const payableBreakdown = useMemo(
-        () => calculateSupplierPayableBreakdown(selectedDistributor),
-        [selectedDistributor]
+        () => calculateSupplierPayableBreakdown(selectedDistributor, invoiceOutstandingTotal),
+        [selectedDistributor, invoiceOutstandingTotal]
     );
     const grossOutstanding = payableBreakdown.grossPayable;
     const totalAdjustedPayment = payableBreakdown.adjustedPayments;
-    const totalUnadjustedPayment = useMemo(
-        () => Number(ledgerRows.filter(row => row.type === 'payment' && row.status !== 'cancelled' && (row.entryCategory === 'invoice_payment' || row.entryCategory === 'down_payment')).reduce((sum, row) => {
-            const summary = getVoucherAllocationSummary(row);
-            return sum + Math.max(summary.remainingAmount, 0);
-        }, 0).toFixed(2)),
-        [ledgerRows]
-    );
+    const totalUnadjustedPayment = payableBreakdown.unadjustedAdvance;
     const netPayable = payableBreakdown.netOutstanding;
 
     const printVoucher = (entry: TransactionLedgerItem) => {

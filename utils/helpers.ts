@@ -33,30 +33,65 @@ const getLinkedAdjustedAmount = (ledger: TransactionLedgerItem[], paymentEntry: 
 
 export interface SupplierPayableBreakdown {
     openingBalanceSigned: number;
+    openingPayable: number;
+    openingAdvance: number;
     purchaseInvoices: number;
     purchaseReturns: number;
     adjustedPayments: number;
-    unadjustedAdvanceSigned: number;
+    unadjustedAdvance: number;
     grossPayable: number;
     netOutstanding: number;
 }
 
-export const calculateSupplierPayableBreakdown = (supplier: Distributor | null | undefined): SupplierPayableBreakdown => {
+export interface CustomerReceivableBreakdown {
+    openingBalanceSigned: number;
+    openingReceivable: number;
+    openingAdvance: number;
+    salesInvoices: number;
+    salesReturns: number;
+    adjustedReceipts: number;
+    unadjustedAdvance: number;
+    grossReceivable: number;
+    netOutstanding: number;
+}
+
+const getOpeningSignedForSupplier = (ledger: TransactionLedgerItem[], supplier: Distributor): number => {
+    const openingFromLedger = getOpeningBalanceSignedFromLedger(ledger);
+    return round2(openingFromLedger ?? Number((supplier as any).opening_balance || (supplier as any).openingBalance || 0));
+};
+
+const getOpeningSignedForCustomer = (ledger: TransactionLedgerItem[], customer: Customer): number => {
+    const openingEntrySigned = ledger
+        .filter((entry) => entry && entry.type === 'openingBalance' && entry.status !== 'cancelled')
+        .reduce((sum, entry) => sum + Number(entry.debit || 0) - Number(entry.credit || 0), 0);
+    if (ledger.some((entry) => entry && entry.type === 'openingBalance' && entry.status !== 'cancelled')) {
+        return round2(openingEntrySigned);
+    }
+    return round2(Number((customer as any).opening_balance || (customer as any).openingBalance || 0));
+};
+
+export const calculateSupplierPayableBreakdown = (
+    supplier: Distributor | null | undefined,
+    invoiceOutstandingTotal: number = 0
+): SupplierPayableBreakdown => {
     if (!supplier) {
         return {
             openingBalanceSigned: 0,
+            openingPayable: 0,
+            openingAdvance: 0,
             purchaseInvoices: 0,
             purchaseReturns: 0,
             adjustedPayments: 0,
-            unadjustedAdvanceSigned: 0,
+            unadjustedAdvance: 0,
             grossPayable: 0,
             netOutstanding: 0,
         };
     }
 
     const ledger = Array.isArray(supplier.ledger) ? supplier.ledger.filter(Boolean) : [];
-    const openingFromLedger = getOpeningBalanceSignedFromLedger(ledger);
-    const openingBalanceSigned = round2(openingFromLedger ?? Number((supplier as any).opening_balance || (supplier as any).openingBalance || 0));
+    const openingBalanceSigned = getOpeningSignedForSupplier(ledger, supplier);
+    const openingPayable = round2(Math.max(openingBalanceSigned, 0));
+    const openingAdvance = round2(Math.max(-openingBalanceSigned, 0));
 
     const purchaseInvoices = round2(
         ledger
@@ -83,23 +118,103 @@ export const calculateSupplierPayableBreakdown = (supplier: Distributor | null |
             (row.entryCategory === 'invoice_payment' || row.entryCategory === 'down_payment')
     );
 
-    const unadjustedAdvanceSigned = round2(
+    const unadjustedVoucherPayments = round2(
         paymentVouchers.reduce((sum, row) => {
             const remaining = Math.max(round2(getLedgerAmount(row) - getLinkedAdjustedAmount(ledger, row)), 0);
-            return sum - remaining;
+            return sum + remaining;
         }, 0)
     );
 
-    const grossPayable = round2(openingBalanceSigned + purchaseInvoices - purchaseReturns - adjustedPayments);
-    const netOutstanding = round2(grossPayable + unadjustedAdvanceSigned);
+    const invoiceOutstanding = round2(Math.max(invoiceOutstandingTotal, 0));
+    const grossRaw = round2(openingPayable + invoiceOutstanding - purchaseReturns);
+    const grossPayable = round2(Math.max(grossRaw, 0));
+    const returnDrivenAdvance = round2(Math.max(-grossRaw, 0));
+    const unadjustedAdvance = round2(openingAdvance + unadjustedVoucherPayments + returnDrivenAdvance);
+    const netOutstanding = round2(grossPayable - unadjustedAdvance);
 
     return {
         openingBalanceSigned,
+        openingPayable,
+        openingAdvance,
         purchaseInvoices,
         purchaseReturns,
         adjustedPayments,
-        unadjustedAdvanceSigned,
+        unadjustedAdvance,
         grossPayable,
+        netOutstanding,
+    };
+};
+
+export const calculateCustomerReceivableBreakdown = (
+    customer: Customer | null | undefined,
+    invoiceOutstandingTotal: number = 0
+): CustomerReceivableBreakdown => {
+    if (!customer) {
+        return {
+            openingBalanceSigned: 0,
+            openingReceivable: 0,
+            openingAdvance: 0,
+            salesInvoices: 0,
+            salesReturns: 0,
+            adjustedReceipts: 0,
+            unadjustedAdvance: 0,
+            grossReceivable: 0,
+            netOutstanding: 0,
+        };
+    }
+
+    const ledger = Array.isArray(customer.ledger) ? customer.ledger.filter(Boolean) : [];
+    const openingBalanceSigned = getOpeningSignedForCustomer(ledger, customer);
+    const openingReceivable = round2(Math.max(openingBalanceSigned, 0));
+    const openingAdvance = round2(Math.max(-openingBalanceSigned, 0));
+
+    const salesInvoices = round2(
+        ledger
+            .filter((row) => row.status !== 'cancelled' && row.type === 'sale')
+            .reduce((sum, row) => sum + Number(row.debit || 0), 0)
+    );
+
+    const salesReturns = round2(
+        ledger
+            .filter((row) => row.status !== 'cancelled' && row.type === 'return')
+            .reduce((sum, row) => sum + Number(row.credit || 0), 0)
+    );
+
+    const adjustedReceipts = round2(
+        ledger
+            .filter((row) => row.status !== 'cancelled' && (row.entryCategory === 'invoice_payment_adjustment' || row.entryCategory === 'down_payment_adjustment'))
+            .reduce((sum, row) => sum + Number(row.adjustedAmount || 0), 0)
+    );
+
+    const receiptVouchers = ledger.filter(
+        (row) =>
+            row.status !== 'cancelled' &&
+            row.type === 'payment' &&
+            (row.entryCategory === 'invoice_payment' || row.entryCategory === 'down_payment')
+    );
+    const unadjustedVoucherReceipts = round2(
+        receiptVouchers.reduce((sum, row) => {
+            const remaining = Math.max(round2(getLedgerAmount(row) - getLinkedAdjustedAmount(ledger, row)), 0);
+            return sum + remaining;
+        }, 0)
+    );
+
+    const invoiceOutstanding = round2(Math.max(invoiceOutstandingTotal, 0));
+    const grossRaw = round2(openingReceivable + invoiceOutstanding - salesReturns);
+    const grossReceivable = round2(Math.max(grossRaw, 0));
+    const returnDrivenAdvance = round2(Math.max(-grossRaw, 0));
+    const unadjustedAdvance = round2(openingAdvance + unadjustedVoucherReceipts + returnDrivenAdvance);
+    const netOutstanding = round2(grossReceivable - unadjustedAdvance);
+
+    return {
+        openingBalanceSigned,
+        openingReceivable,
+        openingAdvance,
+        salesInvoices,
+        salesReturns,
+        adjustedReceipts,
+        unadjustedAdvance,
+        grossReceivable,
         netOutstanding,
     };
 };
@@ -115,14 +230,8 @@ export const getOutstandingBalance = (entity: Customer | Distributor | null | un
     if (looksLikeSupplier) {
         return calculateSupplierPayableBreakdown(entity as Distributor).netOutstanding;
     }
-    
-    // 1. Check if there are entries in the ledger
-    if (Array.isArray(entity.ledger) && entity.ledger.length > 0) {
-        return entity.ledger[entity.ledger.length - 1]?.balance ?? 0;
-    }
-    
-    // 2. Fallback to opening_balance if ledger is empty
-    return (entity as any).opening_balance || (entity as any).openingBalance || 0;
+
+    return calculateCustomerReceivableBreakdown(entity as Customer).netOutstanding;
 };
 
 /**
