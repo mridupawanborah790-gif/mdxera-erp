@@ -1224,7 +1224,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setItems(prev => {
             const index = prev.findIndex(p => p.id === id); if (index === -1) return prev;
             let updatedItem = { ...prev[index], [field]: value };
-            if (field === 'name') { updatedItem.matchStatus = 'pending'; updatedItem.inventoryItemId = undefined; }
+            if (field === 'name' || field === 'batch') { 
+                updatedItem.matchStatus = 'pending'; 
+                updatedItem.inventoryItemId = undefined; 
+            }
             if (field === 'expiry') { updatedItem.expiry = normalizeExpiryInput(String(value)); }
             if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
             if (field === 'quantity' || field === 'purchasePrice') {
