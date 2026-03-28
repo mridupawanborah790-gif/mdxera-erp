@@ -1,15 +1,14 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Card from '../components/Card';
-import Modal from '../components/Modal';
-import type { Distributor, InventoryItem, PurchaseOrderItem, PurchaseOrder } from '../types';
+import type { Distributor, InventoryItem, PurchaseOrderItem, PurchaseOrder, Medicine, SupplierProductMap } from '../types';
 import { PurchaseOrderStatus } from '../types';
-import ConfirmModal from '../components/ConfirmModal';
 import SharePurchaseOrderModal from '../components/SharePurchaseOrderModal';
 
 interface PurchaseOrdersProps {
   distributors: Distributor[];
   inventory: InventoryItem[];
+  medicines: Medicine[];
+  mappings: SupplierProductMap[];
   purchaseOrders: PurchaseOrder[];
   onAddPurchaseOrder: (po: Omit<PurchaseOrder, 'id' | 'serialId'>) => void;
   onUpdatePurchaseOrder: (po: PurchaseOrder) => void;
@@ -20,14 +19,48 @@ interface PurchaseOrdersProps {
   onClearDraft: () => void;
   initialStatusFilter?: PurchaseOrderStatus | 'all';
   setIsDirty: (isDirty: boolean) => void;
-  currentUserPharmacyName: string; 
-  currentUserEmail: string; 
+  currentUserPharmacyName: string;
+  currentUserEmail: string;
   currentUserOrgId?: string;
 }
 
+type SearchCatalogItem = {
+  id: string;
+  name: string;
+  code?: string;
+  sku?: string;
+  supplierItemName?: string;
+  source: 'inventory' | 'material';
+  inventoryItem?: InventoryItem;
+  medicine?: Medicine;
+  mappedSupplierIds: string[];
+};
+
+const getDefaultOrderDate = () => new Date().toISOString().split('T')[0];
+
+const createEmptyLineItem = (): PurchaseOrderItem => ({
+  id: crypto.randomUUID(),
+  name: '',
+  brand: '',
+  quantity: 0,
+  freeQuantity: 0,
+  purchasePrice: 0,
+  estimatedRate: 0,
+  discountPercent: 0,
+  gstPercent: 0,
+  lineAmount: 0,
+  discountAmount: 0,
+  gstAmount: 0,
+  estimatedAmount: 0,
+  expectedDeliveryDate: '',
+  notes: ''
+});
+
 const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({ 
     distributors, 
-    inventory, 
+    inventory,
+    medicines,
+    mappings,
     purchaseOrders, 
     onAddPurchaseOrder, 
     onUpdatePurchaseOrder, 
@@ -44,14 +77,12 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 }, ref) => {
     const [view, setView] = useState<'list' | 'create'>('list');
 
-    // List State
     const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatus | 'all'>(initialStatusFilter);
     const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
     const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
-    // Create Form State
     const [selectedDistributorId, setSelectedDistributorId] = useState('');
-    const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
+    const [orderDate, setOrderDate] = useState(getDefaultOrderDate());
     const [items, setItems] = useState<PurchaseOrderItem[]>([]);
     const [remarks, setRemarks] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -61,6 +92,17 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
     const supplierSelectRef = useRef<HTMLSelectElement>(null);
     const itemSearchRef = useRef<HTMLInputElement>(null);
+
+    const resetCreateForm = () => {
+        setSelectedDistributorId('');
+        setOrderDate(getDefaultOrderDate());
+        setItems([]);
+        setRemarks('');
+        setSearchTerm('');
+        setIsSearchDropdownOpen(false);
+        setSelectedSearchIndex(0);
+        onClearDraft();
+    };
 
     const filteredPOList = useMemo(() => {
         let list = [...purchaseOrders];
@@ -72,90 +114,219 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
     useEffect(() => {
         if (draftItems && draftItems.length > 0) {
-            setItems(draftItems.map(item => ({ ...item, id: item.id || crypto.randomUUID() })));
+            setItems(draftItems.map(item => ({ ...createEmptyLineItem(), ...item, id: item.id || crypto.randomUUID() })));
             setView('create');
         }
     }, [draftItems]);
 
     useEffect(() => {
         if (view === 'create') {
-            setTimeout(() => supplierSelectRef.current?.focus(), 150);
+            setTimeout(() => supplierSelectRef.current?.focus(), 120);
         }
     }, [view]);
 
-    const handleAddItem = (invItem: InventoryItem) => {
-        const existing = items.find(i => i.id === invItem.id);
-        if (existing) {
-            setItems(prev => prev.map(i => i.id === invItem.id ? { ...i, quantity: i.quantity + 1 } : i));
-        } else {
-            setItems(prev => [...prev, {
-                id: invItem.id,
-                name: invItem.name,
-                brand: invItem.brand,
-                quantity: 1,
-                freeQuantity: 0,
-                purchasePrice: invItem.purchasePrice,
-                packType: invItem.packType,
-                mrp: invItem.mrp,
-                gstPercent: invItem.gstPercent,
-                hsnCode: invItem.hsnCode,
-                manufacturer: invItem.manufacturer
-            }]);
+    const catalog = useMemo(() => {
+        const byKey = new Map<string, SearchCatalogItem>();
+        const mappedByMedicine = new Map<string, SupplierProductMap[]>();
+
+        for (const map of mappings) {
+            if (!mappedByMedicine.has(map.master_medicine_id)) mappedByMedicine.set(map.master_medicine_id, []);
+            mappedByMedicine.get(map.master_medicine_id)!.push(map);
         }
+
+        for (const inv of inventory) {
+            const key = (inv.code || inv.name).trim().toUpperCase();
+            const existing = byKey.get(key);
+            const mappedSupplierIds = mappings
+              .filter(m => (m.supplier_product_name || '').trim().toUpperCase() === inv.name.trim().toUpperCase())
+              .map(m => m.supplier_id);
+
+            if (existing) {
+                existing.inventoryItem = inv;
+                existing.mappedSupplierIds = [...new Set([...(existing.mappedSupplierIds || []), ...mappedSupplierIds])];
+                continue;
+            }
+
+            byKey.set(key, {
+                id: key,
+                name: inv.name,
+                code: inv.code,
+                sku: inv.code,
+                source: 'inventory',
+                inventoryItem: inv,
+                mappedSupplierIds
+            });
+        }
+
+        for (const med of medicines) {
+            const key = (med.materialCode || med.name).trim().toUpperCase();
+            const medMappings = mappedByMedicine.get(med.id) || [];
+            const mappedSupplierIds = medMappings.map(m => m.supplier_id);
+            const supplierItemName = medMappings[0]?.supplier_product_name;
+            const existing = byKey.get(key);
+            if (existing) {
+                existing.medicine = med;
+                existing.mappedSupplierIds = [...new Set([...(existing.mappedSupplierIds || []), ...mappedSupplierIds])];
+                if (!existing.supplierItemName && supplierItemName) existing.supplierItemName = supplierItemName;
+                continue;
+            }
+
+            byKey.set(key, {
+                id: key,
+                name: med.name,
+                code: med.materialCode,
+                sku: med.materialCode,
+                supplierItemName,
+                source: 'material',
+                medicine: med,
+                mappedSupplierIds
+            });
+        }
+
+        return Array.from(byKey.values());
+    }, [inventory, medicines, mappings]);
+
+    const searchResults = useMemo(() => {
+        const lower = searchTerm.trim().toLowerCase();
+        if (!lower) return [];
+
+        const scored = catalog
+          .filter(c =>
+            c.name.toLowerCase().includes(lower) ||
+            (c.code || '').toLowerCase().includes(lower) ||
+            (c.sku || '').toLowerCase().includes(lower) ||
+            (c.supplierItemName || '').toLowerCase().includes(lower)
+          )
+          .map(c => ({
+            ...c,
+            supplierBoost: selectedDistributorId && c.mappedSupplierIds.includes(selectedDistributorId) ? 100 : 0
+          }))
+          .sort((a, b) => b.supplierBoost - a.supplierBoost || a.name.localeCompare(b.name));
+
+        return scored.slice(0, 12);
+    }, [searchTerm, catalog, selectedDistributorId]);
+
+    const recalculateLine = (line: PurchaseOrderItem): PurchaseOrderItem => {
+        const qty = Number(line.quantity || 0);
+        const rate = Number(line.estimatedRate ?? line.purchasePrice ?? 0);
+        const discPct = Number(line.discountPercent || 0);
+        const gstPct = Number(line.gstPercent || 0);
+
+        const lineAmount = qty * rate;
+        const discountAmount = lineAmount * (discPct / 100);
+        const taxable = lineAmount - discountAmount;
+        const gstAmount = taxable * (gstPct / 100);
+        const estimatedAmount = taxable + gstAmount;
+
+        return {
+            ...line,
+            purchasePrice: rate,
+            lineAmount,
+            discountAmount,
+            gstAmount,
+            estimatedAmount
+        };
+    };
+
+    const handleAddItem = (picked: SearchCatalogItem) => {
+        const inv = picked.inventoryItem;
+        const med = picked.medicine;
+
+        const newLine: PurchaseOrderItem = recalculateLine({
+            ...createEmptyLineItem(),
+            inventoryItemId: inv?.id,
+            medicineId: med?.id,
+            name: picked.name,
+            itemCode: picked.code || inv?.code || med?.materialCode,
+            sku: picked.sku || inv?.code || med?.materialCode,
+            supplierItemName: picked.supplierItemName,
+            brand: inv?.brand || med?.brand || '',
+            quantity: 1,
+            estimatedRate: Number(inv?.purchasePrice || med?.rateA || 0),
+            purchasePrice: Number(inv?.purchasePrice || med?.rateA || 0),
+            packType: inv?.packType || med?.pack || '',
+            unitOfMeasurement: inv?.unitOfMeasurement || inv?.packUnit || 'Unit',
+            manufacturer: inv?.manufacturer || med?.manufacturer,
+            hsnCode: inv?.hsnCode || med?.hsnCode || '',
+            mrp: Number(inv?.mrp || med?.mrp || 0),
+            gstPercent: Number(inv?.gstPercent || med?.gstRate || 0),
+            expectedDeliveryDate: orderDate,
+        });
+
+        setItems(prev => [...prev, newLine]);
         setSearchTerm('');
         setIsSearchDropdownOpen(false);
+        setSelectedSearchIndex(0);
         itemSearchRef.current?.focus();
     };
 
     const handleUpdateItem = (id: string, field: keyof PurchaseOrderItem, value: any) => {
-        setItems(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i));
+        setItems(prev => prev.map(i => i.id === id ? recalculateLine({ ...i, [field]: value }) : i));
     };
 
-    const handleRemoveItem = (id: string) => {
-        setItems(prev => prev.filter(i => i.id !== id));
+    const handleRemoveItem = (id: string) => setItems(prev => prev.filter(i => i.id !== id));
+
+    const handleInsertBlankRow = (afterIndex?: number) => {
+        const row = createEmptyLineItem();
+        setItems(prev => {
+            if (afterIndex === undefined || afterIndex < 0 || afterIndex >= prev.length) return [...prev, row];
+            const copy = [...prev];
+            copy.splice(afterIndex + 1, 0, row);
+            return copy;
+        });
     };
 
-    const totalAmount = useMemo(() => {
-        return items.reduce((sum, item) => sum + (item.purchasePrice * item.quantity), 0);
-    }, [items]);
+    const estimatedSubtotal = useMemo(() => items.reduce((sum, item) => sum + Number(item.lineAmount || 0), 0), [items]);
+    const estimatedDiscount = useMemo(() => items.reduce((sum, item) => sum + Number(item.discountAmount || 0), 0), [items]);
+    const estimatedTax = useMemo(() => items.reduce((sum, item) => sum + Number(item.gstAmount || 0), 0), [items]);
+    const totalAmount = useMemo(() => items.reduce((sum, item) => sum + Number(item.estimatedAmount || 0), 0), [items]);
+
+    const validateBeforeSave = () => {
+        if (!selectedDistributorId) return 'Supplier is required.';
+        if (items.length === 0) return 'Please add at least one item.';
+
+        for (let i = 0; i < items.length; i++) {
+            const row = items[i];
+            if (!row.name?.trim()) return `Item name is missing in row ${i + 1}.`;
+            if (!row.quantity || Number(row.quantity) <= 0) return `Quantity should be greater than zero in row ${i + 1}.`;
+        }
+
+        return null;
+    };
 
     const handleSavePO = async () => {
-        if (!selectedDistributorId) {
-            alert("Please select a distributor.");
-            return;
-        }
-        if (items.length === 0) {
-            alert("Please add at least one item.");
+        const validationError = validateBeforeSave();
+        if (validationError) {
+            alert(validationError);
             return;
         }
 
         setIsSaving(true);
         const distributor = distributors.find(d => d.id === selectedDistributorId);
-        
+
+        const cleanItems = items.map(recalculateLine);
+
         const newPO: Omit<PurchaseOrder, 'id' | 'serialId'> = {
             organization_id: currentUserOrgId || '',
             date: new Date(orderDate).toISOString(),
             distributorId: selectedDistributorId,
             distributorName: distributor?.name || 'Unknown',
             senderEmail: currentUserEmail,
-            items: items,
+            items: cleanItems,
             status: PurchaseOrderStatus.ORDERED,
-            totalItems: items.length,
-            totalAmount: totalAmount,
+            totalItems: cleanItems.length,
+            totalAmount,
             remarks: remarks
         };
 
         try {
             await onAddPurchaseOrder(newPO);
             setIsDirty(false);
-            setItems([]);
-            setRemarks('');
-            setSelectedDistributorId('');
+            resetCreateForm();
             setView('list');
-            onClearDraft();
         } catch (e) {
             console.error(e);
-            alert("Failed to save PO.");
+            alert('Failed to save PO.');
         } finally {
             setIsSaving(false);
         }
@@ -164,25 +335,11 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     React.useImperativeHandle(ref, () => ({
         handleSubmit: handleSavePO,
         resetForm: () => {
-            setItems([]);
-            setRemarks('');
-            setSelectedDistributorId('');
-            setSearchTerm('');
+            resetCreateForm();
             setView('create');
-            onClearDraft();
         },
         isDirty: view === 'create' && (items.length > 0 || selectedDistributorId !== '' || remarks !== '')
-    }), [handleSavePO, view, items, selectedDistributorId, remarks, onClearDraft]);
-
-    const searchResults = useMemo(() => {
-        if (!searchTerm) return [];
-        const lower = searchTerm.toLowerCase();
-        return inventory.filter(i => 
-            i.name.toLowerCase().includes(lower) || 
-            i.brand.toLowerCase().includes(lower) ||
-            (i.barcode && i.barcode.includes(lower))
-        ).slice(0, 10);
-    }, [searchTerm, inventory]);
+    }), [view, items, selectedDistributorId, remarks]);
 
     const handleSearchKeyDown = (e: React.KeyboardEvent) => {
         if (searchResults.length === 0) return;
@@ -194,9 +351,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             setSelectedSearchIndex(prev => (prev - 1 + searchResults.length) % searchResults.length);
         } else if (e.key === 'Enter') {
             e.preventDefault();
-            if (searchResults[selectedSearchIndex]) {
-                handleAddItem(searchResults[selectedSearchIndex]);
-            }
+            if (searchResults[selectedSearchIndex]) handleAddItem(searchResults[selectedSearchIndex]);
         }
     };
 
@@ -211,7 +366,6 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
-            {/* Common Header */}
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
                 <span className="text-[10px] font-black uppercase tracking-widest">
                     {view === 'create' ? 'Purchase Order Voucher Creation' : 'Purchase Order Register'}
@@ -222,17 +376,16 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             </div>
 
             <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
-                {/* Common Tab Switcher */}
                 <div className="flex justify-between items-center mb-2 px-2">
                     <div className="flex items-center space-x-2 bg-white dark:bg-gray-800 p-1 border border-app-border shadow-sm">
-                        <button 
+                        <button
                             onClick={() => setView('list')}
                             className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${view === 'list' ? 'bg-primary text-white shadow-md' : 'text-app-text-secondary hover:bg-hover'}`}
                         >
                             History
                         </button>
-                        <button 
-                            onClick={() => setView('create')}
+                        <button
+                            onClick={() => { resetCreateForm(); setView('create'); }}
                             className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${view === 'create' ? 'bg-primary text-white shadow-md' : 'text-app-text-secondary hover:bg-hover'}`}
                         >
                             New Order
@@ -245,9 +398,9 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                         <Card className="p-3 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-4 gap-4 items-end flex-shrink-0">
                             <div className="md:col-span-2">
                                 <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Particulars (Supplier Name)</label>
-                                <select 
+                                <select
                                     ref={supplierSelectRef}
-                                    value={selectedDistributorId} 
+                                    value={selectedDistributorId}
                                     onChange={e => setSelectedDistributorId(e.target.value)}
                                     className="w-full p-2 border border-gray-400 rounded-none bg-input-bg font-bold text-sm focus:bg-yellow-50 outline-none uppercase"
                                 >
@@ -257,100 +410,98 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                             </div>
                             <div>
                                 <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Date</label>
-                                <input 
-                                    type="date" 
-                                    value={orderDate} 
-                                    onChange={e => setOrderDate(e.target.value)} 
-                                    className="w-full border border-gray-400 p-2 text-sm font-bold outline-none" 
+                                <input
+                                    type="date"
+                                    value={orderDate}
+                                    onChange={e => setOrderDate(e.target.value)}
+                                    className="w-full border border-gray-400 p-2 text-sm font-bold outline-none"
                                 />
                             </div>
-                            <div className="flex-1"></div>
+                            <div className="flex justify-end">
+                                <button onClick={() => handleInsertBlankRow()} className="px-4 py-2 text-[10px] font-black uppercase bg-slate-100 border border-slate-300">+ Add Row</button>
+                            </div>
                         </Card>
 
                         <Card className="flex-1 flex flex-col p-0 tally-border !rounded-none overflow-hidden shadow-inner bg-white dark:bg-zinc-800 mt-4">
                             <div className="flex-1 overflow-auto">
-                                <table className="min-w-full border-collapse text-sm">
+                                <table className="min-w-[1700px] border-collapse text-sm">
                                     <thead className="sticky top-0 bg-gray-100 dark:bg-zinc-900 border-b border-gray-400">
                                         <tr className="text-[10px] font-black uppercase text-gray-600">
-                                            <th className="p-2 border-r border-gray-400 text-left w-10">Sl.</th>
-                                            <th className="p-2 border-r border-gray-400 text-left">Particulars</th>
-                                            <th className="p-2 border-r border-gray-400 text-center w-24">Quantity</th>
-                                            <th className="p-2 border-r border-gray-400 text-right w-32">Estimated Rate</th>
-                                            <th className="p-2 text-right w-32">Amount</th>
-                                            <th className="p-2 w-10"></th>
+                                            <th className="p-2 border-r border-gray-400">Sl.</th>
+                                            <th className="p-2 border-r border-gray-400 text-left">Item Name</th>
+                                            <th className="p-2 border-r border-gray-400">Item Code / SKU</th>
+                                            <th className="p-2 border-r border-gray-400">Supplier Item</th>
+                                            <th className="p-2 border-r border-gray-400">Pack</th>
+                                            <th className="p-2 border-r border-gray-400">Unit</th>
+                                            <th className="p-2 border-r border-gray-400">Qty</th>
+                                            <th className="p-2 border-r border-gray-400">Est. Rate</th>
+                                            <th className="p-2 border-r border-gray-400">Disc %</th>
+                                            <th className="p-2 border-r border-gray-400">GST %</th>
+                                            <th className="p-2 border-r border-gray-400">Est. Amount</th>
+                                            <th className="p-2 border-r border-gray-400">Expected Date</th>
+                                            <th className="p-2 border-r border-gray-400">Remarks</th>
+                                            <th className="p-2">Action</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-200">
+                                    <tbody>
                                         {items.map((item, idx) => (
-                                            <tr key={item.id} className="hover:bg-gray-50 group">
-                                                <td className="p-2 border-r border-gray-200 font-bold text-gray-400 text-center">{idx + 1}</td>
-                                                <td className="p-2 border-r border-gray-200">
-                                                    <p className="font-bold text-primary uppercase leading-none">{item.name}</p>
-                                                    <p className="text-[9px] text-gray-400 font-bold uppercase mt-1">{item.brand}</p>
-                                                </td>
-                                                <td className="p-2 border-r border-gray-200 text-center">
-                                                    <input 
-                                                        type="number" 
-                                                        value={item.quantity} 
-                                                        onChange={e => handleUpdateItem(item.id, 'quantity', parseInt(e.target.value) || 0)}
-                                                        className="w-full bg-transparent text-center font-black no-spinner outline-none"
-                                                    />
-                                                </td>
-                                                <td className="p-2 border-r border-gray-200 text-right font-bold">
-                                                    <input 
-                                                        type="number" 
-                                                        value={item.purchasePrice} 
-                                                        onChange={e => handleUpdateItem(item.id, 'purchasePrice', parseFloat(e.target.value) || 0)}
-                                                        className="w-full bg-transparent text-right font-bold no-spinner outline-none text-blue-900"
-                                                    />
-                                                </td>
-                                                <td className="p-2 text-right font-black text-gray-900">
-                                                    ₹{(item.purchasePrice * item.quantity).toFixed(2)}
-                                                </td>
-                                                <td className="p-2 text-center">
-                                                    <button onClick={() => handleRemoveItem(item.id)} className="text-red-300 hover:text-red-600 transition-colors">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                                                    </button>
+                                            <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50">
+                                                <td className="p-1 border-r text-center text-xs font-bold">{idx + 1}</td>
+                                                <td className="p-1 border-r"><input value={item.name || ''} onChange={e => handleUpdateItem(item.id, 'name', e.target.value)} className="w-full bg-transparent p-1 outline-none font-semibold" /></td>
+                                                <td className="p-1 border-r"><input value={item.itemCode || item.sku || ''} onChange={e => { handleUpdateItem(item.id, 'itemCode', e.target.value); handleUpdateItem(item.id, 'sku', e.target.value); }} className="w-full bg-transparent p-1 outline-none" /></td>
+                                                <td className="p-1 border-r"><input value={item.supplierItemName || ''} onChange={e => handleUpdateItem(item.id, 'supplierItemName', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
+                                                <td className="p-1 border-r"><input value={item.packType || ''} onChange={e => handleUpdateItem(item.id, 'packType', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
+                                                <td className="p-1 border-r"><input value={item.unitOfMeasurement || ''} onChange={e => handleUpdateItem(item.id, 'unitOfMeasurement', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
+                                                <td className="p-1 border-r"><input type="number" min={0} value={item.quantity} onChange={e => handleUpdateItem(item.id, 'quantity', Number(e.target.value) || 0)} className="w-24 bg-transparent p-1 outline-none text-right" /></td>
+                                                <td className="p-1 border-r"><input type="number" min={0} value={item.estimatedRate ?? item.purchasePrice ?? 0} onChange={e => handleUpdateItem(item.id, 'estimatedRate', Number(e.target.value) || 0)} className="w-28 bg-transparent p-1 outline-none text-right" /></td>
+                                                <td className="p-1 border-r"><input type="number" min={0} value={item.discountPercent || 0} onChange={e => handleUpdateItem(item.id, 'discountPercent', Number(e.target.value) || 0)} className="w-20 bg-transparent p-1 outline-none text-right" /></td>
+                                                <td className="p-1 border-r"><input type="number" min={0} value={item.gstPercent || 0} onChange={e => handleUpdateItem(item.id, 'gstPercent', Number(e.target.value) || 0)} className="w-20 bg-transparent p-1 outline-none text-right" /></td>
+                                                <td className="p-1 border-r text-right font-bold">₹{Number(item.estimatedAmount || 0).toFixed(2)}</td>
+                                                <td className="p-1 border-r"><input type="date" value={item.expectedDeliveryDate || ''} onChange={e => handleUpdateItem(item.id, 'expectedDeliveryDate', e.target.value)} className="w-36 bg-transparent p-1 outline-none" /></td>
+                                                <td className="p-1 border-r"><input value={item.notes || ''} onChange={e => handleUpdateItem(item.id, 'notes', e.target.value)} className="w-full bg-transparent p-1 outline-none" /></td>
+                                                <td className="p-1 text-center">
+                                                    <button onClick={() => handleInsertBlankRow(idx)} className="mr-2 text-xs text-blue-700">+row</button>
+                                                    <button onClick={() => handleRemoveItem(item.id)} className="text-xs text-red-600">del</button>
                                                 </td>
                                             </tr>
                                         ))}
-                                        <tr className="bg-yellow-50/30">
-                                            <td className="p-2 border-r border-gray-200 font-bold text-gray-400 text-center">{items.length + 1}</td>
-                                            <td className="p-2 border-r border-gray-200 relative">
-                                                <input 
+                                        <tr className="bg-yellow-50/40">
+                                            <td className="p-1 border-r text-center text-xs font-bold">{items.length + 1}</td>
+                                            <td className="p-1 border-r relative" colSpan={2}>
+                                                <input
                                                     ref={itemSearchRef}
-                                                    type="text" 
-                                                    className="w-full bg-transparent font-bold uppercase outline-none" 
-                                                    placeholder="Type item name to add..." 
+                                                    type="text"
+                                                    className="w-full bg-transparent font-bold uppercase outline-none p-1"
+                                                    placeholder="Type item from Material/Inventory master"
                                                     value={searchTerm}
-                                                    onChange={e => {setSearchTerm(e.target.value); setIsSearchDropdownOpen(true);}}
+                                                    onChange={e => { setSearchTerm(e.target.value); setIsSearchDropdownOpen(true); }}
                                                     onFocus={() => setIsSearchDropdownOpen(true)}
                                                     onKeyDown={handleSearchKeyDown}
                                                     autoComplete="off"
                                                 />
                                                 {isSearchDropdownOpen && searchTerm && searchResults.length > 0 && (
-                                                    <div className="absolute top-full left-0 w-[450px] bg-white border border-gray-400 shadow-2xl z-50 overflow-hidden">
+                                                    <div className="absolute top-full left-0 w-[620px] bg-white border border-gray-400 shadow-2xl z-50 overflow-hidden max-h-72 overflow-y-auto">
                                                         {searchResults.map((i, sIdx) => (
-                                                            <div 
-                                                                key={i.id} 
-                                                                onClick={() => handleAddItem(i)} 
+                                                            <div
+                                                                key={i.id}
+                                                                onClick={() => handleAddItem(i)}
                                                                 onMouseEnter={() => setSelectedSearchIndex(sIdx)}
                                                                 className={`p-2 cursor-pointer flex justify-between text-xs font-bold border-b border-gray-100 uppercase transition-colors ${sIdx === selectedSearchIndex ? 'bg-primary text-white' : 'hover:bg-gray-50'}`}
                                                             >
-                                                                <div className="flex flex-col">
-                                                                    <span>{i.name}</span>
-                                                                    <span className={`text-[9px] ${sIdx === selectedSearchIndex ? 'text-white/60' : 'text-gray-400'}`}>{i.brand}</span>
+                                                                <div>
+                                                                    <div>{i.name}</div>
+                                                                    <div className={`text-[9px] ${sIdx === selectedSearchIndex ? 'text-white/70' : 'text-gray-500'}`}>{i.code || '-'} • {i.source}</div>
                                                                 </div>
                                                                 <div className="text-right">
-                                                                    <span className="opacity-50">Stock: {i.stock}</span>
-                                                                    <div className="text-[9px] font-black">MRP: ₹{(i.mrp || 0).toFixed(2)}</div>
+                                                                    {selectedDistributorId && i.mappedSupplierIds.includes(selectedDistributorId) && <div className="text-[9px]">Supplier mapped</div>}
+                                                                    <div className={`text-[9px] ${sIdx === selectedSearchIndex ? 'text-white/70' : 'text-gray-500'}`}>{i.supplierItemName || ''}</div>
                                                                 </div>
                                                             </div>
                                                         ))}
                                                     </div>
                                                 )}
                                             </td>
-                                            <td colSpan={4}></td>
+                                            <td colSpan={11} className="p-1 text-xs text-gray-500">Press ↑/↓ and Enter to select item quickly.</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -360,8 +511,8 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                         <div className="flex justify-between items-stretch flex-shrink-0 gap-8 min-h-[140px] mt-4">
                             <div className="flex-1 bg-white p-4 tally-border !rounded-none shadow-sm flex flex-col">
                                 <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1.5 ml-1">Order Narration / Remarks</label>
-                                <textarea 
-                                    value={remarks} 
+                                <textarea
+                                    value={remarks}
                                     onChange={e => setRemarks(e.target.value)}
                                     rows={3}
                                     placeholder="Enter special instructions for the supplier..."
@@ -369,32 +520,31 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                 />
                             </div>
 
-                            <div className="w-80 bg-[#e5f0f0] p-5 tally-border !rounded-none shadow-md flex flex-col justify-center">
+                            <div className="w-96 bg-[#e5f0f0] p-5 tally-border !rounded-none shadow-md flex flex-col justify-center">
                                 <div className="space-y-2 font-bold text-xs uppercase tracking-tight">
-                                    <div className="flex justify-between text-gray-500"><span>Estimated Subtotal</span> <span>₹{totalAmount.toFixed(2)}</span></div>
-                                    <div className="flex justify-between text-blue-700"><span>Tax (Estimated GST)</span> <span>+₹{(totalAmount * 0.12).toFixed(2)}</span></div>
+                                    <div className="flex justify-between text-gray-500"><span>Estimated Subtotal</span> <span>₹{estimatedSubtotal.toFixed(2)}</span></div>
+                                    <div className="flex justify-between text-gray-500"><span>Discount</span> <span>-₹{estimatedDiscount.toFixed(2)}</span></div>
+                                    <div className="flex justify-between text-blue-700"><span>Tax (Estimated GST)</span> <span>+₹{estimatedTax.toFixed(2)}</span></div>
                                     <div className="border-t border-gray-400 pt-2 flex justify-between text-xl font-black text-primary">
                                         <span>TOTAL VALUE</span>
-                                        <span>₹{(totalAmount * 1.12).toFixed(2)}</span>
+                                        <span>₹{totalAmount.toFixed(2)}</span>
                                     </div>
                                 </div>
                             </div>
 
                             <div className="flex flex-col gap-3 w-56 self-stretch justify-end">
-                                <button 
-                                    onClick={() => { if(confirm("Discard order draft?")) { setItems([]); setView('list'); } }} 
+                                <button
+                                    onClick={() => { if (confirm('Discard order draft?')) { resetCreateForm(); setView('list'); } }}
                                     className="w-full py-3 tally-border bg-white font-black text-[11px] hover:bg-red-50 text-red-600 transition-colors uppercase tracking-[0.2em] shadow-sm"
                                 >
                                     Discard
                                 </button>
-                                <button 
-                                    onClick={handleSavePO} 
-                                    disabled={isSaving || items.length === 0} 
+                                <button
+                                    onClick={handleSavePO}
+                                    disabled={isSaving}
                                     className="w-full py-6 tally-button-primary shadow-2xl active:translate-y-1 uppercase tracking-[0.3em] text-[12px] flex items-center justify-center gap-2"
                                 >
-                                    {isSaving ? (
-                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                    ) : 'Accept Order'}
+                                    {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Accept Order'}
                                 </button>
                             </div>
                         </div>
@@ -404,7 +554,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                         <div className="p-4 border-b border-gray-400 bg-slate-50 flex justify-between items-center">
                             <div className="flex bg-white p-1 tally-border !rounded-none">
                                 {['all', PurchaseOrderStatus.ORDERED, PurchaseOrderStatus.RECEIVED, PurchaseOrderStatus.CANCELLED].map(status => (
-                                    <button 
+                                    <button
                                         key={status}
                                         onClick={() => setStatusFilter(status as any)}
                                         className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-tighter transition-all ${statusFilter === status ? 'bg-primary text-white shadow-md' : 'text-gray-400 hover:bg-hover'}`}
@@ -431,9 +581,9 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     {filteredPOList.map(po => {
                                         const isSelected = selectedPO?.id === po.id;
                                         return (
-                                            <tr 
-                                                key={po.id} 
-                                                className={`transition-colors group cursor-pointer hover:bg-primary hover:text-white ${isSelected ? 'bg-primary text-white shadow-md' : ''}`} 
+                                            <tr
+                                                key={po.id}
+                                                className={`transition-colors group cursor-pointer hover:bg-primary hover:text-white ${isSelected ? 'bg-primary text-white shadow-md' : ''}`}
                                                 onClick={() => setSelectedPO(po)}
                                             >
                                                 <td className={`p-3 border-r border-gray-200 font-mono font-black uppercase ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{po.serialId}</td>
@@ -467,7 +617,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             </div>
 
             {selectedPO && (
-                <SharePurchaseOrderModal 
+                <SharePurchaseOrderModal
                     isOpen={isShareModalOpen}
                     onClose={() => { setIsShareModalOpen(false); setSelectedPO(null); }}
                     purchaseOrder={selectedPO}

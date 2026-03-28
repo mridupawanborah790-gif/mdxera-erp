@@ -466,17 +466,30 @@ export enum PurchaseOrderStatus {
 
 export interface PurchaseOrderItem {
     id: string;
+    inventoryItemId?: string;
+    medicineId?: string;
     name: string;
+    itemCode?: string;
+    sku?: string;
+    supplierItemName?: string;
     brand: string;
     quantity: number;
     freeQuantity: number;
     purchasePrice: number;
+    estimatedRate?: number;
+    discountPercent?: number;
     packType?: string;
     unitOfMeasurement?: string;
     manufacturer?: string;
     hsnCode?: string;
     mrp?: number;
     gstPercent?: number;
+    lineAmount?: number;
+    discountAmount?: number;
+    gstAmount?: number;
+    estimatedAmount?: number;
+    expectedDeliveryDate?: string;
+    notes?: string;
     expiry?: string;
 }
 
