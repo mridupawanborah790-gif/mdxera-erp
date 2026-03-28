@@ -36,7 +36,7 @@ export const evaluateCustomerCredit = ({
 }): CreditCheckResult | null => {
     if (!customer) return null;
 
-    const isCreditLimitEnabled = customer.enableCreditLimit === true || (customer.enableCreditLimit === undefined && Number(customer.creditLimit || 0) > 0);
+    const isCreditLimitEnabled = customer.enableCreditLimit === true;
     if (!isCreditLimitEnabled) return null;
 
     if (customer.is_active === false || customer.creditStatus === 'blocked') {

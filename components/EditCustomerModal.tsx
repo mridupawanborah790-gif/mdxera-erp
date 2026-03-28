@@ -44,7 +44,7 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
         if (isOpen) {
             setFormData({
                 ...customer,
-                enableCreditLimit: customer.enableCreditLimit ?? Number(customer.creditLimit || 0) > 0,
+                enableCreditLimit: customer.enableCreditLimit === true,
             });
         }
     }, [isOpen, customer]);
@@ -84,13 +84,17 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
             alert("Customer Group is required");
             return;
         }
-        if (formData.enableCreditLimit) {
+        const isCreditControlEnabled = formData.enableCreditLimit === true;
+        if (isCreditControlEnabled) {
             if (!Number.isFinite(Number(formData.creditLimit ?? 0)) || Number(formData.creditLimit ?? 0) <= 0) {
                 alert("Credit Limit is required and must be greater than 0 when credit limit is enabled");
                 return;
             }
         }
-        onSave(formData);
+        onSave({
+            ...formData,
+            enableCreditLimit: isCreditControlEnabled,
+        });
         onClose();
     };
 
