@@ -39,9 +39,23 @@ export interface BusinessRole {
     organization_id: string;
     name: string;
     description: string;
-    workCenters: WorkCenter[];
+    workCenters?: WorkCenter[];
+    permissionsMatrix?: Record<string, PermissionSet>;
     isSystemRole?: boolean;
     is_active: boolean;
+}
+
+export type PermissionAction = 'view' | 'entry' | 'edit' | 'delete' | 'approve' | 'print' | 'export' | 'full';
+
+export interface PermissionSet {
+    view: boolean;
+    entry: boolean;
+    edit: boolean;
+    delete: boolean;
+    approve: boolean;
+    print: boolean;
+    export: boolean;
+    full: boolean;
 }
 
 export interface SoDConflict {

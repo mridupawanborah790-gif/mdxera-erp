@@ -51,13 +51,14 @@ import {
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
     Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
     PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
-    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry
+    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, BusinessRole
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
 import { resolveUnitsPerStrip } from './utils/pack';
 import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screenShortcuts';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
+import { canAccessScreen, filterNavigationByPermissions } from './utils/rbac';
 
 const DATA_ENTRY_SCREENS = [
     'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
@@ -120,6 +121,7 @@ const App: React.FC = () => {
     const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
     const [promotions, setPromotions] = useState<Promotion[]>([]);
     const [teamMembers, setTeamMembers] = useState<OrganizationMember[]>([]);
+    const [businessRoles, setBusinessRoles] = useState<BusinessRole[]>([]);
 
     const [configurations, setConfigurations] = useState<AppConfigurations>({ organization_id: '' });
     const [defaultCustomerControlGlId, setDefaultCustomerControlGlId] = useState<string>('');
@@ -316,6 +318,12 @@ const App: React.FC = () => {
                     case 'sub_categories': setSubCategories(await storage.getData('sub_categories', [], user)); break;
                     case 'supplier_product_map': setMappings(await storage.fetchSupplierProductMaps(user)); break;
                     case 'mrp_change_log': setMrpChangeLogs(await storage.getData('mrp_change_log', [], user)); break;
+                    case 'business_roles':
+                        setBusinessRoles(await storage.getData('business_roles', [], user));
+                        break;
+                    case 'team_members':
+                        setTeamMembers(await storage.fetchTeamMembers(user));
+                        break;
                     case 'profiles':
                         const freshProfile = await storage.fetchProfile(user.user_id);
                         if (freshProfile) setCurrentUser(freshProfile);
@@ -327,7 +335,7 @@ const App: React.FC = () => {
 
             const [
                 freshProfile, inv, med, tx, pur, supp, cust, ewb, mapData, phy, dc, sc, po,
-                sr, pr, cert, sub, promo, team, configData, mrpLogs
+                sr, pr, cert, sub, promo, team, roleData, configData, mrpLogs
             ] = await Promise.all([
                 storage.fetchProfile(user.user_id),
                 storage.fetchInventory(user),
@@ -348,6 +356,7 @@ const App: React.FC = () => {
                 storage.getData('sub_categories', [], user),
                 storage.getData('promotions', [], user),
                 storage.fetchTeamMembers(user),
+                storage.getData('business_roles', [], user),
                 storage.getData('configurations', [{ organization_id: orgId }], user),
                 storage.getData('mrp_change_log', [], user)
             ]);
@@ -372,6 +381,7 @@ const App: React.FC = () => {
             setSubCategories(sub || []);
             setPromotions(promo || []);
             setTeamMembers(team || []);
+            setBusinessRoles(roleData || []);
             setMrpChangeLogs(mrpLogs || []);
 
             if (configData && configData.length > 0) {
@@ -570,6 +580,11 @@ const App: React.FC = () => {
         const isDailyReportLink = pageId.startsWith('dailyReports:');
         const resolvedPageId = isDailyReportLink ? 'dailyReports' : pageId;
 
+        if (!canAccessScreen(resolvedPageId, currentUser, teamMembers, businessRoles, 'view')) {
+            addNotification('Access denied for this module.', 'error');
+            return;
+        }
+
         if (!skipPrompt && shouldPromptBeforeLeaving(currentPage, resolvedPageId)) {
             setShowEscSavePrompt(true);
             return;
@@ -586,7 +601,7 @@ const App: React.FC = () => {
         if (resolvedPageId !== 'pos' && resolvedPageId !== 'nonGstPos') {
             setEditingSale(null);
         }
-    }, [currentPage, shouldPromptBeforeLeaving]);
+    }, [addNotification, businessRoles, currentPage, currentUser, shouldPromptBeforeLeaving, teamMembers]);
 
     useEffect(() => {
         setConfigurations(prev => ({
@@ -1531,6 +1546,17 @@ const App: React.FC = () => {
         const config: ModuleConfig = { visible: true, fields: configurations.modules?.[configId]?.fields || {} };
 
         try {
+            if (!canAccessScreen(pageId, currentUser, teamMembers, businessRoles, 'view')) {
+                return (
+                    <div className="flex-1 flex items-center justify-center bg-amber-50 p-8">
+                        <div className="bg-white border-2 border-amber-400 p-6 text-center">
+                            <h2 className="text-xl font-black uppercase text-amber-700">Access Restricted</h2>
+                            <p className="text-xs font-bold text-gray-600 mt-3 uppercase">You do not have permission to open this module.</p>
+                        </div>
+                    </div>
+                );
+            }
+
             switch (pageId) {
                 case 'dashboard':
                     return <Dashboard
@@ -2151,7 +2177,7 @@ const App: React.FC = () => {
                         currentPage={currentPage}
                         onNavigate={handleNavigate}
                         currentUser={currentUser}
-                        navigationItems={navigation}
+                        navigationItems={filterNavigationByPermissions(navigation, currentUser, teamMembers, businessRoles)}
                         configurations={configurations}
                         onToggleMasterExplorer={toggleSidebar}
                         brandName="MDXERA"
