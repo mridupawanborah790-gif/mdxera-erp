@@ -205,6 +205,7 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
                                             <option value={28}>28%</option>
                                         </select>
                                     </div>
+                                    {renderInput('hsnCode', 'HSN Code')}
                                     {renderInput('mrp', 'MRP (Text)', 'text', true, "0")}
                                 </div>
                             </div>
