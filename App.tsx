@@ -1771,10 +1771,14 @@ const App: React.FC = () => {
                         medicines={medicines}
                         mappings={mappings}
                         purchaseOrders={purchaseOrders}
-                        onAddPurchaseOrder={async (po) => {
-                            const newPO = await storage.saveData('purchase_orders', po, currentUser!);
+                        onAddPurchaseOrder={async (po, serialId) => {
+                            const newPO = await storage.saveData('purchase_orders', { ...po, serialId }, currentUser!);
                             await loadData(currentUser!, 'background');
                             addNotification(`Purchase Order ${newPO.serialId} saved.`, 'success');
+                        }}
+                        onReservePONumber={async () => {
+                            const reserved = await storage.reserveVoucherNumber('purchase-order', currentUser!);
+                            return reserved.documentNumber;
                         }}
                         onUpdatePurchaseOrder={async (po) => {
                             await storage.saveData('purchase_orders', po, currentUser!);
