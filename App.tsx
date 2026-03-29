@@ -2021,6 +2021,7 @@ const App: React.FC = () => {
                     />;
                 case 'eway':
                     return <EWayBilling
+                        onOpenLoginSetup={() => setCurrentPage('ewayLoginSetup')}
                         currentUser={currentUser}
                         transactions={transactions}
                         purchases={purchases}
@@ -2036,6 +2037,7 @@ const App: React.FC = () => {
                 case 'ewayLoginSetup':
                     return <EWayLoginSetup
                         configurations={configurations}
+                        currentUser={currentUser}
                         onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => {
                             setConfigurations(cfg);
                             window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));

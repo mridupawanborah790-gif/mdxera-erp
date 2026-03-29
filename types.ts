@@ -147,6 +147,27 @@ export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount' 
 export type TaxCalculationBaseOption = 'subtotal' | 'after_trade_discount' | 'after_all_discounts';
 export type LineAmountCalculationMode = 'excluding_discount' | 'including_discount';
 
+
+export interface EWayLoginSetupConfig {
+    gstnUsername?: string;
+    gstnPassword?: string;
+    gstnPasswordEncrypted?: string;
+    einvoiceUsername?: string;
+    einvoicePassword?: string;
+    einvoicePasswordEncrypted?: string;
+    ewayLoginId?: string;
+    ewayPassword?: string;
+    ewayLoginIdEncrypted?: string;
+    ewayPasswordEncrypted?: string;
+    showCredentials?: boolean;
+    uploadDirectlyToPortal?: boolean;
+    credentialStatus?: 'Configured' | 'Invalid' | 'Missing';
+    portalLoginStatus?: 'Verified' | 'Not Verified' | 'Failed';
+    lastCheckedOn?: string;
+    loginVerifiedOn?: string;
+    lastError?: string;
+}
+
 export interface AppConfigurations {
     id?: string;
     organization_id: string;
@@ -191,6 +212,7 @@ export interface AppConfigurations {
         periodicity: 'monthly' | 'quarterly';
         returnType: 'Sahaj' | 'Sugam' | 'Quarterly (Normal)';
     };
+    ewayLoginSetup?: EWayLoginSetupConfig;
     _isDirty?: boolean;
 }
 
