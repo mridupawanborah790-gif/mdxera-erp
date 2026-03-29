@@ -454,6 +454,18 @@ export const EditSupplierModal: React.FC<{
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Control GL</label>
                             <input type="text" readOnly value={form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
                         </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Status</label>
+                            <select
+                                name="is_blocked"
+                                value={form.is_blocked ? 'blocked' : 'active'}
+                                onChange={(e) => setForm(prev => ({ ...prev, is_blocked: e.target.value === 'blocked', is_active: e.target.value !== 'blocked' }))}
+                                className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none"
+                            >
+                                <option value="active">Active</option>
+                                <option value="blocked">Blocked</option>
+                            </select>
+                        </div>
                     </div>
                 </section>
 

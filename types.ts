@@ -649,6 +649,7 @@ export interface Customer {
     defaultDiscount?: number;
     customerType?: 'regular' | 'retail';
     is_active: boolean;
+    is_blocked?: boolean;
     defaultRateTier?: 'none' | 'rateA' | 'rateB' | 'rateC';
     assignedStaffId?: string;
     assignedStaffName?: string;

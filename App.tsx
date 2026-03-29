@@ -1369,6 +1369,105 @@ const App: React.FC = () => {
         }
     };
 
+    const hasCustomerTransactionDependency = useCallback((customer: Customer): boolean => {
+        const customerId = customer.id;
+        const customerName = (customer.name || '').trim().toLowerCase();
+        const hasLedgerEntries = Array.isArray(customer.ledger) && customer.ledger.length > 0;
+        const hasSales = transactions.some(tx =>
+            tx &&
+            tx.status !== 'cancelled' &&
+            ((tx.customerId && tx.customerId === customerId) || ((tx.customerName || '').trim().toLowerCase() === customerName))
+        );
+        const hasSalesChallans = salesChallans.some(ch =>
+            ch &&
+            ch.status !== 'cancelled' &&
+            ((ch.customerId && ch.customerId === customerId) || ((ch.customerName || '').trim().toLowerCase() === customerName))
+        );
+        const hasSalesReturns = salesReturns.some(sr =>
+            sr &&
+            ((sr.customerId && sr.customerId === customerId) || ((sr.customerName || '').trim().toLowerCase() === customerName))
+        );
+        return hasLedgerEntries || hasSales || hasSalesChallans || hasSalesReturns;
+    }, [transactions, salesChallans, salesReturns]);
+
+    const hasSupplierTransactionDependency = useCallback((supplier: Supplier): boolean => {
+        const supplierId = supplier.id;
+        const supplierName = (supplier.name || '').trim().toLowerCase();
+        const hasLedgerEntries = Array.isArray(supplier.ledger) && supplier.ledger.length > 0;
+        const hasPurchases = purchases.some(p =>
+            p &&
+            p.status !== 'cancelled' &&
+            ((p.supplier || '').trim().toLowerCase() === supplierName)
+        );
+        const hasPurchaseOrders = purchaseOrders.some(po =>
+            po &&
+            po.status !== 'cancelled' &&
+            ((po.distributorId && po.distributorId === supplierId) || ((po.distributorName || '').trim().toLowerCase() === supplierName))
+        );
+        const hasPurchaseReturns = purchaseReturns.some(pr =>
+            pr &&
+            ((pr.supplier || '').trim().toLowerCase() === supplierName)
+        );
+        return hasLedgerEntries || hasPurchases || hasPurchaseOrders || hasPurchaseReturns;
+    }, [purchases, purchaseOrders, purchaseReturns]);
+
+    const handleSetCustomerBlocked = async (customer: Customer, isBlocked: boolean) => {
+        if (!currentUser) return;
+        const payload: Customer = {
+            ...customer,
+            is_blocked: isBlocked,
+            is_active: !isBlocked,
+            creditStatus: isBlocked ? 'blocked' : (customer.creditStatus || 'active'),
+        };
+        await handleUpdateCustomer(payload);
+        addNotification(`Customer ${customer.name} ${isBlocked ? 'blocked' : 'unblocked'} successfully.`, 'success');
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=${isBlocked ? 'block' : 'unblock'} customer=${customer.id}`);
+    };
+
+    const handleSetSupplierBlocked = async (supplier: Supplier, isBlocked: boolean) => {
+        if (!currentUser) return;
+        const payload: Supplier = {
+            ...supplier,
+            is_blocked: isBlocked,
+            is_active: !isBlocked,
+        };
+        await handleUpdateSupplier(payload);
+        addNotification(`Supplier ${supplier.name} ${isBlocked ? 'blocked' : 'unblocked'} successfully.`, 'success');
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=${isBlocked ? 'block' : 'unblock'} supplier=${supplier.id}`);
+    };
+
+    const handleDeleteCustomer = async (customer: Customer) => {
+        if (!currentUser) return { success: false, message: 'Unauthorized' };
+        const hasDependency = hasCustomerTransactionDependency(customer);
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=delete_attempt customer=${customer.id} blocked=${hasDependency}`);
+        if (hasDependency) {
+            return {
+                success: false,
+                message: 'Cannot delete customer because transactions already exist. You may block this record instead.',
+            };
+        }
+        await storage.deleteData('customers', customer.id);
+        await loadData(currentUser, 'background');
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=delete_success customer=${customer.id}`);
+        return { success: true, message: `Customer ${customer.name} deleted successfully.` };
+    };
+
+    const handleDeleteSupplier = async (supplier: Supplier) => {
+        if (!currentUser) return { success: false, message: 'Unauthorized' };
+        const hasDependency = hasSupplierTransactionDependency(supplier);
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=delete_attempt supplier=${supplier.id} blocked=${hasDependency}`);
+        if (hasDependency) {
+            return {
+                success: false,
+                message: 'Cannot delete supplier because transactions already exist. You may block this record instead.',
+            };
+        }
+        await storage.deleteData('suppliers', supplier.id);
+        await loadData(currentUser, 'background');
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=delete_success supplier=${supplier.id}`);
+        return { success: true, message: `Supplier ${supplier.name} deleted successfully.` };
+    };
+
     const handleRecordPayment = async (id: string, amount: number, date: string, desc: string, type: 'customer' | 'supplier') => {
         if (!currentUser) return;
         await storage.addLedgerEntry({
@@ -1989,6 +2088,9 @@ const App: React.FC = () => {
                         onBulkAddSuppliers={(list) => storage.saveBulkData('suppliers', list, currentUser)}
                         onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'supplier')}
                         onUpdateSupplier={handleUpdateSupplier}
+                        onBlockSupplier={(supplier) => handleSetSupplierBlocked(supplier, true)}
+                        onUnblockSupplier={(supplier) => handleSetSupplierBlocked(supplier, false)}
+                        onDeleteSupplier={handleDeleteSupplier}
                         config={config} currentUser={currentUser} defaultSupplierControlGlId={defaultSupplierControlGlId}
                     />;
                 case 'customers':
@@ -1997,6 +2099,9 @@ const App: React.FC = () => {
                         onBulkAddCustomers={(list) => storage.saveBulkData('customers', list, currentUser)}
                         onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'customer')}
                         onUpdateCustomer={handleUpdateCustomer}
+                        onBlockCustomer={(customer) => handleSetCustomerBlocked(customer, true)}
+                        onUnblockCustomer={(customer) => handleSetCustomerBlocked(customer, false)}
+                        onDeleteCustomer={handleDeleteCustomer}
                         currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
                     />;
                 case 'medicineMasterList':

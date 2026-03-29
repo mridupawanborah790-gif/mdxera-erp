@@ -701,7 +701,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     className="w-full p-2 border border-gray-400 rounded-none bg-input-bg font-bold text-sm focus:bg-yellow-50 outline-none uppercase"
                                 >
                                     <option value="">— Select Ledger —</option>
-                                    {distributors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                    {distributors.filter(d => d.is_blocked !== true).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                                 </select>
                             </div>
                             <div>
