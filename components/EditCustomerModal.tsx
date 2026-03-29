@@ -101,6 +101,7 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
         onSave({
             ...formData,
             enableCreditLimit: formData.enableCreditLimit === true,
+            is_active: formData.is_blocked === true ? false : formData.is_active !== false,
         });
         onClose();
     };
@@ -206,7 +207,7 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
                     <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Credit Control & Pricing</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Toggle label="Enable Credit Limit" enabled={formData.enableCreditLimit === true} setEnabled={(enabled) => setFormData(prev => ({ ...prev, enableCreditLimit: enabled }))} />
-                        <Toggle label="Is Active" enabled={formData.is_active !== false} setEnabled={(enabled) => setFormData(prev => ({ ...prev, is_active: enabled }))} />
+                        <Toggle label="Blocked" enabled={formData.is_blocked === true} setEnabled={(enabled) => setFormData(prev => ({ ...prev, is_blocked: enabled, is_active: !enabled }))} />
                         <Toggle label="Allow Override" enabled={formData.allowOverride === true} setEnabled={(enabled) => setFormData(prev => ({ ...prev, allowOverride: enabled }))} />
                         <Toggle label="Override Approval Required" enabled={formData.overrideApprovalRequired === true} setEnabled={(enabled) => setFormData(prev => ({ ...prev, overrideApprovalRequired: enabled }))} />
                         <div>

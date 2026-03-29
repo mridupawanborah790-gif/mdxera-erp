@@ -37,13 +37,16 @@ interface CustomersProps {
     onBulkAddCustomers: (customers: any[]) => void;
     onRecordPayment: (customerId: string, paymentAmount: number, paymentDate: string, description: string) => void;
     onUpdateCustomer: (customer: Customer) => void;
+    onBlockCustomer: (customer: Customer) => Promise<void> | void;
+    onUnblockCustomer: (customer: Customer) => Promise<void> | void;
+    onDeleteCustomer: (customer: Customer) => Promise<{ success: boolean; message: string }>;
     currentUser: RegisteredPharmacy | null;
     config: ModuleConfig;
     inventory: InventoryItem[];
     defaultCustomerControlGlId?: string;
 }
 
-const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], onAddCustomer, onBulkAddCustomers, onRecordPayment, onUpdateCustomer, currentUser, config, inventory, defaultCustomerControlGlId }) => {
+const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], onAddCustomer, onBulkAddCustomers, onRecordPayment, onUpdateCustomer, onBlockCustomer, onUnblockCustomer, onDeleteCustomer, currentUser, config, inventory, defaultCustomerControlGlId }) => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -55,8 +58,9 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
     const filteredCustomers = useMemo(() => {
         return customers
             .filter(c => {
-                if (statusFilter === 'active') return c.is_active !== false;
-                if (statusFilter === 'blocked') return c.is_active === false;
+                const blocked = c.is_blocked === true || c.is_active === false;
+                if (statusFilter === 'active') return !blocked;
+                if (statusFilter === 'blocked') return blocked;
                 return true;
             })
             .filter(c => fuzzyMatch(c.name, searchTerm) || fuzzyMatch(c.phone, searchTerm))
@@ -118,6 +122,9 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                                         <p className={`${uniformTextStyle} truncate ${selectedCustomer?.id === cust.id ? 'text-white' : 'group-hover:text-white'}`}>{cust.name}</p>
                                         <p className={`${uniformTextStyle} !text-base mt-1 ${selectedCustomer?.id === cust.id ? 'text-white/70' : 'text-gray-500 group-hover:text-white/70'}`}>{cust.phone || 'N/A'}</p>
                                     </div>
+                                    {(cust.is_blocked || cust.is_active === false) && (
+                                        <span className={`text-[9px] font-black uppercase px-2 py-1 border ${selectedCustomer?.id === cust.id ? 'border-white text-white' : 'border-red-600 text-red-600 group-hover:text-white group-hover:border-white'}`}>Blocked</span>
+                                    )}
                                 </div>
                             </div>
                         ))}
@@ -135,6 +142,7 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                                 <div className="flex-1 min-w-0">
                                     <h3 className={`${uniformTextStyle} !text-4xl text-primary truncate`}>{selectedCustomer.name}</h3>
                                     <p className="text-sm font-bold text-gray-500 uppercase mt-3">Contact: {selectedCustomer.phone || 'N/A'} | Area: {selectedCustomer.area || 'N/A'}</p>
+                                    <p className="text-xs font-black uppercase mt-2">Status: <span className={(selectedCustomer.is_blocked || selectedCustomer.is_active === false) ? 'text-red-600' : 'text-emerald-700'}>{(selectedCustomer.is_blocked || selectedCustomer.is_active === false) ? 'Blocked' : 'Active'}</span></p>
                                 </div>
                                 <div className="w-full mt-5 p-4 bg-white border border-gray-300 rounded">
                                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 mb-3">Address Details</p>
@@ -150,6 +158,22 @@ const CustomersPage: React.FC<CustomersProps> = ({ customers, teamMembers = [], 
                                 <div className="flex gap-2 ml-4">
                                     <button onClick={() => setIsPriceListModalOpen(true)} className="px-4 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Price List</button>
                                     <button onClick={() => setIsEditModalOpen(true)} className="px-4 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Alter</button>
+                                    {(selectedCustomer.is_blocked || selectedCustomer.is_active === false) ? (
+                                        <button onClick={() => { if (window.confirm('Unblock this customer?')) void onUnblockCustomer(selectedCustomer); }} className="px-4 py-2 border border-emerald-700 bg-emerald-50 text-emerald-700 font-black text-[10px] uppercase shadow-sm">Unblock Customer</button>
+                                    ) : (
+                                        <button onClick={() => { if (window.confirm('Block this customer?')) void onBlockCustomer(selectedCustomer); }} className="px-4 py-2 border border-amber-700 bg-amber-50 text-amber-700 font-black text-[10px] uppercase shadow-sm">Block Customer</button>
+                                    )}
+                                    <button
+                                        onClick={async () => {
+                                            if (!window.confirm('Delete this customer?')) return;
+                                            const result = await onDeleteCustomer(selectedCustomer);
+                                            alert(result.message);
+                                            if (result.success) setSelectedCustomer(null);
+                                        }}
+                                        className="px-4 py-2 border border-red-700 bg-red-50 text-red-700 font-black text-[10px] uppercase shadow-sm"
+                                    >
+                                        Delete Customer
+                                    </button>
                                 </div>
                             </div>
                             

@@ -152,7 +152,7 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     const filteredDistributors = useMemo(() => {
         if (!Array.isArray(distributors)) return [];
         return distributors
-            .filter(d => d && d.is_active !== false)
+            .filter(d => d && d.is_blocked !== true)
             .filter(d => fuzzyMatch(d.name || '', searchTerm) || fuzzyMatch(d.gst_number || '', searchTerm))
             .sort((a, b) => getOutstandingBalance(b) - getOutstandingBalance(a));
     }, [distributors, searchTerm]);

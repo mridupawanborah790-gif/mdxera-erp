@@ -147,7 +147,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
     const filteredCustomers = useMemo(() => {
         if (!Array.isArray(customers)) return [];
         return customers
-            .filter(c => c && c.is_active !== false)
+            .filter(c => c && c.is_blocked !== true)
             .filter(c => fuzzyMatch(c.name || '', searchTerm) || fuzzyMatch(c.phone || '', searchTerm))
             .sort((a, b) => getOutstandingBalance(b) - getOutstandingBalance(a));
     }, [customers, searchTerm]);

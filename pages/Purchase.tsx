@@ -526,14 +526,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const handleSupplierKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            const filtered = distributors.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
+            const filtered = distributors.filter(d => d.is_blocked !== true && fuzzyMatch(d.name, supplier)).slice(0, 10);
             setSelectedSupplierIndex(prev => (prev + 1) % Math.max(1, filtered.length));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            const filtered = distributors.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
+            const filtered = distributors.filter(d => d.is_blocked !== true && fuzzyMatch(d.name, supplier)).slice(0, 10);
             setSelectedSupplierIndex(prev => (prev - 1 + filtered.length) % Math.max(1, filtered.length));
         } else if (e.key === 'Enter') {
-            const filtered = distributors.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10);
+            const filtered = distributors.filter(d => d.is_blocked !== true && fuzzyMatch(d.name, supplier)).slice(0, 10);
             if (filtered[selectedSupplierIndex]) {
                 handleSupplierSelect(filtered[selectedSupplierIndex]);
             }
@@ -566,7 +566,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         />
                         {isSupplierDropdownOpen && supplier.length > 0 && (
                             <div className="absolute top-full left-0 w-full bg-white border border-primary shadow-2xl z-[200] overflow-hidden rounded-none">
-                                {distributors.filter(d => fuzzyMatch(d.name, supplier)).slice(0, 10).map((d, sIdx) => (
+                                {distributors.filter(d => d.is_blocked !== true && fuzzyMatch(d.name, supplier)).slice(0, 10).map((d, sIdx) => (
                                     <div
                                         key={d.id}
                                         onClick={() => handleSupplierSelect(d)}

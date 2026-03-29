@@ -42,12 +42,15 @@ interface SuppliersProps {
     onBulkAddSuppliers: (suppliers: any[]) => void;
     onRecordPayment: (supplierId: string, paymentAmount: number, paymentDate: string, description: string) => void;
     onUpdateSupplier: (supplier: Supplier) => Promise<any>;
+    onBlockSupplier: (supplier: Supplier) => Promise<void> | void;
+    onUnblockSupplier: (supplier: Supplier) => Promise<void> | void;
+    onDeleteSupplier: (supplier: Supplier) => Promise<{ success: boolean; message: string }>;
     config: any;
     currentUser: RegisteredPharmacy | null;
     defaultSupplierControlGlId?: string;
 }
 
-const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkAddSuppliers, onRecordPayment, onUpdateSupplier, config, currentUser, defaultSupplierControlGlId }) => {
+const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkAddSuppliers, onRecordPayment, onUpdateSupplier, onBlockSupplier, onUnblockSupplier, onDeleteSupplier, config, currentUser, defaultSupplierControlGlId }) => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -63,7 +66,13 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
     const filteredSuppliers = useMemo(() => {
         if (!Array.isArray(suppliers)) return [];
         return suppliers
-            .filter(s => s && (statusFilter === 'all' || (statusFilter === 'active' ? s.is_active !== false : s.is_active === false)))
+            .filter(s => {
+                if (!s) return false;
+                const blocked = s.is_blocked === true || s.is_active === false;
+                if (statusFilter === 'active') return !blocked;
+                if (statusFilter === 'blocked') return blocked;
+                return true;
+            })
             .filter(s => fuzzyMatch(s.name || '', searchTerm) || fuzzyMatch(s.phone || '', searchTerm) || fuzzyMatch(s.mobile || '', searchTerm))
             .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }, [suppliers, searchTerm, statusFilter]);
@@ -148,6 +157,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                             >
                                 <p className={`${uniformTextStyle} !text-xl truncate ${selectedSupplierId === s.id ? 'text-white' : 'group-hover:text-white'}`}>{s.name}</p>
                                 <p className={`text-xs font-bold uppercase truncate ${selectedSupplierId === s.id ? 'text-white/70' : 'text-gray-500 group-hover:text-white/70'}`}>GST: {s.gst_number || 'N/A'}</p>
+                                {(s.is_blocked || s.is_active === false) && <p className={`text-[9px] font-black uppercase mt-1 ${selectedSupplierId === s.id ? 'text-white' : 'text-red-600 group-hover:text-white'}`}>Blocked</p>}
                             </button>
                         ))}
                     </div>
@@ -179,9 +189,28 @@ const Suppliers: React.FC<SuppliersProps> = ({ suppliers, onAddSupplier, onBulkA
                                                 <span>GSTIN: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.gst_number || 'N/A'}</span></span>
                                                 <span>PH: <span className="text-gray-900 tally-font-data-mono">{selectedSupplier.mobile || selectedSupplier.phone || 'N/A'}</span></span>
                                                 <span>Opening: <span className="text-gray-900 tally-font-data-mono">₹{openingBalance.toFixed(2)}</span></span>
+                                                <span>Status: <span className={(selectedSupplier.is_blocked || selectedSupplier.is_active === false) ? 'text-red-600' : 'text-emerald-700'}>{(selectedSupplier.is_blocked || selectedSupplier.is_active === false) ? 'Blocked' : 'Active'}</span></span>
                                             </div>
                                         </div>
-                                        <button onClick={() => setIsEditModalOpen(true)} className="px-6 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Alter</button>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => setIsEditModalOpen(true)} className="px-6 py-2 tally-border bg-white font-black text-[10px] uppercase shadow-sm">Alter</button>
+                                            {(selectedSupplier.is_blocked || selectedSupplier.is_active === false) ? (
+                                                <button onClick={() => { if (window.confirm('Unblock this supplier?')) void onUnblockSupplier(selectedSupplier); }} className="px-4 py-2 border border-emerald-700 bg-emerald-50 text-emerald-700 font-black text-[10px] uppercase shadow-sm">Unblock Supplier</button>
+                                            ) : (
+                                                <button onClick={() => { if (window.confirm('Block this supplier?')) void onBlockSupplier(selectedSupplier); }} className="px-4 py-2 border border-amber-700 bg-amber-50 text-amber-700 font-black text-[10px] uppercase shadow-sm">Block Supplier</button>
+                                            )}
+                                            <button
+                                                onClick={async () => {
+                                                    if (!window.confirm('Delete this supplier?')) return;
+                                                    const result = await onDeleteSupplier(selectedSupplier);
+                                                    alert(result.message);
+                                                    if (result.success) setSelectedSupplierId(null);
+                                                }}
+                                                className="px-4 py-2 border border-red-700 bg-red-50 text-red-700 font-black text-[10px] uppercase shadow-sm"
+                                            >
+                                                Delete Supplier
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div className="p-4 border-b border-gray-300 bg-white">
