@@ -4,6 +4,7 @@ import Modal from '../components/Modal';
 import type { Distributor, InventoryItem, PurchaseOrderItem, PurchaseOrder, Medicine, SupplierProductMap } from '../types';
 import { PurchaseOrderStatus } from '../types';
 import SharePurchaseOrderModal from '../components/SharePurchaseOrderModal';
+import { parseNetworkAndApiError } from '../utils/error';
 
 interface PurchaseOrdersProps {
   distributors: Distributor[];
@@ -11,7 +12,8 @@ interface PurchaseOrdersProps {
   medicines: Medicine[];
   mappings: SupplierProductMap[];
   purchaseOrders: PurchaseOrder[];
-  onAddPurchaseOrder: (po: Omit<PurchaseOrder, 'id' | 'serialId'>) => void;
+  onAddPurchaseOrder: (po: Omit<PurchaseOrder, 'id' | 'serialId'>, serialId: string) => void;
+  onReservePONumber: () => Promise<string>;
   onUpdatePurchaseOrder: (po: PurchaseOrder) => void;
   onCreatePurchaseEntry: (po: PurchaseOrder) => void;
   onPrintPurchaseOrder: (po: PurchaseOrder) => void;
@@ -128,6 +130,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     mappings,
     purchaseOrders, 
     onAddPurchaseOrder, 
+    onReservePONumber,
     onUpdatePurchaseOrder, 
     onCreatePurchaseEntry, 
     onPrintPurchaseOrder, 
@@ -150,6 +153,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [orderDate, setOrderDate] = useState(getDefaultOrderDate());
     const [items, setItems] = useState<PurchaseOrderItem[]>([]);
     const [remarks, setRemarks] = useState('');
+    const [poSerialId, setPoSerialId] = useState('NO.NEW');
     const [isSaving, setIsSaving] = useState(false);
     const [isMatrixOpen, setIsMatrixOpen] = useState(false);
     const [matrixSearchTerm, setMatrixSearchTerm] = useState('');
@@ -191,7 +195,16 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         setOrderDate(getDefaultOrderDate());
         setItems([createEmptyLineItem()]);
         setRemarks('');
+        setPoSerialId('NO.NEW');
         onClearDraft();
+    };
+
+    const ensurePONumber = async (): Promise<string> => {
+        if (poSerialId && poSerialId !== 'NO.NEW') return poSerialId;
+        const nextNumber = (await onReservePONumber())?.trim();
+        if (!nextNumber) throw new Error('PO number / serial id could not be generated.');
+        setPoSerialId(nextNumber);
+        return nextNumber;
     };
 
     const filteredPOList = useMemo(() => {
@@ -214,6 +227,14 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             setItems([createEmptyLineItem()]);
         }
     }, [view, items.length]);
+
+    useEffect(() => {
+        if (view !== 'create') return;
+        if (poSerialId !== 'NO.NEW') return;
+        ensurePONumber().catch((error) => {
+            console.error('Failed to pre-generate PO number.', error);
+        });
+    }, [view, poSerialId]);
 
     useEffect(() => {
         if (view === 'create') {
@@ -476,53 +497,116 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const estimatedTax = useMemo(() => items.reduce((sum, item) => sum + Number(item.gstAmount || 0), 0), [items]);
     const totalAmount = useMemo(() => items.reduce((sum, item) => sum + Number(item.estimatedAmount || 0), 0), [items]);
 
-    const validateBeforeSave = () => {
-        const enteredItems = items.filter(item => !isLineItemEmpty(item));
+    const isValidUuid = (value?: string) =>
+        typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+    const isPlaceholderDate = (value?: string) => {
+        if (!value) return false;
+        const normalized = value.trim().toLowerCase();
+        return normalized === 'dd-mm-yyyy' || normalized === 'dd/mm/yyyy' || normalized === 'mm/dd/yyyy';
+    };
+
+    const isParsableDate = (value?: string) => {
+        if (!value || isPlaceholderDate(value)) return false;
+        const parsed = new Date(value);
+        return !Number.isNaN(parsed.getTime());
+    };
+
+    const validateBeforeSave = (reservedSerialId: string, enteredItems: PurchaseOrderItem[]) => {
         if (!selectedDistributorId) return 'Supplier is required.';
+        if (!isValidUuid(selectedDistributorId)) return 'Invalid supplier/distributor id. Please reselect supplier.';
+        if (!isParsableDate(orderDate)) return 'Invalid PO date.';
+        if (!currentUserOrgId?.trim()) return 'Organization id is missing.';
+        if (!reservedSerialId?.trim() || reservedSerialId === 'NO.NEW') return 'PO number / serial id is not generated.';
         if (enteredItems.length === 0) return 'Please add at least one item.';
 
         for (let i = 0; i < enteredItems.length; i++) {
             const row = enteredItems[i];
             if (!row.name?.trim()) return `Item name is missing in row ${i + 1}.`;
             if (!row.quantity || Number(row.quantity) <= 0) return `Quantity should be greater than zero in row ${i + 1}.`;
+            const rate = Number(row.estimatedRate ?? row.purchasePrice ?? 0);
+            if (!Number.isFinite(rate) || rate < 0) return `Estimated rate should be zero or greater in row ${i + 1}.`;
+            if (isPlaceholderDate(row.expectedDeliveryDate)) return `Expected date is placeholder only in row ${i + 1}.`;
+            if (row.expectedDeliveryDate && !isParsableDate(row.expectedDeliveryDate)) return `Expected date is invalid in row ${i + 1}.`;
         }
 
         return null;
     };
 
     const handleSavePO = async () => {
-        const validationError = validateBeforeSave();
-        if (validationError) {
-            alert(validationError);
-            return;
-        }
-
         setIsSaving(true);
-        const distributor = distributors.find(d => d.id === selectedDistributorId);
-
-        const cleanItems = items.filter(item => !isLineItemEmpty(item)).map(recalculateLine);
-
-        const newPO: Omit<PurchaseOrder, 'id' | 'serialId'> = {
-            organization_id: currentUserOrgId || '',
-            date: new Date(orderDate).toISOString(),
-            distributorId: selectedDistributorId,
-            distributorName: distributor?.name || 'Unknown',
-            senderEmail: currentUserEmail,
-            items: cleanItems,
-            status: PurchaseOrderStatus.ORDERED,
-            totalItems: cleanItems.length,
-            totalAmount,
-            remarks: remarks
-        };
-
         try {
-            await onAddPurchaseOrder(newPO);
+            const reservedSerialId = await ensurePONumber();
+            const distributor = distributors.find(d => d.id === selectedDistributorId);
+            if (!distributor) {
+                throw new Error('Invalid supplier/distributor id: selected supplier was not found.');
+            }
+
+            const cleanItems = items
+                .filter(item => !isLineItemEmpty(item))
+                .map(recalculateLine)
+                .filter(item => isLineItemComplete(item));
+
+            const validationError = validateBeforeSave(reservedSerialId, cleanItems);
+            if (validationError) {
+                console.warn('PO validation failed.', { validationError, selectedDistributorId, orderDate, poSerialId: reservedSerialId, cleanItems });
+                alert(validationError);
+                return;
+            }
+
+            const normalizedItems = cleanItems.map(item => ({
+                ...item,
+                expectedDeliveryDate: isParsableDate(item.expectedDeliveryDate)
+                    ? new Date(item.expectedDeliveryDate as string).toISOString()
+                    : undefined
+            }));
+
+            const computedSubtotal = normalizedItems.reduce((sum, item) => sum + Number(item.lineAmount || 0), 0);
+            const computedDiscount = normalizedItems.reduce((sum, item) => sum + Number(item.discountAmount || 0), 0);
+            const computedTax = normalizedItems.reduce((sum, item) => sum + Number(item.gstAmount || 0), 0);
+            const computedTotalAmount = normalizedItems.reduce((sum, item) => sum + Number(item.estimatedAmount || 0), 0);
+
+            const newPO: Omit<PurchaseOrder, 'id' | 'serialId'> = {
+                organization_id: currentUserOrgId || '',
+                date: new Date(orderDate).toISOString(),
+                distributorId: distributor.id,
+                distributorName: distributor.name,
+                senderEmail: currentUserEmail,
+                items: normalizedItems,
+                status: PurchaseOrderStatus.ORDERED,
+                totalItems: normalizedItems.length,
+                totalAmount: computedTotalAmount,
+                remarks: remarks
+            };
+
+            console.info('PO save payload prepared.', {
+                serialId: reservedSerialId,
+                payload: { ...newPO, serialId: reservedSerialId },
+                totals: {
+                    subtotal: computedSubtotal,
+                    discount: computedDiscount,
+                    tax: computedTax,
+                    totalAmount: computedTotalAmount,
+                    totalItems: normalizedItems.length
+                }
+            });
+
+            await onAddPurchaseOrder(newPO, reservedSerialId);
+            console.info('PO save completed successfully.', { serialId: reservedSerialId });
             setIsDirty(false);
             resetCreateForm();
             setView('list');
-        } catch (e) {
-            console.error(e);
-            alert('Failed to save PO.');
+        } catch (e: any) {
+            const parsedError = parseNetworkAndApiError(e);
+            const exactMessage = e?.message || parsedError || 'Unknown save error.';
+            console.error('PO save failed.', {
+                error: e,
+                exactMessage,
+                selectedDistributorId,
+                orderDate,
+                poSerialId
+            });
+            alert(`Failed to save PO: ${exactMessage}`);
         } finally {
             setIsSaving(false);
         }
@@ -583,7 +667,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                     {view === 'create' ? 'Purchase Order Voucher Creation' : 'Purchase Order Register'}
                 </span>
                 <span className="text-[10px] font-black uppercase text-accent">
-                    {view === 'create' ? 'No. New' : `Total Orders: ${purchaseOrders.length}`}
+                    {view === 'create' ? `No. ${poSerialId}` : `Total Orders: ${purchaseOrders.length}`}
                 </span>
             </div>
 
@@ -617,7 +701,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     className="w-full p-2 border border-gray-400 rounded-none bg-input-bg font-bold text-sm focus:bg-yellow-50 outline-none uppercase"
                                 >
                                     <option value="">— Select Ledger —</option>
-                                    {distributors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                    {distributors.filter(d => d.is_blocked !== true).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                                 </select>
                             </div>
                             <div>

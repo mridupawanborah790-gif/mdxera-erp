@@ -388,7 +388,7 @@ const ManualPurchase = React.forwardRef<any, ManualPurchaseProps>(({
             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Supplier / Vendor Name</label>
             <select ref={supplierInputRef} className="w-full h-8 border border-gray-400 p-1 text-xs font-bold uppercase outline-none focus:bg-yellow-50" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && phoneInputRef.current?.focus()}>
               <option value="">Select Supplier *</option>
-              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {suppliers.filter((s) => s.is_blocked !== true && s.is_active !== false).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
           <div>

@@ -30,7 +30,7 @@ const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClo
     }, [isOpen, initialSearch]);
 
     const filtered = useMemo(() => {
-        const active = customers.filter(c => c.is_active !== false);
+        const active = customers.filter(c => c.is_blocked !== true && c.is_active !== false);
         if (!searchTerm.trim()) return active;
         return active.filter(c => 
             fuzzyMatch(c.name, searchTerm) || 

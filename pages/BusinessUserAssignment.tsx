@@ -4,8 +4,9 @@ import Card from '../components/Card';
 import Modal from '../components/Modal';
 import InviteUserModal from '../components/InviteUserModal';
 import ConfirmModal from '../components/ConfirmModal';
-import { RegisteredPharmacy, OrganizationMember, UserRole, WorkCenter, SoDConflict, BusinessRole } from '../types';
+import { RegisteredPharmacy, OrganizationMember, WorkCenter, SoDConflict, BusinessRole } from '../types';
 import { addTeamMember, saveData, getData, removeTeamMember } from '../services/storageService';
+import { mergePermissionsForRoleIds } from '../utils/rbac';
 
 interface BusinessUserAssignmentProps {
     currentUser: RegisteredPharmacy;
@@ -81,10 +82,33 @@ const BusinessUserAssignment: React.FC<BusinessUserAssignmentProps> = ({ current
         loadExtraData();
     }, [loadExtraData]);
 
-    const handleAddMember = async (email: string, role: string, name: string, pass: string) => {
+    const handleAddMember = async (payload: {
+        name: string;
+        username: string;
+        password: string;
+        department: string;
+        mobile: string;
+        email: string;
+        isActive: boolean;
+        assignedRoleIds: string[];
+    }) => {
         try {
-            await addTeamMember(email, role as UserRole, name, pass, currentUser.organization_id);
-            addNotification(`Identity for ${name} registered in directory.`, 'success');
+            await addTeamMember(
+                payload.email,
+                'viewer',
+                payload.name,
+                payload.password,
+                currentUser.organization_id,
+                {
+                    department: payload.department,
+                    employeeId: payload.username,
+                    company: payload.mobile,
+                    assignedRoles: payload.assignedRoleIds,
+                    status: payload.isActive ? 'active' : 'suspended',
+                    isLocked: !payload.isActive,
+                },
+            );
+            addNotification(`Identity for ${payload.name} registered in directory.`, 'success');
             await onRefresh();
         } catch (err: any) {
             addNotification(err.message || "Failed to create team record.", "error");
@@ -266,6 +290,7 @@ const BusinessUserAssignment: React.FC<BusinessUserAssignmentProps> = ({ current
                             <div className="flex bg-[#e1e1e1] px-4 pt-2 border-b border-gray-400">
                                 {[
                                     { id: 'general', name: 'Identity Profile' },
+                                    { id: 'roles', name: 'Assigned Roles' },
                                     { id: 'workcenters', name: 'Access Rights' },
                                     { id: 'sod', name: `Compliance Audit ${sodConflicts.length ? `(${sodConflicts.length})` : ''}` },
                                 ].map(tab => (
@@ -320,6 +345,34 @@ const BusinessUserAssignment: React.FC<BusinessUserAssignmentProps> = ({ current
                                                 </div>
                                             </div>
                                         )}
+                                    </div>
+                                )}
+
+                                {activeTab === 'roles' && (
+                                    <div className="space-y-6 animate-in fade-in duration-200">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {businessRoles.map(role => (
+                                                <label key={role.id} className="flex items-center gap-2 border border-gray-200 bg-white p-3 text-xs font-bold uppercase">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={(selectedUser.assignedRoles || []).includes(role.id)}
+                                                        onChange={() => {
+                                                            const current = selectedUser.assignedRoles || [];
+                                                            const next = current.includes(role.id)
+                                                                ? current.filter(id => id !== role.id)
+                                                                : [...current, role.id];
+                                                            setSelectedUser({ ...selectedUser, assignedRoles: next });
+                                                        }}
+                                                    />
+                                                    <span>{role.name}</span>
+                                                    <span className={`ml-auto text-[9px] ${role.is_active ? 'text-emerald-600' : 'text-red-600'}`}>{role.is_active ? 'ACTIVE' : 'DISABLED'}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                        <div className="bg-slate-100 border border-gray-200 p-4">
+                                            <p className="text-[10px] font-black uppercase text-gray-500 mb-2">Merged Effective Permissions (highest permission wins)</p>
+                                            <pre className="text-[10px] overflow-auto max-h-64 whitespace-pre-wrap">{JSON.stringify(mergePermissionsForRoleIds(businessRoles, selectedUser.assignedRoles || []), null, 2)}</pre>
+                                        </div>
                                     </div>
                                 )}
 

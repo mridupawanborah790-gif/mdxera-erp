@@ -214,6 +214,20 @@ export const AddSupplierModal: React.FC<{
                     </section>
 
                     <section className="space-y-4">
+                        <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">License Details</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Drug License No.</label>
+                                <input type="text" name="drug_license" value={form.drug_license || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Food License No.</label>
+                                <input type="text" name="food_license" value={form.food_license || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="space-y-4">
                         <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Address Information</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="md:col-span-2">
@@ -440,6 +454,18 @@ export const EditSupplierModal: React.FC<{
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Supplier Control GL</label>
                             <input type="text" readOnly value={form.control_gl_id || defaultControlGlId ? `Mapped (${form.control_gl_id || defaultControlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
                         </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Status</label>
+                            <select
+                                name="is_blocked"
+                                value={form.is_blocked ? 'blocked' : 'active'}
+                                onChange={(e) => setForm(prev => ({ ...prev, is_blocked: e.target.value === 'blocked', is_active: e.target.value !== 'blocked' }))}
+                                className="w-full border border-gray-400 p-2 font-bold text-sm focus:bg-yellow-50 outline-none"
+                            >
+                                <option value="active">Active</option>
+                                <option value="blocked">Blocked</option>
+                            </select>
+                        </div>
                     </div>
                 </section>
 
@@ -461,6 +487,20 @@ export const EditSupplierModal: React.FC<{
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">GSTIN</label>
                             <input type="text" name="gst_number" value={form.gst_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                        </div>
+                    </div>
+                </section>
+
+                <section className="space-y-4">
+                    <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">License Details</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Drug License No.</label>
+                            <input type="text" name="drug_license" value={form.drug_license || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Food License No.</label>
+                            <input type="text" name="food_license" value={form.food_license || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
                         </div>
                     </div>
                 </section>

@@ -20,6 +20,8 @@ import Reports from './pages/Reports';
 import DailyReports from './pages/DailyReports';
 import BalanceCarryforward from './pages/BalanceCarryforward';
 import GstCenter from './pages/GstCenter';
+import EWayBilling from './pages/EWayBilling';
+import EWayLoginSetup from './pages/EWayLoginSetup';
 import BusinessUserAssignment from './pages/BusinessUserAssignment';
 import BusinessRoles from './pages/BusinessRoles';
 import Configuration from './pages/Configuration';
@@ -51,13 +53,14 @@ import {
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
     Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
     PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
-    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry
+    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, BusinessRole
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
 import { resolveUnitsPerStrip } from './utils/pack';
 import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screenShortcuts';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
+import { canAccessScreen, filterNavigationByPermissions } from './utils/rbac';
 
 const DATA_ENTRY_SCREENS = [
     'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
@@ -71,7 +74,7 @@ const PERSISTABLE_SCREENS = new Set([
     'deliveryChallans', 'salesReturns', 'purchaseReturn', 'purchaseOrders', 'automatedPurchaseEntry',
     'manualPurchaseEntry', 'manualSupplierInvoice', 'purchaseHistory', 'inventory', 'physicalInventory',
     'suppliers', 'customers', 'medicineMasterList', 'masterPriceMaintain', 'vendorNomenclature', 'bulkUtility',
-    'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst',
+    'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst', 'eway', 'ewayLoginSetup',
     'businessUsers', 'businessRoles', 'companyConfiguration', 'configuration', 'settings',
     'classification', 'accountReceivable', 'accountPayable'
 ]);
@@ -120,6 +123,7 @@ const App: React.FC = () => {
     const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
     const [promotions, setPromotions] = useState<Promotion[]>([]);
     const [teamMembers, setTeamMembers] = useState<OrganizationMember[]>([]);
+    const [businessRoles, setBusinessRoles] = useState<BusinessRole[]>([]);
 
     const [configurations, setConfigurations] = useState<AppConfigurations>({ organization_id: '' });
     const [defaultCustomerControlGlId, setDefaultCustomerControlGlId] = useState<string>('');
@@ -151,6 +155,7 @@ const App: React.FC = () => {
 
     const [activeDashboardMenu, setActiveDashboardMenu] = useState<'left' | 'right'>('right');
     const [mountedPages, setMountedPages] = useState<string[]>(['dashboard']);
+    const [ewayLoginSetupReturnPage, setEwayLoginSetupReturnPage] = useState<string>('dashboard');
     const pageContainerRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const pageScrollPositionsRef = useRef<Record<string, number>>({});
     const previousPageRef = useRef('dashboard');
@@ -316,6 +321,12 @@ const App: React.FC = () => {
                     case 'sub_categories': setSubCategories(await storage.getData('sub_categories', [], user)); break;
                     case 'supplier_product_map': setMappings(await storage.fetchSupplierProductMaps(user)); break;
                     case 'mrp_change_log': setMrpChangeLogs(await storage.getData('mrp_change_log', [], user)); break;
+                    case 'business_roles':
+                        setBusinessRoles(await storage.getData('business_roles', [], user));
+                        break;
+                    case 'team_members':
+                        setTeamMembers(await storage.fetchTeamMembers(user));
+                        break;
                     case 'profiles':
                         const freshProfile = await storage.fetchProfile(user.user_id);
                         if (freshProfile) setCurrentUser(freshProfile);
@@ -327,7 +338,7 @@ const App: React.FC = () => {
 
             const [
                 freshProfile, inv, med, tx, pur, supp, cust, ewb, mapData, phy, dc, sc, po,
-                sr, pr, cert, sub, promo, team, configData, mrpLogs
+                sr, pr, cert, sub, promo, team, roleData, configData, mrpLogs
             ] = await Promise.all([
                 storage.fetchProfile(user.user_id),
                 storage.fetchInventory(user),
@@ -348,6 +359,7 @@ const App: React.FC = () => {
                 storage.getData('sub_categories', [], user),
                 storage.getData('promotions', [], user),
                 storage.fetchTeamMembers(user),
+                storage.getData('business_roles', [], user),
                 storage.getData('configurations', [{ organization_id: orgId }], user),
                 storage.getData('mrp_change_log', [], user)
             ]);
@@ -372,6 +384,7 @@ const App: React.FC = () => {
             setSubCategories(sub || []);
             setPromotions(promo || []);
             setTeamMembers(team || []);
+            setBusinessRoles(roleData || []);
             setMrpChangeLogs(mrpLogs || []);
 
             if (configData && configData.length > 0) {
@@ -570,6 +583,11 @@ const App: React.FC = () => {
         const isDailyReportLink = pageId.startsWith('dailyReports:');
         const resolvedPageId = isDailyReportLink ? 'dailyReports' : pageId;
 
+        if (!canAccessScreen(resolvedPageId, currentUser, teamMembers, businessRoles, 'view')) {
+            addNotification('Access denied for this module.', 'error');
+            return;
+        }
+
         if (!skipPrompt && shouldPromptBeforeLeaving(currentPage, resolvedPageId)) {
             setShowEscSavePrompt(true);
             return;
@@ -577,6 +595,9 @@ const App: React.FC = () => {
 
         if (isDailyReportLink) {
             setCurrentDailyReportId(pageId.replace('dailyReports:', ''));
+        }
+        if (resolvedPageId === 'ewayLoginSetup') {
+            setEwayLoginSetupReturnPage(currentPage || 'dashboard');
         }
         setCurrentPage(resolvedPageId);
         if (resolvedPageId !== 'manualSupplierInvoice' && resolvedPageId !== 'manualPurchaseEntry' && resolvedPageId !== 'automatedPurchaseEntry') {
@@ -586,7 +607,26 @@ const App: React.FC = () => {
         if (resolvedPageId !== 'pos' && resolvedPageId !== 'nonGstPos') {
             setEditingSale(null);
         }
-    }, [currentPage, shouldPromptBeforeLeaving]);
+    }, [addNotification, businessRoles, currentPage, currentUser, shouldPromptBeforeLeaving, teamMembers]);
+
+    const closeEwayLoginSetup = useCallback(() => {
+        const targetPage = PERSISTABLE_SCREENS.has(ewayLoginSetupReturnPage) ? ewayLoginSetupReturnPage : 'dashboard';
+        setScreenResetNonce(prev => ({ ...prev, ewayLoginSetup: (prev.ewayLoginSetup ?? 0) + 1 }));
+        setCurrentPage(targetPage);
+        window.requestAnimationFrame(() => {
+            const container = pageContainerRefs.current[targetPage];
+            if (!container) return;
+            const focusable = container.querySelector<HTMLElement>(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            if (focusable) {
+                focusable.focus();
+            } else {
+                container.setAttribute('tabindex', '-1');
+                container.focus();
+            }
+        });
+    }, [ewayLoginSetupReturnPage]);
 
     useEffect(() => {
         setConfigurations(prev => ({
@@ -1329,6 +1369,105 @@ const App: React.FC = () => {
         }
     };
 
+    const hasCustomerTransactionDependency = useCallback((customer: Customer): boolean => {
+        const customerId = customer.id;
+        const customerName = (customer.name || '').trim().toLowerCase();
+        const hasLedgerEntries = Array.isArray(customer.ledger) && customer.ledger.length > 0;
+        const hasSales = transactions.some(tx =>
+            tx &&
+            tx.status !== 'cancelled' &&
+            ((tx.customerId && tx.customerId === customerId) || ((tx.customerName || '').trim().toLowerCase() === customerName))
+        );
+        const hasSalesChallans = salesChallans.some(ch =>
+            ch &&
+            ch.status !== 'cancelled' &&
+            ((ch.customerId && ch.customerId === customerId) || ((ch.customerName || '').trim().toLowerCase() === customerName))
+        );
+        const hasSalesReturns = salesReturns.some(sr =>
+            sr &&
+            ((sr.customerId && sr.customerId === customerId) || ((sr.customerName || '').trim().toLowerCase() === customerName))
+        );
+        return hasLedgerEntries || hasSales || hasSalesChallans || hasSalesReturns;
+    }, [transactions, salesChallans, salesReturns]);
+
+    const hasSupplierTransactionDependency = useCallback((supplier: Supplier): boolean => {
+        const supplierId = supplier.id;
+        const supplierName = (supplier.name || '').trim().toLowerCase();
+        const hasLedgerEntries = Array.isArray(supplier.ledger) && supplier.ledger.length > 0;
+        const hasPurchases = purchases.some(p =>
+            p &&
+            p.status !== 'cancelled' &&
+            ((p.supplier || '').trim().toLowerCase() === supplierName)
+        );
+        const hasPurchaseOrders = purchaseOrders.some(po =>
+            po &&
+            po.status !== 'cancelled' &&
+            ((po.distributorId && po.distributorId === supplierId) || ((po.distributorName || '').trim().toLowerCase() === supplierName))
+        );
+        const hasPurchaseReturns = purchaseReturns.some(pr =>
+            pr &&
+            ((pr.supplier || '').trim().toLowerCase() === supplierName)
+        );
+        return hasLedgerEntries || hasPurchases || hasPurchaseOrders || hasPurchaseReturns;
+    }, [purchases, purchaseOrders, purchaseReturns]);
+
+    const handleSetCustomerBlocked = async (customer: Customer, isBlocked: boolean) => {
+        if (!currentUser) return;
+        const payload: Customer = {
+            ...customer,
+            is_blocked: isBlocked,
+            is_active: !isBlocked,
+            creditStatus: isBlocked ? 'blocked' : (customer.creditStatus || 'active'),
+        };
+        await handleUpdateCustomer(payload);
+        addNotification(`Customer ${customer.name} ${isBlocked ? 'blocked' : 'unblocked'} successfully.`, 'success');
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=${isBlocked ? 'block' : 'unblock'} customer=${customer.id}`);
+    };
+
+    const handleSetSupplierBlocked = async (supplier: Supplier, isBlocked: boolean) => {
+        if (!currentUser) return;
+        const payload: Supplier = {
+            ...supplier,
+            is_blocked: isBlocked,
+            is_active: !isBlocked,
+        };
+        await handleUpdateSupplier(payload);
+        addNotification(`Supplier ${supplier.name} ${isBlocked ? 'blocked' : 'unblocked'} successfully.`, 'success');
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=${isBlocked ? 'block' : 'unblock'} supplier=${supplier.id}`);
+    };
+
+    const handleDeleteCustomer = async (customer: Customer) => {
+        if (!currentUser) return { success: false, message: 'Unauthorized' };
+        const hasDependency = hasCustomerTransactionDependency(customer);
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=delete_attempt customer=${customer.id} blocked=${hasDependency}`);
+        if (hasDependency) {
+            return {
+                success: false,
+                message: 'Cannot delete customer because transactions already exist. You may block this record instead.',
+            };
+        }
+        await storage.deleteData('customers', customer.id);
+        await loadData(currentUser, 'background');
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=delete_success customer=${customer.id}`);
+        return { success: true, message: `Customer ${customer.name} deleted successfully.` };
+    };
+
+    const handleDeleteSupplier = async (supplier: Supplier) => {
+        if (!currentUser) return { success: false, message: 'Unauthorized' };
+        const hasDependency = hasSupplierTransactionDependency(supplier);
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=delete_attempt supplier=${supplier.id} blocked=${hasDependency}`);
+        if (hasDependency) {
+            return {
+                success: false,
+                message: 'Cannot delete supplier because transactions already exist. You may block this record instead.',
+            };
+        }
+        await storage.deleteData('suppliers', supplier.id);
+        await loadData(currentUser, 'background');
+        console.info(`[AUDIT] ${new Date().toISOString()} user=${currentUser.id} action=delete_success supplier=${supplier.id}`);
+        return { success: true, message: `Supplier ${supplier.name} deleted successfully.` };
+    };
+
     const handleRecordPayment = async (id: string, amount: number, date: string, desc: string, type: 'customer' | 'supplier') => {
         if (!currentUser) return;
         await storage.addLedgerEntry({
@@ -1531,6 +1670,17 @@ const App: React.FC = () => {
         const config: ModuleConfig = { visible: true, fields: configurations.modules?.[configId]?.fields || {} };
 
         try {
+            if (!canAccessScreen(pageId, currentUser, teamMembers, businessRoles, 'view')) {
+                return (
+                    <div className="flex-1 flex items-center justify-center bg-amber-50 p-8">
+                        <div className="bg-white border-2 border-amber-400 p-6 text-center">
+                            <h2 className="text-xl font-black uppercase text-amber-700">Access Restricted</h2>
+                            <p className="text-xs font-bold text-gray-600 mt-3 uppercase">You do not have permission to open this module.</p>
+                        </div>
+                    </div>
+                );
+            }
+
             switch (pageId) {
                 case 'dashboard':
                     return <Dashboard
@@ -1720,10 +1870,14 @@ const App: React.FC = () => {
                         medicines={medicines}
                         mappings={mappings}
                         purchaseOrders={purchaseOrders}
-                        onAddPurchaseOrder={async (po) => {
-                            const newPO = await storage.saveData('purchase_orders', po, currentUser!);
+                        onAddPurchaseOrder={async (po, serialId) => {
+                            const newPO = await storage.saveData('purchase_orders', { ...po, serialId }, currentUser!);
                             await loadData(currentUser!, 'background');
                             addNotification(`Purchase Order ${newPO.serialId} saved.`, 'success');
+                        }}
+                        onReservePONumber={async () => {
+                            const reserved = await storage.reserveVoucherNumber('purchase-order', currentUser!);
+                            return reserved.documentNumber;
                         }}
                         onUpdatePurchaseOrder={async (po) => {
                             await storage.saveData('purchase_orders', po, currentUser!);
@@ -1934,6 +2088,9 @@ const App: React.FC = () => {
                         onBulkAddSuppliers={(list) => storage.saveBulkData('suppliers', list, currentUser)}
                         onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'supplier')}
                         onUpdateSupplier={handleUpdateSupplier}
+                        onBlockSupplier={(supplier) => handleSetSupplierBlocked(supplier, true)}
+                        onUnblockSupplier={(supplier) => handleSetSupplierBlocked(supplier, false)}
+                        onDeleteSupplier={handleDeleteSupplier}
                         config={config} currentUser={currentUser} defaultSupplierControlGlId={defaultSupplierControlGlId}
                     />;
                 case 'customers':
@@ -1942,6 +2099,9 @@ const App: React.FC = () => {
                         onBulkAddCustomers={(list) => storage.saveBulkData('customers', list, currentUser)}
                         onRecordPayment={(id, amt, dt, desc) => handleRecordPayment(id, amt, dt, desc, 'customer')}
                         onUpdateCustomer={handleUpdateCustomer}
+                        onBlockCustomer={(customer) => handleSetCustomerBlocked(customer, true)}
+                        onUnblockCustomer={(customer) => handleSetCustomerBlocked(customer, false)}
+                        onDeleteCustomer={handleDeleteCustomer}
                         currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
                     />;
                 case 'medicineMasterList':
@@ -1990,6 +2150,36 @@ const App: React.FC = () => {
                             setConfigurations(cfg);
                             window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
                         })}
+                    />;
+                case 'eway':
+                    return <EWayBilling
+                        onOpenLoginSetup={() => {
+                            setEwayLoginSetupReturnPage(pageId);
+                            setCurrentPage('ewayLoginSetup');
+                        }}
+                        currentUser={currentUser}
+                        transactions={transactions}
+                        purchases={purchases}
+                        salesChallans={salesChallans}
+                        deliveryChallans={deliveryChallans}
+                        customers={customers}
+                        suppliers={suppliers}
+                        ewayBills={ewayBills}
+                        configurations={configurations}
+                        onGenerate={(eway) => storage.saveData('ewaybills', eway, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        addNotification={addNotification}
+                    />;
+                case 'ewayLoginSetup':
+                    return <EWayLoginSetup
+                        configurations={configurations}
+                        currentUser={currentUser}
+                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => {
+                            setConfigurations(cfg);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        })}
+                        addNotification={addNotification}
+                        onCancel={closeEwayLoginSetup}
+                        isActive={isActive}
                     />;
                 case 'businessUsers':
                     return <BusinessUserAssignment
@@ -2151,7 +2341,7 @@ const App: React.FC = () => {
                         currentPage={currentPage}
                         onNavigate={handleNavigate}
                         currentUser={currentUser}
-                        navigationItems={navigation}
+                        navigationItems={filterNavigationByPermissions(navigation, currentUser, teamMembers, businessRoles)}
                         configurations={configurations}
                         onToggleMasterExplorer={toggleSidebar}
                         brandName="MDXERA"

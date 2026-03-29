@@ -39,9 +39,23 @@ export interface BusinessRole {
     organization_id: string;
     name: string;
     description: string;
-    workCenters: WorkCenter[];
+    workCenters?: WorkCenter[];
+    permissionsMatrix?: Record<string, PermissionSet>;
     isSystemRole?: boolean;
     is_active: boolean;
+}
+
+export type PermissionAction = 'view' | 'entry' | 'edit' | 'delete' | 'approve' | 'print' | 'export' | 'full';
+
+export interface PermissionSet {
+    view: boolean;
+    entry: boolean;
+    edit: boolean;
+    delete: boolean;
+    approve: boolean;
+    print: boolean;
+    export: boolean;
+    full: boolean;
 }
 
 export interface SoDConflict {
@@ -133,6 +147,27 @@ export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount' 
 export type TaxCalculationBaseOption = 'subtotal' | 'after_trade_discount' | 'after_all_discounts';
 export type LineAmountCalculationMode = 'excluding_discount' | 'including_discount';
 
+
+export interface EWayLoginSetupConfig {
+    gstnUsername?: string;
+    gstnPassword?: string;
+    gstnPasswordEncrypted?: string;
+    einvoiceUsername?: string;
+    einvoicePassword?: string;
+    einvoicePasswordEncrypted?: string;
+    ewayLoginId?: string;
+    ewayPassword?: string;
+    ewayLoginIdEncrypted?: string;
+    ewayPasswordEncrypted?: string;
+    showCredentials?: boolean;
+    uploadDirectlyToPortal?: boolean;
+    credentialStatus?: 'Configured' | 'Invalid' | 'Missing';
+    portalLoginStatus?: 'Verified' | 'Not Verified' | 'Failed';
+    lastCheckedOn?: string;
+    loginVerifiedOn?: string;
+    lastError?: string;
+}
+
 export interface AppConfigurations {
     id?: string;
     organization_id: string;
@@ -177,6 +212,7 @@ export interface AppConfigurations {
         periodicity: 'monthly' | 'quarterly';
         returnType: 'Sahaj' | 'Sugam' | 'Quarterly (Normal)';
     };
+    ewayLoginSetup?: EWayLoginSetupConfig;
     _isDirty?: boolean;
 }
 
@@ -613,6 +649,7 @@ export interface Customer {
     defaultDiscount?: number;
     customerType?: 'regular' | 'retail';
     is_active: boolean;
+    is_blocked?: boolean;
     defaultRateTier?: 'none' | 'rateA' | 'rateB' | 'rateC';
     assignedStaffId?: string;
     assignedStaffName?: string;

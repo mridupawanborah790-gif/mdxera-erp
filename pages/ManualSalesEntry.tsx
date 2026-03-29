@@ -459,7 +459,7 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
               <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Particulars (Customer Name)</label>
               <select ref={customerInputRef} className="w-full h-8 border border-gray-400 p-1 text-xs font-bold uppercase outline-none focus:bg-yellow-50" value={customerId} onChange={(e) => setCustomerId(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && phoneInputRef.current?.focus()}>
                 <option value="">Walking Customer</option>
-                {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {customers.filter((c) => c.is_blocked !== true && c.is_active !== false).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
