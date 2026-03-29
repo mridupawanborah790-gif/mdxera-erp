@@ -20,6 +20,8 @@ import Reports from './pages/Reports';
 import DailyReports from './pages/DailyReports';
 import BalanceCarryforward from './pages/BalanceCarryforward';
 import GstCenter from './pages/GstCenter';
+import EWayBilling from './pages/EWayBilling';
+import EWayLoginSetup from './pages/EWayLoginSetup';
 import BusinessUserAssignment from './pages/BusinessUserAssignment';
 import BusinessRoles from './pages/BusinessRoles';
 import Configuration from './pages/Configuration';
@@ -72,7 +74,7 @@ const PERSISTABLE_SCREENS = new Set([
     'deliveryChallans', 'salesReturns', 'purchaseReturn', 'purchaseOrders', 'automatedPurchaseEntry',
     'manualPurchaseEntry', 'manualSupplierInvoice', 'purchaseHistory', 'inventory', 'physicalInventory',
     'suppliers', 'customers', 'medicineMasterList', 'masterPriceMaintain', 'vendorNomenclature', 'bulkUtility',
-    'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst',
+    'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst', 'eway', 'ewayLoginSetup',
     'businessUsers', 'businessRoles', 'companyConfiguration', 'configuration', 'settings',
     'classification', 'accountReceivable', 'accountPayable'
 ]);
@@ -2016,6 +2018,29 @@ const App: React.FC = () => {
                             setConfigurations(cfg);
                             window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
                         })}
+                    />;
+                case 'eway':
+                    return <EWayBilling
+                        currentUser={currentUser}
+                        transactions={transactions}
+                        purchases={purchases}
+                        salesChallans={salesChallans}
+                        deliveryChallans={deliveryChallans}
+                        customers={customers}
+                        suppliers={suppliers}
+                        ewayBills={ewayBills}
+                        configurations={configurations}
+                        onGenerate={(eway) => storage.saveData('ewaybills', eway, currentUser).then(() => loadData(currentUser!, 'background'))}
+                        addNotification={addNotification}
+                    />;
+                case 'ewayLoginSetup':
+                    return <EWayLoginSetup
+                        configurations={configurations}
+                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => {
+                            setConfigurations(cfg);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        })}
+                        addNotification={addNotification}
                     />;
                 case 'businessUsers':
                     return <BusinessUserAssignment

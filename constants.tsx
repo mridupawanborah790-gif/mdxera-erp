@@ -262,6 +262,7 @@ export const navigation: NavItem[] = [
       { id: 'balanceCarryforward', name: 'Balance Carryforward', href: '#', icon: ReportsIcon, roles: ['owner', 'admin', 'manager'] },
     ],
   },
+  { id: 'eway', name: 'E-Way Billing', href: '#', icon: GstIcon, roles: ['owner', 'admin', 'manager'] },
   { id: 'gst', name: 'GST Center', href: '#', icon: GstIcon, roles: ['owner', 'admin', 'manager'] },
 ];
 
