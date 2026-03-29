@@ -155,6 +155,7 @@ const App: React.FC = () => {
 
     const [activeDashboardMenu, setActiveDashboardMenu] = useState<'left' | 'right'>('right');
     const [mountedPages, setMountedPages] = useState<string[]>(['dashboard']);
+    const [ewayLoginSetupReturnPage, setEwayLoginSetupReturnPage] = useState<string>('dashboard');
     const pageContainerRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const pageScrollPositionsRef = useRef<Record<string, number>>({});
     const previousPageRef = useRef('dashboard');
@@ -595,6 +596,9 @@ const App: React.FC = () => {
         if (isDailyReportLink) {
             setCurrentDailyReportId(pageId.replace('dailyReports:', ''));
         }
+        if (resolvedPageId === 'ewayLoginSetup') {
+            setEwayLoginSetupReturnPage(currentPage || 'dashboard');
+        }
         setCurrentPage(resolvedPageId);
         if (resolvedPageId !== 'manualSupplierInvoice' && resolvedPageId !== 'manualPurchaseEntry' && resolvedPageId !== 'automatedPurchaseEntry') {
             setEditingPurchase(null);
@@ -604,6 +608,25 @@ const App: React.FC = () => {
             setEditingSale(null);
         }
     }, [addNotification, businessRoles, currentPage, currentUser, shouldPromptBeforeLeaving, teamMembers]);
+
+    const closeEwayLoginSetup = useCallback(() => {
+        const targetPage = PERSISTABLE_SCREENS.has(ewayLoginSetupReturnPage) ? ewayLoginSetupReturnPage : 'dashboard';
+        setScreenResetNonce(prev => ({ ...prev, ewayLoginSetup: (prev.ewayLoginSetup ?? 0) + 1 }));
+        setCurrentPage(targetPage);
+        window.requestAnimationFrame(() => {
+            const container = pageContainerRefs.current[targetPage];
+            if (!container) return;
+            const focusable = container.querySelector<HTMLElement>(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            if (focusable) {
+                focusable.focus();
+            } else {
+                container.setAttribute('tabindex', '-1');
+                container.focus();
+            }
+        });
+    }, [ewayLoginSetupReturnPage]);
 
     useEffect(() => {
         setConfigurations(prev => ({
@@ -2021,7 +2044,10 @@ const App: React.FC = () => {
                     />;
                 case 'eway':
                     return <EWayBilling
-                        onOpenLoginSetup={() => setCurrentPage('ewayLoginSetup')}
+                        onOpenLoginSetup={() => {
+                            setEwayLoginSetupReturnPage(pageId);
+                            setCurrentPage('ewayLoginSetup');
+                        }}
                         currentUser={currentUser}
                         transactions={transactions}
                         purchases={purchases}
@@ -2043,6 +2069,8 @@ const App: React.FC = () => {
                             window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
                         })}
                         addNotification={addNotification}
+                        onCancel={closeEwayLoginSetup}
+                        isActive={isActive}
                     />;
                 case 'businessUsers':
                     return <BusinessUserAssignment
