@@ -55,6 +55,8 @@ export const RBAC_MODULES: RbacModuleDefinition[] = [
         name: 'Utilities',
         children: [
             { id: 'reports', name: 'Reports' },
+            { id: 'eway', name: 'E-Way Bill' },
+            { id: 'ewayLoginSetup', name: 'E-Way Setup' },
             { id: 'gst', name: 'GST' },
             { id: 'configuration', name: 'Configuration' },
             { id: 'companyConfiguration', name: 'Company Config' },
