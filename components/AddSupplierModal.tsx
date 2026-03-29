@@ -214,6 +214,20 @@ export const AddSupplierModal: React.FC<{
                     </section>
 
                     <section className="space-y-4">
+                        <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">License Details</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Drug License No.</label>
+                                <input type="text" name="drug_license" value={form.drug_license || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Food License No.</label>
+                                <input type="text" name="food_license" value={form.food_license || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="space-y-4">
                         <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">Address Information</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="md:col-span-2">
@@ -461,6 +475,20 @@ export const EditSupplierModal: React.FC<{
                         <div>
                             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">GSTIN</label>
                             <input type="text" name="gst_number" value={form.gst_number || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                        </div>
+                    </div>
+                </section>
+
+                <section className="space-y-4">
+                    <h4 className="text-[11px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-200 pb-1 mb-4">License Details</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Drug License No.</label>
+                            <input type="text" name="drug_license" value={form.drug_license || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Food License No.</label>
+                            <input type="text" name="food_license" value={form.food_license || ''} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm uppercase focus:bg-yellow-50 outline-none" />
                         </div>
                     </div>
                 </section>
