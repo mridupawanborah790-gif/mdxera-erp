@@ -17,6 +17,7 @@ import {
   Transaction,
   UserRole,
 } from '../types';
+import { getEWayCredentials, verifyPortalCredentials } from '../utils/ewayAuth';
 
 interface EWayBillingProps {
   currentUser: RegisteredPharmacy | null;
@@ -29,6 +30,7 @@ interface EWayBillingProps {
   ewayBills: EWayBill[];
   onGenerate: (ewayBill: EWayBill) => Promise<void>;
   configurations: AppConfigurations;
+  onOpenLoginSetup: () => void;
   addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
 }
 
@@ -126,6 +128,7 @@ const EWayBilling: React.FC<EWayBillingProps> = ({
   ewayBills,
   onGenerate,
   configurations,
+  onOpenLoginSetup,
   addNotification,
 }) => {
   const permissions = currentUser ? ROLE_PERMISSIONS[currentUser.role] : ROLE_PERMISSIONS.viewer;
@@ -354,12 +357,28 @@ const EWayBilling: React.FC<EWayBillingProps> = ({
     }));
   };
 
-  const credentials = (configurations as any)?.ewayLoginSetup || {};
+  const setup = configurations.ewayLoginSetup;
+  const credentials = getEWayCredentials(configurations, currentUser?.organization_id);
+  const credentialStatus = !credentials.ewayLoginId || !credentials.ewayPassword
+    ? 'Missing'
+    : (setup?.credentialStatus || 'Configured');
+  const portalLoginStatus = setup?.portalLoginStatus || 'Not Verified';
+
+  const failureReasonFromMessage = (message: string): string => {
+    const reason = message.toLowerCase();
+    if (reason.includes('missing credentials')) return 'Upload Failed – Credentials Missing';
+    if (reason.includes('invalid login id/password')) return 'Upload Failed – Invalid Password';
+    if (reason.includes('portal unavailable')) return 'Upload Failed – Portal Login Failed';
+    if (reason.includes('vehicle number')) return 'Upload Failed – Vehicle Number Missing';
+    if (reason.includes('duplicate')) return 'Upload Failed – Duplicate E-Way Bill';
+    return `Upload Failed – ${message}`;
+  };
+
   const checkCredentials = (): string[] => {
     const errs: string[] = [];
-    if (!credentials?.ewayLoginId || !credentials?.ewayPassword) errs.push('E-Way credentials are not configured. Open E-Way Login Setup.');
-    if (credentials?.ewayLoginId && String(credentials.ewayLoginId).length < 4) errs.push('E-Way login ID appears invalid.');
-    if (credentials?.ewayPassword && String(credentials.ewayPassword).length < 4) errs.push('E-Way password appears invalid.');
+    if (!credentials.ewayLoginId || !credentials.ewayPassword) errs.push('E-Way credentials are not configured. Please open E-Way Login Setup');
+    if (credentials.ewayLoginId && String(credentials.ewayLoginId).length < 4) errs.push('E-Way login ID appears invalid.');
+    if (credentials.ewayPassword && String(credentials.ewayPassword).length < 4) errs.push('E-Way password appears invalid.');
     return errs;
   };
 
@@ -413,7 +432,7 @@ const EWayBilling: React.FC<EWayBillingProps> = ({
     addNotification('Filters updated.', 'success');
   };
 
-  const handleCheck = () => {
+  const handleCheck = async () => {
     if (!selectedRow) {
       addNotification('Select an invoice before checking.', 'warning');
       return;
@@ -425,10 +444,25 @@ const EWayBilling: React.FC<EWayBillingProps> = ({
     if (errors.length) {
       saveDraftPatch('uploadStatus', 'Failed');
       saveDraftPatch('uploadError', errors.join(' | '));
-      appendHistory(selectedRow.sourceId, 'Validation Failed', errors.join(' | '));
+      appendHistory(selectedRow.sourceId, 'Validation Failed', failureReasonFromMessage(errors[0]));
       addNotification(`Validation failed: ${errors.join(' | ')}`, 'warning');
       return;
     }
+
+    const check = await verifyPortalCredentials(credentials);
+    if (!check.ok) {
+      const reason = check.message === 'Missing credentials'
+        ? 'E-Way credentials are not configured. Please open E-Way Login Setup'
+        : check.message === 'Invalid login ID/password'
+          ? 'Invalid E-Way login credentials'
+          : 'Portal unavailable';
+      saveDraftPatch('uploadStatus', 'Failed');
+      saveDraftPatch('uploadError', reason);
+      appendHistory(selectedRow.sourceId, 'Validation Failed', failureReasonFromMessage(check.message));
+      addNotification(check.message, 'error');
+      return;
+    }
+
     saveDraftPatch('uploadStatus', 'Validated');
     saveDraftPatch('uploadError', '');
     appendHistory(selectedRow.sourceId, 'Validated', 'Ready for upload');
@@ -438,7 +472,8 @@ const EWayBilling: React.FC<EWayBillingProps> = ({
   const simulatePortalUpload = async (draft: EWayDraft) => {
     await new Promise((resolve) => setTimeout(resolve, 400));
     if (draft.transporterGstin && draft.transporterGstin.endsWith('0000')) throw new Error('invalid transporter ID');
-    if (!credentials?.ewayLoginId || !credentials?.ewayPassword) throw new Error('credential invalid');
+    const portalLogin = await verifyPortalCredentials(credentials);
+    if (!portalLogin.ok) throw new Error(portalLogin.message);
     return {
       eWayBillNo: `${Math.floor(100000000000 + Math.random() * 900000000000)}`,
       generatedOn: new Date().toISOString(),
@@ -456,23 +491,10 @@ const EWayBilling: React.FC<EWayBillingProps> = ({
     const errors = runValidation();
     setShowValidationResult(errors);
     if (errors.length) {
-      const firstFailure = errors[0].toLowerCase();
-      const exactReason = firstFailure.includes('gstin')
-        ? 'invalid GSTIN'
-        : firstFailure.includes('transporter')
-          ? 'invalid transporter ID'
-          : firstFailure.includes('vehicle')
-            ? 'vehicle number missing'
-            : firstFailure.includes('distance')
-              ? 'distance missing'
-              : firstFailure.includes('credential')
-                ? 'credential invalid'
-                : firstFailure.includes('duplicate')
-                  ? 'duplicate EWAY already exists'
-                  : 'payload validation failed';
+      const exactReason = errors[0];
       saveDraftPatch('uploadStatus', 'Failed');
       saveDraftPatch('uploadError', exactReason);
-      appendHistory(selectedRow.sourceId, 'Upload Failed', exactReason);
+      appendHistory(selectedRow.sourceId, 'Upload Failed', failureReasonFromMessage(exactReason));
       addNotification(`Cannot generate EWB: ${exactReason}`, 'error');
       return;
     }
@@ -535,11 +557,16 @@ const EWayBilling: React.FC<EWayBillingProps> = ({
       setIsEditing(false);
       addNotification(`E-Way Bill generated successfully. EWB No: ${portalResult.eWayBillNo}`, 'success');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'portal login failed';
+      const message = error instanceof Error ? error.message : 'Portal unavailable';
+      const normalizedMessage = message === 'Missing credentials'
+        ? 'E-Way credentials are not configured. Please open E-Way Login Setup'
+        : message === 'Invalid login ID/password'
+          ? 'Invalid E-Way login credentials'
+          : message;
       saveDraftPatch('uploadStatus', 'Failed');
-      saveDraftPatch('uploadError', message);
-      appendHistory(selectedRow.sourceId, 'Upload Failed', message);
-      addNotification(`Generation failed: ${message}`, 'error');
+      saveDraftPatch('uploadError', normalizedMessage);
+      appendHistory(selectedRow.sourceId, 'Upload Failed', failureReasonFromMessage(message));
+      addNotification(`Generation failed: ${normalizedMessage}`, 'error');
     } finally {
       setInlineLoading(false);
     }
@@ -831,13 +858,31 @@ const EWayBilling: React.FC<EWayBillingProps> = ({
             </section>
 
             <section className="border border-gray-300 p-2 bg-gray-50 text-[10px]">
-              <div>Status: {selectedDraft.uploadStatus || 'Ready'} | Last Checked: {selectedDraft.lastCheckedOn ? toDateOnly(selectedDraft.lastCheckedOn) : '-'}</div>
+              <div>Status: {selectedDraft.uploadStatus || 'Ready'}</div>
+              <div>Credential Status: {credentialStatus === 'Missing' ? 'Missing' : credentialStatus}</div>
+              <div>Portal Login: {portalLoginStatus}</div>
+              <div>Last Checked: {setup?.lastCheckedOn ? new Date(setup.lastCheckedOn).toLocaleString() : (selectedDraft.lastCheckedOn ? new Date(selectedDraft.lastCheckedOn).toLocaleString() : '-')}</div>
+              <div>Login Verified On: {setup?.loginVerifiedOn ? new Date(setup.loginVerifiedOn).toLocaleString() : '-'}</div>
               {selectedDraft.uploadError && <div className="text-red-600">Last Error: {selectedDraft.uploadError}</div>}
+              {!credentials.ewayLoginId || !credentials.ewayPassword ? (
+                <div className="mt-1">
+                  <span className="text-red-700">E-Way credentials are not configured. Please open E-Way Login Setup.</span>{' '}
+                  <button className="underline text-blue-700" onClick={onOpenLoginSetup}>Open E-Way Login Setup</button>
+                </div>
+              ) : null}
               {showValidationResult.length > 0 && (
                 <ul className="list-disc list-inside text-red-700 mt-1">{showValidationResult.map((issue, idx) => <li key={`${issue}-${idx}`}>{issue}</li>)}</ul>
               )}
               {(historyMap[selectedRow.sourceId] || []).length > 0 && (
-                <div className="mt-2">History: {(historyMap[selectedRow.sourceId] || []).map((h, idx) => <span key={`${h.at}-${idx}`} className="mr-2">[{toDateOnly(h.at)} - {h.status}]</span>)}</div>
+                <div className="mt-2">History:
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {(historyMap[selectedRow.sourceId] || []).map((h, idx) => (
+                      <span key={`${h.at}-${idx}`} className="mr-2 border border-gray-300 rounded px-1 py-[1px]">
+                        [{new Date(h.at).toLocaleString()} - {h.message}]
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
             </section>
 
