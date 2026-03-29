@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppConfigurations, RegisteredPharmacy } from '../types';
 import { buildSecuredEWaySetup, getEWayCredentials, verifyPortalCredentials } from '../utils/ewayAuth';
 
@@ -7,22 +7,26 @@ interface EWayLoginSetupProps {
   currentUser: RegisteredPharmacy | null;
   onUpdateConfigurations: (cfg: AppConfigurations) => Promise<void>;
   addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
+  onCancel: () => void;
+  isActive: boolean;
 }
 
-const EWayLoginSetup: React.FC<EWayLoginSetupProps> = ({ configurations, currentUser, onUpdateConfigurations, addNotification }) => {
+const EWayLoginSetup: React.FC<EWayLoginSetupProps> = ({ configurations, currentUser, onUpdateConfigurations, addNotification, onCancel, isActive }) => {
   const stored = configurations.ewayLoginSetup || {};
   const resolvedCredentials = useMemo(() => getEWayCredentials(configurations, currentUser?.organization_id), [configurations, currentUser?.organization_id]);
 
-  const [form, setForm] = useState({
+  const initialForm = useMemo(() => ({
     gstnUsername: stored.gstnUsername || '',
-    gstnPassword: stored.gstnPassword || '',
+    gstnPassword: '',
     einvoiceUsername: stored.einvoiceUsername || '',
-    einvoicePassword: stored.einvoicePassword || '',
+    einvoicePassword: '',
     ewayLoginId: resolvedCredentials.ewayLoginId,
     ewayPassword: resolvedCredentials.ewayPassword,
     showCredentials: Boolean(stored.showCredentials),
     uploadDirectlyToPortal: Boolean(stored.uploadDirectlyToPortal),
-  });
+  }), [resolvedCredentials.ewayLoginId, resolvedCredentials.ewayPassword, stored.einvoiceUsername, stored.gstnUsername, stored.showCredentials, stored.uploadDirectlyToPortal]);
+
+  const [form, setForm] = useState(initialForm);
 
   const [showPwd, setShowPwd] = useState({ gstn: false, einvoice: false, eway: false });
   const [saving, setSaving] = useState(false);
@@ -66,18 +70,49 @@ const EWayLoginSetup: React.FC<EWayLoginSetupProps> = ({ configurations, current
     }
   };
 
-  const reset = () => {
-    setForm({
-      gstnUsername: stored.gstnUsername || '',
-      gstnPassword: '',
-      einvoiceUsername: stored.einvoiceUsername || '',
-      einvoicePassword: '',
-      ewayLoginId: resolvedCredentials.ewayLoginId,
-      ewayPassword: resolvedCredentials.ewayPassword,
-      showCredentials: Boolean(stored.showCredentials),
-      uploadDirectlyToPortal: Boolean(stored.uploadDirectlyToPortal),
-    });
-  };
+  const clearTemporaryState = useCallback(() => {
+    setForm(initialForm);
+    setShowPwd({ gstn: false, einvoice: false, eway: false });
+  }, [initialForm]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    clearTemporaryState();
+  }, [clearTemporaryState, isActive]);
+
+  const hasUnsavedChanges = useMemo(() => (
+    form.gstnUsername !== initialForm.gstnUsername
+    || form.gstnPassword !== initialForm.gstnPassword
+    || form.einvoiceUsername !== initialForm.einvoiceUsername
+    || form.einvoicePassword !== initialForm.einvoicePassword
+    || form.ewayLoginId !== initialForm.ewayLoginId
+    || form.ewayPassword !== initialForm.ewayPassword
+    || form.showCredentials !== initialForm.showCredentials
+    || form.uploadDirectlyToPortal !== initialForm.uploadDirectlyToPortal
+  ), [form, initialForm]);
+
+  const handleCancel = useCallback(() => {
+    if (hasUnsavedChanges) {
+      const shouldDiscard = window.confirm('Discard changes and close?');
+      if (!shouldDiscard) return;
+    }
+
+    clearTemporaryState();
+    onCancel();
+  }, [clearTemporaryState, hasUnsavedChanges, onCancel]);
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      handleCancel();
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [handleCancel, isActive]);
 
   const handleVerify = async () => {
     setVerifying(true);
@@ -153,7 +188,7 @@ const EWayLoginSetup: React.FC<EWayLoginSetupProps> = ({ configurations, current
         <div className="px-3 pb-3 flex justify-end gap-2">
           <button className="border border-emerald-700 bg-emerald-700 text-white px-3 py-1 disabled:opacity-50" disabled={verifying} onClick={handleVerify}>{verifying ? 'Verifying...' : 'Test Login / Verify Credentials'}</button>
           <button className="border border-blue-700 bg-blue-700 text-white px-3 py-1 disabled:opacity-50" disabled={saving} onClick={save}>{saving ? 'Saving...' : 'Save'}</button>
-          <button className="border border-gray-600 bg-gray-100 px-3 py-1" onClick={reset}>Cancel</button>
+          <button className="border border-gray-600 bg-gray-100 px-3 py-1" onClick={handleCancel}>Cancel</button>
         </div>
       </div>
     </div>
