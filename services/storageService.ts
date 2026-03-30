@@ -42,17 +42,37 @@
         return `${templateId.slice(0, templateNumberPart.startIndex)}${paddedNext}${templateId.slice(templateNumberPart.endIndex)}`;
     };
 
-    const MATERIAL_CODE_START = 10000000;
-    const MATERIAL_CODE_LENGTH = 8;
+const MATERIAL_CODE_START = 10000000;
+const MATERIAL_CODE_LENGTH = 8;
+const MATERIAL_TYPE_LABEL_TO_DB: Record<string, string> = {
+    'Trading Goods': 'trading_goods',
+    'Finished Goods': 'finished_goods',
+    'Consumables': 'consumables',
+    'Service Material': 'service_material',
+    'Packaging': 'packaging'
+};
 
-    const parseMaterialCodeNumber = (value: unknown): number | null => {
+const parseMaterialCodeNumber = (value: unknown): number | null => {
         if (typeof value !== 'string') return null;
         const trimmed = value.trim();
         if (!/^\d{8}$/.test(trimmed)) return null;
         const parsed = Number(trimmed);
         if (!Number.isInteger(parsed) || parsed < MATERIAL_CODE_START) return null;
         return parsed;
-    };
+};
+
+const getIncrementedMaterialCode = (currentCode: unknown): string | null => {
+    const parsed = parseMaterialCodeNumber(currentCode);
+    if (parsed === null) return null;
+    return String(parsed + 1).padStart(MATERIAL_CODE_LENGTH, '0');
+};
+
+const normalizeMaterialMasterType = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return MATERIAL_TYPE_LABEL_TO_DB[trimmed] || trimmed;
+};
 
     const getHighestLocalMaterialCode = async (organizationId: string): Promise<number> => {
         const localRows = await idb.getAll(STORES.MATERIAL_MASTER);
@@ -324,7 +344,7 @@
         );
     };
 
-    export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null, isUpdate: boolean = false): Promise<any> => {
+export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null, isUpdate: boolean = false): Promise<any> => {
         if (!user?.organization_id) throw new Error("Organizational identity not verified.");
         const dbPayload: any = { ...data, organization_id: user.organization_id };
         const currentUserId = user?.user_id || user?.id;
@@ -335,6 +355,13 @@
 
         if (tableName === 'material_master' && !isUpdate) {
             dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+        }
+
+        if (tableName === 'material_master') {
+            const normalizedMaterialType = normalizeMaterialMasterType(dbPayload.materialMasterType);
+            if (normalizedMaterialType) {
+                dbPayload.materialMasterType = normalizedMaterialType;
+            }
         }
         
         // If it's not an update and has no ID, generate one. 
@@ -394,10 +421,31 @@
                 if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders', 'material_master'].includes(tableName)) {
                     const maxAttempts = tableName === 'material_master' ? 5 : 1;
                     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                        if (tableName === 'material_master') {
+                            console.info('[material_master:create] insert payload', {
+                                attempt,
+                                mode: 'insert',
+                                id: snakeData.id,
+                                organization_id: snakeData.organization_id,
+                                name: snakeData.name,
+                                material_code: snakeData.material_code,
+                                material_master_type: snakeData.material_master_type
+                            });
+                        }
                         const { data: saved, error } = await supabase.from(tableName).insert(snakeData).select().single();
                         if (!error) {
                             result = saved;
                             break;
+                        }
+
+                        if (tableName === 'material_master') {
+                            console.error('[material_master:create] insert failed', {
+                                attempt,
+                                mode: 'insert',
+                                organization_id: snakeData.organization_id,
+                                material_code: snakeData.material_code,
+                                error
+                            });
                         }
 
                         if (error.code !== '23505') throw error;
@@ -406,7 +454,8 @@
                             throw new Error(`Voucher number ${dbPayload.id} already exists in database. Please refresh and try again.`);
                         }
 
-                        dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+                        const incremented = getIncrementedMaterialCode(dbPayload.materialCode);
+                        dbPayload.materialCode = incremented || await getNextMaterialCode(user.organization_id);
                         await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
                         snakeData.material_code = dbPayload.materialCode;
 
@@ -430,6 +479,25 @@
                     dbPayload.sync_status = 'pending';
                     await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
                     return dbPayload; // DO NOT throw for network errors, let UI continue
+                }
+
+                if (tableName === 'material_master') {
+                    console.error('[material_master:create] hard failure', {
+                        mode: isUpdate ? 'update' : 'insert',
+                        payload: {
+                            id: dbPayload.id,
+                            organization_id: dbPayload.organization_id,
+                            name: dbPayload.name,
+                            materialCode: dbPayload.materialCode,
+                            materialMasterType: dbPayload.materialMasterType
+                        },
+                        error: e
+                    });
+                    if (!isUpdate) {
+                        await idb.delete(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload.id);
+                        const message = e?.message || 'Unknown database error';
+                        throw new Error(`Material Master save failed: ${message}`);
+                    }
                 }
 
                 // ENHANCED ERROR LOGGING:
