@@ -16,6 +16,9 @@ import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHand
 
     export const generateUUID = () => crypto.randomUUID();
 
+    // Memory cache to fallback when IndexedDB is disabled
+    const memoryCache: Record<string, any[]> = {};
+
     const extractTrailingNumber = (value: string): { digits: string; startIndex: number; endIndex: number } | null => {
         const match = value.match(/(\d+)(?!.*\d)/);
         if (!match || match.index === undefined) return null;
@@ -151,53 +154,53 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         // 1. Start with a copy of the payload
         let sanitized: Record<string, any> = { ...payload };
 
-        // 2. Define tables that use a non-UUID human ID as the primary key in the app
-        // 2. Define tables that use a non-UUID human ID as the primary key in the app
-        // These used to need special mapping, but most have been modernized to use 'id' directly.
-        const humanIdTables: string[] = [];
+        // 2. Define tables that use 'user_id' as the UUID Primary Key in the database
+        // This follows the schema.sql refactor where 'id' columns were renamed to 'user_id'.
+        const uuidPkTables = [
+            'configurations', 'sales_challans', 'delivery_challans', 
+            'categories', 'sub_categories', 'promotions'
+        ];
         
-        // 3. Define tables that use 'created_by_id' for ownership tracking in the database
-        // Most tables now have both or are being migrated to created_by_id for audit.
-        const ownerTrackingTables = ['purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 'sales_returns', 'purchase_returns', 'material_master', 'purchase_orders', 'sales_challans', 'delivery_challans', 'physical_inventory'];
+        // 3. Define tables that use 'created_by_id' for ownership tracking (Auth UUID)
+        const ownerTrackingTables = [
+            'purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 
+            'sales_returns', 'purchase_returns', 'material_master', 'purchase_orders', 
+            'sales_challans', 'delivery_challans', 'physical_inventory'
+        ];
 
         // 4. Apply Primary Key Mappings
-        if (humanIdTables.includes(tableName)) {
-            // Map the human ID (e.g. INV-001) to the voucher field
-            sanitized.voucher_no = payload.id;
-            
-            // For these tables, 'user_id' in the database is the actual UUID Primary Key
-            if (payload.record_uuid && isValidUuid(payload.record_uuid)) {
-                sanitized.user_id = payload.record_uuid;
-            } else if (isValidUuid(payload.user_id)) {
-                // If user_id already contains a UUID (and isn't the owner ID), use it
-                sanitized.user_id = payload.user_id;
-            } else {
-                // Let the database generate the UUID PK or matching logic handle it
-                delete sanitized.user_id; 
+        if (uuidPkTables.includes(tableName)) {
+            // Modern schema uses 'user_id' as UUID PK for these tables
+            if (payload.id && isValidUuid(payload.id)) {
+                sanitized.user_id = payload.id;
             }
             delete sanitized.id;
+        } else if (tableName === 'sales_bill' || tableName === 'physical_inventory') {
+            // These tables use 'id' (text) as PK, but we might have a UUID in 'user_id' (legacy)
+            // or we might need to preserve 'id' as the human-readable voucher number.
+            if (!payload.id) {
+                 sanitized.id = payload.invoiceNumber || generateUUID();
+            }
+            // Ensure we don't send 'user_id' as a PK here if it's the owner's ID
         } else {
-            // Standard tables (purchases, suppliers, etc.): 'id' is the UUID PK.
-            // Ensure 'id' is a valid UUID, otherwise delete it so DB can generate one.
-            if (payload.id && !isValidUuid(payload.id) && !['sales_returns', 'purchase_returns', 'sales_bill', 'physical_inventory'].includes(tableName)) {
+            // Standard fallback: Ensure 'id' is a valid UUID if present for other tables
+            if (payload.id && !isValidUuid(payload.id)) {
                 delete sanitized.id; 
             }
         }
 
-
-
         // 5. Apply Ownership Tracking Mappings
         if (ownerTrackingTables.includes(tableName)) {
-            // Map app's 'user_id' (the logged-in user's Auth UUID) to db's 'created_by_id'
-            // EXCEPT for tables where 'user_id' is already the PK (the humanIdTables)
-            if (!humanIdTables.includes(tableName)) {
-                if (payload.user_id && isValidUuid(payload.user_id)) {
-                    sanitized.created_by_id = payload.user_id;
-                }
-                // CRITICAL: Always delete sanitized.user_id here. 
-                // In the DB, the column is either a PK (handled above in humanIdTables)
-                // or we want to use created_by_id for audit. Keeping a string/name 
-                // in user_id causes "uuid = text" errors.
+            // The app's 'user_id' state property contains the Auth User UUID.
+            // Map it to 'created_by_id' in the database for ownership/audit.
+            if (payload.user_id && isValidUuid(payload.user_id)) {
+                sanitized.created_by_id = payload.user_id;
+            }
+            
+            // If the table is NOT using 'user_id' as its primary key, we should remove it
+            // to prevent "uuid = text" or other schema mismatch errors.
+            // If it IS a PK table, sanitized.user_id was already set above to the record's UUID.
+            if (!uuidPkTables.includes(tableName)) {
                 delete sanitized.user_id;
             }
         }
@@ -373,6 +376,13 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         if (!navigator.onLine) {
             dbPayload.sync_status = 'pending';
         }
+
+        // Update memory cache
+        const storeKey = tableName.toUpperCase();
+        if (!memoryCache[storeKey]) memoryCache[storeKey] = [];
+        const index = memoryCache[storeKey].findIndex(item => item.id === dbPayload.id);
+        if (index >= 0) memoryCache[storeKey][index] = dbPayload;
+        else memoryCache[storeKey].push(dbPayload);
 
         await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
         
@@ -690,7 +700,13 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     export const getData = async (tableName: string, defaultValue: any[] = [], user: RegisteredPharmacy | null): Promise<any[]> => {
         if (!user) return defaultValue;
         const storeKey = tableName.toUpperCase() as keyof typeof STORES;
-        // Priority 1: Local IndexedDB for instant UI
+        
+        // Priority 1: Check Memory Cache (for when IDB is disabled or during same session)
+        if (memoryCache[storeKey] && memoryCache[storeKey].length > 0) {
+            return memoryCache[storeKey];
+        }
+
+        // Priority 2: Local IndexedDB for instant UI
         const cached = await idb.getAll(STORES[storeKey]);
 
         // Priority 2: Fetch updates in background if online
@@ -891,7 +907,10 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         if (unitsToDeductByInventoryId.size > 0) {
             const inventoryIds = Array.from(unitsToDeductByInventoryId.keys());
             const inventoryRecords = await Promise.all(
-                inventoryIds.map(id => idb.get(STORES.INVENTORY, id) as Promise<InventoryItem | null>)
+                inventoryIds.map(async id => {
+                    const cached = await idb.get(STORES.INVENTORY, id) as InventoryItem | null;
+                    return cached || inventoryById.get(id) || null;
+                })
             );
 
             const updatedInventory: InventoryItem[] = inventoryRecords
