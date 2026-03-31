@@ -10,7 +10,7 @@ import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY } from '../utils/helpers';
 import { configurableModules } from '../constants';
 import { getInventoryPolicy } from '../utils/materialType';
-import { resolveUnitsPerStrip } from '../utils/pack';
+import { extractPackMultiplier, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 // Standardized typography matching POS screen "Product Selection Matrix"
@@ -71,6 +71,27 @@ const Inventory: React.FC<InventoryProps> = ({
     const inventoryModuleFields = useMemo(() => 
         configurableModules.find(m => m.id === 'inventory')?.fields || [], 
     []);
+
+    const medicineByCode = useMemo(() => {
+        const toKey = (value?: string | null) => (value || '').trim().toLowerCase();
+        const map = new Map<string, Medicine>();
+        medicines.forEach(med => {
+            const key = toKey(med.materialCode);
+            if (key) map.set(key, med);
+        });
+        return map;
+    }, [medicines]);
+
+    const getEffectivePack = useCallback((item: InventoryItem) => {
+        const itemCode = (item.code || '').trim().toLowerCase();
+        const masterPack = (itemCode ? medicineByCode.get(itemCode)?.pack : undefined) || '';
+        const effectivePackType = masterPack.trim() || (item.packType || '').trim();
+        const effectiveUnitsPerPack = resolveUnitsPerStrip(
+            extractPackMultiplier(effectivePackType) ?? item.unitsPerPack,
+            effectivePackType,
+        );
+        return { effectivePackType, effectiveUnitsPerPack, isManagedByMaster: Boolean(masterPack.trim()) };
+    }, [medicineByCode]);
 
     const filteredItems = useMemo(() => {
         let items = Array.isArray(inventory) ? [...inventory] : [];
@@ -371,7 +392,8 @@ const Inventory: React.FC<InventoryProps> = ({
                             </thead>
                             <tbody className="divide-y divide-gray-200" ref={tableBodyRef}>
                                 {paginatedItems.map((item, idx) => {
-                                    const uPP = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
+                                    const { effectivePackType, effectiveUnitsPerPack } = getEffectivePack(item);
+                                    const uPP = effectiveUnitsPerPack;
                                     const strips = Math.floor(item.stock / uPP);
                                     const loose = item.stock % uPP;
                                     const isLow = item.stock <= item.minStockLimit;
@@ -425,7 +447,11 @@ const Inventory: React.FC<InventoryProps> = ({
                                                 <button 
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setItemToEdit(item);
+                                                        setItemToEdit({
+                                                            ...item,
+                                                            packType: effectivePackType,
+                                                            unitsPerPack: effectiveUnitsPerPack,
+                                                        });
                                                     }}
                                                     className={`font-black uppercase text-[10px] px-2 py-0.5 border transition-all ${isSelected ? 'bg-white text-primary border-white' : 'bg-primary/5 text-primary border-primary/20 group-hover:bg-white group-hover:text-primary group-hover:border-white'}`}
                                                 >
@@ -504,6 +530,7 @@ const Inventory: React.FC<InventoryProps> = ({
                     onPrevious={handlePreviousProduct}
                     hasNext={selectedIndex < paginatedItems.length - 1 || currentPage < totalPages}
                     hasPrevious={selectedIndex > 0 || currentPage > 1}
+                    isPackManagedByMaster={Boolean(itemToEdit?.code && medicineByCode.has(itemToEdit.code.trim().toLowerCase()))}
                 />
             )}
             {isExportModalOpen && (

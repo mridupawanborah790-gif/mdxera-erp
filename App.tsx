@@ -57,7 +57,7 @@ import {
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
-import { resolveUnitsPerStrip } from './utils/pack';
+import { extractPackMultiplier, resolveUnitsPerStrip } from './utils/pack';
 import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screenShortcuts';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
 import { canAccessScreen, filterNavigationByPermissions } from './utils/rbac';
@@ -996,11 +996,21 @@ const App: React.FC = () => {
         const oldMrp = parseMrpNumber(existingItem?.mrp);
         const newMrp = parseMrpNumber(updatedItem.mrp);
         const normalizedCode = normalizeCode(updatedItem.code);
+        const linkedMedicine = normalizedCode
+            ? medicines.find(m => normalizeCode(m.materialCode) === normalizedCode)
+            : undefined;
+        const materialMasterPack = (linkedMedicine?.pack || '').trim();
+        const syncedInventoryItem: InventoryItem = linkedMedicine
+            ? {
+                ...updatedItem,
+                packType: materialMasterPack,
+                unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(materialMasterPack) ?? 1, materialMasterPack),
+            }
+            : updatedItem;
 
-        await storage.saveData('inventory', updatedItem, currentUser, true);
+        await storage.saveData('inventory', syncedInventoryItem, currentUser, true);
 
         if (normalizedCode) {
-            const linkedMedicine = medicines.find(m => normalizeCode(m.materialCode) === normalizedCode);
             if (linkedMedicine) {
                 const today = new Date().toISOString().slice(0, 10);
                 const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
@@ -1008,9 +1018,9 @@ const App: React.FC = () => {
                     return {
                         ...record,
                         mrp: newMrp,
-                        rateA: Number(updatedItem.rateA || 0),
-                        rateB: Number(updatedItem.rateB || 0),
-                        rateC: Number(updatedItem.rateC || 0),
+                        rateA: Number(syncedInventoryItem.rateA || 0),
+                        rateB: Number(syncedInventoryItem.rateB || 0),
+                        rateC: Number(syncedInventoryItem.rateC || 0),
                         lastUpdatedBy: currentUser.full_name || currentUser.email,
                         lastUpdatedOn: new Date().toISOString(),
                         auditTrail: [
@@ -1021,7 +1031,7 @@ const App: React.FC = () => {
                                 sourceModule: 'Inventory',
                                 field: 'mrp_rate_sync',
                                 oldValue: `MRP:${record.mrp} RateA:${record.rateA} RateB:${record.rateB} RateC:${record.rateC}`,
-                                newValue: `MRP:${newMrp} RateA:${Number(updatedItem.rateA || 0)} RateB:${Number(updatedItem.rateB || 0)} RateC:${Number(updatedItem.rateC || 0)}`
+                                newValue: `MRP:${newMrp} RateA:${Number(syncedInventoryItem.rateA || 0)} RateB:${Number(syncedInventoryItem.rateB || 0)} RateC:${Number(syncedInventoryItem.rateC || 0)}`
                             }
                         ]
                     };
@@ -1030,17 +1040,17 @@ const App: React.FC = () => {
                 await storage.saveData('material_master', {
                     ...linkedMedicine,
                     mrp: newMrp.toFixed(2),
-                    rateA: Number(updatedItem.rateA || 0),
-                    rateB: Number(updatedItem.rateB || 0),
-                    rateC: Number(updatedItem.rateC || 0),
+                    rateA: Number(syncedInventoryItem.rateA || 0),
+                    rateB: Number(syncedInventoryItem.rateB || 0),
+                    rateC: Number(syncedInventoryItem.rateC || 0),
                     masterPriceMaintains: nextPriceRecords
                 }, currentUser, true);
 
                 if (Math.abs(oldMrp - newMrp) >= 0.0001) {
                 await createMrpChangeLog(
                     'Inventory',
-                    updatedItem.code || linkedMedicine.materialCode,
-                    updatedItem.name || linkedMedicine.name,
+                    syncedInventoryItem.code || linkedMedicine.materialCode,
+                    syncedInventoryItem.name || linkedMedicine.name,
                     oldMrp,
                     newMrp
                 );
@@ -1061,7 +1071,7 @@ const App: React.FC = () => {
     const handleUpdateMedicineMaster = useCallback(async (updatedMedicine: Medicine) => {
         if (!currentUser) throw new Error("Unauthorized");
         const updatedPack = (updatedMedicine.pack || '').trim();
-        const inferredUnitsPerPack = resolveUnitsPerStrip(parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10), updatedPack);
+        const inferredUnitsPerPack = resolveUnitsPerStrip(extractPackMultiplier(updatedPack) ?? 1, updatedPack);
         const normalizedMaterialCode = normalizeCode(updatedMedicine.materialCode);
 
         const isLinkedInventoryItem = (item: InventoryItem) => {
