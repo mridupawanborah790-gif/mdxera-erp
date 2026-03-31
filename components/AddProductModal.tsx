@@ -5,6 +5,7 @@ import { renderBarcode, generateRandomBarcode } from '../utils/barcode';
 import { handleEnterToNextField } from '../utils/navigation';
 import { normalizeImportDate, formatExpiryToMMYY } from '../utils/helpers';
 import { fuzzyMatch } from '../utils/search';
+import { extractPackMultiplier, resolveUnitsPerStrip } from '../utils/pack';
 
 interface AddProductModalProps {
     isOpen: boolean;
@@ -111,8 +112,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
     }, [stockPacks, stockLoose, stockFree, product.unitsPerPack, product.purchasePrice, isOpen]);
 
     const handleSelectMaster = (med: Medicine) => {
-        const packMatch = med.pack?.match(/\d+/);
-        const units = packMatch ? parseInt(packMatch[0], 10) : 10;
+        const units = resolveUnitsPerStrip(extractPackMultiplier(med.pack) ?? 1, med.pack);
 
         setProduct(prev => ({
             ...prev,
