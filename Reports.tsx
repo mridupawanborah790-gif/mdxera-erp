@@ -26,7 +26,12 @@ const Reports: React.FC<ReportsProps> = ({
     const reportModuleConfig = useMemo(() => configurableModules.find(m => m.id === 'reports'), []);
     const availableReports = useMemo(() => {
         if (!reportModuleConfig || !reportModuleConfig.fields) return [];
-        return reportModuleConfig.fields.filter(field => config?.fields?.[field.id] !== false);
+        const hiddenMisReports = new Set(['report', 'balanceCarryforward']);
+
+        return reportModuleConfig.fields.filter(field => {
+            if (hiddenMisReports.has(field.id)) return false;
+            return config?.fields?.[field.id] !== false;
+        });
     }, [reportModuleConfig, config]);
 
     const generateReportData = (reportId: string) => {
