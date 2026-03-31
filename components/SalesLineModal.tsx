@@ -56,7 +56,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
     const batchListRef = useRef<HTMLDivElement>(null);
     const activeBatchRef = useRef<HTMLButtonElement>(null);
 
-    const strictStock = configurations?.displayOptions?.strictStock ?? false;
+    const strictStock = configurations?.displayOptions?.strictStock ?? true;
     const enableNegativeStock = configurations?.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
     const globalDefaultRateTier = configurations?.displayOptions?.defaultRateTier || 'mrp';
@@ -182,7 +182,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
 
 
         if (shouldPreventNegativeStock && (currentAvailableStock <= 0 || lineTotals.units > currentAvailableStock)) {
-            alert(`Insufficient stock for ${activeBatch.name}. Available: ${currentAvailableStock}`);
+            alert('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.');
             return;
         }
 
