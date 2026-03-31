@@ -11,6 +11,7 @@
     import { parseNetworkAndApiError } from '../utils/error';
     import { normalizeImportDate } from '../utils/helpers';
     import { deductStockLooseFirst, normalizeUnitsPerPack } from '../utils/stock';
+import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHandling';
     import { DEFAULT_CONFIG_MISSING_MESSAGE, loadDefaultPostingContext } from './companyDefaultsService';
 
     export const generateUUID = () => crypto.randomUUID();
@@ -860,10 +861,8 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         }
 
         const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
-        const displayOptions = cfgRows?.[0]?.displayOptions || {};
-        const strictStock = displayOptions.strictStock ?? true;
-        const enableNegativeStock = displayOptions.enableNegativeStock ?? false;
-        const allowNegativeStock = enableNegativeStock && !strictStock;
+        const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
+        const allowNegativeStock = stockHandling.allowNegativeStock;
 
         const res = await saveData('sales_bill', tx, user, isUpdate);
 
@@ -888,9 +887,12 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 .filter((inv): inv is InventoryItem => Boolean(inv))
                 .map(inv => {
                     const unitsToDeduct = unitsToDeductByInventoryId.get(inv.id) || 0;
+                    const stockBefore = Number(inv.stock || 0);
+                    const stockAfter = deductStockLooseFirst(stockBefore, unitsToDeduct, inv.unitsPerPack, inv.packType, allowNegativeStock);
+                    logStockMovement({ transactionType: 'sales-outward', item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, stockBefore, stockAfter, validationResult: 'allowed', mode: stockHandling.mode });
                     return {
                         ...inv,
-                        stock: deductStockLooseFirst(Number(inv.stock || 0), unitsToDeduct, inv.unitsPerPack, inv.packType, allowNegativeStock),
+                        stock: stockAfter,
                     };
                 });
 
@@ -2558,6 +2560,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     };
 
     export const addSalesReturn = async (sr: SalesReturn, user: RegisteredPharmacy) => {
+        const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
+        const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
         const res = await saveData('sales_returns', sr, user);
         
         // Update stock: Sales Return means items are coming BACK to inventory
@@ -2568,7 +2572,10 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 const upp = normalizeUnitsPerPack(inv.unitsPerPack, inv.packType);
                 // Sales returnQuantity in UI is currently in PACKS (original bill quantity units)
                 const unitsToAdd = (Number(item.returnQuantity || 0) * upp);
-                await saveData('inventory', { ...inv, stock: Number(inv.stock || 0) + unitsToAdd }, user, true);
+                const stockBefore = Number(inv.stock || 0);
+                const stockAfter = stockBefore + unitsToAdd;
+                logStockMovement({ transactionType: 'sales-return-inward', item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToAdd, stockBefore, stockAfter, validationResult: 'allowed', mode: stockHandling.mode });
+                await saveData('inventory', { ...inv, stock: stockAfter }, user, true);
             }
         }
 
@@ -2577,6 +2584,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     };
 
     export const addPurchaseReturn = async (pr: PurchaseReturn, user: RegisteredPharmacy) => {
+        const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
+        const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
         const res = await saveData('purchase_returns', pr, user);
 
         // Update stock: Purchase Return means items are going OUT of inventory
@@ -2586,7 +2595,16 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             if (inv) {
                 // Purchase returnQuantity in UI is already in TOTAL UNITS (calculated in buildPurchaseReturnItems)
                 const unitsToDeduct = Number(item.returnQuantity || 0);
-                await saveData('inventory', { ...inv, stock: Math.max(0, Number(inv.stock || 0) - unitsToDeduct) }, user, true);
+                const stockBefore = Number(inv.stock || 0);
+
+                if (stockHandling.mode === 'strict' && stockBefore < unitsToDeduct) {
+                    logStockMovement({ transactionType: 'purchase-return-outward-validation', item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, stockBefore, stockAfter: stockBefore, validationResult: 'blocked', mode: stockHandling.mode });
+                    throw new Error('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
+                }
+
+                const stockAfter = stockBefore - unitsToDeduct;
+                logStockMovement({ transactionType: 'purchase-return-outward', item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, stockBefore, stockAfter, validationResult: 'allowed', mode: stockHandling.mode });
+                await saveData('inventory', { ...inv, stock: stockAfter }, user, true);
             }
         }
 

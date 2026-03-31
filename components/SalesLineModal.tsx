@@ -182,7 +182,7 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
 
 
         if (shouldPreventNegativeStock && (currentAvailableStock <= 0 || lineTotals.units > currentAvailableStock)) {
-            alert('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.');
+            alert('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
             return;
         }
 
