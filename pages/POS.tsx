@@ -245,7 +245,7 @@ const POS = forwardRef<any, POSProps>(({
     const isNonGst = billMode === 'EST';
     const canOpenJournalEntry = Boolean(transactionToEdit?.id);
     const isPostedVoucher = (transactionToEdit?.status || '') === 'completed';
-    const strictStock = configurations.displayOptions?.strictStock ?? false;
+    const strictStock = configurations.displayOptions?.strictStock ?? true;
     const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
     const inventoryWithPolicy = useMemo(() => inventory.map(item => ({ item, policy: getInventoryPolicy(item, medicines) })), [inventory, medicines]);

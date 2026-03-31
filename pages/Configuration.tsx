@@ -18,6 +18,7 @@ import MasterDataMigrationWizard from '../components/MasterDataMigrationWizard';
 import { fuzzyMatch } from '../utils/search';
 import { getFinancialYearLabel } from '../utils/invoice';
 import { supabase } from '../services/supabaseClient';
+import { normalizeStockHandlingConfig } from '../utils/stockHandling';
 
 type DemoBusinessType = 'RETAIL' | 'DISTRIBUTOR';
 type DuplicateHandlingMode = 'SKIP' | 'UPDATE';
@@ -106,21 +107,6 @@ const getVoucherSchemeDefaults = (): InvoiceNumberConfig => ({
     activeMode: 'external'
 });
 
-const normalizeStockHandlingConfig = (config: AppConfigurations): AppConfigurations => {
-    const displayOptions = { ...(config.displayOptions || {}) };
-    const strictStock = displayOptions.strictStock ?? true;
-    const enableNegativeStock = displayOptions.enableNegativeStock ?? false;
-
-    if (strictStock && enableNegativeStock) {
-        displayOptions.strictStock = true;
-        displayOptions.enableNegativeStock = false;
-    } else {
-        displayOptions.strictStock = strictStock;
-        displayOptions.enableNegativeStock = enableNegativeStock;
-    }
-
-    return { ...config, displayOptions };
-};
 
 const buildNumberPreview = (cfg: Partial<InvoiceNumberConfig>, number: number) => {
     const prefix = cfg.prefix || '';
@@ -469,12 +455,12 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                 const isStrictStock = field === 'strictStock';
                 const isEnableNegativeStock = field === 'enableNegativeStock';
 
-                if (isStrictStock && value) {
-                    updatedSectionData.enableNegativeStock = false;
+                if (isStrictStock) {
+                    updatedSectionData.enableNegativeStock = !value;
                 }
 
-                if (isEnableNegativeStock && value) {
-                    updatedSectionData.strictStock = false;
+                if (isEnableNegativeStock) {
+                    updatedSectionData.strictStock = !value;
                 }
             }
             

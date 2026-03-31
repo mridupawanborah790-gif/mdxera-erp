@@ -18,6 +18,7 @@ import Modal from './components/Modal';
 import { fuzzyMatch } from './utils/search';
 import { deleteData } from './services/storageService';
 import { supabase } from './services/supabaseClient';
+import { normalizeStockHandlingConfig } from './utils/stockHandling';
 
 const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: boolean) => void; description?: string }> = ({ label, enabled, setEnabled, description }) => (
     <div className="py-3 border-b border-gray-100 last:border-0 flex items-center justify-between group">
@@ -231,7 +232,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         setDemoTargetOrg(currentUser?.organization_id || 'MDXERA');
     }, [currentUser?.organization_id]);
 
-    useEffect(() => { if (configurations) setLocalConfigs(configurations); }, [configurations]);
+    useEffect(() => { if (configurations) setLocalConfigs(normalizeStockHandlingConfig(configurations)); }, [configurations]);
 
     const handleConfigChange = (section: keyof AppConfigurations, field: string, value: any) => {
         setLocalConfigs(prev => {
@@ -243,6 +244,13 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                 updatedSectionData[parent] = { ...(updatedSectionData[parent] || {}), [child]: value };
             } else {
                 updatedSectionData[field] = value;
+            }
+
+            if (section === 'displayOptions') {
+                const isStrictStock = field === 'strictStock';
+                const isEnableNegativeStock = field === 'enableNegativeStock';
+                if (isStrictStock) updatedSectionData.enableNegativeStock = !value;
+                if (isEnableNegativeStock) updatedSectionData.strictStock = !value;
             }
             
             return { ...prev, [section]: updatedSectionData, _isDirty: true };
@@ -482,7 +490,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                         </div>
                                         <Toggle 
                                             label="Strict Stock Enforcement" 
-                                            enabled={localConfigs.displayOptions?.strictStock ?? false}
+                                            enabled={localConfigs.displayOptions?.strictStock ?? true}
                                             setEnabled={(v) => handleConfigChange('displayOptions', 'strictStock', v)}
                                             description="Prevent billing of items with zero/negative stock."
                                         />

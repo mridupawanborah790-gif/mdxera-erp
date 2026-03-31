@@ -682,7 +682,7 @@ const POS = forwardRef<any, POSProps>(({
                     const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
                     const requiredUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
                     if (invItem.stock <= 0 || invItem.stock < requiredUnits) {
-                        addNotification('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.', "error");
+                        addNotification('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.', "error");
                         return;
                     }
                 }
@@ -1236,7 +1236,7 @@ const POS = forwardRef<any, POSProps>(({
         }
 
         if (shouldPreventNegativeStock && Number(batch.stock || 0) <= 0) {
-            addNotification('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.', 'error');
+            addNotification('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.', 'error');
             return;
         }
 

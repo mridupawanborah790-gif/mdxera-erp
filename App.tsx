@@ -61,6 +61,7 @@ import { resolveUnitsPerStrip } from './utils/pack';
 import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screenShortcuts';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
 import { canAccessScreen, filterNavigationByPermissions } from './utils/rbac';
+import { normalizeStockHandlingConfig, resolveStockHandlingConfig, logStockMovement } from './utils/stockHandling';
 
 const DATA_ENTRY_SCREENS = [
     'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
@@ -85,21 +86,6 @@ type PersistedScreenState = {
     activeDashboardMenu?: 'left' | 'right';
 };
 
-const normalizeStockHandlingOptions = (config: AppConfigurations): AppConfigurations => {
-    const displayOptions = { ...(config.displayOptions || {}) };
-    const strictStock = displayOptions.strictStock ?? true;
-    const enableNegativeStock = displayOptions.enableNegativeStock ?? false;
-
-    if (strictStock && enableNegativeStock) {
-        displayOptions.strictStock = true;
-        displayOptions.enableNegativeStock = false;
-    } else {
-        displayOptions.strictStock = strictStock;
-        displayOptions.enableNegativeStock = enableNegativeStock;
-    }
-
-    return { ...config, displayOptions };
-};
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
@@ -328,7 +314,7 @@ const App: React.FC = () => {
                     case 'configurations':
                         const cfg = await storage.getData('configurations', [], user);
                         if (cfg && cfg.length > 0) {
-                            const normalizedConfig = normalizeStockHandlingOptions(cfg[0]);
+                            const normalizedConfig = normalizeStockHandlingConfig(cfg[0]);
                             setConfigurations(normalizedConfig);
                             if (
                                 (cfg[0].displayOptions?.strictStock ?? true) &&
@@ -413,7 +399,7 @@ const App: React.FC = () => {
             setMrpChangeLogs(mrpLogs || []);
 
             if (configData && configData.length > 0) {
-                const normalizedConfig = normalizeStockHandlingOptions(configData[0]);
+                const normalizedConfig = normalizeStockHandlingConfig(configData[0]);
                 setConfigurations(normalizedConfig);
                 if (
                     (configData[0].displayOptions?.strictStock ?? true) &&
@@ -422,7 +408,7 @@ const App: React.FC = () => {
                     await storage.saveData('configurations', normalizedConfig, user);
                 }
             } else {
-                setConfigurations(normalizeStockHandlingOptions({ organization_id: orgId }));
+                setConfigurations(normalizeStockHandlingConfig({ organization_id: orgId }));
             }
             setLastRefreshed(new Date());
             if (mode === 'sync') addNotification("ERP synchronized with cloud master.", "success");
@@ -810,9 +796,8 @@ const App: React.FC = () => {
             }
         }
 
-        const strictStock = configurations.displayOptions?.strictStock ?? true;
-        const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
-        const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
+        const stockHandling = resolveStockHandlingConfig(configurations);
+        const shouldPreventNegativeStock = stockHandling.mode === 'strict';
 
         if (shouldPreventNegativeStock) {
             const requiredUnitsByInventoryId = new Map<string, number>();
@@ -831,7 +816,8 @@ const App: React.FC = () => {
                 const policy = getInventoryPolicy(invItem, medicines);
                 if (!policy.inventorised) continue;
                 if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
-                    throw new Error('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.');
+                    logStockMovement({ transactionType: 'sales-outward-validation', item: invItem.name, batch: invItem.batch || 'UNSET', qty: requiredUnits, stockBefore: Number(invItem.stock || 0), stockAfter: Number(invItem.stock || 0), validationResult: 'blocked', mode: stockHandling.mode });
+                    throw new Error('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
                 }
             }
         }
@@ -1660,7 +1646,11 @@ const App: React.FC = () => {
                 if (inv) {
                     const policy = getInventoryPolicy(inv, medicines);
                     if (!policy.inventorised) continue;
-                    await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0)) }, currentUser, true);
+                    const restoredUnits = (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0));
+                    const stockBefore = Number(inv.stock || 0);
+                    const stockAfter = stockBefore + restoredUnits;
+                    logStockMovement({ transactionType: 'sales-cancellation-reversal', item: inv.name, batch: inv.batch || 'UNSET', qty: restoredUnits, stockBefore, stockAfter, validationResult: 'allowed', mode: resolveStockHandlingConfig(configurations).mode });
+                    await storage.saveData('inventory', { ...inv, stock: stockAfter }, currentUser, true);
                 }
             }
             loadData(currentUser, 'background');
@@ -2179,7 +2169,7 @@ const App: React.FC = () => {
                         transactions={transactions} purchases={purchases} customers={customers}
                         currentUser={currentUser} configurations={configurations}
                         onUpdateConfigurations={(cfg) => {
-                            const normalizedConfig = normalizeStockHandlingOptions(cfg);
+                            const normalizedConfig = normalizeStockHandlingConfig(cfg);
                             return storage.saveData('configurations', normalizedConfig, currentUser).then(() => {
                             setConfigurations(normalizedConfig);
                             window.dispatchEvent(new CustomEvent('configurations-updated', { detail: normalizedConfig }));
@@ -2209,7 +2199,7 @@ const App: React.FC = () => {
                         configurations={configurations}
                         currentUser={currentUser}
                         onUpdateConfigurations={(cfg) => {
-                            const normalizedConfig = normalizeStockHandlingOptions(cfg);
+                            const normalizedConfig = normalizeStockHandlingConfig(cfg);
                             return storage.saveData('configurations', normalizedConfig, currentUser).then(() => {
                             setConfigurations(normalizedConfig);
                             window.dispatchEvent(new CustomEvent('configurations-updated', { detail: normalizedConfig }));
@@ -2232,7 +2222,7 @@ const App: React.FC = () => {
                     return <Configuration
                         configurations={configurations}
                         onUpdateConfigurations={(cfg: any) => {
-                            const normalizedConfig = normalizeStockHandlingOptions(cfg);
+                            const normalizedConfig = normalizeStockHandlingConfig(cfg);
                             return storage.saveData('configurations', normalizedConfig, currentUser).then(() => {
                             setConfigurations(normalizedConfig);
                             window.dispatchEvent(new CustomEvent('configurations-updated', { detail: normalizedConfig }));
