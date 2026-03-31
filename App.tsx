@@ -265,6 +265,29 @@ const App: React.FC = () => {
 
     const normalizeCode = useCallback((value?: string) => (value || '').trim().toLowerCase(), []);
 
+    const syncInventoryItemWithMaterialMaster = useCallback((item: InventoryItem, material?: Medicine): InventoryItem => {
+        if (!material) return item;
+        const syncedPack = (material.pack || '').trim() || (item.packType || '').trim();
+        const syncedMrp = parseMrpNumber(material.mrp);
+        return {
+            ...item,
+            packType: syncedPack,
+            unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(syncedPack) ?? item.unitsPerPack, syncedPack),
+            gstPercent: Number(material.gstRate ?? item.gstPercent ?? 0),
+            hsnCode: material.hsnCode || '',
+            mrp: syncedMrp,
+        };
+    }, [parseMrpNumber]);
+
+    const syncInventoryFromMaterialMaster = useCallback((items: InventoryItem[], meds: Medicine[]) => {
+        const medicineByCode = new Map<string, Medicine>();
+        meds.forEach(med => {
+            const code = normalizeCode(med.materialCode);
+            if (code) medicineByCode.set(code, med);
+        });
+        return items.map(item => syncInventoryItemWithMaterialMaster(item, medicineByCode.get(normalizeCode(item.code))));
+    }, [normalizeCode, syncInventoryItemWithMaterialMaster]);
+
     const createMrpChangeLog = useCallback(async (
         sourceScreen: 'Inventory' | 'Material Master',
         materialCode: string,
@@ -302,8 +325,17 @@ const App: React.FC = () => {
         try {
             if (mode === 'targeted' && specificTable) {
                 switch (specificTable) {
-                    case 'inventory': setInventory(await storage.fetchInventory(user)); break;
-                    case 'material_master': setMedicines(await storage.fetchMedicineMaster(user)); break;
+                    case 'inventory': {
+                        const latestInventory = await storage.fetchInventory(user);
+                        setInventory(syncInventoryFromMaterialMaster(latestInventory, medicines));
+                        break;
+                    }
+                    case 'material_master': {
+                        const latestMedicines = await storage.fetchMedicineMaster(user);
+                        setMedicines(latestMedicines);
+                        setInventory(prev => syncInventoryFromMaterialMaster(prev, latestMedicines));
+                        break;
+                    }
                     case 'sales_bill':
                     case 'transactions':
                         setTransactions(await storage.fetchTransactions(user));
@@ -376,7 +408,7 @@ const App: React.FC = () => {
             ]);
 
             if (freshProfile) setCurrentUser(freshProfile);
-            setInventory(inv || []);
+            setInventory(syncInventoryFromMaterialMaster(inv || [], med || []));
             setMedicines(med || []);
             setTransactions(tx || []);
             setPurchases(pur || []);
@@ -418,7 +450,7 @@ const App: React.FC = () => {
             setIsAppLoading(false);
             setIsReloading(false);
         }
-    }, [addNotification]);
+    }, [addNotification, medicines, syncInventoryFromMaterialMaster]);
 
     const isDashboardScreen = currentPage === 'dashboard';
 
@@ -999,19 +1031,24 @@ const App: React.FC = () => {
         const linkedMedicine = normalizedCode
             ? medicines.find(m => normalizeCode(m.materialCode) === normalizedCode)
             : undefined;
-        const materialMasterPack = (linkedMedicine?.pack || '').trim();
-        const syncedInventoryItem: InventoryItem = linkedMedicine
-            ? {
-                ...updatedItem,
-                packType: materialMasterPack,
-                unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(materialMasterPack) ?? 1, materialMasterPack),
-            }
-            : updatedItem;
-
-        await storage.saveData('inventory', syncedInventoryItem, currentUser, true);
+        let syncedInventoryItem = updatedItem;
 
         if (normalizedCode) {
             if (linkedMedicine) {
+                const nextPack = (updatedItem.packType || '').trim() || (linkedMedicine.pack || '').trim();
+                const nextGstRate = Number(updatedItem.gstPercent ?? linkedMedicine.gstRate ?? 0);
+                const nextHsnCode = (updatedItem.hsnCode || linkedMedicine.hsnCode || '').trim();
+                const nextMaterialMaster: Medicine = {
+                    ...linkedMedicine,
+                    pack: nextPack,
+                    gstRate: nextGstRate,
+                    hsnCode: nextHsnCode,
+                    mrp: newMrp.toFixed(2),
+                    rateA: Number(updatedItem.rateA || 0),
+                    rateB: Number(updatedItem.rateB || 0),
+                    rateC: Number(updatedItem.rateC || 0),
+                };
+
                 const today = new Date().toISOString().slice(0, 10);
                 const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
                     if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
@@ -1038,13 +1075,11 @@ const App: React.FC = () => {
                 });
 
                 await storage.saveData('material_master', {
-                    ...linkedMedicine,
-                    mrp: newMrp.toFixed(2),
-                    rateA: Number(syncedInventoryItem.rateA || 0),
-                    rateB: Number(syncedInventoryItem.rateB || 0),
-                    rateC: Number(syncedInventoryItem.rateC || 0),
+                    ...nextMaterialMaster,
                     masterPriceMaintains: nextPriceRecords
                 }, currentUser, true);
+
+                syncedInventoryItem = syncInventoryItemWithMaterialMaster(updatedItem, nextMaterialMaster);
 
                 if (Math.abs(oldMrp - newMrp) >= 0.0001) {
                 await createMrpChangeLog(
@@ -1058,8 +1093,10 @@ const App: React.FC = () => {
             }
         }
 
+        await storage.saveData('inventory', syncedInventoryItem, currentUser, true);
+
         await loadData(currentUser, 'background');
-    }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber]);
+    }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber, syncInventoryItemWithMaterialMaster]);
 
     const handleAddMedicineMaster = async (med: Omit<Medicine, 'id'>) => {
         if (!currentUser) throw new Error("Unauthorized");

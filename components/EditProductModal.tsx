@@ -17,7 +17,6 @@ interface EditProductModalProps {
     onPrevious?: () => void;
     hasNext?: boolean;
     hasPrevious?: boolean;
-    isPackManagedByMaster?: boolean;
 }
 
 const matrixRowTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
@@ -32,7 +31,6 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
     onPrevious,
     hasNext,
     hasPrevious,
-    isPackManagedByMaster = false
 }) => {
     const [product, setProduct] = useState<InventoryItem | null>(null);
     const [expiryDisplay, setExpiryDisplay] = useState('');
@@ -284,14 +282,8 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                                     value={product.packType || ''}
                                     onChange={handleChange}
                                     placeholder="e.g. 10s, 100ml"
-                                    readOnly={isPackManagedByMaster}
-                                    className="w-full tally-input read-only:bg-gray-100 read-only:cursor-not-allowed"
+                                    className="w-full tally-input"
                                 />
-                                {isPackManagedByMaster && (
-                                    <p className="mt-1 text-[9px] font-black uppercase tracking-wide text-gray-500">
-                                        Pack is controlled by Material Master.
-                                    </p>
-                                )}
                             </div>
                         </div>
                         <div className="space-y-4">
