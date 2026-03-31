@@ -36,25 +36,34 @@ export const normalizeStockHandlingConfig = (config: AppConfigurations): AppConf
 
 export const logStockMovement = (args: {
   transactionType: string;
+  voucherId?: string;
   item: string;
   batch: string;
   qty: number;
+  qtyIn?: number;
+  qtyOut?: number;
   stockBefore: number;
   stockAfter: number;
+  organizationId?: string;
+  failureReason?: string;
   validationResult: 'allowed' | 'blocked';
   mode: 'strict' | 'negative';
 }) => {
-  const { transactionType, item, batch, qty, stockBefore, stockAfter, validationResult, mode } = args;
+  const { transactionType, voucherId, item, batch, qty, qtyIn, qtyOut, stockBefore, stockAfter, organizationId, failureReason, validationResult, mode } = args;
   console.info('[StockMovement]', {
     transactionType,
+    voucherId,
+    organizationId,
     item,
     batch,
     qty,
+    qtyIn,
+    qtyOut,
     stockBefore,
     stockAfter,
     validationResult,
+    failureReason,
     configUsed: mode,
     timestamp: new Date().toISOString(),
   });
 };
-

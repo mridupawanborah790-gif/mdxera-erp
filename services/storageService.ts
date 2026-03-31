@@ -806,6 +806,13 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         }
     };
 
+    const normalizeInventoryKey = (name?: string, batch?: string) => `${String(name || '').trim().toLowerCase()}|${String(batch || 'UNSET').trim().toLowerCase()}`;
+
+    const getBillItemStockUnits = (item: BillItem, inventoryItem?: InventoryItem): number => {
+        const resolvedUpp = normalizeUnitsPerPack(item.unitsPerPack ?? inventoryItem?.unitsPerPack, item.packType || inventoryItem?.packType);
+        return (Number(item.quantity || 0) * resolvedUpp) + Number(item.looseQuantity || 0);
+    };
+
     export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
         if (!tx.user_id) tx.user_id = user.user_id;
 
@@ -825,15 +832,17 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         if (isUpdate) {
             const oldTx = await idb.get(STORES.SALES_BILL, tx.id) as Transaction | undefined;
             if (oldTx && oldTx.items) {
+                const currentInventory = await fetchInventory(user);
+                const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
+                const inventoryByKey = new Map(currentInventory.map((inv) => [normalizeInventoryKey(inv.name, inv.batch), inv]));
                 const unitsToAddByInventoryId = new Map<string, number>();
+
                 for (const item of oldTx.items) {
-                    if (!item.inventoryItemId) continue;
-                    const current = unitsToAddByInventoryId.get(item.inventoryItemId) || 0;
-                    const upp = normalizeUnitsPerPack(item.unitsPerPack, item.packType);
-                    unitsToAddByInventoryId.set(
-                        item.inventoryItemId,
-                        current + ((item.quantity || 0) * upp) + (item.looseQuantity || 0)
-                    );
+                    const matchedInventory = (item.inventoryItemId ? inventoryById.get(item.inventoryItemId) : undefined)
+                        || inventoryByKey.get(normalizeInventoryKey(item.name, item.batch));
+                    if (!matchedInventory) continue;
+                    const current = unitsToAddByInventoryId.get(matchedInventory.id) || 0;
+                    unitsToAddByInventoryId.set(matchedInventory.id, current + getBillItemStockUnits(item, matchedInventory));
                 }
 
                 if (unitsToAddByInventoryId.size > 0) {
@@ -867,14 +876,16 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         const res = await saveData('sales_bill', tx, user, isUpdate);
 
         // Batch inventory updates to avoid one network/database roundtrip per line item.
+        const currentInventory = await fetchInventory(user);
+        const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
+        const inventoryByKey = new Map(currentInventory.map((inv) => [normalizeInventoryKey(inv.name, inv.batch), inv]));
         const unitsToDeductByInventoryId = new Map<string, number>();
         for (const item of tx.items) {
-            if (!item.inventoryItemId) continue;
-            const current = unitsToDeductByInventoryId.get(item.inventoryItemId) || 0;
-            unitsToDeductByInventoryId.set(
-                item.inventoryItemId,
-                current + ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0)
-            );
+            const matchedInventory = (item.inventoryItemId ? inventoryById.get(item.inventoryItemId) : undefined)
+                || inventoryByKey.get(normalizeInventoryKey(item.name, item.batch));
+            if (!matchedInventory) continue;
+            const current = unitsToDeductByInventoryId.get(matchedInventory.id) || 0;
+            unitsToDeductByInventoryId.set(matchedInventory.id, current + getBillItemStockUnits(item, matchedInventory));
         }
 
         if (unitsToDeductByInventoryId.size > 0) {
@@ -889,7 +900,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     const unitsToDeduct = unitsToDeductByInventoryId.get(inv.id) || 0;
                     const stockBefore = Number(inv.stock || 0);
                     const stockAfter = deductStockLooseFirst(stockBefore, unitsToDeduct, inv.unitsPerPack, inv.packType, allowNegativeStock);
-                    logStockMovement({ transactionType: 'sales-outward', item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, stockBefore, stockAfter, validationResult: 'allowed', mode: stockHandling.mode });
+                    logStockMovement({ transactionType: 'sales-outward', voucherId: tx.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore, stockAfter, organizationId: user.organization_id, validationResult: 'allowed', mode: stockHandling.mode });
                     return {
                         ...inv,
                         stock: stockAfter,
@@ -1070,7 +1081,9 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             }
 
             if (existingInv) {
-                existingInv.stock = Number(existingInv.stock || 0) + change.units;
+                const stockBefore = Number(existingInv.stock || 0);
+                existingInv.stock = stockBefore + change.units;
+                logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: existingInv.name, batch: existingInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore, stockAfter: existingInv.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 // Normalize expiry if present in purchase item
                 if (change.item.expiry) {
                     existingInv.expiry = normalizeImportDate(change.item.expiry) || existingInv.expiry;
@@ -1099,6 +1112,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     minStockLimit: 10,
                     is_active: true
                 };
+                logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: newInv.name, batch: newInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore: 0, stockAfter: change.units, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 await saveData('inventory', newInv, user);
             }
         }
@@ -1162,7 +1176,9 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             }
 
             if (invItem) {
-                invItem.stock = Number(invItem.stock || 0) + diff;
+                const stockBefore = Number(invItem.stock || 0);
+                invItem.stock = stockBefore + diff;
+                logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: invItem.name, batch: invItem.batch || 'UNSET', qty: Math.abs(diff), qtyIn: diff > 0 ? diff : 0, qtyOut: diff < 0 ? Math.abs(diff) : 0, stockBefore, stockAfter: invItem.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 // Normalize expiry if present in purchase item
                 if (data.item.expiry) {
                     invItem.expiry = normalizeImportDate(data.item.expiry) || invItem.expiry;
@@ -1192,6 +1208,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     minStockLimit: 10,
                     is_active: true
                 };
+                logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: newInv.name, batch: newInv.batch || 'UNSET', qty: diff, qtyIn: diff, stockBefore: 0, stockAfter: diff, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 await saveData('inventory', newInv, user);
             }
         }
@@ -2574,7 +2591,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 const unitsToAdd = (Number(item.returnQuantity || 0) * upp);
                 const stockBefore = Number(inv.stock || 0);
                 const stockAfter = stockBefore + unitsToAdd;
-                logStockMovement({ transactionType: 'sales-return-inward', item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToAdd, stockBefore, stockAfter, validationResult: 'allowed', mode: stockHandling.mode });
+                logStockMovement({ transactionType: 'sales-return-inward', voucherId: sr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToAdd, qtyIn: unitsToAdd, stockBefore, stockAfter, organizationId: user.organization_id, validationResult: 'allowed', mode: stockHandling.mode });
                 await saveData('inventory', { ...inv, stock: stockAfter }, user, true);
             }
         }
@@ -2586,6 +2603,20 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     export const addPurchaseReturn = async (pr: PurchaseReturn, user: RegisteredPharmacy) => {
         const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
         const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
+
+        // Strict stock validation BEFORE persisting return voucher (transaction-safe behavior).
+        for (const item of pr.items || []) {
+            if (!item.inventoryItemId) continue;
+            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            if (!inv) continue;
+            const unitsToDeduct = Number(item.returnQuantity || 0);
+            const stockBefore = Number(inv.stock || 0);
+            if (stockHandling.mode === 'strict' && stockBefore < unitsToDeduct) {
+                logStockMovement({ transactionType: 'purchase-return-outward-validation', voucherId: pr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore, stockAfter: stockBefore, organizationId: user.organization_id, validationResult: 'blocked', mode: stockHandling.mode });
+                throw new Error('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.');
+            }
+        }
+
         const res = await saveData('purchase_returns', pr, user);
 
         // Update stock: Purchase Return means items are going OUT of inventory
@@ -2598,12 +2629,12 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 const stockBefore = Number(inv.stock || 0);
 
                 if (stockHandling.mode === 'strict' && stockBefore < unitsToDeduct) {
-                    logStockMovement({ transactionType: 'purchase-return-outward-validation', item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, stockBefore, stockAfter: stockBefore, validationResult: 'blocked', mode: stockHandling.mode });
-                    throw new Error('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
+                    logStockMovement({ transactionType: 'purchase-return-outward-validation', voucherId: pr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore, stockAfter: stockBefore, organizationId: user.organization_id, validationResult: 'blocked', mode: stockHandling.mode });
+                    throw new Error('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.');
                 }
 
                 const stockAfter = stockBefore - unitsToDeduct;
-                logStockMovement({ transactionType: 'purchase-return-outward', item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, stockBefore, stockAfter, validationResult: 'allowed', mode: stockHandling.mode });
+                logStockMovement({ transactionType: 'purchase-return-outward', voucherId: pr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore, stockAfter, organizationId: user.organization_id, validationResult: 'allowed', mode: stockHandling.mode });
                 await saveData('inventory', { ...inv, stock: stockAfter }, user, true);
             }
         }

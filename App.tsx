@@ -922,6 +922,10 @@ const App: React.FC = () => {
         if (!currentUser) return;
         const purchase = purchases.find(p => p.id === purchaseId);
         if (!purchase) return;
+        if (purchase.status === 'cancelled') {
+            addNotification('This purchase bill is already cancelled.', 'warning');
+            return;
+        }
 
         // Check for linked payments
         const distributor = suppliers.find(d => 
@@ -951,9 +955,10 @@ const App: React.FC = () => {
             await storage.markVoucherCancelled('purchase-entry', currentUser, cancelledPurchase.purchaseSerialId, cancelledPurchase.id);
 
             // 2. Reverse inventory (decrement stock that was added by this purchase)
+            const latestInventory = await storage.fetchInventory(currentUser);
             for (const item of purchase.items) {
                 // Find matching inventory item
-                const inventoryMatch = inventory.find(i =>
+                const inventoryMatch = latestInventory.find(i =>
                     (i.name || '').toLowerCase().trim() === (item.name || '').toLowerCase().trim() &&
                     (i.batch || 'UNSET').toLowerCase().trim() === (item.batch || 'UNSET').toLowerCase().trim()
                 );
@@ -1612,6 +1617,10 @@ const App: React.FC = () => {
         if (!currentUser) return;
         const tx = transactions.find(t => t.id === id);
         if (tx) {
+            if (tx.status === 'cancelled') {
+                addNotification("This sales bill is already cancelled.", "warning");
+                return;
+            }
             // Check for linked payments
             const customer = customers.find(c => 
                 c.id === tx.customerId || 
@@ -1641,15 +1650,16 @@ const App: React.FC = () => {
             } catch (error) {
                 console.warn('Unable to log voucher cancellation for invoice', cancelledTx.id, error);
             }
+            const latestInventory = await storage.fetchInventory(currentUser);
             for (const item of tx.items) {
-                const inv = inventory.find(i => i.id === item.inventoryItemId);
+                const inv = latestInventory.find(i => i.id === item.inventoryItemId);
                 if (inv) {
                     const policy = getInventoryPolicy(inv, medicines);
                     if (!policy.inventorised) continue;
                     const restoredUnits = (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0));
                     const stockBefore = Number(inv.stock || 0);
                     const stockAfter = stockBefore + restoredUnits;
-                    logStockMovement({ transactionType: 'sales-cancellation-reversal', item: inv.name, batch: inv.batch || 'UNSET', qty: restoredUnits, stockBefore, stockAfter, validationResult: 'allowed', mode: resolveStockHandlingConfig(configurations).mode });
+                    logStockMovement({ transactionType: 'sales-cancellation-reversal', voucherId: tx.id, item: inv.name, batch: inv.batch || 'UNSET', qty: restoredUnits, qtyIn: restoredUnits, stockBefore, stockAfter, organizationId: currentUser.organization_id, validationResult: 'allowed', mode: resolveStockHandlingConfig(configurations).mode });
                     await storage.saveData('inventory', { ...inv, stock: stockAfter }, currentUser, true);
                 }
             }
