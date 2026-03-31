@@ -85,6 +85,22 @@ type PersistedScreenState = {
     activeDashboardMenu?: 'left' | 'right';
 };
 
+const normalizeStockHandlingOptions = (config: AppConfigurations): AppConfigurations => {
+    const displayOptions = { ...(config.displayOptions || {}) };
+    const strictStock = displayOptions.strictStock ?? true;
+    const enableNegativeStock = displayOptions.enableNegativeStock ?? false;
+
+    if (strictStock && enableNegativeStock) {
+        displayOptions.strictStock = true;
+        displayOptions.enableNegativeStock = false;
+    } else {
+        displayOptions.strictStock = strictStock;
+        displayOptions.enableNegativeStock = enableNegativeStock;
+    }
+
+    return { ...config, displayOptions };
+};
+
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
     const [currentPage, setCurrentPage] = useState('dashboard');
@@ -311,7 +327,16 @@ const App: React.FC = () => {
                     case 'customers': setCustomers(await storage.fetchCustomers(user)); break;
                     case 'configurations':
                         const cfg = await storage.getData('configurations', [], user);
-                        if (cfg && cfg.length > 0) setConfigurations(cfg[0]);
+                        if (cfg && cfg.length > 0) {
+                            const normalizedConfig = normalizeStockHandlingOptions(cfg[0]);
+                            setConfigurations(normalizedConfig);
+                            if (
+                                (cfg[0].displayOptions?.strictStock ?? true) &&
+                                (cfg[0].displayOptions?.enableNegativeStock ?? false)
+                            ) {
+                                await storage.saveData('configurations', normalizedConfig, user);
+                            }
+                        }
                         break;
                     case 'delivery_challans': setDeliveryChallans(await storage.getData('delivery_challans', [], user)); break;
                     case 'sales_challans': setSalesChallans(await storage.getData('sales_challans', [], user)); break;
@@ -388,9 +413,16 @@ const App: React.FC = () => {
             setMrpChangeLogs(mrpLogs || []);
 
             if (configData && configData.length > 0) {
-                setConfigurations(configData[0]);
+                const normalizedConfig = normalizeStockHandlingOptions(configData[0]);
+                setConfigurations(normalizedConfig);
+                if (
+                    (configData[0].displayOptions?.strictStock ?? true) &&
+                    (configData[0].displayOptions?.enableNegativeStock ?? false)
+                ) {
+                    await storage.saveData('configurations', normalizedConfig, user);
+                }
             } else {
-                setConfigurations({ organization_id: orgId });
+                setConfigurations(normalizeStockHandlingOptions({ organization_id: orgId }));
             }
             setLastRefreshed(new Date());
             if (mode === 'sync') addNotification("ERP synchronized with cloud master.", "success");
@@ -778,7 +810,7 @@ const App: React.FC = () => {
             }
         }
 
-        const strictStock = configurations.displayOptions?.strictStock ?? false;
+        const strictStock = configurations.displayOptions?.strictStock ?? true;
         const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
         const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
 
@@ -799,7 +831,7 @@ const App: React.FC = () => {
                 const policy = getInventoryPolicy(invItem, medicines);
                 if (!policy.inventorised) continue;
                 if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
-                    throw new Error(`Insufficient stock for ${invItem.name}. Available: ${Number(invItem.stock || 0)}`);
+                    throw new Error('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.');
                 }
             }
         }
@@ -2146,10 +2178,13 @@ const App: React.FC = () => {
                     return <GstCenter
                         transactions={transactions} purchases={purchases} customers={customers}
                         currentUser={currentUser} configurations={configurations}
-                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => {
-                            setConfigurations(cfg);
-                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        onUpdateConfigurations={(cfg) => {
+                            const normalizedConfig = normalizeStockHandlingOptions(cfg);
+                            return storage.saveData('configurations', normalizedConfig, currentUser).then(() => {
+                            setConfigurations(normalizedConfig);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: normalizedConfig }));
                         })}
+                        }
                     />;
                 case 'eway':
                     return <EWayBilling
@@ -2173,10 +2208,13 @@ const App: React.FC = () => {
                     return <EWayLoginSetup
                         configurations={configurations}
                         currentUser={currentUser}
-                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => {
-                            setConfigurations(cfg);
-                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        onUpdateConfigurations={(cfg) => {
+                            const normalizedConfig = normalizeStockHandlingOptions(cfg);
+                            return storage.saveData('configurations', normalizedConfig, currentUser).then(() => {
+                            setConfigurations(normalizedConfig);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: normalizedConfig }));
                         })}
+                        }
                         addNotification={addNotification}
                         onCancel={closeEwayLoginSetup}
                         isActive={isActive}
@@ -2193,10 +2231,13 @@ const App: React.FC = () => {
                 case 'configuration':
                     return <Configuration
                         configurations={configurations}
-                        onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => {
-                            setConfigurations(cfg);
-                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        onUpdateConfigurations={(cfg: any) => {
+                            const normalizedConfig = normalizeStockHandlingOptions(cfg);
+                            return storage.saveData('configurations', normalizedConfig, currentUser).then(() => {
+                            setConfigurations(normalizedConfig);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: normalizedConfig }));
                         })}
+                        }
                         addNotification={addNotification} currentUser={currentUser} inventory={inventory}
                         transactions={transactions} purchases={purchases} distributors={suppliers} customers={customers} medicines={medicines}
                         onBulkAddInventory={(l: any) => storage.saveBulkData('inventory', l, currentUser)}

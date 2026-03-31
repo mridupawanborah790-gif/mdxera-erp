@@ -859,6 +859,12 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             }
         }
 
+        const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
+        const displayOptions = cfgRows?.[0]?.displayOptions || {};
+        const strictStock = displayOptions.strictStock ?? true;
+        const enableNegativeStock = displayOptions.enableNegativeStock ?? false;
+        const allowNegativeStock = enableNegativeStock && !strictStock;
+
         const res = await saveData('sales_bill', tx, user, isUpdate);
 
         // Batch inventory updates to avoid one network/database roundtrip per line item.
@@ -884,7 +890,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     const unitsToDeduct = unitsToDeductByInventoryId.get(inv.id) || 0;
                     return {
                         ...inv,
-                        stock: deductStockLooseFirst(Number(inv.stock || 0), unitsToDeduct, inv.unitsPerPack, inv.packType),
+                        stock: deductStockLooseFirst(Number(inv.stock || 0), unitsToDeduct, inv.unitsPerPack, inv.packType, allowNegativeStock),
                     };
                 });
 

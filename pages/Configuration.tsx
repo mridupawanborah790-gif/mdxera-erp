@@ -106,6 +106,22 @@ const getVoucherSchemeDefaults = (): InvoiceNumberConfig => ({
     activeMode: 'external'
 });
 
+const normalizeStockHandlingConfig = (config: AppConfigurations): AppConfigurations => {
+    const displayOptions = { ...(config.displayOptions || {}) };
+    const strictStock = displayOptions.strictStock ?? true;
+    const enableNegativeStock = displayOptions.enableNegativeStock ?? false;
+
+    if (strictStock && enableNegativeStock) {
+        displayOptions.strictStock = true;
+        displayOptions.enableNegativeStock = false;
+    } else {
+        displayOptions.strictStock = strictStock;
+        displayOptions.enableNegativeStock = enableNegativeStock;
+    }
+
+    return { ...config, displayOptions };
+};
+
 const buildNumberPreview = (cfg: Partial<InvoiceNumberConfig>, number: number) => {
     const prefix = cfg.prefix || '';
     const fy = cfg.fy || getFinancialYearLabel();
@@ -431,7 +447,11 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         }
     };
 
-    useEffect(() => { if (configurations) setLocalConfigs(configurations); }, [configurations]);
+    useEffect(() => {
+        if (configurations) {
+            setLocalConfigs(normalizeStockHandlingConfig(configurations));
+        }
+    }, [configurations]);
 
     const handleConfigChange = (section: keyof AppConfigurations, field: string, value: any) => {
         setLocalConfigs(prev => {
@@ -443,6 +463,19 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                 updatedSectionData[parent] = { ...(updatedSectionData[parent] || {}), [child]: value };
             } else {
                 updatedSectionData[field] = value;
+            }
+
+            if (section === 'displayOptions') {
+                const isStrictStock = field === 'strictStock';
+                const isEnableNegativeStock = field === 'enableNegativeStock';
+
+                if (isStrictStock && value) {
+                    updatedSectionData.enableNegativeStock = false;
+                }
+
+                if (isEnableNegativeStock && value) {
+                    updatedSectionData.strictStock = false;
+                }
             }
             
             return { ...prev, [section]: updatedSectionData, _isDirty: true };
@@ -816,7 +849,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                         </div>
                                         <Toggle 
                                             label="Strict Stock Enforcement" 
-                                            enabled={localConfigs.displayOptions?.strictStock ?? false}
+                                            enabled={localConfigs.displayOptions?.strictStock ?? true}
                                             setEnabled={(v) => handleConfigChange('displayOptions', 'strictStock', v)}
                                             description="Prevent billing of items with zero/negative stock."
                                         />
@@ -1369,7 +1402,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                     masterShortcutOrder: sanitizedOrder 
                                 } as AppConfigurations);
 
-                                onUpdateConfigurations(normalizedConfigs);
+                                onUpdateConfigurations(normalizeStockHandlingConfig(normalizedConfigs));
                                 addNotification('Accepted Changes and sanitized shortcut list.', 'success');
                             }} className="px-16 py-4 tally-button-primary shadow-2xl uppercase text-[11px] font-black tracking-[0.3em] active:scale-95">Accept (Enter)</button>
                         </div>
