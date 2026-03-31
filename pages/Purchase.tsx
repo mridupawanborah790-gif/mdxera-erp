@@ -55,8 +55,14 @@ const normalizeExpiryInput = (value: string) => {
 
 const isExpiryComplete = (value: string) => /^((0[1-9])|(1[0-2]))\/(\d{2})$/.test(value);
 
-const getLineTotal = (item: PurchaseItem) => {
-    const gross = (item.purchasePrice || 0) * (item.quantity || 0);
+const getEffectiveQuantityForCalculation = (item: PurchaseItem, showPackQty: boolean, showLooseQty: boolean) => {
+    if (showPackQty) return Number(item.quantity || 0);
+    if (showLooseQty) return Number(item.looseQuantity || 0);
+    return Number(item.quantity || 0);
+};
+
+const getLineTotal = (item: PurchaseItem, showPackQty: boolean, showLooseQty: boolean) => {
+    const gross = (item.purchasePrice || 0) * getEffectiveQuantityForCalculation(item, showPackQty, showLooseQty);
     const tradeDisc = gross * ((item.discountPercent || 0) / 100);
     const afterTrade = gross - tradeDisc;
     const schemeDiscPercentAmount = afterTrade * ((item.schemeDiscountPercent || 0) / 100);
@@ -131,7 +137,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     organizationId,
 }, ref) => {
     const isEditing = !!purchaseToEdit;
-    const isFieldVisible = useCallback((fieldId: string) => configurations.modules?.['automatedPurchaseEntry']?.fields?.[fieldId] !== false, [configurations.modules]);
+    const isFieldVisible = useCallback((fieldId: string) => {
+        const purchaseFieldValue = configurations.modules?.['purchase']?.fields?.[fieldId];
+        if (typeof purchaseFieldValue !== 'undefined') return purchaseFieldValue !== false;
+
+        if (fieldId === 'colPQty' || fieldId === 'colLQty') {
+            const legacyQty = configurations.modules?.['purchase']?.fields?.['colQty'];
+            if (typeof legacyQty !== 'undefined') return legacyQty !== false;
+        }
+
+        return configurations.modules?.['automatedPurchaseEntry']?.fields?.[fieldId] !== false;
+    }, [configurations.modules]);
 
     // Standard State
     const [supplier, setSupplier] = useState('');
@@ -268,6 +284,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
     }, [purchaseToEdit, draftItems, distributors, draftSupplier, attemptAutoLink]);
 
+    const showPackQty = isFieldVisible('colPQty');
+    const showLooseQty = isFieldVisible('colLQty');
+
     const calculatedTotals = useMemo(() => {
         const billDiscount = 0;
         let subtotal = 0;
@@ -278,7 +297,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
         const validItems = items.filter(p => (p.name || '').trim() !== '');
         const itemsWithCalculations = validItems.map(p => {
-            const gross = (p.purchasePrice || 0) * (p.quantity || 0);
+            const effectiveQty = getEffectiveQuantityForCalculation(p, showPackQty, showLooseQty);
+            const gross = (p.purchasePrice || 0) * effectiveQty;
             const tradeDisc = gross * ((p.discountPercent || 0) / 100);
             const afterTrade = gross - tradeDisc;
             const schemeDiscPercentAmount = afterTrade * ((p.schemeDiscountPercent || 0) / 100);
@@ -321,7 +341,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             totalItemDiscount,
             totalItemSchemeDiscount
         };
-    }, [items]);
+    }, [items, showPackQty, showLooseQty]);
 
     const activeItemDetails = useMemo(() => {
         const activeItem = items.find(item => item.id === activeRowId) || items.find(item => (item.name || '').trim() !== '');
@@ -338,7 +358,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         const p = items.find(item => item.id === activeRowId) || items.find(item => (item.name || '').trim() !== '');
         if (!p || !(p.name || '').trim()) return null;
 
-        const gross = (p.purchasePrice || 0) * (p.quantity || 0);
+        const effectiveQty = getEffectiveQuantityForCalculation(p, showPackQty, showLooseQty);
+        const gross = (p.purchasePrice || 0) * effectiveQty;
         const tradeDisc = gross * ((p.discountPercent || 0) / 100);
         const afterTrade = gross - tradeDisc;
         const schemeDiscPercentAmount = afterTrade * ((p.schemeDiscountPercent || 0) / 100);
@@ -357,7 +378,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             netAmount: total,
             gstPercent: p.gstPercent || 0
         };
-    }, [activeRowId, items]);
+    }, [activeRowId, items, showPackQty, showLooseQty]);
 
     const vendorSnapshot = useMemo(() => {
         if (!currentDistributor) {
@@ -438,7 +459,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const index = prev.findIndex(p => p.id === id); if (index === -1) return prev;
             let updatedItem = { ...prev[index], [field]: value };
             if (field === 'name') { updatedItem.matchStatus = 'pending'; updatedItem.inventoryItemId = undefined; }
-            if (['quantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
+            if (['quantity', 'looseQuantity', 'freeQuantity', 'purchasePrice', 'mrp', 'discountPercent', 'schemeDiscountPercent', 'gstPercent'].includes(field)) { (updatedItem as any)[field] = value === '' ? 0 : (parseFloat(value) || 0); }
             if (field === 'expiry') {
                 updatedItem.expiry = normalizeExpiryInput(String(value).toUpperCase());
             }
@@ -630,7 +651,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     <th className="p-1 border-r border-gray-400 text-center w-20">Batch</th>
                                     <th className="p-1 border-r border-gray-400 text-center w-20">Expiry Date</th>
                                     <th className="p-1 border-r border-gray-400 text-right w-24">MRP</th>
-                                    <th className="p-1 border-r border-gray-400 text-center w-16">Qty</th>
+                                    {showPackQty && <th className="p-1 border-r border-gray-400 text-center w-16">P.Qty</th>}
+                                    {showLooseQty && <th className="p-1 border-r border-gray-400 text-center w-16">L.Qty</th>}
                                     <th className="p-1 border-r border-gray-400 text-center w-16">Free</th>
                                     <th className="p-1 border-r border-gray-400 text-right w-24">Rate</th>
                                     {isFieldVisible('colDisc') && <th className="p-1 border-r border-gray-400 text-center w-16">Disc%</th>}
@@ -662,12 +684,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         <td className="p-1 border-r border-gray-200 text-center font-mono text-[10px] uppercase"><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent outline-none ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} /></td>
                                         <td className="p-1 border-r border-gray-200 text-center text-[10px]"><input type="text" id={`expiry-${p.id}`} value={p.expiry} maxLength={5} inputMode="numeric" pattern="(0[1-9]|1[0-2])\/\d{2}" placeholder="MM/YY" title="Enter expiry as MM/YY" onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} onBlur={e => handleExpiryBlur(p.id, e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent outline-none ${activeRowId === p.id ? 'text-white placeholder:text-white/50' : 'group-hover:text-white'}`} /></td>
                                         <td className="p-1 border-r border-gray-400 text-right text-[11px] font-mono whitespace-nowrap"><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-right bg-transparent outline-none no-spinner ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} /></td>
-                                        <td className="p-1 border-r border-gray-400 text-center font-black"><input type="number" id={`qty-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} /></td>
+                                        {showPackQty && <td className="p-1 border-r border-gray-400 text-center font-black"><input type="number" id={`qty-p-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} /></td>}
+                                        {showLooseQty && <td className="p-1 border-r border-gray-400 text-center font-black"><input type="number" id={`qty-l-${p.id}`} value={p.looseQuantity || ''} onChange={e => handleUpdateItem(p.id, 'looseQuantity', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} /></td>}
                                         <td className="p-1 border-r border-gray-400 text-center font-bold"><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'text-emerald-600 group-hover:text-white'}`} /></td>
                                         <td className="p-1 border-r border-gray-400 text-right font-bold"><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-right bg-transparent outline-none no-spinner font-mono ${activeRowId === p.id ? 'text-white' : 'text-blue-900 group-hover:text-white'}`} /></td>
                                         {isFieldVisible('colDisc') && <td className="p-1 border-r border-gray-400 text-center"><input type="number" value={p.discountPercent || ''} onChange={e => handleUpdateItem(p.id, 'discountPercent', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'text-red-600 group-hover:text-white'}`} /></td>}
                                         <td className="p-1 border-r border-gray-400 text-center"><input type="number" value={p.schemeDiscountPercent || ''} onChange={e => handleUpdateItem(p.id, 'schemeDiscountPercent', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'text-red-600 group-hover:text-white'}`} /></td>
-                                        <td className={`p-1 text-right font-black font-mono whitespace-nowrap ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white text-gray-950'}`}>{formatCurrency(getLineTotal(p))}</td>
+                                        <td className={`p-1 text-right font-black font-mono whitespace-nowrap ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white text-gray-950'}`}>{formatCurrency(getLineTotal(p, showPackQty, showLooseQty))}</td>
                                     </tr>
                                 ))}
                             </tbody>

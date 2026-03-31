@@ -39,6 +39,7 @@ export const deductStockLooseFirst = (
   unitsToDeduct: number,
   unitsPerPack?: number,
   packType?: string | null,
+  allowNegative = false,
 ): number => {
   const upp = normalizeUnitsPerPack(unitsPerPack, packType);
   const currentTotal = Math.max(0, Math.floor(Number(totalUnits || 0)));
@@ -51,5 +52,5 @@ export const deductStockLooseFirst = (
   const totalAfterLoose = currentTotal - looseDeducted;
   const finalTotal = totalAfterLoose - remainingAfterLoose;
 
-  return Math.max(0, finalTotal);
+  return allowNegative ? finalTotal : Math.max(0, finalTotal);
 };

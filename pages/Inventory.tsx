@@ -10,7 +10,7 @@ import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY } from '../utils/helpers';
 import { configurableModules } from '../constants';
 import { getInventoryPolicy } from '../utils/materialType';
-import { resolveUnitsPerStrip } from '../utils/pack';
+import { extractPackMultiplier, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 // Standardized typography matching POS screen "Product Selection Matrix"
@@ -71,6 +71,35 @@ const Inventory: React.FC<InventoryProps> = ({
     const inventoryModuleFields = useMemo(() => 
         configurableModules.find(m => m.id === 'inventory')?.fields || [], 
     []);
+
+    const medicineByCode = useMemo(() => {
+        const toKey = (value?: string | null) => (value || '').trim().toLowerCase();
+        const map = new Map<string, Medicine>();
+        medicines.forEach(med => {
+            const key = toKey(med.materialCode);
+            if (key) map.set(key, med);
+        });
+        return map;
+    }, [medicines]);
+
+    const getEffectiveFields = useCallback((item: InventoryItem) => {
+        const itemCode = (item.code || '').trim().toLowerCase();
+        const linkedMedicine = itemCode ? medicineByCode.get(itemCode) : undefined;
+        const masterPack = linkedMedicine?.pack || '';
+        const effectivePackType = masterPack.trim() || (item.packType || '').trim();
+        const effectiveUnitsPerPack = resolveUnitsPerStrip(
+            extractPackMultiplier(effectivePackType) ?? item.unitsPerPack,
+            effectivePackType,
+        );
+        return {
+            effectivePackType,
+            effectiveUnitsPerPack,
+            effectiveGst: Number(linkedMedicine?.gstRate ?? item.gstPercent ?? 0),
+            effectiveHsnCode: linkedMedicine?.hsnCode || item.hsnCode || '',
+            effectiveMrp: Number(linkedMedicine?.mrp ?? item.mrp ?? 0),
+            isManagedByMaster: Boolean(linkedMedicine),
+        };
+    }, [medicineByCode]);
 
     const filteredItems = useMemo(() => {
         let items = Array.isArray(inventory) ? [...inventory] : [];
@@ -371,7 +400,8 @@ const Inventory: React.FC<InventoryProps> = ({
                             </thead>
                             <tbody className="divide-y divide-gray-200" ref={tableBodyRef}>
                                 {paginatedItems.map((item, idx) => {
-                                    const uPP = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
+                                    const { effectivePackType, effectiveUnitsPerPack, effectiveHsnCode, effectiveMrp, effectiveGst } = getEffectiveFields(item);
+                                    const uPP = effectiveUnitsPerPack;
                                     const strips = Math.floor(item.stock / uPP);
                                     const loose = item.stock % uPP;
                                     const isLow = item.stock <= item.minStockLimit;
@@ -402,7 +432,7 @@ const Inventory: React.FC<InventoryProps> = ({
 
                                             {isFieldVisible('colCategory') && <td className={`py-1 px-2 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.category}</td>}
                                             {isFieldVisible('colManufacturer') && <td className={`py-1 px-2 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.manufacturer}</td>}
-                                            {isFieldVisible('colHsn') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.hsnCode}</td>}
+                                            {isFieldVisible('colHsn') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{effectiveHsnCode}</td>}
                                             {isFieldVisible('colBarcode') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.barcode}</td>}
                                             {isFieldVisible('colBatch') && <td className={`py-1 px-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{item.batch}</td>}
                                             {isFieldVisible('colStrips') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{strips}</td>}
@@ -410,7 +440,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                             {isFieldVisible('colStock') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle} ${isSelected ? 'text-white' : (isLow ? 'text-red-700 font-bold group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{item.stock}</td>}
                                             {isFieldVisible('colBaseUnit') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.baseUnit}</td>}
                                             {isFieldVisible('colPtr') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.ptr || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colMrp') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.mrp || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colMrp') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(effectiveMrp || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colRateA') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.rateA || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colRateB') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.rateB || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colRateC') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.rateC || 0).toFixed(2)}</td>}
@@ -425,7 +455,14 @@ const Inventory: React.FC<InventoryProps> = ({
                                                 <button 
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setItemToEdit(item);
+                                                        setItemToEdit({
+                                                            ...item,
+                                                            packType: effectivePackType,
+                                                            unitsPerPack: effectiveUnitsPerPack,
+                                                            gstPercent: effectiveGst,
+                                                            hsnCode: effectiveHsnCode,
+                                                            mrp: effectiveMrp,
+                                                        });
                                                     }}
                                                     className={`font-black uppercase text-[10px] px-2 py-0.5 border transition-all ${isSelected ? 'bg-white text-primary border-white' : 'bg-primary/5 text-primary border-primary/20 group-hover:bg-white group-hover:text-primary group-hover:border-white'}`}
                                                 >

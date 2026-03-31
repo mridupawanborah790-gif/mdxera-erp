@@ -36,7 +36,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   const isLandscape = effectiveOrientation === 'landscape';
   const isThermal = template === 'thermal';
   const printWidth = isThermal ? '76mm' : (isLandscape ? '210mm' : '148mm');
-  const printMinHeight = isThermal ? '203mm' : (template === 'medi-3' ? 'auto' : (isLandscape ? '148mm' : '210mm'));
+  const printMinHeight = isThermal ? 'auto' : (template === 'medi-3' ? 'auto' : (isLandscape ? '148mm' : '210mm'));
     
   if (!isOpen || !bill) return null;
 
@@ -81,6 +81,10 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     setIsSharing(true);
 
     const element = document.getElementById('print-area');
+    const thermalContentHeightPx = isThermal ? (element?.scrollHeight ?? 0) : 0;
+    const thermalContentHeightMm = isThermal
+      ? Math.max(40, Math.ceil((thermalContentHeightPx * 25.4) / 96) + 2)
+      : 0;
     const opt = {
         margin: 0,
         filename: `Invoice_${invoiceNo}.pdf`,
@@ -88,7 +92,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
         jsPDF: {
           unit: 'mm',
-          format: isThermal ? [203, 76] : 'a5',
+          format: isThermal ? [thermalContentHeightMm, 76] : 'a5',
           orientation: isThermal ? 'portrait' : effectiveOrientation
         }
     };
@@ -182,7 +186,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
             <div
               id="print-area"
-              className={`p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0 ${isThermal ? 'w-[76mm] min-h-[203mm]' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]')} ${template === 'medi-3' || isThermal ? 'h-auto overflow-visible' : ''}`}
+              className={`p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0 ${isThermal ? 'w-[76mm]' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]')} ${template === 'medi-3' || isThermal ? 'h-auto overflow-visible' : ''}`}
             >
                 {renderTemplate()}
             </div>
@@ -212,7 +216,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         @media print {
           @page {
             margin: 0;
-            size: ${isThermal ? '76mm 203mm' : `A5 ${effectiveOrientation}`};
+            size: ${isThermal ? '76mm auto' : `A5 ${effectiveOrientation}`};
           }
 
           html, body {

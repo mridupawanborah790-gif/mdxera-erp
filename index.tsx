@@ -10,20 +10,16 @@ if (typeof (window as any).process === 'undefined') {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    // Use relative path './sw.js' to support preview environments where root '/' might resolve incorrectly
-    navigator.serviceWorker.register('./sw.js')
-      .then(registration => {
-        console.log('SW registered: ', registration);
-      })
-      .catch(registrationError => {
-        // In preview environments (like AI Studio), SW registration often fails due to origin mismatches.
-        // We log a warning instead of an error to keep the console clean.
-        const msg = registrationError?.message || '';
-        if (msg.includes('origin') || msg.includes('SecurityError')) {
-            console.warn('Service Worker registration skipped: Environment restriction.');
-        } else {
-            console.warn('SW registration failed: ', registrationError);
+    // Disable Service Worker to prevent stale shell/cache loops on production deployments.
+    navigator.serviceWorker.getRegistrations()
+      .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
+      .then(() => {
+        if ('caches' in window) {
+          return caches.keys().then(cacheNames => Promise.all(cacheNames.map(cacheName => caches.delete(cacheName))));
         }
+      })
+      .catch((error) => {
+        console.warn('Service Worker cleanup skipped:', error);
       });
   });
 }

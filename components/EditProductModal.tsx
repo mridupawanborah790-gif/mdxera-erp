@@ -30,7 +30,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
     onNext,
     onPrevious,
     hasNext,
-    hasPrevious
+    hasPrevious,
 }) => {
     const [product, setProduct] = useState<InventoryItem | null>(null);
     const [expiryDisplay, setExpiryDisplay] = useState('');
@@ -276,8 +276,14 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                         <div className="space-y-4">
                             <h4 className="text-[10px] font-black uppercase text-gray-500 border-b border-gray-100 pb-1">Packaging Utility</h4>
                             <div>
-                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Pack</label>
-                                <input name="packType" value={product.packType || ''} onChange={handleChange} placeholder="e.g. 10s, 100ml" className="w-full tally-input" />
+                                <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">Pack (e.g. 10s, 100ml)</label>
+                                <input
+                                    name="packType"
+                                    value={product.packType || ''}
+                                    onChange={handleChange}
+                                    placeholder="e.g. 10s, 100ml"
+                                    className="w-full tally-input"
+                                />
                             </div>
                         </div>
                         <div className="space-y-4">

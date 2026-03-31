@@ -11,6 +11,7 @@
     import { parseNetworkAndApiError } from '../utils/error';
     import { normalizeImportDate } from '../utils/helpers';
     import { deductStockLooseFirst, normalizeUnitsPerPack } from '../utils/stock';
+import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHandling';
     import { DEFAULT_CONFIG_MISSING_MESSAGE, loadDefaultPostingContext } from './companyDefaultsService';
 
     export const generateUUID = () => crypto.randomUUID();
@@ -42,17 +43,37 @@
         return `${templateId.slice(0, templateNumberPart.startIndex)}${paddedNext}${templateId.slice(templateNumberPart.endIndex)}`;
     };
 
-    const MATERIAL_CODE_START = 10000000;
-    const MATERIAL_CODE_LENGTH = 8;
+const MATERIAL_CODE_START = 10000000;
+const MATERIAL_CODE_LENGTH = 8;
+const MATERIAL_TYPE_LABEL_TO_DB: Record<string, string> = {
+    'Trading Goods': 'trading_goods',
+    'Finished Goods': 'finished_goods',
+    'Consumables': 'consumables',
+    'Service Material': 'service_material',
+    'Packaging': 'packaging'
+};
 
-    const parseMaterialCodeNumber = (value: unknown): number | null => {
+const parseMaterialCodeNumber = (value: unknown): number | null => {
         if (typeof value !== 'string') return null;
         const trimmed = value.trim();
         if (!/^\d{8}$/.test(trimmed)) return null;
         const parsed = Number(trimmed);
         if (!Number.isInteger(parsed) || parsed < MATERIAL_CODE_START) return null;
         return parsed;
-    };
+};
+
+const getIncrementedMaterialCode = (currentCode: unknown): string | null => {
+    const parsed = parseMaterialCodeNumber(currentCode);
+    if (parsed === null) return null;
+    return String(parsed + 1).padStart(MATERIAL_CODE_LENGTH, '0');
+};
+
+const normalizeMaterialMasterType = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return MATERIAL_TYPE_LABEL_TO_DB[trimmed] || trimmed;
+};
 
     const getHighestLocalMaterialCode = async (organizationId: string): Promise<number> => {
         const localRows = await idb.getAll(STORES.MATERIAL_MASTER);
@@ -324,7 +345,7 @@
         );
     };
 
-    export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null, isUpdate: boolean = false): Promise<any> => {
+export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null, isUpdate: boolean = false): Promise<any> => {
         if (!user?.organization_id) throw new Error("Organizational identity not verified.");
         const dbPayload: any = { ...data, organization_id: user.organization_id };
         const currentUserId = user?.user_id || user?.id;
@@ -335,6 +356,13 @@
 
         if (tableName === 'material_master' && !isUpdate) {
             dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+        }
+
+        if (tableName === 'material_master') {
+            const normalizedMaterialType = normalizeMaterialMasterType(dbPayload.materialMasterType);
+            if (normalizedMaterialType) {
+                dbPayload.materialMasterType = normalizedMaterialType;
+            }
         }
         
         // If it's not an update and has no ID, generate one. 
@@ -394,10 +422,31 @@
                 if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders', 'material_master'].includes(tableName)) {
                     const maxAttempts = tableName === 'material_master' ? 5 : 1;
                     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                        if (tableName === 'material_master') {
+                            console.info('[material_master:create] insert payload', {
+                                attempt,
+                                mode: 'insert',
+                                id: snakeData.id,
+                                organization_id: snakeData.organization_id,
+                                name: snakeData.name,
+                                material_code: snakeData.material_code,
+                                material_master_type: snakeData.material_master_type
+                            });
+                        }
                         const { data: saved, error } = await supabase.from(tableName).insert(snakeData).select().single();
                         if (!error) {
                             result = saved;
                             break;
+                        }
+
+                        if (tableName === 'material_master') {
+                            console.error('[material_master:create] insert failed', {
+                                attempt,
+                                mode: 'insert',
+                                organization_id: snakeData.organization_id,
+                                material_code: snakeData.material_code,
+                                error
+                            });
                         }
 
                         if (error.code !== '23505') throw error;
@@ -406,7 +455,8 @@
                             throw new Error(`Voucher number ${dbPayload.id} already exists in database. Please refresh and try again.`);
                         }
 
-                        dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+                        const incremented = getIncrementedMaterialCode(dbPayload.materialCode);
+                        dbPayload.materialCode = incremented || await getNextMaterialCode(user.organization_id);
                         await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
                         snakeData.material_code = dbPayload.materialCode;
 
@@ -430,6 +480,25 @@
                     dbPayload.sync_status = 'pending';
                     await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
                     return dbPayload; // DO NOT throw for network errors, let UI continue
+                }
+
+                if (tableName === 'material_master') {
+                    console.error('[material_master:create] hard failure', {
+                        mode: isUpdate ? 'update' : 'insert',
+                        payload: {
+                            id: dbPayload.id,
+                            organization_id: dbPayload.organization_id,
+                            name: dbPayload.name,
+                            materialCode: dbPayload.materialCode,
+                            materialMasterType: dbPayload.materialMasterType
+                        },
+                        error: e
+                    });
+                    if (!isUpdate) {
+                        await idb.delete(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload.id);
+                        const message = e?.message || 'Unknown database error';
+                        throw new Error(`Material Master save failed: ${message}`);
+                    }
                 }
 
                 // ENHANCED ERROR LOGGING:
@@ -737,6 +806,13 @@
         }
     };
 
+    const normalizeInventoryKey = (name?: string, batch?: string) => `${String(name || '').trim().toLowerCase()}|${String(batch || 'UNSET').trim().toLowerCase()}`;
+
+    const getBillItemStockUnits = (item: BillItem, inventoryItem?: InventoryItem): number => {
+        const resolvedUpp = normalizeUnitsPerPack(item.unitsPerPack ?? inventoryItem?.unitsPerPack, item.packType || inventoryItem?.packType);
+        return (Number(item.quantity || 0) * resolvedUpp) + Number(item.looseQuantity || 0);
+    };
+
     export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
         if (!tx.user_id) tx.user_id = user.user_id;
 
@@ -756,15 +832,17 @@
         if (isUpdate) {
             const oldTx = await idb.get(STORES.SALES_BILL, tx.id) as Transaction | undefined;
             if (oldTx && oldTx.items) {
+                const currentInventory = await fetchInventory(user);
+                const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
+                const inventoryByKey = new Map(currentInventory.map((inv) => [normalizeInventoryKey(inv.name, inv.batch), inv]));
                 const unitsToAddByInventoryId = new Map<string, number>();
+
                 for (const item of oldTx.items) {
-                    if (!item.inventoryItemId) continue;
-                    const current = unitsToAddByInventoryId.get(item.inventoryItemId) || 0;
-                    const upp = normalizeUnitsPerPack(item.unitsPerPack, item.packType);
-                    unitsToAddByInventoryId.set(
-                        item.inventoryItemId,
-                        current + ((item.quantity || 0) * upp) + (item.looseQuantity || 0)
-                    );
+                    const matchedInventory = (item.inventoryItemId ? inventoryById.get(item.inventoryItemId) : undefined)
+                        || inventoryByKey.get(normalizeInventoryKey(item.name, item.batch));
+                    if (!matchedInventory) continue;
+                    const current = unitsToAddByInventoryId.get(matchedInventory.id) || 0;
+                    unitsToAddByInventoryId.set(matchedInventory.id, current + getBillItemStockUnits(item, matchedInventory));
                 }
 
                 if (unitsToAddByInventoryId.size > 0) {
@@ -791,17 +869,23 @@
             }
         }
 
+        const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
+        const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
+        const allowNegativeStock = stockHandling.allowNegativeStock;
+
         const res = await saveData('sales_bill', tx, user, isUpdate);
 
         // Batch inventory updates to avoid one network/database roundtrip per line item.
+        const currentInventory = await fetchInventory(user);
+        const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
+        const inventoryByKey = new Map(currentInventory.map((inv) => [normalizeInventoryKey(inv.name, inv.batch), inv]));
         const unitsToDeductByInventoryId = new Map<string, number>();
         for (const item of tx.items) {
-            if (!item.inventoryItemId) continue;
-            const current = unitsToDeductByInventoryId.get(item.inventoryItemId) || 0;
-            unitsToDeductByInventoryId.set(
-                item.inventoryItemId,
-                current + ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0)
-            );
+            const matchedInventory = (item.inventoryItemId ? inventoryById.get(item.inventoryItemId) : undefined)
+                || inventoryByKey.get(normalizeInventoryKey(item.name, item.batch));
+            if (!matchedInventory) continue;
+            const current = unitsToDeductByInventoryId.get(matchedInventory.id) || 0;
+            unitsToDeductByInventoryId.set(matchedInventory.id, current + getBillItemStockUnits(item, matchedInventory));
         }
 
         if (unitsToDeductByInventoryId.size > 0) {
@@ -814,9 +898,12 @@
                 .filter((inv): inv is InventoryItem => Boolean(inv))
                 .map(inv => {
                     const unitsToDeduct = unitsToDeductByInventoryId.get(inv.id) || 0;
+                    const stockBefore = Number(inv.stock || 0);
+                    const stockAfter = deductStockLooseFirst(stockBefore, unitsToDeduct, inv.unitsPerPack, inv.packType, allowNegativeStock);
+                    logStockMovement({ transactionType: 'sales-outward', voucherId: tx.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore, stockAfter, organizationId: user.organization_id, validationResult: 'allowed', mode: stockHandling.mode });
                     return {
                         ...inv,
-                        stock: deductStockLooseFirst(Number(inv.stock || 0), unitsToDeduct, inv.unitsPerPack, inv.packType),
+                        stock: stockAfter,
                     };
                 });
 
@@ -994,7 +1081,9 @@
             }
 
             if (existingInv) {
-                existingInv.stock = Number(existingInv.stock || 0) + change.units;
+                const stockBefore = Number(existingInv.stock || 0);
+                existingInv.stock = stockBefore + change.units;
+                logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: existingInv.name, batch: existingInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore, stockAfter: existingInv.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 // Normalize expiry if present in purchase item
                 if (change.item.expiry) {
                     existingInv.expiry = normalizeImportDate(change.item.expiry) || existingInv.expiry;
@@ -1023,6 +1112,7 @@
                     minStockLimit: 10,
                     is_active: true
                 };
+                logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: newInv.name, batch: newInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore: 0, stockAfter: change.units, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 await saveData('inventory', newInv, user);
             }
         }
@@ -1086,7 +1176,9 @@
             }
 
             if (invItem) {
-                invItem.stock = Number(invItem.stock || 0) + diff;
+                const stockBefore = Number(invItem.stock || 0);
+                invItem.stock = stockBefore + diff;
+                logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: invItem.name, batch: invItem.batch || 'UNSET', qty: Math.abs(diff), qtyIn: diff > 0 ? diff : 0, qtyOut: diff < 0 ? Math.abs(diff) : 0, stockBefore, stockAfter: invItem.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 // Normalize expiry if present in purchase item
                 if (data.item.expiry) {
                     invItem.expiry = normalizeImportDate(data.item.expiry) || invItem.expiry;
@@ -1116,6 +1208,7 @@
                     minStockLimit: 10,
                     is_active: true
                 };
+                logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: newInv.name, batch: newInv.batch || 'UNSET', qty: diff, qtyIn: diff, stockBefore: 0, stockAfter: diff, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 await saveData('inventory', newInv, user);
             }
         }
@@ -2484,6 +2577,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     };
 
     export const addSalesReturn = async (sr: SalesReturn, user: RegisteredPharmacy) => {
+        const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
+        const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
         const res = await saveData('sales_returns', sr, user);
         
         // Update stock: Sales Return means items are coming BACK to inventory
@@ -2494,7 +2589,10 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 const upp = normalizeUnitsPerPack(inv.unitsPerPack, inv.packType);
                 // Sales returnQuantity in UI is currently in PACKS (original bill quantity units)
                 const unitsToAdd = (Number(item.returnQuantity || 0) * upp);
-                await saveData('inventory', { ...inv, stock: Number(inv.stock || 0) + unitsToAdd }, user, true);
+                const stockBefore = Number(inv.stock || 0);
+                const stockAfter = stockBefore + unitsToAdd;
+                logStockMovement({ transactionType: 'sales-return-inward', voucherId: sr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToAdd, qtyIn: unitsToAdd, stockBefore, stockAfter, organizationId: user.organization_id, validationResult: 'allowed', mode: stockHandling.mode });
+                await saveData('inventory', { ...inv, stock: stockAfter }, user, true);
             }
         }
 
@@ -2503,6 +2601,22 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     };
 
     export const addPurchaseReturn = async (pr: PurchaseReturn, user: RegisteredPharmacy) => {
+        const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
+        const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
+
+        // Strict stock validation BEFORE persisting return voucher (transaction-safe behavior).
+        for (const item of pr.items || []) {
+            if (!item.inventoryItemId) continue;
+            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            if (!inv) continue;
+            const unitsToDeduct = Number(item.returnQuantity || 0);
+            const stockBefore = Number(inv.stock || 0);
+            if (stockHandling.mode === 'strict' && stockBefore < unitsToDeduct) {
+                logStockMovement({ transactionType: 'purchase-return-outward-validation', voucherId: pr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore, stockAfter: stockBefore, organizationId: user.organization_id, validationResult: 'blocked', mode: stockHandling.mode });
+                throw new Error('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.');
+            }
+        }
+
         const res = await saveData('purchase_returns', pr, user);
 
         // Update stock: Purchase Return means items are going OUT of inventory
@@ -2512,7 +2626,16 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             if (inv) {
                 // Purchase returnQuantity in UI is already in TOTAL UNITS (calculated in buildPurchaseReturnItems)
                 const unitsToDeduct = Number(item.returnQuantity || 0);
-                await saveData('inventory', { ...inv, stock: Math.max(0, Number(inv.stock || 0) - unitsToDeduct) }, user, true);
+                const stockBefore = Number(inv.stock || 0);
+
+                if (stockHandling.mode === 'strict' && stockBefore < unitsToDeduct) {
+                    logStockMovement({ transactionType: 'purchase-return-outward-validation', voucherId: pr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore, stockAfter: stockBefore, organizationId: user.organization_id, validationResult: 'blocked', mode: stockHandling.mode });
+                    throw new Error('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.');
+                }
+
+                const stockAfter = stockBefore - unitsToDeduct;
+                logStockMovement({ transactionType: 'purchase-return-outward', voucherId: pr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore, stockAfter, organizationId: user.organization_id, validationResult: 'allowed', mode: stockHandling.mode });
+                await saveData('inventory', { ...inv, stock: stockAfter }, user, true);
             }
         }
 

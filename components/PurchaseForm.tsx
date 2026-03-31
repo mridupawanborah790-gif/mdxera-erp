@@ -106,6 +106,7 @@ const createBlankItem = (): PurchaseItem => ({
     id: crypto.randomUUID(),
     name: '',
     brand: '',
+    manufacturer: '',
     category: 'General',
     batch: '',
     expiry: '',
@@ -240,10 +241,46 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     organizationId, config,
 }, ref) => {
     const isEditing = !!purchaseToEdit;
+    const purchaseFields = useMemo(() => {
+        if (config?.fields) return config.fields;
+        return configurations.modules?.purchase?.fields;
+    }, [config?.fields, configurations.modules]);
+
+    const readPurchaseFieldVisibility = useCallback((fieldIds: string[], defaultVisible = true) => {
+        if (!purchaseFields) return defaultVisible;
+        for (const fieldId of fieldIds) {
+            const value = purchaseFields[fieldId];
+            if (typeof value !== 'undefined') return value !== false;
+        }
+        return defaultVisible;
+    }, [purchaseFields]);
+
     const isFieldVisible = useCallback((fieldId: string) => {
-        if (config?.fields) return config.fields[fieldId] !== false;
-        return configurations.modules?.['purchase']?.fields?.[fieldId] !== false;
-    }, [config, configurations.modules]);
+        const purchaseFieldAliases: Record<string, string[]> = {
+            colPQty: ['colPQty', 'col_p_qty'],
+            colLQty: ['colLQty', 'col_l_qty'],
+            colQty: ['colQty', 'col_qty'],
+        };
+
+        const aliasedFields = purchaseFieldAliases[fieldId] || [fieldId];
+        const hasExplicitValue = aliasedFields.some(alias => typeof purchaseFields?.[alias] !== 'undefined');
+        if (hasExplicitValue) return readPurchaseFieldVisibility(aliasedFields, true);
+
+        if (fieldId === 'colPQty' || fieldId === 'colLQty') {
+            return readPurchaseFieldVisibility(['colQty', 'col_qty'], true);
+        }
+
+        return readPurchaseFieldVisibility(aliasedFields, true);
+    }, [purchaseFields, readPurchaseFieldVisibility]);
+
+    const showPackQty = isFieldVisible('colPQty');
+    const showLooseQty = isFieldVisible('colLQty');
+
+    useEffect(() => {
+        console.log('purchase field config', configurations?.modules?.purchase?.fields);
+        console.log('col_p_qty', configurations?.modules?.purchase?.fields?.col_p_qty);
+        console.log('col_l_qty', configurations?.modules?.purchase?.fields?.col_l_qty);
+    }, [configurations?.modules?.purchase?.fields]);
 
     // Standard State
     const [supplier, setSupplier] = useState('');
@@ -564,7 +601,22 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         if (!medicines.length) return itemList;
 
         return itemList.map(item => {
-            if (item.inventoryItemId) return item;
+            const resolveManufacturer = (primary?: string, fallback?: string): string => (
+                String(primary || fallback || '').trim()
+            );
+
+            if (item.inventoryItemId) {
+                const linkedMedicine = medicines.find(m => m.id === item.inventoryItemId);
+                if (!linkedMedicine) return item;
+                return {
+                    ...item,
+                    manufacturer: resolveManufacturer(linkedMedicine.manufacturer, item.manufacturer),
+                    brand: linkedMedicine.brand || item.brand,
+                    hsnCode: linkedMedicine.hsnCode || item.hsnCode,
+                    gstPercent: linkedMedicine.gstRate || item.gstPercent,
+                    mrp: Number(linkedMedicine.mrp || item.mrp)
+                };
+            }
 
             const normalizedItemName = normalizeItemKey(item.name);
             const itemBarcode = String((item as any).barcode || '').trim();
@@ -577,6 +629,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 matchStatus: 'matched' as const,
                 hsnCode: foundMed.hsnCode || item.hsnCode,
                 gstPercent: foundMed.gstRate || item.gstPercent,
+                manufacturer: resolveManufacturer(foundMed.manufacturer, item.manufacturer),
                 brand: foundMed.brand || item.brand,
                 mrp: Number(foundMed.mrp || item.mrp)
             });
@@ -663,6 +716,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const mappedItems = pItems.map(item => ({
                 ...createBlankItem(),
                 ...item,
+                manufacturer: String(item.manufacturer || '').trim(),
                 expiry: formatExpiryToMMYY(String(item.expiry || '')),
                 quantity: Number(item.quantity || 0),
                 looseQuantity: Number(item.looseQuantity || 0),
@@ -970,6 +1024,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 return {
                     name: row.name,
                     brand: row.brand,
+                    manufacturer: row.manufacturer,
                     batch: row.batch,
                     expiry: row.expiry,
                     mrp: row.mrp,
@@ -1010,7 +1065,21 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [handleGlobalKeyDown]);
 
     const handleGridKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowId: string, field: string) => {
-        const fields = ['name', 'mfr', 'pack', 'batch', 'expiry', 'mrp', 'qty', 'lqty', 'free', 'rate', 'disc', 'sch', 'gst'];
+        const fields = [
+            'name',
+            'mfr',
+            'pack',
+            'batch',
+            'expiry',
+            'mrp',
+            ...(showPackQty ? ['qty'] : []),
+            ...(showLooseQty ? ['lqty'] : []),
+            'free',
+            'rate',
+            'disc',
+            'sch',
+            'gst'
+        ];
         const currentIndex = fields.indexOf(field);
         const rowIndex = items.findIndex(p => p.id === rowId);
 
@@ -1137,6 +1206,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             inventoryItemId: batch.id,
             name: batch.name,
             brand: batch.brand || '',
+            manufacturer: String(batch.manufacturer || '').trim(),
             category: batch.category || 'General',
             packType: batch.packType || '',
             unitsPerPack: batch.unitsPerPack || 1,
@@ -1494,8 +1564,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     ...createBlankItem(),
                     ...item,
                     name: String(item.name || '').trim(),
-                    manufacturer: String(item.manufacturer || item.brand || '').trim(),
-                    brand: String(item.manufacturer || item.brand || '').trim(),
+                    manufacturer: String(item.manufacturer || '').trim(),
+                    brand: String(item.brand || '').trim(),
                     packType: packTypeStr,
                     unitsPerPack: parseNumber(item.unitsPerPack) || parseInt(packTypeStr.match(/\d+/)?.[0] || '10', 10),
                     batch: String(item.batch || '').trim(),
@@ -1958,8 +2028,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                     {isFieldVisible('colBatch') && <th className="p-2 border-r border-gray-400 text-center w-24">Batch</th>}
                                     {isFieldVisible('colExpiry') && <th className="p-2 border-r border-gray-400 text-center w-20">Expiry</th>}
                                     {isFieldVisible('colMrp') && <th className="p-2 border-r border-gray-400 text-right w-24">MRP</th>}
-                                    {isFieldVisible('colQty') && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
-                                    {isFieldVisible('colQty') && <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>}
+                                    {showPackQty && <th className="p-2 border-r border-gray-400 text-center w-16">P.Qty</th>}
+                                    {showLooseQty && <th className="p-2 border-r border-gray-400 text-center w-16">L.Qty</th>}
                                     {isFieldVisible('colFree') && <th className="p-2 border-r border-gray-400 text-center w-16">FREE</th>}
                                     {isFieldVisible('colPurRate') && <th className="p-2 border-r border-gray-400 text-right w-24">Rate</th>}
                                     {isFieldVisible('colDisc') && <th className="p-2 border-r border-gray-400 text-center w-16">Disc%</th>}
@@ -2006,8 +2076,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                     <input
                                                         type="text"
                                                         id={`mfr-${p.id}`}
-                                                        value={p.brand}
-                                                        onChange={e => handleUpdateItem(p.id, 'brand', e.target.value)}
+                                                        value={p.manufacturer || ''}
+                                                        onChange={e => handleUpdateItem(p.id, 'manufacturer', e.target.value)}
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'mfr')}
                                                         className={`w-full bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
@@ -2075,7 +2145,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                     />
                                                 </td>
                                             )}
-                                            {isFieldVisible('colQty') && (
+                                            {showPackQty && (
                                                 <td className={`p-1 border-r border-gray-400 text-center font-black ${uniformTextStyle}`}>
                                                     <input
                                                         type="number"
@@ -2089,7 +2159,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                     />
                                                 </td>
                                             )}
-                                            {isFieldVisible('colQty') && (
+                                            {showLooseQty && (
                                                 <td className={`p-1 border-r border-gray-400 text-center ${isActive ? 'text-white/80' : 'text-gray-500'} ${uniformTextStyle}`}>
                                                     <input
                                                         type="number"

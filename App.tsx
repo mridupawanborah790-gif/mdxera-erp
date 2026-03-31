@@ -57,10 +57,11 @@ import {
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
-import { resolveUnitsPerStrip } from './utils/pack';
+import { extractPackMultiplier, resolveUnitsPerStrip } from './utils/pack';
 import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screenShortcuts';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
 import { canAccessScreen, filterNavigationByPermissions } from './utils/rbac';
+import { normalizeStockHandlingConfig, resolveStockHandlingConfig, logStockMovement } from './utils/stockHandling';
 
 const DATA_ENTRY_SCREENS = [
     'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
@@ -84,6 +85,7 @@ type PersistedScreenState = {
     currentDailyReportId?: string;
     activeDashboardMenu?: 'left' | 'right';
 };
+
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
@@ -263,6 +265,29 @@ const App: React.FC = () => {
 
     const normalizeCode = useCallback((value?: string) => (value || '').trim().toLowerCase(), []);
 
+    const syncInventoryItemWithMaterialMaster = useCallback((item: InventoryItem, material?: Medicine): InventoryItem => {
+        if (!material) return item;
+        const syncedPack = (material.pack || '').trim() || (item.packType || '').trim();
+        const syncedMrp = parseMrpNumber(material.mrp);
+        return {
+            ...item,
+            packType: syncedPack,
+            unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(syncedPack) ?? item.unitsPerPack, syncedPack),
+            gstPercent: Number(material.gstRate ?? item.gstPercent ?? 0),
+            hsnCode: material.hsnCode || '',
+            mrp: syncedMrp,
+        };
+    }, [parseMrpNumber]);
+
+    const syncInventoryFromMaterialMaster = useCallback((items: InventoryItem[], meds: Medicine[]) => {
+        const medicineByCode = new Map<string, Medicine>();
+        meds.forEach(med => {
+            const code = normalizeCode(med.materialCode);
+            if (code) medicineByCode.set(code, med);
+        });
+        return items.map(item => syncInventoryItemWithMaterialMaster(item, medicineByCode.get(normalizeCode(item.code))));
+    }, [normalizeCode, syncInventoryItemWithMaterialMaster]);
+
     const createMrpChangeLog = useCallback(async (
         sourceScreen: 'Inventory' | 'Material Master',
         materialCode: string,
@@ -300,8 +325,17 @@ const App: React.FC = () => {
         try {
             if (mode === 'targeted' && specificTable) {
                 switch (specificTable) {
-                    case 'inventory': setInventory(await storage.fetchInventory(user)); break;
-                    case 'material_master': setMedicines(await storage.fetchMedicineMaster(user)); break;
+                    case 'inventory': {
+                        const latestInventory = await storage.fetchInventory(user);
+                        setInventory(syncInventoryFromMaterialMaster(latestInventory, medicines));
+                        break;
+                    }
+                    case 'material_master': {
+                        const latestMedicines = await storage.fetchMedicineMaster(user);
+                        setMedicines(latestMedicines);
+                        setInventory(prev => syncInventoryFromMaterialMaster(prev, latestMedicines));
+                        break;
+                    }
                     case 'sales_bill':
                     case 'transactions':
                         setTransactions(await storage.fetchTransactions(user));
@@ -311,7 +345,16 @@ const App: React.FC = () => {
                     case 'customers': setCustomers(await storage.fetchCustomers(user)); break;
                     case 'configurations':
                         const cfg = await storage.getData('configurations', [], user);
-                        if (cfg && cfg.length > 0) setConfigurations(cfg[0]);
+                        if (cfg && cfg.length > 0) {
+                            const normalizedConfig = normalizeStockHandlingConfig(cfg[0]);
+                            setConfigurations(normalizedConfig);
+                            if (
+                                (cfg[0].displayOptions?.strictStock ?? true) &&
+                                (cfg[0].displayOptions?.enableNegativeStock ?? false)
+                            ) {
+                                await storage.saveData('configurations', normalizedConfig, user);
+                            }
+                        }
                         break;
                     case 'delivery_challans': setDeliveryChallans(await storage.getData('delivery_challans', [], user)); break;
                     case 'sales_challans': setSalesChallans(await storage.getData('sales_challans', [], user)); break;
@@ -365,7 +408,7 @@ const App: React.FC = () => {
             ]);
 
             if (freshProfile) setCurrentUser(freshProfile);
-            setInventory(inv || []);
+            setInventory(syncInventoryFromMaterialMaster(inv || [], med || []));
             setMedicines(med || []);
             setTransactions(tx || []);
             setPurchases(pur || []);
@@ -388,9 +431,16 @@ const App: React.FC = () => {
             setMrpChangeLogs(mrpLogs || []);
 
             if (configData && configData.length > 0) {
-                setConfigurations(configData[0]);
+                const normalizedConfig = normalizeStockHandlingConfig(configData[0]);
+                setConfigurations(normalizedConfig);
+                if (
+                    (configData[0].displayOptions?.strictStock ?? true) &&
+                    (configData[0].displayOptions?.enableNegativeStock ?? false)
+                ) {
+                    await storage.saveData('configurations', normalizedConfig, user);
+                }
             } else {
-                setConfigurations({ organization_id: orgId });
+                setConfigurations(normalizeStockHandlingConfig({ organization_id: orgId }));
             }
             setLastRefreshed(new Date());
             if (mode === 'sync') addNotification("ERP synchronized with cloud master.", "success");
@@ -400,7 +450,7 @@ const App: React.FC = () => {
             setIsAppLoading(false);
             setIsReloading(false);
         }
-    }, [addNotification]);
+    }, [addNotification, medicines, syncInventoryFromMaterialMaster]);
 
     const isDashboardScreen = currentPage === 'dashboard';
 
@@ -778,9 +828,8 @@ const App: React.FC = () => {
             }
         }
 
-        const strictStock = configurations.displayOptions?.strictStock ?? false;
-        const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
-        const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
+        const stockHandling = resolveStockHandlingConfig(configurations);
+        const shouldPreventNegativeStock = stockHandling.mode === 'strict';
 
         if (shouldPreventNegativeStock) {
             const requiredUnitsByInventoryId = new Map<string, number>();
@@ -799,7 +848,8 @@ const App: React.FC = () => {
                 const policy = getInventoryPolicy(invItem, medicines);
                 if (!policy.inventorised) continue;
                 if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
-                    throw new Error(`Insufficient stock for ${invItem.name}. Available: ${Number(invItem.stock || 0)}`);
+                    logStockMovement({ transactionType: 'sales-outward-validation', item: invItem.name, batch: invItem.batch || 'UNSET', qty: requiredUnits, stockBefore: Number(invItem.stock || 0), stockAfter: Number(invItem.stock || 0), validationResult: 'blocked', mode: stockHandling.mode });
+                    throw new Error('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
                 }
             }
         }
@@ -904,6 +954,10 @@ const App: React.FC = () => {
         if (!currentUser) return;
         const purchase = purchases.find(p => p.id === purchaseId);
         if (!purchase) return;
+        if (purchase.status === 'cancelled') {
+            addNotification('This purchase bill is already cancelled.', 'warning');
+            return;
+        }
 
         // Check for linked payments
         const distributor = suppliers.find(d => 
@@ -933,9 +987,10 @@ const App: React.FC = () => {
             await storage.markVoucherCancelled('purchase-entry', currentUser, cancelledPurchase.purchaseSerialId, cancelledPurchase.id);
 
             // 2. Reverse inventory (decrement stock that was added by this purchase)
+            const latestInventory = await storage.fetchInventory(currentUser);
             for (const item of purchase.items) {
                 // Find matching inventory item
-                const inventoryMatch = inventory.find(i =>
+                const inventoryMatch = latestInventory.find(i =>
                     (i.name || '').toLowerCase().trim() === (item.name || '').toLowerCase().trim() &&
                     (i.batch || 'UNSET').toLowerCase().trim() === (item.batch || 'UNSET').toLowerCase().trim()
                 );
@@ -973,21 +1028,36 @@ const App: React.FC = () => {
         const oldMrp = parseMrpNumber(existingItem?.mrp);
         const newMrp = parseMrpNumber(updatedItem.mrp);
         const normalizedCode = normalizeCode(updatedItem.code);
-
-        await storage.saveData('inventory', updatedItem, currentUser, true);
+        const linkedMedicine = normalizedCode
+            ? medicines.find(m => normalizeCode(m.materialCode) === normalizedCode)
+            : undefined;
+        let syncedInventoryItem = updatedItem;
 
         if (normalizedCode) {
-            const linkedMedicine = medicines.find(m => normalizeCode(m.materialCode) === normalizedCode);
             if (linkedMedicine) {
+                const nextPack = (updatedItem.packType || '').trim() || (linkedMedicine.pack || '').trim();
+                const nextGstRate = Number(updatedItem.gstPercent ?? linkedMedicine.gstRate ?? 0);
+                const nextHsnCode = (updatedItem.hsnCode || linkedMedicine.hsnCode || '').trim();
+                const nextMaterialMaster: Medicine = {
+                    ...linkedMedicine,
+                    pack: nextPack,
+                    gstRate: nextGstRate,
+                    hsnCode: nextHsnCode,
+                    mrp: newMrp.toFixed(2),
+                    rateA: Number(updatedItem.rateA || 0),
+                    rateB: Number(updatedItem.rateB || 0),
+                    rateC: Number(updatedItem.rateC || 0),
+                };
+
                 const today = new Date().toISOString().slice(0, 10);
                 const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
                     if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
                     return {
                         ...record,
                         mrp: newMrp,
-                        rateA: Number(updatedItem.rateA || 0),
-                        rateB: Number(updatedItem.rateB || 0),
-                        rateC: Number(updatedItem.rateC || 0),
+                        rateA: Number(syncedInventoryItem.rateA || 0),
+                        rateB: Number(syncedInventoryItem.rateB || 0),
+                        rateC: Number(syncedInventoryItem.rateC || 0),
                         lastUpdatedBy: currentUser.full_name || currentUser.email,
                         lastUpdatedOn: new Date().toISOString(),
                         auditTrail: [
@@ -998,26 +1068,24 @@ const App: React.FC = () => {
                                 sourceModule: 'Inventory',
                                 field: 'mrp_rate_sync',
                                 oldValue: `MRP:${record.mrp} RateA:${record.rateA} RateB:${record.rateB} RateC:${record.rateC}`,
-                                newValue: `MRP:${newMrp} RateA:${Number(updatedItem.rateA || 0)} RateB:${Number(updatedItem.rateB || 0)} RateC:${Number(updatedItem.rateC || 0)}`
+                                newValue: `MRP:${newMrp} RateA:${Number(syncedInventoryItem.rateA || 0)} RateB:${Number(syncedInventoryItem.rateB || 0)} RateC:${Number(syncedInventoryItem.rateC || 0)}`
                             }
                         ]
                     };
                 });
 
                 await storage.saveData('material_master', {
-                    ...linkedMedicine,
-                    mrp: newMrp.toFixed(2),
-                    rateA: Number(updatedItem.rateA || 0),
-                    rateB: Number(updatedItem.rateB || 0),
-                    rateC: Number(updatedItem.rateC || 0),
+                    ...nextMaterialMaster,
                     masterPriceMaintains: nextPriceRecords
                 }, currentUser, true);
+
+                syncedInventoryItem = syncInventoryItemWithMaterialMaster(updatedItem, nextMaterialMaster);
 
                 if (Math.abs(oldMrp - newMrp) >= 0.0001) {
                 await createMrpChangeLog(
                     'Inventory',
-                    updatedItem.code || linkedMedicine.materialCode,
-                    updatedItem.name || linkedMedicine.name,
+                    syncedInventoryItem.code || linkedMedicine.materialCode,
+                    syncedInventoryItem.name || linkedMedicine.name,
                     oldMrp,
                     newMrp
                 );
@@ -1025,8 +1093,10 @@ const App: React.FC = () => {
             }
         }
 
+        await storage.saveData('inventory', syncedInventoryItem, currentUser, true);
+
         await loadData(currentUser, 'background');
-    }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber]);
+    }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber, syncInventoryItemWithMaterialMaster]);
 
     const handleAddMedicineMaster = async (med: Omit<Medicine, 'id'>) => {
         if (!currentUser) throw new Error("Unauthorized");
@@ -1038,7 +1108,7 @@ const App: React.FC = () => {
     const handleUpdateMedicineMaster = useCallback(async (updatedMedicine: Medicine) => {
         if (!currentUser) throw new Error("Unauthorized");
         const updatedPack = (updatedMedicine.pack || '').trim();
-        const inferredUnitsPerPack = resolveUnitsPerStrip(parseInt(updatedPack.match(/\d+/)?.[0] || '1', 10), updatedPack);
+        const inferredUnitsPerPack = resolveUnitsPerStrip(extractPackMultiplier(updatedPack) ?? 1, updatedPack);
         const normalizedMaterialCode = normalizeCode(updatedMedicine.materialCode);
 
         const isLinkedInventoryItem = (item: InventoryItem) => {
@@ -1594,6 +1664,10 @@ const App: React.FC = () => {
         if (!currentUser) return;
         const tx = transactions.find(t => t.id === id);
         if (tx) {
+            if (tx.status === 'cancelled') {
+                addNotification("This sales bill is already cancelled.", "warning");
+                return;
+            }
             // Check for linked payments
             const customer = customers.find(c => 
                 c.id === tx.customerId || 
@@ -1623,12 +1697,17 @@ const App: React.FC = () => {
             } catch (error) {
                 console.warn('Unable to log voucher cancellation for invoice', cancelledTx.id, error);
             }
+            const latestInventory = await storage.fetchInventory(currentUser);
             for (const item of tx.items) {
-                const inv = inventory.find(i => i.id === item.inventoryItemId);
+                const inv = latestInventory.find(i => i.id === item.inventoryItemId);
                 if (inv) {
                     const policy = getInventoryPolicy(inv, medicines);
                     if (!policy.inventorised) continue;
-                    await storage.saveData('inventory', { ...inv, stock: inv.stock + (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0)) }, currentUser, true);
+                    const restoredUnits = (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0));
+                    const stockBefore = Number(inv.stock || 0);
+                    const stockAfter = stockBefore + restoredUnits;
+                    logStockMovement({ transactionType: 'sales-cancellation-reversal', voucherId: tx.id, item: inv.name, batch: inv.batch || 'UNSET', qty: restoredUnits, qtyIn: restoredUnits, stockBefore, stockAfter, organizationId: currentUser.organization_id, validationResult: 'allowed', mode: resolveStockHandlingConfig(configurations).mode });
+                    await storage.saveData('inventory', { ...inv, stock: stockAfter }, currentUser, true);
                 }
             }
             loadData(currentUser, 'background');
@@ -2146,10 +2225,13 @@ const App: React.FC = () => {
                     return <GstCenter
                         transactions={transactions} purchases={purchases} customers={customers}
                         currentUser={currentUser} configurations={configurations}
-                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => {
-                            setConfigurations(cfg);
-                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        onUpdateConfigurations={(cfg) => {
+                            const normalizedConfig = normalizeStockHandlingConfig(cfg);
+                            return storage.saveData('configurations', normalizedConfig, currentUser).then(() => {
+                            setConfigurations(normalizedConfig);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: normalizedConfig }));
                         })}
+                        }
                     />;
                 case 'eway':
                     return <EWayBilling
@@ -2173,10 +2255,13 @@ const App: React.FC = () => {
                     return <EWayLoginSetup
                         configurations={configurations}
                         currentUser={currentUser}
-                        onUpdateConfigurations={(cfg) => storage.saveData('configurations', cfg, currentUser).then(() => {
-                            setConfigurations(cfg);
-                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        onUpdateConfigurations={(cfg) => {
+                            const normalizedConfig = normalizeStockHandlingConfig(cfg);
+                            return storage.saveData('configurations', normalizedConfig, currentUser).then(() => {
+                            setConfigurations(normalizedConfig);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: normalizedConfig }));
                         })}
+                        }
                         addNotification={addNotification}
                         onCancel={closeEwayLoginSetup}
                         isActive={isActive}
@@ -2193,10 +2278,13 @@ const App: React.FC = () => {
                 case 'configuration':
                     return <Configuration
                         configurations={configurations}
-                        onUpdateConfigurations={(cfg: any) => storage.saveData('configurations', cfg, currentUser).then(() => {
-                            setConfigurations(cfg);
-                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: cfg }));
+                        onUpdateConfigurations={(cfg: any) => {
+                            const normalizedConfig = normalizeStockHandlingConfig(cfg);
+                            return storage.saveData('configurations', normalizedConfig, currentUser).then(() => {
+                            setConfigurations(normalizedConfig);
+                            window.dispatchEvent(new CustomEvent('configurations-updated', { detail: normalizedConfig }));
                         })}
+                        }
                         addNotification={addNotification} currentUser={currentUser} inventory={inventory}
                         transactions={transactions} purchases={purchases} distributors={suppliers} customers={customers} medicines={medicines}
                         onBulkAddInventory={(l: any) => storage.saveBulkData('inventory', l, currentUser)}

@@ -25,6 +25,8 @@ BEGIN
                 "colExpiry": true,
                 "colPack": true,
                 "colMrp": true,
+                "colPQty": true,
+                "colLQty": true,
                 "colQty": true,
                 "colFree": true,
                 "colPurRate": true,
