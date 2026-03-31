@@ -980,33 +980,7 @@ const App: React.FC = () => {
         }
 
         try {
-            // 1. Mark status as cancelled
-            const cancelledPurchase = { ...purchase, status: 'cancelled' as const };
-            await storage.saveData('purchases', cancelledPurchase, currentUser, true);
-            await storage.syncPurchaseLedger(cancelledPurchase, currentUser);
-            await storage.markVoucherCancelled('purchase-entry', currentUser, cancelledPurchase.purchaseSerialId, cancelledPurchase.id);
-
-            // 2. Reverse inventory (decrement stock that was added by this purchase)
-            const latestInventory = await storage.fetchInventory(currentUser);
-            for (const item of purchase.items) {
-                // Find matching inventory item
-                const inventoryMatch = latestInventory.find(i =>
-                    (i.name || '').toLowerCase().trim() === (item.name || '').toLowerCase().trim() &&
-                    (i.batch || 'UNSET').toLowerCase().trim() === (item.batch || 'UNSET').toLowerCase().trim()
-                );
-
-                if (inventoryMatch) {
-                    const uPP = resolveUnitsPerStrip(inventoryMatch.unitsPerPack, inventoryMatch.packType);
-                    const unitsToRemove = (item.quantity * uPP) + (item.looseQuantity || 0) + (item.freeQuantity || 0);
-
-                    const updatedInv = {
-                        ...inventoryMatch,
-                        stock: Math.max(0, Number(inventoryMatch.stock || 0) - unitsToRemove)
-                    };
-                    await storage.saveData('inventory', updatedInv, currentUser, true);
-                }
-            }
-
+            await storage.cancelPurchaseVoucher(purchaseId, currentUser);
             loadData(currentUser, 'background');
             addNotification("Purchase voucher cancelled and stock reversed.", "warning");
         } catch (e) {
@@ -1689,27 +1663,7 @@ const App: React.FC = () => {
                 }
             }
 
-            const cancelledTx = { ...tx, status: 'cancelled' as const };
-            await storage.saveData('sales_bill', cancelledTx, currentUser, true);
-            await storage.syncSalesLedger(cancelledTx, currentUser);
-            try {
-                await storage.markVoucherCancelled(cancelledTx.billType === 'non-gst' ? 'sales-non-gst' : 'sales-gst', currentUser, cancelledTx.id, cancelledTx.id);
-            } catch (error) {
-                console.warn('Unable to log voucher cancellation for invoice', cancelledTx.id, error);
-            }
-            const latestInventory = await storage.fetchInventory(currentUser);
-            for (const item of tx.items) {
-                const inv = latestInventory.find(i => i.id === item.inventoryItemId);
-                if (inv) {
-                    const policy = getInventoryPolicy(inv, medicines);
-                    if (!policy.inventorised) continue;
-                    const restoredUnits = (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0));
-                    const stockBefore = Number(inv.stock || 0);
-                    const stockAfter = stockBefore + restoredUnits;
-                    logStockMovement({ transactionType: 'sales-cancellation-reversal', voucherId: tx.id, item: inv.name, batch: inv.batch || 'UNSET', qty: restoredUnits, qtyIn: restoredUnits, stockBefore, stockAfter, organizationId: currentUser.organization_id, validationResult: 'allowed', mode: resolveStockHandlingConfig(configurations).mode });
-                    await storage.saveData('inventory', { ...inv, stock: stockAfter }, currentUser, true);
-                }
-            }
+            await storage.cancelSalesBill(id, currentUser);
             loadData(currentUser, 'background');
             addNotification("Voucher cancelled and stock reversed.", "warning");
         }
@@ -1902,29 +1856,6 @@ const App: React.FC = () => {
                         purchases={purchases}
                         onAddSalesReturn={async (sr) => {
                             await storage.addSalesReturn(sr, currentUser!);
-                            const savedSalesReturn = await storage.saveData('sales_returns', sr, currentUser!);
-
-                            try {
-                                await storage.syncSalesReturnLedger(savedSalesReturn, currentUser!);
-                            } catch (error) {
-                                console.warn('Unable to sync sales return ledger for', savedSalesReturn.id, error);
-                            }
-
-                            for (const item of (savedSalesReturn.items || [])) {
-                                const inv = inventory.find(i => i.id === item.inventoryItemId);
-                                if (!inv) continue;
-                                const policy = getInventoryPolicy(inv, medicines);
-                                if (!policy.inventorised) continue;
-
-                                const returnedQty = Number(item.returnQuantity || 0);
-                                if (returnedQty <= 0) continue;
-
-                                await storage.saveData('inventory', {
-                                    ...inv,
-                                    stock: inv.stock + (returnedQty * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType))
-                                }, currentUser!);
-                            }
-
                             await loadData(currentUser!, 'background');
                             addNotification('Sales return recorded.', 'success');
                         }}

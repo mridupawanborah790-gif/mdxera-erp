@@ -12,6 +12,7 @@
     import { normalizeImportDate } from '../utils/helpers';
     import { deductStockLooseFirst, normalizeUnitsPerPack } from '../utils/stock';
 import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHandling';
+import { getInventoryPolicy } from '../utils/materialType';
     import { DEFAULT_CONFIG_MISSING_MESSAGE, loadDefaultPostingContext } from './companyDefaultsService';
 
     export const generateUUID = () => crypto.randomUUID();
@@ -810,7 +811,18 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
     const getBillItemStockUnits = (item: BillItem, inventoryItem?: InventoryItem): number => {
         const resolvedUpp = normalizeUnitsPerPack(item.unitsPerPack ?? inventoryItem?.unitsPerPack, item.packType || inventoryItem?.packType);
-        return (Number(item.quantity || 0) * resolvedUpp) + Number(item.looseQuantity || 0);
+        return (Number(item.quantity || 0) * resolvedUpp) + Number(item.looseQuantity || 0) + Number(item.freeQuantity || 0);
+    };
+
+    const resolveInventoryForLine = (
+        currentInventory: InventoryItem[],
+        line: { inventoryItemId?: string; name?: string; batch?: string; }
+    ): InventoryItem | undefined => {
+        if (!line) return undefined;
+        const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
+        const inventoryByKey = new Map(currentInventory.map((inv) => [normalizeInventoryKey(inv.name, inv.batch), inv]));
+        return (line.inventoryItemId ? inventoryById.get(line.inventoryItemId) : undefined)
+            || inventoryByKey.get(normalizeInventoryKey(line.name, line.batch));
     };
 
     export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
@@ -1215,6 +1227,92 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
         await syncPurchaseLedger(p, user);
         return res;
+    };
+
+    export const cancelPurchaseVoucher = async (purchaseId: string, user: RegisteredPharmacy): Promise<Purchase> => {
+        const purchase = await idb.get(STORES.PURCHASES, purchaseId) as Purchase | undefined;
+        if (!purchase) throw new Error('Purchase voucher not found.');
+        if (purchase.status === 'cancelled') throw new Error('This purchase bill is already cancelled.');
+
+        const currentInventory = await fetchInventory(user);
+        const stockHandling = resolveStockHandlingConfig((await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[])?.[0]);
+
+        const unitsToReverseByInventoryId = new Map<string, number>();
+        for (const item of purchase.items || []) {
+            const matchedInventory = resolveInventoryForLine(currentInventory, item);
+            if (!matchedInventory) continue;
+            const units = (Number(item.quantity || 0) * normalizeUnitsPerPack(item.unitsPerPack ?? matchedInventory.unitsPerPack, item.packType || matchedInventory.packType))
+                + Number(item.looseQuantity || 0)
+                + Number(item.freeQuantity || 0);
+            unitsToReverseByInventoryId.set(
+                matchedInventory.id,
+                (unitsToReverseByInventoryId.get(matchedInventory.id) || 0) + units
+            );
+        }
+
+        for (const [inventoryItemId, unitsToReverse] of unitsToReverseByInventoryId.entries()) {
+            const inv = await idb.get(STORES.INVENTORY, inventoryItemId) as InventoryItem | undefined;
+            if (!inv) continue;
+            const stockBefore = Number(inv.stock || 0);
+            if (stockHandling.mode === 'strict' && stockBefore < unitsToReverse) {
+                logStockMovement({ transactionType: 'purchase-cancellation-reversal-validation', voucherId: purchase.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToReverse, qtyOut: unitsToReverse, stockBefore, stockAfter: stockBefore, organizationId: user.organization_id, validationResult: 'blocked', mode: stockHandling.mode, failureReason: 'insufficient_stock' });
+                throw new Error('Insufficient stock. Billing not allowed because Strict Stock Enforcement is enabled.');
+            }
+        }
+
+        const cancelledPurchase = { ...purchase, status: 'cancelled' as const };
+        const savedCancelled = await saveData('purchases', cancelledPurchase, user, true);
+
+        for (const [inventoryItemId, unitsToReverse] of unitsToReverseByInventoryId.entries()) {
+            const inv = await idb.get(STORES.INVENTORY, inventoryItemId) as InventoryItem | undefined;
+            if (!inv) continue;
+            const stockBefore = Number(inv.stock || 0);
+            const stockAfter = deductStockLooseFirst(stockBefore, unitsToReverse, inv.unitsPerPack, inv.packType, stockHandling.allowNegativeStock);
+            logStockMovement({ transactionType: 'purchase-cancellation-reversal', voucherId: purchase.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToReverse, qtyOut: unitsToReverse, stockBefore, stockAfter, organizationId: user.organization_id, validationResult: 'allowed', mode: stockHandling.mode });
+            await saveData('inventory', { ...inv, stock: stockAfter }, user, true);
+        }
+
+        await syncPurchaseLedger(cancelledPurchase, user);
+        await markVoucherCancelled('purchase-entry', user, cancelledPurchase.purchaseSerialId, cancelledPurchase.id);
+        return savedCancelled;
+    };
+
+    export const cancelSalesBill = async (salesBillId: string, user: RegisteredPharmacy): Promise<Transaction> => {
+        const tx = await idb.get(STORES.SALES_BILL, salesBillId) as Transaction | undefined;
+        if (!tx) throw new Error('Sales bill not found.');
+        if (tx.status === 'cancelled') throw new Error('This sales bill is already cancelled.');
+
+        const currentInventory = await fetchInventory(user);
+        const stockHandling = resolveStockHandlingConfig((await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[])?.[0]);
+
+        const unitsToRestoreByInventoryId = new Map<string, number>();
+        for (const item of tx.items || []) {
+            const matchedInventory = resolveInventoryForLine(currentInventory, item);
+            if (!matchedInventory) continue;
+            const units = getBillItemStockUnits(item, matchedInventory);
+            unitsToRestoreByInventoryId.set(
+                matchedInventory.id,
+                (unitsToRestoreByInventoryId.get(matchedInventory.id) || 0) + units
+            );
+        }
+
+        const cancelledTx = { ...tx, status: 'cancelled' as const };
+        const savedCancelled = await saveData('sales_bill', cancelledTx, user, true);
+
+        for (const [inventoryItemId, unitsToRestore] of unitsToRestoreByInventoryId.entries()) {
+            const inv = await idb.get(STORES.INVENTORY, inventoryItemId) as InventoryItem | undefined;
+            if (!inv) continue;
+            const policy = getInventoryPolicy(inv, []);
+            if (!policy.inventorised) continue;
+            const stockBefore = Number(inv.stock || 0);
+            const stockAfter = stockBefore + unitsToRestore;
+            logStockMovement({ transactionType: 'sales-cancellation-reversal', voucherId: tx.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToRestore, qtyIn: unitsToRestore, stockBefore, stockAfter, organizationId: user.organization_id, validationResult: 'allowed', mode: stockHandling.mode });
+            await saveData('inventory', { ...inv, stock: stockAfter }, user, true);
+        }
+
+        await syncSalesLedger(cancelledTx, user);
+        await markVoucherCancelled(cancelledTx.billType === 'non-gst' ? 'sales-non-gst' : 'sales-gst', user, cancelledTx.id, cancelledTx.id);
+        return savedCancelled;
     };
     export const saveCustomerPriceList = (entry: CustomerPriceListEntry, user: RegisteredPharmacy) => saveData('customer_price_list', entry, user);
 
@@ -2579,12 +2677,22 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     export const addSalesReturn = async (sr: SalesReturn, user: RegisteredPharmacy) => {
         const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
         const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
+        const currentInventory = await fetchInventory(user);
+
+        for (const item of sr.items || []) {
+            const inv = resolveInventoryForLine(currentInventory, item);
+            if (!inv) continue;
+            if (Number(item.returnQuantity || 0) <= 0) {
+                logStockMovement({ transactionType: 'sales-return-inward-validation', voucherId: sr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: Number(item.returnQuantity || 0), stockBefore: Number(inv.stock || 0), stockAfter: Number(inv.stock || 0), organizationId: user.organization_id, validationResult: 'blocked', mode: stockHandling.mode, failureReason: 'invalid_return_quantity' });
+                throw new Error('Return quantity must be greater than zero.');
+            }
+        }
+
         const res = await saveData('sales_returns', sr, user);
         
         // Update stock: Sales Return means items are coming BACK to inventory
         for (const item of sr.items || []) {
-            if (!item.inventoryItemId) continue;
-            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            const inv = resolveInventoryForLine(currentInventory, item);
             if (inv) {
                 const upp = normalizeUnitsPerPack(inv.unitsPerPack, inv.packType);
                 // Sales returnQuantity in UI is currently in PACKS (original bill quantity units)
@@ -2603,13 +2711,17 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     export const addPurchaseReturn = async (pr: PurchaseReturn, user: RegisteredPharmacy) => {
         const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
         const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
+        const currentInventory = await fetchInventory(user);
 
         // Strict stock validation BEFORE persisting return voucher (transaction-safe behavior).
         for (const item of pr.items || []) {
-            if (!item.inventoryItemId) continue;
-            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            const inv = resolveInventoryForLine(currentInventory, item);
             if (!inv) continue;
             const unitsToDeduct = Number(item.returnQuantity || 0);
+            if (unitsToDeduct <= 0) {
+                logStockMovement({ transactionType: 'purchase-return-outward-validation', voucherId: pr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore: Number(inv.stock || 0), stockAfter: Number(inv.stock || 0), organizationId: user.organization_id, validationResult: 'blocked', mode: stockHandling.mode, failureReason: 'invalid_return_quantity' });
+                throw new Error('Return quantity must be greater than zero.');
+            }
             const stockBefore = Number(inv.stock || 0);
             if (stockHandling.mode === 'strict' && stockBefore < unitsToDeduct) {
                 logStockMovement({ transactionType: 'purchase-return-outward-validation', voucherId: pr.id, item: inv.name, batch: inv.batch || 'UNSET', qty: unitsToDeduct, qtyOut: unitsToDeduct, stockBefore, stockAfter: stockBefore, organizationId: user.organization_id, validationResult: 'blocked', mode: stockHandling.mode });
@@ -2621,8 +2733,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
         // Update stock: Purchase Return means items are going OUT of inventory
         for (const item of pr.items || []) {
-            if (!item.inventoryItemId) continue;
-            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            const inv = resolveInventoryForLine(currentInventory, item);
             if (inv) {
                 // Purchase returnQuantity in UI is already in TOTAL UNITS (calculated in buildPurchaseReturnItems)
                 const unitsToDeduct = Number(item.returnQuantity || 0);
