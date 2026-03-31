@@ -356,7 +356,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                           </tr>
                       ))}
                       {processedData.length === 0 && (
-                          <tr><td colSpan={visibleHeaders.length} className="p-12 text-center text-[10pt] font-medium text-gray-400 italic uppercase tracking-widest">No data available for the selected filters</td></tr>
+                          <tr><td colSpan={visibleHeaders.length} className="p-12 text-center text-[10pt] font-medium text-gray-400 italic uppercase tracking-widest">No data found for selected date range</td></tr>
                       )}
                   </tbody>
                   {Object.keys(columnTotals).length > 0 && (
