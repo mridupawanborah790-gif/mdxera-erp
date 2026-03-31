@@ -107,6 +107,10 @@ const App: React.FC = () => {
 
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [medicines, setMedicines] = useState<Medicine[]>([]);
+    const medicinesRef = useRef<Medicine[]>([]);
+    useEffect(() => {
+        medicinesRef.current = medicines;
+    }, [medicines]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [purchases, setPurchases] = useState<Purchase[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -327,7 +331,7 @@ const App: React.FC = () => {
                 switch (specificTable) {
                     case 'inventory': {
                         const latestInventory = await storage.fetchInventory(user);
-                        setInventory(syncInventoryFromMaterialMaster(latestInventory, medicines));
+                        setInventory(syncInventoryFromMaterialMaster(latestInventory, medicinesRef.current));
                         break;
                     }
                     case 'material_master': {
@@ -450,7 +454,7 @@ const App: React.FC = () => {
             setIsAppLoading(false);
             setIsReloading(false);
         }
-    }, [addNotification, medicines, syncInventoryFromMaterialMaster]);
+    }, [addNotification, syncInventoryFromMaterialMaster]);
 
     const isDashboardScreen = currentPage === 'dashboard';
 
@@ -623,7 +627,7 @@ const App: React.FC = () => {
             }
             else setIsAppLoading(false);
         });
-    }, [loadData]);
+    }, []);
 
     const handleReload = useCallback(async () => {
         if (currentUser) await loadData(currentUser, 'sync');
