@@ -90,7 +90,9 @@ const createBlankItem = (): PurchaseItem => ({
     discountPercent: 0,
     schemeDiscountPercent: 0,
     schemeDiscountAmount: 0,
-    matchStatus: 'pending'
+    matchStatus: 'pending',
+    packType: '',
+    unitsPerPack: 1
 });
 
 interface PurchaseFormProps {
@@ -491,17 +493,22 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (bill.invoiceNumber) setInvoiceNumber(bill.invoiceNumber);
             if (bill.date) setDate(normalizeImportDate(bill.date) || date);
             if (bill.items && bill.items.length > 0) {
-                const newItems = bill.items.map(item => ({
-                    ...createBlankItem(),
-                    ...item,
-                    expiry: normalizeExpiryInput(formatExpiryToMMYY(item.expiry || '')),
-                    quantity: parseNumber(item.quantity),
-                    purchasePrice: parseNumber(item.purchasePrice),
-                    mrp: parseNumber(item.mrp),
-                    gstPercent: parseNumber(item.gstPercent) || 5,
-                    discountPercent: parseNumber(item.discountPercent),
-                    matchStatus: 'pending' as const
-                }));
+                const newItems = bill.items.map(item => {
+                    const packTypeStr = String(item.packType || (item as any).pack || '').trim();
+                    return {
+                        ...createBlankItem(),
+                        ...item,
+                        packType: packTypeStr,
+                        unitsPerPack: parseNumber(item.unitsPerPack) || parseInt(packTypeStr.match(/\d+/)?.[0] || '10', 10),
+                        expiry: normalizeExpiryInput(formatExpiryToMMYY(item.expiry || '')),
+                        quantity: parseNumber(item.quantity),
+                        purchasePrice: parseNumber(item.purchasePrice),
+                        mrp: parseNumber(item.mrp),
+                        gstPercent: parseNumber(item.gstPercent) || 5,
+                        discountPercent: parseNumber(item.discountPercent),
+                        matchStatus: 'pending' as const
+                    };
+                });
                 const linked = attemptAutoLink(newItems as PurchaseItem[], currentDistributor);
                 setItems([...linked, createBlankItem()]);
             }

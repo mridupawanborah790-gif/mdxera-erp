@@ -119,7 +119,9 @@ const createBlankItem = (): PurchaseItem => ({
     discountPercent: 0,
     schemeDiscountPercent: 0,
     schemeDiscountAmount: 0,
-    matchStatus: 'pending'
+    matchStatus: 'pending',
+    packType: '',
+    unitsPerPack: 1
 });
 
 type MobileSyncStatus = 'pending' | 'syncing' | 'uploading' | 'synced' | 'imported' | 'failed';
@@ -1186,6 +1188,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             name: batch.name,
             brand: batch.brand || '',
             category: batch.category || 'General',
+            packType: batch.packType || '',
+            unitsPerPack: batch.unitsPerPack || 1,
             batch: batch.batch || 'NEW-BATCH',
             expiry: formatExpiryToMMYY(batch.expiry ? String(batch.expiry) : ''),
             quantity: 1,
@@ -1534,25 +1538,29 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 };
             }
 
-            const newItems = bill.items.map(item => ({
-                ...createBlankItem(),
-                ...item,
-                name: String(item.name || '').trim(),
-                manufacturer: String(item.manufacturer || item.brand || '').trim(),
-                brand: String(item.manufacturer || item.brand || '').trim(),
-                packType: String(item.packType || (item as any).pack || '').trim(),
-                batch: String(item.batch || '').trim(),
-                expiry: normalizeExpiryInput(formatExpiryToMMYY(String(item.expiry || ''))),
-                quantity: parseNumber(item.quantity),
-                freeQuantity: parseNumber(item.freeQuantity),
-                purchasePrice: parseNumber(item.purchasePrice || (item as any).rate),
-                mrp: parseNumber(item.mrp),
-                gstPercent: parseNumber(item.gstPercent) || 5,
-                discountPercent: parseNumber(item.discountPercent),
-                schemeDiscountPercent: parseNumber(item.schemeDiscountPercent || (item as any).scheme),
-                schemeDiscountAmount: parseNumber(item.schemeDiscountAmount),
-                matchStatus: 'pending' as const
-            }));
+            const newItems = bill.items.map(item => {
+                const packTypeStr = String(item.packType || (item as any).pack || '').trim();
+                return {
+                    ...createBlankItem(),
+                    ...item,
+                    name: String(item.name || '').trim(),
+                    manufacturer: String(item.manufacturer || item.brand || '').trim(),
+                    brand: String(item.manufacturer || item.brand || '').trim(),
+                    packType: packTypeStr,
+                    unitsPerPack: parseNumber(item.unitsPerPack) || parseInt(packTypeStr.match(/\d+/)?.[0] || '10', 10),
+                    batch: String(item.batch || '').trim(),
+                    expiry: normalizeExpiryInput(formatExpiryToMMYY(String(item.expiry || ''))),
+                    quantity: parseNumber(item.quantity),
+                    freeQuantity: parseNumber(item.freeQuantity),
+                    purchasePrice: parseNumber(item.purchasePrice || (item as any).rate),
+                    mrp: parseNumber(item.mrp),
+                    gstPercent: parseNumber(item.gstPercent) || 5,
+                    discountPercent: parseNumber(item.discountPercent),
+                    schemeDiscountPercent: parseNumber(item.schemeDiscountPercent || (item as any).scheme),
+                    schemeDiscountAmount: parseNumber(item.schemeDiscountAmount),
+                    matchStatus: 'pending' as const
+                };
+            });
             linkedItems = attemptAutoLink(newItems as PurchaseItem[], matchedSupplier || null);
 
             if (linkedItems.length === 0) {

@@ -410,6 +410,7 @@ export interface PurchaseItem {
     matchStatus?: 'matched' | 'unmatched' | 'pending';
     selectedUnit?: 'pack' | 'loose';
     packType?: string;
+    unitsPerPack?: number;
     unitOfMeasurement?: string;
     manufacturer?: string;
     inventoryItemId?: string;
@@ -419,7 +420,6 @@ export interface PurchaseItem {
     taxableValue?: number;
     gstAmount?: number;
     calculatedSchemeDiscount?: number;
-    unitsPerPack?: number;
     lineTotal?: number;
 }
 
