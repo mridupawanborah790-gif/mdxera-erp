@@ -141,6 +141,17 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
     const isValidUuid = (value: any): boolean => 
         typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
+    // Standardize Primary Keys to 'id' for all tables.
+    // This aligns with the migration_proper_fix.sql and avoids collisions with Owner IDs.
+    const UUID_PK_TABLES: string[] = []; 
+    
+    // Tables that track ownership via created_by_id (Auth UUID)
+    const OWNER_TRACKING_TABLES = [
+        'inventory', 'purchases', 'suppliers', 'customers', 'sales_bill', 
+        'sales_returns', 'purchase_returns', 'material_master', 'purchase_orders', 
+        'sales_challans', 'delivery_challans', 'physical_inventory'
+    ];
+
     const pickFields = (payload: Record<string, any>, allowedFields: string[]) => {
         return allowedFields.reduce((acc, key) => {
             if (payload[key] !== undefined) {
@@ -154,55 +165,30 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         // 1. Start with a copy of the payload
         let sanitized: Record<string, any> = { ...payload };
 
-        // 2. Define tables that use 'user_id' as the UUID Primary Key in the database
-        // This follows the schema.sql refactor where 'id' columns were renamed to 'user_id'.
-        const uuidPkTables = [
-            'configurations', 'sales_challans', 'delivery_challans', 
-            'categories', 'sub_categories', 'promotions'
-        ];
-        
-        // 3. Define tables that use 'created_by_id' for ownership tracking (Auth UUID)
-        const ownerTrackingTables = [
-            'purchases', 'suppliers', 'customers', 'inventory', 'sales_bill', 
-            'sales_returns', 'purchase_returns', 'material_master', 'purchase_orders', 
-            'sales_challans', 'delivery_challans', 'physical_inventory'
-        ];
-
-        // 4. Apply Primary Key Mappings
-        if (uuidPkTables.includes(tableName)) {
-            // Modern schema uses 'user_id' as UUID PK for these tables
-            if (payload.id && isValidUuid(payload.id)) {
-                sanitized.user_id = payload.id;
-            }
-            delete sanitized.id;
-        } else if (tableName === 'sales_bill' || tableName === 'physical_inventory') {
-            // These tables use 'id' (text) as PK, but we might have a UUID in 'user_id' (legacy)
-            // or we might need to preserve 'id' as the human-readable voucher number.
+        // 2. Standard Primary Key Handling
+        // All modernized tables now use 'id' as the PK.
+        if (tableName === 'sales_bill' || tableName === 'physical_inventory') {
             if (!payload.id) {
                  sanitized.id = payload.invoiceNumber || generateUUID();
             }
-            // Ensure we don't send 'user_id' as a PK here if it's the owner's ID
         } else {
-            // Standard fallback: Ensure 'id' is a valid UUID if present for other tables
+            // Ensure 'id' is a valid UUID, otherwise strip it so DB can generate a new one
             if (payload.id && !isValidUuid(payload.id)) {
                 delete sanitized.id; 
             }
         }
 
-        // 5. Apply Ownership Tracking Mappings
-        if (ownerTrackingTables.includes(tableName)) {
-            // The app's 'user_id' state property contains the Auth User UUID.
-            // Map it to 'created_by_id' in the database for ownership/audit.
+        // 3. Apply Ownership Tracking Mappings
+        if (OWNER_TRACKING_TABLES.includes(tableName)) {
+            // Map the app's 'user_id' (Auth User UUID) to 'created_by_id' in DB
             if (payload.user_id && isValidUuid(payload.user_id)) {
                 sanitized.created_by_id = payload.user_id;
             }
             
-            // If the table is NOT using 'user_id' as its primary key, we should remove it
-            // to prevent "uuid = text" or other schema mismatch errors.
-            // If it IS a PK table, sanitized.user_id was already set above to the record's UUID.
-            if (!uuidPkTables.includes(tableName)) {
-                delete sanitized.user_id;
-            }
+            // Critical: Never send user_id as a column to the database.
+            // In your schema, user_id is often a legacy alias for the primary key.
+            // Removing it here prevents "Duplicate Key" and "UUID = Text" errors.
+            delete sanitized.user_id;
         }
 
         // 6. Generic UUID Guard for all ID fields and metadata cleanup
@@ -292,8 +278,14 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         if (!payload) return payload;
         let normalized = toCamel(payload);
 
-        // Map db.id back to app.id (should already be done by toCamel if key is 'id')
-        if (payload.id) normalized.id = payload.id;
+        // Map db primary key back to app.id
+        if (UUID_PK_TABLES.includes(tableName) && payload.user_id) {
+            // For modern schema tables, 'user_id' is the actual record UUID
+            normalized.id = payload.user_id;
+        } else if (payload.id) {
+            // For legacy or text-id tables, use 'id'
+            normalized.id = payload.id;
+        }
 
         // Map db.created_by_id back to app.user_id (owner)
         if (payload.created_by_id && !normalized.user_id) {

@@ -98,7 +98,7 @@ export const downloadMasterTemplate = () => {
 };
 
 export const downloadInventoryTemplate = () => {
-    const headers = ['Name', 'Brand', 'Category', 'Manufacturer', 'Stock', 'UnitsPerPack', 'PackType', 'UnitOfMeasurement', 'PackUnit', 'BaseUnit', 'MinStockLimit', 'Batch', 'Expiry', 'PurchasePrice', 'PTR', 'MRP', 'RateA', 'RateB', 'RateC', 'GSTPercent', 'HSNCode', 'Composition', 'Barcode', 'Deal', 'Free', 'SupplierName', 'RackNumber', 'Cost', 'Value', 'Code', 'Description', 'PurchaseDeal', 'PurchaseFree', 'TaxBasis', 'IsActive'];
+    const headers = ['Name', 'Brand', 'Category', 'Manufacturer', 'Stock', 'UnitsPerPack', 'PackType', 'UnitOfMeasurement', 'PackUnit', 'BaseUnit', 'MinStockLimit', 'Batch', 'Expiry', 'PurchasePrice', 'PTR', 'MRP', 'RateA', 'RateB', 'RateC', 'GSTPercent', 'HSNCode', 'Composition', 'Barcode', 'Deal', 'Free', 'SupplierName', 'RackNumber', 'Cost', 'Value', 'MaterialCode', 'Description', 'PurchaseDeal', 'PurchaseFree', 'TaxBasis', 'IsActive'];
     const example = ['Pan D Capsule', 'Alkem', 'Medicine', 'Alkem Laboratories', '100', '10', '10s', 'Tablet', 'Strip', 'Tablet', '10', 'BCH990', '07/26', '140.00', '150.00', '199.00', '180.00', '175.00', '170.00', '12', '3004', 'Composition Details', '8901234567890', '10', '1', 'S K Agencies', 'A-12', '14.00', '1400.00', 'ITEM001', 'Sample Description', '10', '1', '1-Tax Exclusive', 'TRUE'];
     downloadCsv([arrayToCsvRow(headers), arrayToCsvRow(example)].join('\n'), 'inventory_stock_template.csv');
 };
@@ -184,7 +184,7 @@ export function parseInventoryCsv(lines: string[]): Omit<InventoryItem, 'id' | '
         'Name', 'Brand', 'Category', 'Manufacturer', 'Stock', 'UnitsPerPack', 'PackType', 'UnitOfMeasurement',
         'PackUnit', 'BaseUnit', 'MinStockLimit', 'Batch', 'Expiry', 'PurchasePrice', 'PTR', 'MRP', 'RateA',
         'RateB', 'RateC', 'GSTPercent', 'HSNCode', 'Composition', 'Barcode', 'Deal', 'Free', 'SupplierName',
-        'RackNumber', 'Cost', 'Value', 'Code', 'Description', 'PurchaseDeal', 'PurchaseFree', 'TaxBasis', 'IsActive'
+        'RackNumber', 'Cost', 'Value', 'MaterialCode', 'Description', 'PurchaseDeal', 'PurchaseFree', 'TaxBasis', 'IsActive'
     ]);
 
     return lines.slice(1).filter(line => line.trim() !== '').map(line => {
@@ -226,7 +226,7 @@ export function parseInventoryCsv(lines: string[]): Omit<InventoryItem, 'id' | '
             rackNumber: getItem('RackNumber') || '',
             cost: getItem('Cost', parseNumber) || (uPP > 0 ? (purchasePrice / uPP) : purchasePrice),
             value: getItem('Value', parseNumber) || (uPP > 0 ? ((purchasePrice / uPP) * stock) : (purchasePrice * stock)),
-            code: getItem('Code') || '',
+            code: getItem('MaterialCode') || '',
             description: getItem('Description') || '',
             purchaseDeal: getItem('PurchaseDeal', parseNumber) || 0,
             purchaseFree: getItem('PurchaseFree', parseNumber) || 0,

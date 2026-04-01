@@ -156,14 +156,26 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                     {/* Header: Core ID & Barcode */}
                     <div className="flex flex-col md:flex-row justify-between items-start gap-8 border-b border-gray-100 pb-8">
                         <div className="flex-1 space-y-4">
-                            <div>
-                                <label className="block text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1.5 ml-1">Official Name</label>
-                                <input 
-                                    name="name" 
-                                    value={product.name} 
-                                    onChange={handleChange} 
-                                    className="w-full text-3xl font-black uppercase border-b-2 border-primary focus:border-accent outline-none bg-transparent"
-                                />
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="md:col-span-2">
+                                    <label className="block text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1.5 ml-1">Official Name</label>
+                                    <input 
+                                        name="name" 
+                                        value={product.name} 
+                                        onChange={handleChange} 
+                                        className="w-full text-2xl font-black uppercase border-b-2 border-primary focus:border-accent outline-none bg-transparent"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1.5 ml-1">Product Code</label>
+                                    <input 
+                                        name="code" 
+                                        value={product.code || ''} 
+                                        onChange={handleChange} 
+                                        placeholder="Link to Master Code"
+                                        className="w-full text-xl font-mono font-bold uppercase border-b-2 border-gray-300 focus:border-primary outline-none bg-transparent"
+                                    />
+                                </div>
                             </div>
                             <div className="grid grid-cols-2 gap-6">
                                 <div>
