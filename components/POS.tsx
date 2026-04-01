@@ -802,7 +802,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment]);
 
     const resetForm = useCallback(() => {
         setCartItems([]);
@@ -2295,7 +2295,7 @@ const POS = forwardRef<any, POSProps>(({
                                         if (btn === 'SAVE') handleSave();
                                         if (btn === 'PRINT' && transactionToEdit) onPrintBill(transactionToEdit);
                                         if (btn === 'HOLD') {
-                                            localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy }));
+                                            localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy, narration }));
                                             addNotification('Bill placed on hold.', 'success');
                                         }
                                         if (btn === 'RETURN' && onCancel) onCancel();

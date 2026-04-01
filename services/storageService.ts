@@ -177,11 +177,11 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         if (tableName === 'sales_bill') {
             sanitized = pickFields(payload, SALES_BILL_ALLOWED_FIELDS);
             // Explicit override to ensure these are never lost during picking
-            if (payload.narration) sanitized.narration = payload.narration;
+            if (payload.narration !== undefined) sanitized.narration = payload.narration;
             if (payload.adjustment !== undefined) sanitized.adjustment = payload.adjustment;
         } else if (tableName === 'sales_challans') {
             sanitized = pickFields(payload, SALES_CHALLAN_ALLOWED_FIELDS);
-            if (payload.narration) sanitized.narration = payload.narration;
+            if (payload.narration !== undefined) sanitized.narration = payload.narration;
         }
 
         // 2. Standard Primary Key Handling
@@ -231,6 +231,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         
         // RE-APPLY NARATION AND ADJUSTMENT AT THE END TO PREVENT ACCIDENTAL DELETION
         if (tableName === 'sales_bill' || tableName === 'sales_challans') {
+            // Use absolute assignment to bypass any filtering done in previous steps
             if (payload.narration !== undefined) sanitized.narration = payload.narration;
             if (payload.adjustment !== undefined) sanitized.adjustment = payload.adjustment;
         }
@@ -499,8 +500,24 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     result = saved;
                 }
                 
+                if (['sales_bill', 'sales_challans'].includes(tableName)) {
+                    console.info(`[storage:${tableName}] payload before save:`, snakeData);
+                }
+
                 // On successful supabase save, mark as synced and update local storage.
-                const syncedData = result ? { ...fromSupabase(tableName, result), sync_status: 'synced' } : { ...dbPayload, sync_status: 'synced' };
+                // MERGE GUARD: Prefer local values if server returns null/undefined for critical fields (schema cache issues)
+                let syncedData;
+                if (result) {
+                    const serverData = fromSupabase(tableName, result);
+                    syncedData = { ...dbPayload, ...serverData, sync_status: 'synced' };
+                    
+                    // Specific guard for narration/adjustment if they came back empty but were sent with values
+                    if (dbPayload.narration && !serverData.narration) syncedData.narration = dbPayload.narration;
+                    if (dbPayload.adjustment !== undefined && serverData.adjustment === undefined) syncedData.adjustment = dbPayload.adjustment;
+                } else {
+                    syncedData = { ...dbPayload, sync_status: 'synced' };
+                }
+                
                 await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], syncedData);
                 return syncedData;
             } catch (e: any) {
