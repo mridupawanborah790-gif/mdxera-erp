@@ -18,11 +18,12 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
   const computedTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
     billDiscount: bill.schemeDiscount || 0,
+    adjustment: bill.adjustment || 0,
     isNonGst,
     configurations: bill.configurations,
     organizationType: bill.pharmacy?.organization_type,
     pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const calculations = useMemo(() => {
     const effectivePricingMode = resolveEffectivePricingMode(bill.pharmacy?.organization_type, bill.pricingMode, bill.configurations);
@@ -71,8 +72,9 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
   const totals = {
     subTotal: computedTotals.taxableValue || 0,
     discount: computedTotals.billDiscount || bill.schemeDiscount || 0,
+    adjustment: bill.adjustment || computedTotals.adjustment || 0,
     taxTotal: isNonGst ? 0 : (computedTotals.tax || 0),
-    grandTotal: bill.total || computedTotals.baseTotal,
+    grandTotal: computedTotals.baseTotal,
   };
 
   const paginatedItems = useMemo(() => {

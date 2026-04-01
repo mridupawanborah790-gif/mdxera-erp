@@ -367,6 +367,8 @@ export interface Transaction {
     totalItemDiscount: number;
     totalGst: number;
     schemeDiscount: number;
+    adjustment?: number;
+    narration?: string;
     roundOff: number;
     amountReceived?: number;
     prescriptionImages?: string[] | string;
@@ -492,6 +494,7 @@ export interface SalesChallan {
     subtotal: number;
     totalGst: number;
     status: SalesChallanStatus;
+    narration?: string;
     remarks?: string;
 }
 

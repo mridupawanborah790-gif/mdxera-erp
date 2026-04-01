@@ -27,11 +27,12 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
     billDiscount: bill.schemeDiscount || 0,
+    adjustment: bill.adjustment || 0,
     isNonGst,
     configurations: bill.configurations,
     organizationType: bill.pharmacy?.organization_type,
     pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -107,10 +108,11 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     const taxableValue = computedBillTotals.taxableValue;
     const totalGst = isNonGst ? 0 : computedBillTotals.tax;
     const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
-    const grandTotal = bill.total || (taxableValue + totalGst + roundOff);
+    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const grandTotal = computedBillTotals.baseTotal;
 
     const schemeDiscount = computedBillTotals.schemeTotal || 0;
-    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, taxableValue, totalGst, roundOff, grandTotal };
+    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, adjustment, taxableValue, totalGst, roundOff, grandTotal };
   }, [bill, isNonGst, computedBillTotals, showBillDiscount]);
 
   return (

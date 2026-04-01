@@ -16,11 +16,12 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
     billDiscount: bill.schemeDiscount || 0,
+    adjustment: bill.adjustment || 0,
     isNonGst,
     configurations: bill.configurations,
     organizationType: bill.pharmacy?.organization_type,
     pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const billDetails = useMemo(() => {
     let subtotal = 0;
@@ -78,7 +79,10 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
       gstBreakdown[rate].tax += item.gstAmount;
     });
 
-    return { items, subtotal: computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax), totalGst: (isNonGst ? 0 : computedBillTotals.tax), gstBreakdown, totalQty, totalDiscountValue };
+    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const grandTotal = computedBillTotals.baseTotal;
+
+    return { items, subtotal: computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax), totalGst: (isNonGst ? 0 : computedBillTotals.tax), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal };
   }, [bill, isNonGst, computedBillTotals]);
 
   return (

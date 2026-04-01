@@ -53,7 +53,10 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
         };
     });
 
-    return { items: itemsWithCalculations, subtotal, totalCgst, totalSgst, totalDiscount, totalTradeDiscount, totalItemSchemeDiscount };
+    const adjustment = bill.adjustment || 0;
+    const finalBillTotal = bill.total || (subtotal + totalCgst + totalSgst + (bill.roundOff || 0) + adjustment);
+
+    return { items: itemsWithCalculations, subtotal, totalCgst, totalSgst, totalDiscount, totalTradeDiscount, totalItemSchemeDiscount, adjustment, finalBillTotal };
   }, [bill, isNonGst]);
 
   const showSchemeColumn = (billDetails.items || []).some(item => hasLineLevelSchemeDiscount(item));

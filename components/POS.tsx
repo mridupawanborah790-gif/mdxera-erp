@@ -272,6 +272,8 @@ const POS = forwardRef<any, POSProps>(({
     const [isProcessingRx, setIsProcessingRx] = useState(false);
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
+    const [adjustment, setAdjustment] = useState<number>(0);
+    const [narration, setNarration] = useState<string>('');
     const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(transactionToEdit?.pricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
     const rateFieldAvailable = useMemo(() => isRateFieldAvailable(configurations), [configurations]);
     const activeDoctors = useMemo(
@@ -464,8 +466,8 @@ const POS = forwardRef<any, POSProps>(({
     }, [cartItems.length]);
 
     const grandTotal = useMemo(() => {
-        return parseFloat((totals.baseTotal + roundOff).toFixed(2));
-    }, [totals.baseTotal, roundOff]);
+        return parseFloat((totals.baseTotal + roundOff + adjustment).toFixed(2));
+    }, [totals.baseTotal, roundOff, adjustment]);
 
     const effectiveOpenChallanExposure = useMemo(() => {
         if (!selectedCustomer?.id) return Number(openChallanExposure || 0);
@@ -601,11 +603,15 @@ const POS = forwardRef<any, POSProps>(({
                 };
             }));
             setLumpsumDiscount(transactionToEdit.schemeDiscount || 0);
+            setAdjustment(transactionToEdit.adjustment || 0);
+            setNarration(transactionToEdit.narration || '');
             setRoundOff(transactionToEdit.roundOff || 0);
             setIsRoundOffManuallyEdited(true);
         } else {
             setIsRoundOffManuallyEdited(false);
             setRoundOff(0);
+            setAdjustment(0);
+            setNarration('');
             // Default focus to Date field as requested
             setTimeout(() => dateInputRef.current?.focus(), 150);
         }
@@ -745,6 +751,8 @@ const POS = forwardRef<any, POSProps>(({
             totalItemDiscount: totals.tradeDiscount,
             totalGst: totals.tax,
             schemeDiscount: lumpsumDiscount,
+            adjustment,
+            narration,
             roundOff,
             status: 'completed',
             paymentMode: finalPaymentMode,
@@ -766,9 +774,11 @@ const POS = forwardRef<any, POSProps>(({
             setPrescriptions([]);
             setSelectedCustomer(null);
             setCustomerSearch('');
-            setLumpsumDiscount(0);
+            setCustomerPhone('');
             setReferredBy('');
-            setDoctorId(null);
+            setNarration('');
+            setAdjustment(0);
+            setLumpsumDiscount(0);
             setDoctorId(null);
             
             // Clear current reservation before getting next
@@ -803,6 +813,8 @@ const POS = forwardRef<any, POSProps>(({
         setReferredBy('');
         setDoctorId(null);
         setLumpsumDiscount(0);
+        setAdjustment(0);
+        setNarration('');
         setRoundOff(0);
         setIsRoundOffManuallyEdited(false);
         setReservedVoucherNumber(null);
@@ -2152,11 +2164,11 @@ const POS = forwardRef<any, POSProps>(({
                 </Card>
 
                 <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[145px] xl:min-h-[170px]">
-                    <div className="col-span-3 bg-[#e5f0f0] px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center">
+                    <div className="col-span-2 bg-[#e5f0f0] px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center overflow-hidden">
                         <div className="text-[10px] xl:text-[12px] font-bold uppercase space-y-0.5 xl:space-y-1">
-                            <div>Item : <span className="text-primary">{activeStockSnapshot?.item || '-'}</span></div>
-                            <div>Batch : <span className="text-primary">{activeStockSnapshot?.batch || '-'}</span></div>
-                            <div>Expiry : <span className="text-primary">{activeStockSnapshot?.expiry || '-'}</span></div>
+                            <div className="truncate">Item : <span className="text-primary" title={activeStockSnapshot?.item || '-'}>{activeStockSnapshot?.item || '-'}</span></div>
+                            <div className="truncate">Batch : <span className="text-primary">{activeStockSnapshot?.batch || '-'}</span></div>
+                            <div className="truncate">Expiry : <span className="text-primary">{activeStockSnapshot?.expiry || '-'}</span></div>
                             <div>Stock : <span className="text-primary">{activeStockSnapshot?.stock ?? 0}</span></div>
                             <div>MRP : <span className="text-primary">₹{(activeStockSnapshot?.mrp || 0).toFixed(2)}</span></div>
                         </div>
@@ -2199,18 +2211,26 @@ const POS = forwardRef<any, POSProps>(({
                                     }</span>
                                 </div>
                             </div>
-                            {!activeLineTotals && (
-                                <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 md:col-span-2 border-t border-gray-300 mt-0.5">
-                                    <span className="xl:text-[12px]">Bill Discount</span>
-                                    <input
-                                        type="number"
-                                        value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
-                                        onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
-                                        className="w-16 text-right bg-white border border-gray-300 font-normal text-[8px] xl:text-[10px] no-spinner outline-none px-1 h-4"
-                                        disabled={isReadOnly}
-                                    />
-                                </div>
-                            )}
+                            <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 md:col-span-2 border-t border-gray-300 mt-0.5">
+                                <span className="xl:text-[12px]">Bill Discount</span>
+                                <input
+                                    type="number"
+                                    value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
+                                    onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
+                                    className="w-16 text-right bg-white border border-gray-300 font-normal text-[8px] xl:text-[10px] no-spinner outline-none px-1 h-4"
+                                    disabled={isReadOnly}
+                                />
+                            </div>
+                            <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 md:col-span-2 border-t border-gray-300">
+                                <span className="xl:text-[12px]">Adjustment</span>
+                                <input
+                                    type="number"
+                                    value={adjustment === 0 ? '' : adjustment}
+                                    onChange={e => setAdjustment(parseFloat(e.target.value) || 0)}
+                                    className="w-16 text-right bg-white border border-gray-300 font-normal text-[8px] xl:text-[10px] no-spinner outline-none px-1 h-4"
+                                    disabled={isReadOnly}
+                                />
+                            </div>
                             <div className="flex justify-between">
                                 <span>GST%</span>
                                 <span>{(() => {
@@ -2220,22 +2240,35 @@ const POS = forwardRef<any, POSProps>(({
                                 })()}%</span>
                             </div>
                             <div className="flex justify-between font-black text-primary border-t border-gray-300 pt-0.5 mt-0.5">
-                                <span>{activeLineTotals ? 'Line Total' : 'Balance'}</span>
+                                <span>{activeLineTotals ? 'Line Total' : 'Bill Balance'}</span>
                                 <span>₹{(activeLineTotals ? (activeLineSummary?.finalLineTotal ?? 0) : (grandTotal ?? 0)).toFixed(2)}</span>
                             </div>
+                            {activeLineTotals && (
+                                <div className="flex justify-between font-black text-indigo-900 border-t border-gray-400 pt-0.5 mt-0.5 md:col-span-2">
+                                    <span>Net Bill Balance</span>
+                                    <span>₹{(grandTotal ?? 0).toFixed(2)}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
-                    <div className="col-span-3 bg-white px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center">
+                    <div className="col-span-2 bg-white px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center">
                         <div className="text-[9px] xl:text-[10px] font-black uppercase text-gray-500 mb-0.5">Customer Info</div>
                         <div className="text-[10px] xl:text-[11px] font-bold uppercase space-y-0.5 xl:space-y-1">
-                            <div>Area: {customerSnapshot.area}</div>
-                            <div>Route: {customerSnapshot.route}</div>
-                            <div>Collection Days: {customerSnapshot.collectionDays}</div>
-                            <div>Last Sale: {customerSnapshot.lastSale}</div>
-                            <div>Last Receipt: {customerSnapshot.lastReceipt}</div>
-                            <div>Avg Pay Days: {customerSnapshot.avgPaymentDays}</div>
+                            <div className="truncate">Area: {customerSnapshot.area}</div>
+                            <div className="truncate">Route: {customerSnapshot.route}</div>
                         </div>
+                    </div>
+
+                    <div className="col-span-2 bg-white px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col">
+                        <div className="text-[9px] xl:text-[10px] font-black uppercase text-gray-500 mb-0.5">Narration</div>
+                        <textarea
+                            value={narration}
+                            onChange={e => setNarration(e.target.value)}
+                            className="flex-1 w-full p-1 text-[10px] xl:text-[11px] font-bold uppercase border border-gray-300 outline-none focus:bg-yellow-50 resize-none leading-tight"
+                            placeholder="Type narration here..."
+                            disabled={isReadOnly}
+                        />
                     </div>
 
                     <div className="col-span-12 bg-[#255d55] px-2 py-1.5 text-white flex items-center gap-1 overflow-x-auto">

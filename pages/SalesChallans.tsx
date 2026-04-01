@@ -124,7 +124,8 @@ Do you want to continue?`);
             totalAmount: tx.total,
             subtotal: tx.subtotal,
             totalGst: tx.totalGst,
-            status: SalesChallanStatus.OPEN
+            status: SalesChallanStatus.OPEN,
+            narration: tx.narration
         };
 
         await onAddChallan(challan);

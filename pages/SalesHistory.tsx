@@ -436,6 +436,9 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                             {' '}| Customer: <span className="uppercase">{selectedTransaction?.customerName || '-'}</span>
                             {' '}| Voucher ID: <span className="font-mono">{selectedTransaction?.invoiceNumber || selectedTransaction?.id || '-'}</span>
                             {' '}| Amount: <span className="font-black">₹{(selectedTransaction?.total || 0).toFixed(2)}</span>
+                            {selectedTransaction?.narration && (
+                                <> | Narration: <span className="text-indigo-600 italic font-medium">{selectedTransaction.narration}</span></>
+                            )}
                         </div>
                         {actionWarning && <div className="text-[11px] font-bold text-red-700 bg-red-100 border border-red-200 px-2 py-1">{actionWarning}</div>}
                         <div className="flex flex-wrap gap-2">
