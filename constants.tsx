@@ -176,6 +176,17 @@ const RoleIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+const StethoscopeIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M8 3v7a4 4 0 0 0 8 0V3"></path>
+    <path d="M5 3h6"></path>
+    <path d="M13 3h6"></path>
+    <path d="M16 14a4 4 0 1 0 4 4"></path>
+    <circle cx="20" cy="18" r="1.5"></circle>
+    <path d="M12 14v2a6 6 0 0 0 6 6"></path>
+  </svg>
+);
+
 export const FileTextIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
     <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
@@ -249,6 +260,16 @@ export const navigation: NavItem[] = [
       { id: 'bulkUtility', name: 'Bulk Utility', href: '#', icon: UploadIcon_Internal, roles: ['owner', 'admin', 'manager', 'purchase'] },
     ]
   },
+  {
+    id: 'otherMaster',
+    name: 'Other Master',
+    href: '#',
+    icon: RoleIcon,
+    roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'],
+    children: [
+      { id: 'doctorsMaster', name: 'Doctor’s Master', href: '#', icon: StethoscopeIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
+    ]
+  },
   { id: 'substituteFinder', name: 'Substitute Finder', href: '#', icon: SubstituteIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk', 'viewer'] },
   { id: 'promotions', name: 'Promotions', href: '#', icon: PromotionIcon, roles: ['owner', 'admin', 'manager'] },
   {
@@ -297,6 +318,7 @@ export const MASTER_SHORTCUT_OPTIONS = [
     { id: 'masterPriceMaintain', label: 'Master Price Maintain', group: 'Masters', color: 'text-violet-600', icon: <MedicineIcon /> },
     { id: 'vendorNomenclature', label: 'Vendor Nomenclature', group: 'Masters', color: 'text-fuchsia-700', icon: <SuppliersIcon /> },
     { id: 'bulkUtility', label: 'Bulk Utility', group: 'Masters', color: 'text-slate-700', icon: <UploadIcon_Internal /> },
+    { id: 'doctorsMaster', label: 'Doctor’s Master', group: 'Masters', color: 'text-emerald-700', icon: <StethoscopeIcon /> },
 
     { id: 'substituteFinder', label: 'Substitute Finder', group: 'Utilities', color: 'text-rose-500', icon: <SubstituteIcon /> },
     { id: 'promotions', label: 'Promotions', group: 'Utilities', color: 'text-pink-600', icon: <PromotionIcon /> },
