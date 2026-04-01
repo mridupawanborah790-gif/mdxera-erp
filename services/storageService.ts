@@ -149,7 +149,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
     const OWNER_TRACKING_TABLES = [
         'inventory', 'purchases', 'suppliers', 'customers', 'sales_bill', 
         'sales_returns', 'purchase_returns', 'material_master', 'purchase_orders', 
-        'sales_challans', 'delivery_challans', 'physical_inventory'
+        'sales_challans', 'delivery_challans', 'physical_inventory', 'doctor_master'
     ];
 
     const pickFields = (payload: Record<string, any>, allowedFields: string[]) => {
@@ -344,7 +344,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         if (!user?.organization_id) throw new Error("Organizational identity not verified.");
         const dbPayload: any = { ...data, organization_id: user.organization_id };
         const currentUserId = user?.user_id || user?.id;
-        const ownershipTrackingTables = ['inventory', 'sales_bill', 'purchases', 'suppliers', 'customers', 'material_master', 'purchase_orders', 'sales_challans', 'delivery_challans', 'physical_inventory'];
+        const ownershipTrackingTables = ['inventory', 'sales_bill', 'purchases', 'suppliers', 'customers', 'material_master', 'purchase_orders', 'sales_challans', 'delivery_challans', 'physical_inventory', 'doctor_master'];
         if (ownershipTrackingTables.includes(tableName) && currentUserId && !dbPayload.user_id) {
             dbPayload.user_id = currentUserId;
         }

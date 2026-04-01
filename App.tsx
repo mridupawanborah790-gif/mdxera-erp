@@ -13,6 +13,7 @@ import Inventory from './pages/Inventory';
 import PhysicalInventory from './pages/PhysicalInventory';
 import Suppliers from './pages/Suppliers';
 import Customers from './pages/Customers';
+import DoctorsMaster from './pages/DoctorsMaster';
 import MaterialMaster from './components/MaterialMaster';
 import SubstituteFinder from './pages/SubstituteFinder';
 import Promotions from './pages/Promotions';
@@ -53,7 +54,7 @@ import {
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
     Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
     PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
-    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, BusinessRole
+    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, BusinessRole, DoctorMaster
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
@@ -75,6 +76,7 @@ const PERSISTABLE_SCREENS = new Set([
     'deliveryChallans', 'salesReturns', 'purchaseReturn', 'purchaseOrders', 'automatedPurchaseEntry',
     'manualPurchaseEntry', 'manualSupplierInvoice', 'purchaseHistory', 'inventory', 'physicalInventory',
     'suppliers', 'customers', 'medicineMasterList', 'masterPriceMaintain', 'vendorNomenclature', 'bulkUtility',
+    'doctorsMaster',
     'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst', 'eway', 'ewayLoginSetup',
     'businessUsers', 'businessRoles', 'companyConfiguration', 'configuration', 'settings',
     'classification', 'accountReceivable', 'accountPayable'
@@ -115,6 +117,7 @@ const App: React.FC = () => {
     const [purchases, setPurchases] = useState<Purchase[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
+    const [doctors, setDoctors] = useState<DoctorMaster[]>([]);
     const [ewayBills, setEwayBills] = useState<EWayBill[]>([]);
     const [mappings, setMappings] = useState<SupplierProductMap[]>([]);
     const [physicalInventory, setPhysicalInventory] = useState<PhysicalInventorySession[]>([]);
@@ -350,6 +353,7 @@ const App: React.FC = () => {
                     case 'purchases': setPurchases(await storage.fetchPurchases(user)); break;
                     case 'suppliers': setSuppliers(await storage.fetchSuppliers(user)); break;
                     case 'customers': setCustomers(await storage.fetchCustomers(user)); break;
+                    case 'doctor_master': setDoctors(await storage.getData('doctor_master', [], user)); break;
                     case 'configurations':
                         const cfg = await storage.getData('configurations', [], user);
                         if (cfg && cfg.length > 0) {
@@ -387,7 +391,7 @@ const App: React.FC = () => {
             }
 
             const [
-                freshProfile, inv, med, tx, pur, supp, cust, ewb, mapData, phy, dc, sc, po,
+                freshProfile, inv, med, tx, pur, supp, cust, doctorsData, ewb, mapData, phy, dc, sc, po,
                 sr, pr, cert, sub, promo, team, roleData, configData, mrpLogs
             ] = await Promise.all([
                 storage.fetchProfile(user.user_id),
@@ -397,6 +401,7 @@ const App: React.FC = () => {
                 storage.fetchPurchases(user),
                 storage.fetchSuppliers(user),
                 storage.fetchCustomers(user),
+                storage.getData('doctor_master', [], user),
                 storage.fetchEWayBills(user),
                 storage.fetchSupplierProductMaps(user),
                 storage.fetchPhysicalInventory(user),
@@ -421,6 +426,7 @@ const App: React.FC = () => {
             setPurchases(pur || []);
             setSuppliers(supp || []);
             setCustomers(cust || []);
+            setDoctors(doctorsData || []);
             setEwayBills(ewb || []);
             setMappings(mapData || []);
             setPhysicalInventory(phy || []);
@@ -1830,6 +1836,7 @@ const App: React.FC = () => {
                     return <POS
                         ref={isActive ? posRef : undefined}
                         inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
+                        doctors={doctors}
                         onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
                         onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
                         currentUser={currentUser} config={config} configurations={configurations}
@@ -2238,6 +2245,18 @@ const App: React.FC = () => {
                         onUnblockCustomer={(customer) => handleSetCustomerBlocked(customer, false)}
                         onDeleteCustomer={handleDeleteCustomer}
                         currentUser={currentUser} config={config} inventory={inventory} defaultCustomerControlGlId={defaultCustomerControlGlId}
+                    />;
+                case 'doctorsMaster':
+                    return <DoctorsMaster
+                        doctors={doctors}
+                        onSaveDoctor={async (doctor, isUpdate) => {
+                            await storage.saveData('doctor_master', doctor, currentUser, isUpdate);
+                            await loadData(currentUser!, 'targeted', 'doctor_master');
+                        }}
+                        onToggleDoctorStatus={async (doctor, nextActive) => {
+                            await storage.saveData('doctor_master', { ...doctor, is_active: nextActive }, currentUser, true);
+                            await loadData(currentUser!, 'targeted', 'doctor_master');
+                        }}
                     />;
                 case 'medicineMasterList':
                 case 'masterPriceMaintain':
