@@ -356,6 +356,7 @@ export interface Transaction {
     customerId?: string | null;
     customerPhone?: string;
     referredBy?: string;
+    doctorId?: string | null;
     items: BillItem[];
     total: number;
     itemCount: number | string;
@@ -900,11 +901,35 @@ export interface ExtractedSalesBill {
     customerName?: string;
     customerPhone?: string;
     referredBy?: string;
+    doctorId?: string;
     items: Partial<BillItem>[];
     total?: number;
     paymentMode?: string;
     billType?: 'regular' | 'non-gst';
     error?: string;
+}
+
+export interface DoctorMaster {
+    id: string;
+    organization_id: string;
+    doctorCode?: string;
+    name: string;
+    qualification?: string;
+    specialization?: string;
+    registrationNo?: string;
+    mobile?: string;
+    alternateContact?: string;
+    email?: string;
+    clinicName?: string;
+    area?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    commissionPercent?: number;
+    is_active?: boolean;
+    notes?: string;
+    createdAt?: string;
+    updatedAt?: string;
 }
 
 export interface Notification {
