@@ -367,6 +367,7 @@ export interface Transaction {
     totalItemDiscount: number;
     totalGst: number;
     schemeDiscount: number;
+    adjustment?: number;
     roundOff: number;
     amountReceived?: number;
     prescriptionImages?: string[] | string;

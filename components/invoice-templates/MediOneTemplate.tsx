@@ -20,11 +20,12 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
     billDiscount: bill.schemeDiscount || 0,
+    adjustment: bill.adjustment || 0,
     isNonGst,
     configurations: bill.configurations,
     organizationType: bill.pharmacy?.organization_type,
     pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -77,9 +78,10 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
 
     const billDiscount = bill.schemeDiscount || 0;
     const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
-    const grandTotal = bill.total || computedBillTotals.baseTotal;
+    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const grandTotal = computedBillTotals.baseTotal;
 
-    return { items, itemChunks, subtotalValue: computedBillTotals.taxableValue, totalGst: (isNonGst ? 0 : computedBillTotals.tax), billDiscount, roundOff, grandTotal };
+    return { items, itemChunks, subtotalValue: computedBillTotals.taxableValue, totalGst: (isNonGst ? 0 : computedBillTotals.tax), billDiscount, adjustment, roundOff, grandTotal };
   }, [bill, isNonGst, computedBillTotals]);
 
   return (

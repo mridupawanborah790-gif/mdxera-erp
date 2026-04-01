@@ -123,7 +123,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         'id', 'invoiceNumber', 'organization_id', 'user_id', 'created_by_id', 'date',
         'customerName', 'customerId', 'customerPhone', 'referredBy',
         'items', 'item_count',
-        'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'roundOff', 'total', 'amountReceived',
+        'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'adjustment', 'roundOff', 'total', 'amountReceived',
         'status', 'paymentMode', 'billType',
         'prescriptionUrl', 'prescriptionImages', 'linkedChallans',
         'createdAt', 'updatedAt'

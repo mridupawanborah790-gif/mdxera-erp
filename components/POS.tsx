@@ -272,6 +272,7 @@ const POS = forwardRef<any, POSProps>(({
     const [isProcessingRx, setIsProcessingRx] = useState(false);
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
+    const [adjustment, setAdjustment] = useState<number>(0);
     const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(transactionToEdit?.pricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
     const rateFieldAvailable = useMemo(() => isRateFieldAvailable(configurations), [configurations]);
     const activeDoctors = useMemo(
@@ -464,8 +465,8 @@ const POS = forwardRef<any, POSProps>(({
     }, [cartItems.length]);
 
     const grandTotal = useMemo(() => {
-        return parseFloat((totals.baseTotal + roundOff).toFixed(2));
-    }, [totals.baseTotal, roundOff]);
+        return parseFloat((totals.baseTotal + roundOff + adjustment).toFixed(2));
+    }, [totals.baseTotal, roundOff, adjustment]);
 
     const effectiveOpenChallanExposure = useMemo(() => {
         if (!selectedCustomer?.id) return Number(openChallanExposure || 0);
@@ -601,11 +602,13 @@ const POS = forwardRef<any, POSProps>(({
                 };
             }));
             setLumpsumDiscount(transactionToEdit.schemeDiscount || 0);
+            setAdjustment(transactionToEdit.adjustment || 0);
             setRoundOff(transactionToEdit.roundOff || 0);
             setIsRoundOffManuallyEdited(true);
         } else {
             setIsRoundOffManuallyEdited(false);
             setRoundOff(0);
+            setAdjustment(0);
             // Default focus to Date field as requested
             setTimeout(() => dateInputRef.current?.focus(), 150);
         }
@@ -745,6 +748,7 @@ const POS = forwardRef<any, POSProps>(({
             totalItemDiscount: totals.tradeDiscount,
             totalGst: totals.tax,
             schemeDiscount: lumpsumDiscount,
+            adjustment,
             roundOff,
             status: 'completed',
             paymentMode: finalPaymentMode,
@@ -803,6 +807,7 @@ const POS = forwardRef<any, POSProps>(({
         setReferredBy('');
         setDoctorId(null);
         setLumpsumDiscount(0);
+        setAdjustment(0);
         setRoundOff(0);
         setIsRoundOffManuallyEdited(false);
         setReservedVoucherNumber(null);
@@ -2199,18 +2204,26 @@ const POS = forwardRef<any, POSProps>(({
                                     }</span>
                                 </div>
                             </div>
-                            {!activeLineTotals && (
-                                <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 md:col-span-2 border-t border-gray-300 mt-0.5">
-                                    <span className="xl:text-[12px]">Bill Discount</span>
-                                    <input
-                                        type="number"
-                                        value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
-                                        onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
-                                        className="w-16 text-right bg-white border border-gray-300 font-normal text-[8px] xl:text-[10px] no-spinner outline-none px-1 h-4"
-                                        disabled={isReadOnly}
-                                    />
-                                </div>
-                            )}
+                            <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 md:col-span-2 border-t border-gray-300 mt-0.5">
+                                <span className="xl:text-[12px]">Bill Discount</span>
+                                <input
+                                    type="number"
+                                    value={lumpsumDiscount === 0 ? '' : lumpsumDiscount}
+                                    onChange={e => setLumpsumDiscount(parseFloat(e.target.value) || 0)}
+                                    className="w-16 text-right bg-white border border-gray-300 font-normal text-[8px] xl:text-[10px] no-spinner outline-none px-1 h-4"
+                                    disabled={isReadOnly}
+                                />
+                            </div>
+                            <div className="flex items-center justify-between text-indigo-700 gap-1 py-0.5 md:col-span-2 border-t border-gray-300">
+                                <span className="xl:text-[12px]">Adjustment</span>
+                                <input
+                                    type="number"
+                                    value={adjustment === 0 ? '' : adjustment}
+                                    onChange={e => setAdjustment(parseFloat(e.target.value) || 0)}
+                                    className="w-16 text-right bg-white border border-gray-300 font-normal text-[8px] xl:text-[10px] no-spinner outline-none px-1 h-4"
+                                    disabled={isReadOnly}
+                                />
+                            </div>
                             <div className="flex justify-between">
                                 <span>GST%</span>
                                 <span>{(() => {
@@ -2220,9 +2233,15 @@ const POS = forwardRef<any, POSProps>(({
                                 })()}%</span>
                             </div>
                             <div className="flex justify-between font-black text-primary border-t border-gray-300 pt-0.5 mt-0.5">
-                                <span>{activeLineTotals ? 'Line Total' : 'Balance'}</span>
+                                <span>{activeLineTotals ? 'Line Total' : 'Bill Balance'}</span>
                                 <span>₹{(activeLineTotals ? (activeLineSummary?.finalLineTotal ?? 0) : (grandTotal ?? 0)).toFixed(2)}</span>
                             </div>
+                            {activeLineTotals && (
+                                <div className="flex justify-between font-black text-indigo-900 border-t border-gray-400 pt-0.5 mt-0.5 md:col-span-2">
+                                    <span>Net Bill Balance</span>
+                                    <span>₹{(grandTotal ?? 0).toFixed(2)}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 

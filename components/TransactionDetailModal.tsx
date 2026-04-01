@@ -65,6 +65,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         totalItemDiscount, 
         totalGst, 
         schemeDiscount, 
+        adjustment,
         roundOff,
         prescriptionUrl, 
         prescriptionImages 
@@ -298,10 +299,11 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 </div>
 
                 <div className="flex flex-col md:flex-row justify-between items-center p-8 bg-[var(--modal-footer-bg-light)] dark:bg-[var(--modal-footer-bg-dark)] border-t border-[var(--modal-footer-border-light)] dark:border-[var(--modal-footer-border-dark)] gap-8 flex-shrink-0 z-20 shadow-[0_-10px_40px_-20px_rgba(0,0,0,0.1)]">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-y-2 gap-x-12 w-full md:w-auto">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-y-2 gap-x-12 w-full md:w-auto">
                         <div><span className="block text-[10px] font-normal text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">Base Value</span><span className="text-gray-900 dark:text-white text-lg">₹{(displaySubtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
                         <div><span className="block text-[10px] font-normal text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">GST (Tax)</span><span className="text-gray-900 dark:text-white text-lg">₹{(displayGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
                         <div><span className="block text-[10px] font-normal text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">Savings</span><span className="text-emerald-600 text-lg">₹{(displayItemDiscount + (schemeDiscount || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+                        <div><span className="block text-[10px] font-normal text-gray-400 uppercase tracking-widest leading-none mb-1.5 opacity-60">Adjustment</span><span className="text-indigo-600 text-lg">₹{(adjustment || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
                         <div className="flex items-baseline gap-4 md:col-span-1 pt-0"><span className="text-[10px] font-normal text-gray-400 uppercase tracking-widest opacity-60">Net Payable</span><span className="text-4xl font-normal text-[var(--modal-header-bg-light)] dark:text-[var(--modal-header-bg-dark)] leading-none tracking-tighter">₹{(total - totalReturnRefund || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
                     </div>
                     <div className="flex items-center space-x-3 w-full md:w-auto flex-shrink-0">

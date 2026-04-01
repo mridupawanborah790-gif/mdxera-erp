@@ -6,6 +6,7 @@ export type TaxCalculationBaseOption = 'subtotal' | 'after_trade_discount' | 'af
 interface TotalsInput {
   items: BillItem[];
   billDiscount?: number;
+  adjustment?: number;
   isNonGst?: boolean;
   configurations?: AppConfigurations;
   organizationType?: 'Retail' | 'Distributor';
@@ -21,6 +22,7 @@ export interface BillingTotals {
   afterTradeDiscountValue: number;
   afterSchemeDiscountValue: number;
   billDiscount: number;
+  adjustment: number;
   taxableValue: number;
   tax: number;
   baseTotal: number;
@@ -97,7 +99,7 @@ export const resolvePosLineAmountCalculationMode = (configurations?: AppConfigur
   return configurations?.displayOptions?.posLineAmountCalculationMode || 'excluding_discount';
 };
 
-export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = false, configurations, organizationType, pricingMode }: TotalsInput): BillingTotals => {
+export const calculateBillingTotals = ({ items, billDiscount = 0, adjustment = 0, isNonGst = false, configurations, organizationType, pricingMode }: TotalsInput): BillingTotals => {
   const { schemeBase, taxBase } = resolveBillingSettings(configurations);
   const effectivePricingMode = resolveEffectivePricingMode(organizationType, pricingMode, configurations);
 
@@ -168,7 +170,7 @@ export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = fal
     }, 0);
   }
 
-  const baseTotal = isNonGst ? taxableValue : (taxableValue + tax);
+  const baseTotal = (isNonGst ? taxableValue : (taxableValue + tax)) + adjustment;
   const autoRoundOff = Math.round(baseTotal) - baseTotal;
 
   return {
@@ -180,6 +182,7 @@ export const calculateBillingTotals = ({ items, billDiscount = 0, isNonGst = fal
     afterTradeDiscountValue,
     afterSchemeDiscountValue,
     billDiscount: safeBillDiscount,
+    adjustment,
     taxableValue,
     tax,
     baseTotal,
