@@ -122,10 +122,17 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
     const SALES_BILL_ALLOWED_FIELDS = [
         'id', 'invoiceNumber', 'organization_id', 'user_id', 'created_by_id', 'date',
         'customerName', 'customerId', 'customerPhone', 'referredBy',
-        'items', 'item_count',
-        'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'adjustment', 'roundOff', 'total', 'amountReceived',
+        'items', 'itemCount',
+        'subtotal', 'totalItemDiscount', 'totalGst', 'schemeDiscount', 'adjustment', 'narration', 'roundOff', 'total', 'amountReceived',
         'status', 'paymentMode', 'billType',
         'prescriptionUrl', 'prescriptionImages', 'linkedChallans',
+        'createdAt', 'updatedAt'
+    ];
+
+    const SALES_CHALLAN_ALLOWED_FIELDS = [
+        'id', 'challanSerialId', 'organization_id', 'user_id', 'created_by_id', 'date',
+        'customerName', 'customerId', 'customerPhone',
+        'items', 'totalAmount', 'subtotal', 'totalGst', 'status', 'narration', 'remarks',
         'createdAt', 'updatedAt'
     ];
 
@@ -165,6 +172,17 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
     const getSupabasePayload = (tableName: string, payload: Record<string, any>): Record<string, any> => {
         // 1. Start with a copy of the payload
         let sanitized: Record<string, any> = { ...payload };
+
+        // NEW: Explicitly filter fields for critical transactional tables to ensure new fields like 'narration' and 'adjustment' are prioritized.
+        if (tableName === 'sales_bill') {
+            sanitized = pickFields(payload, SALES_BILL_ALLOWED_FIELDS);
+            // Explicit override to ensure these are never lost during picking
+            if (payload.narration) sanitized.narration = payload.narration;
+            if (payload.adjustment !== undefined) sanitized.adjustment = payload.adjustment;
+        } else if (tableName === 'sales_challans') {
+            sanitized = pickFields(payload, SALES_CHALLAN_ALLOWED_FIELDS);
+            if (payload.narration) sanitized.narration = payload.narration;
+        }
 
         // 2. Standard Primary Key Handling
         // All modernized tables now use 'id' as the PK.
@@ -211,6 +229,12 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         // Explicitly remove remarks to prevent schema errors if not supported by backend
         delete sanitized.remarks;
         
+        // RE-APPLY NARATION AND ADJUSTMENT AT THE END TO PREVENT ACCIDENTAL DELETION
+        if (tableName === 'sales_bill' || tableName === 'sales_challans') {
+            if (payload.narration !== undefined) sanitized.narration = payload.narration;
+            if (payload.adjustment !== undefined) sanitized.adjustment = payload.adjustment;
+        }
+
         // Strip frontend-only unmapped fields from legacy tables to prevent schema cache errors
         if (['sales_bill', 'purchases'].includes(tableName)) {
             delete sanitized.company_code_id;
@@ -250,6 +274,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         return Object.keys(obj).reduce((acc, key) => {
             const preservedKeys = [
                 'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 
+                'narration', 'adjustment',
                 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
                 'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
                 'contact_person', 'opening_balance', 'supplier_group', 'control_gl_id',
@@ -302,6 +327,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             if (key.startsWith('_')) return acc;
             const preservedKeys = [
                 'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 
+                'narration', 'adjustment',
                 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
                 'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
                 'contact_person', 'opening_balance', 'supplier_group', 'control_gl_id',

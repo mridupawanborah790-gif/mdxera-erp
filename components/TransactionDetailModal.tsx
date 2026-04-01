@@ -66,6 +66,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         totalGst, 
         schemeDiscount, 
         adjustment,
+        narration,
         roundOff,
         prescriptionUrl, 
         prescriptionImages 
@@ -154,6 +155,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                                 <div><span className="block text-[10px] font-normal text-gray-500 uppercase">Date</span> <span>{new Date(transaction.date).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div>
                                 {transaction.paymentMode && <div><span className="block text-[10px] font-normal text-gray-500 uppercase">Pay Mode</span> <span className="text-[var(--modal-header-bg-light)] dark:text-[var(--modal-header-bg-dark)]">{transaction.paymentMode}</span></div>}
                                 {transaction.referredBy && <div><span className="block text-[10px] font-normal text-gray-500 uppercase">Referred By</span> <span className="truncate" title={transaction.referredBy}>{transaction.referredBy}</span></div>}
+                                {narration && <div className="col-span-2 mt-2 pt-2 border-t border-gray-100 dark:border-gray-800"><span className="block text-[10px] font-normal text-gray-500 uppercase">Narration / Notes</span> <p className="text-xs italic text-gray-600 dark:text-gray-400 mt-1 whitespace-pre-wrap">{narration}</p></div>}
                             </div>
                         </div>
 
