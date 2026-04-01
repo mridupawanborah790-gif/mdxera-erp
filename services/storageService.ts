@@ -143,7 +143,8 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
 
     // Standardize Primary Keys to 'id' for all tables.
     // This aligns with the migration_proper_fix.sql and avoids collisions with Owner IDs.
-    const UUID_PK_TABLES: string[] = []; 
+    const UUID_PK_TABLES: string[] = [];
+    const TEXT_PK_TABLES = ['sales_returns', 'purchase_returns'];
     
     // Tables that track ownership via created_by_id (Auth UUID)
     const OWNER_TRACKING_TABLES = [
@@ -171,7 +172,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             if (!payload.id) {
                  sanitized.id = payload.invoiceNumber || generateUUID();
             }
-        } else {
+        } else if (!TEXT_PK_TABLES.includes(tableName)) {
             // Ensure 'id' is a valid UUID, otherwise strip it so DB can generate a new one
             if (payload.id && !isValidUuid(payload.id)) {
                 delete sanitized.id; 
