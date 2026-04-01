@@ -421,7 +421,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 let result;
                 // Use .insert() for new records to ensure we don't accidentally overwrite existing data
                 // Use .upsert() only when explicitly requested as an update
-                if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders', 'material_master'].includes(tableName)) {
+                if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders', 'material_master', 'doctor_master'].includes(tableName)) {
                     const maxAttempts = tableName === 'material_master' ? 5 : 1;
                     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                         if (tableName === 'material_master') {
