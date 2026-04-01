@@ -13,7 +13,7 @@ import ProductInsightsPanel from './ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { supabase } from '../services/supabaseClient';
-import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput, MasterPriceMaintainRecord, SalesChallan } from '../types';
+import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput, MasterPriceMaintainRecord, SalesChallan, DoctorMaster } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
@@ -27,6 +27,7 @@ interface POSProps {
     purchases: Purchase[];
     medicines: Medicine[];
     customers: Customer[];
+    doctors?: DoctorMaster[];
     onSaveOrUpdateTransaction: (transaction: Transaction, isUpdate: boolean, nextCounter?: number) => Promise<void>;
     onPrintBill: (transaction: Transaction) => void;
     currentUser: RegisteredPharmacy | null;
@@ -224,6 +225,7 @@ const POS = forwardRef<any, POSProps>(({
     purchases,
     medicines,
     customers,
+    doctors = [],
     onSaveOrUpdateTransaction,
     onPrintBill,
     currentUser,
@@ -256,6 +258,9 @@ const POS = forwardRef<any, POSProps>(({
     const [billCategory, setBillCategory] = useState<'Cash Bill' | 'Credit Bill'>('Cash Bill');
     const [billMode, setBillMode] = useState<'GST' | 'EST'>(billType === 'non-gst' ? 'EST' : 'GST');
     const [referredBy, setReferredBy] = useState('');
+    const [doctorId, setDoctorId] = useState<string | null>(null);
+    const [isDoctorQuickAddOpen, setIsDoctorQuickAddOpen] = useState(false);
+    const [quickDoctorName, setQuickDoctorName] = useState('');
     const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
     const [cartItems, setCartItems] = useState<BillItem[]>([]);
     const [prescriptions, setPrescriptions] = useState<UploadedFile[]>([]);
@@ -269,6 +274,10 @@ const POS = forwardRef<any, POSProps>(({
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
     const [localPricingMode, setLocalPricingMode] = useState<'mrp' | 'rate'>(transactionToEdit?.pricingMode || configurations?.displayOptions?.pricingMode || 'mrp');
     const rateFieldAvailable = useMemo(() => isRateFieldAvailable(configurations), [configurations]);
+    const activeDoctors = useMemo(
+        () => doctors.filter(d => d.is_active !== false).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+        [doctors]
+    );
 
     useEffect(() => {
         if (!rateFieldAvailable) {
@@ -581,6 +590,7 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch(transactionToEdit.customerName || '');
             setCustomerPhone(transactionToEdit.customerPhone || '');
             setReferredBy(transactionToEdit.referredBy || '');
+            setDoctorId(transactionToEdit.doctorId || null);
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
             setCartItems((transactionToEdit.items || []).map(item => {
                 const normalizedItem = normalizePackConversion(item);
@@ -728,6 +738,7 @@ const POS = forwardRef<any, POSProps>(({
             customerId: selectedCustomer?.id,
             customerPhone: customerPhone || selectedCustomer?.phone,
             referredBy: referredBy || '',
+            doctorId: doctorId || null,
             items: cartItems,
             total: grandTotal,
             subtotal: parseFloat(totals.subtotal.toFixed(2)),
@@ -757,6 +768,8 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerSearch('');
             setLumpsumDiscount(0);
             setReferredBy('');
+            setDoctorId(null);
+            setDoctorId(null);
             
             // Clear current reservation before getting next
             setReservedVoucherNumber(null);
@@ -779,7 +792,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId]);
 
     const resetForm = useCallback(() => {
         setCartItems([]);
@@ -788,6 +801,7 @@ const POS = forwardRef<any, POSProps>(({
         setCustomerSearch('');
         setCustomerPhone('');
         setReferredBy('');
+        setDoctorId(null);
         setLumpsumDiscount(0);
         setRoundOff(0);
         setIsRoundOffManuallyEdited(false);
@@ -1605,7 +1619,37 @@ const POS = forwardRef<any, POSProps>(({
         setSelectedRowIndex(index);
     }, []);
 
+    const handleReferredByChange = (value: string) => {
+        setReferredBy(value);
+        const matchedDoctor = activeDoctors.find(d => (d.name || '').trim().toLowerCase() === value.trim().toLowerCase());
+        setDoctorId(matchedDoctor?.id || null);
+    };
+
+    const handleQuickDoctorSave = async () => {
+        if (!currentUser || !quickDoctorName.trim()) return;
+        const payload: DoctorMaster = {
+            id: crypto.randomUUID(),
+            organization_id: currentUser.organization_id,
+            doctorCode: '',
+            name: quickDoctorName.trim(),
+            mobile: '',
+            specialization: '',
+            is_active: true,
+        };
+        await storage.saveData('doctor_master', payload, currentUser);
+        setReferredBy(payload.name);
+        setDoctorId(payload.id);
+        setIsDoctorQuickAddOpen(false);
+        addNotification('Doctor saved and selected.', 'success');
+    };
+
     const handleReferredByKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            setQuickDoctorName(referredBy || '');
+            setIsDoctorQuickAddOpen(true);
+            return;
+        }
         if (e.key === 'Enter') {
             e.preventDefault();
             // Start row navigation: focus the first name field if it exists, otherwise search input
@@ -1705,12 +1749,18 @@ const POS = forwardRef<any, POSProps>(({
                             <input
                                 type="text"
                                 value={referredBy}
-                                onChange={e => setReferredBy(e.target.value)}
+                                onChange={e => handleReferredByChange(e.target.value)}
                                 onKeyDown={handleReferredByKeyDown}
                                 className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50"
                                 placeholder="Doctor Name"
                                 disabled={isReadOnly}
+                                list="doctor-master-options"
                             />
+                            <datalist id="doctor-master-options">
+                                {activeDoctors.map(doc => (
+                                    <option key={doc.id} value={doc.name} />
+                                ))}
+                            </datalist>
                         </div>
                     )}
                     {isFieldVisible('optBillingCategory') && (
@@ -2546,6 +2596,42 @@ const POS = forwardRef<any, POSProps>(({
                             type="button"
                         >
                             {isQuickAddCustomerSaving ? 'Saving...' : 'Save & Select (Enter)'}
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={isDoctorQuickAddOpen}
+                onClose={() => setIsDoctorQuickAddOpen(false)}
+                title="Register New Doctor"
+            >
+                <div className="p-4 space-y-3">
+                    <p className="text-[10px] font-bold uppercase text-gray-500">Triggered via Ctrl + Enter in Referred By field.</p>
+                    <div>
+                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">Doctor Name *</label>
+                        <input
+                            type="text"
+                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold uppercase focus:bg-yellow-50 outline-none"
+                            value={quickDoctorName}
+                            onChange={e => setQuickDoctorName(e.target.value)}
+                            autoFocus
+                        />
+                    </div>
+                    <div className="pt-2 flex justify-end gap-2">
+                        <button
+                            className="px-4 py-2 text-xs font-black uppercase border border-gray-300 text-gray-600"
+                            onClick={() => setIsDoctorQuickAddOpen(false)}
+                            type="button"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            className="px-4 py-2 text-xs font-black uppercase bg-primary text-white"
+                            onClick={handleQuickDoctorSave}
+                            type="button"
+                        >
+                            Save & Select
                         </button>
                     </div>
                 </div>

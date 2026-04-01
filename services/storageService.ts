@@ -143,13 +143,14 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
 
     // Standardize Primary Keys to 'id' for all tables.
     // This aligns with the migration_proper_fix.sql and avoids collisions with Owner IDs.
-    const UUID_PK_TABLES: string[] = []; 
+    const UUID_PK_TABLES: string[] = [];
+    const TEXT_PK_TABLES = ['sales_returns', 'purchase_returns'];
     
     // Tables that track ownership via created_by_id (Auth UUID)
     const OWNER_TRACKING_TABLES = [
         'inventory', 'purchases', 'suppliers', 'customers', 'sales_bill', 
         'sales_returns', 'purchase_returns', 'material_master', 'purchase_orders', 
-        'sales_challans', 'delivery_challans', 'physical_inventory'
+        'sales_challans', 'delivery_challans', 'physical_inventory', 'doctor_master'
     ];
 
     const pickFields = (payload: Record<string, any>, allowedFields: string[]) => {
@@ -171,7 +172,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             if (!payload.id) {
                  sanitized.id = payload.invoiceNumber || generateUUID();
             }
-        } else {
+        } else if (!TEXT_PK_TABLES.includes(tableName)) {
             // Ensure 'id' is a valid UUID, otherwise strip it so DB can generate a new one
             if (payload.id && !isValidUuid(payload.id)) {
                 delete sanitized.id; 
@@ -344,7 +345,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         if (!user?.organization_id) throw new Error("Organizational identity not verified.");
         const dbPayload: any = { ...data, organization_id: user.organization_id };
         const currentUserId = user?.user_id || user?.id;
-        const ownershipTrackingTables = ['inventory', 'sales_bill', 'purchases', 'suppliers', 'customers', 'material_master', 'purchase_orders', 'sales_challans', 'delivery_challans', 'physical_inventory'];
+        const ownershipTrackingTables = ['inventory', 'sales_bill', 'purchases', 'suppliers', 'customers', 'material_master', 'purchase_orders', 'sales_challans', 'delivery_challans', 'physical_inventory', 'doctor_master'];
         if (ownershipTrackingTables.includes(tableName) && currentUserId && !dbPayload.user_id) {
             dbPayload.user_id = currentUserId;
         }
@@ -421,7 +422,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 let result;
                 // Use .insert() for new records to ensure we don't accidentally overwrite existing data
                 // Use .upsert() only when explicitly requested as an update
-                if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders', 'material_master'].includes(tableName)) {
+                if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders', 'material_master', 'doctor_master'].includes(tableName)) {
                     const maxAttempts = tableName === 'material_master' ? 5 : 1;
                     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                         if (tableName === 'material_master') {
