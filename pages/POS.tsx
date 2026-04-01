@@ -181,6 +181,7 @@ const POS = forwardRef<any, POSProps>(({
                 .from('sales_bill')
                 .select('total, date')
                 .eq('organization_id', currentUser.organization_id)
+                .eq('status', 'completed')
                 .gte('date', startOfMonthStr);
 
             if (monthData) {
@@ -199,6 +200,7 @@ const POS = forwardRef<any, POSProps>(({
                 .from('sales_bill')
                 .select('*')
                 .eq('organization_id', currentUser.organization_id)
+                .eq('status', 'completed')
                 .order('created_at', { ascending: false })
                 .limit(20);
             if (recent) setSalesHistory(recent.map(r => storage.toCamel(r)));
@@ -705,7 +707,7 @@ const POS = forwardRef<any, POSProps>(({
         storage.fetchTransactions(currentUser)
             .then((rows) => {
                 if (!isMounted) return;
-                setSalesHistory((rows || []).filter((row: Transaction) => row.organization_id === currentUser.organization_id));
+                setSalesHistory((rows || []).filter((row: Transaction) => row.organization_id === currentUser.organization_id && row.status === 'completed'));
             })
             .finally(() => {
                 if (isMounted) setIsInsightsLoading(false);
