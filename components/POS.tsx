@@ -300,6 +300,7 @@ const POS = forwardRef<any, POSProps>(({
                 .from('sales_bill')
                 .select('total, date')
                 .eq('organization_id', currentUser.organization_id)
+                .eq('status', 'completed')
                 .gte('date', startOfMonthStr);
 
             if (selectedCustomer?.id) {
@@ -324,6 +325,7 @@ const POS = forwardRef<any, POSProps>(({
                 .from('sales_bill')
                 .select('*')
                 .eq('organization_id', currentUser.organization_id)
+                .eq('status', 'completed')
                 .order('created_at', { ascending: false })
                 .limit(20);
 
