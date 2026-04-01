@@ -280,6 +280,9 @@ const App: React.FC = () => {
             gstPercent: Number(material.gstRate ?? item.gstPercent ?? 0),
             hsnCode: material.hsnCode || '',
             mrp: syncedMrp,
+            rateA: Number(material.rateA || item.rateA || 0),
+            rateB: Number(material.rateB || item.rateB || 0),
+            rateC: Number(material.rateC || item.rateC || 0),
         };
     }, [parseMrpNumber]);
 
@@ -1032,75 +1035,119 @@ const App: React.FC = () => {
         const oldMrp = parseMrpNumber(existingItem?.mrp);
         const newMrp = parseMrpNumber(updatedItem.mrp);
         const normalizedCode = normalizeCode(updatedItem.code);
+        
+        // Find linked Master Record by Code (The Single Source of Truth)
         const linkedMedicine = normalizedCode
             ? medicines.find(m => normalizeCode(m.materialCode) === normalizedCode)
             : undefined;
+        
         let syncedInventoryItem = updatedItem;
 
-        if (normalizedCode) {
-            if (linkedMedicine) {
-                const nextPack = (updatedItem.packType || '').trim() || (linkedMedicine.pack || '').trim();
-                const nextGstRate = Number(updatedItem.gstPercent ?? linkedMedicine.gstRate ?? 0);
-                const nextHsnCode = (updatedItem.hsnCode || linkedMedicine.hsnCode || '').trim();
-                const nextMaterialMaster: Medicine = {
-                    ...linkedMedicine,
-                    pack: nextPack,
-                    gstRate: nextGstRate,
-                    hsnCode: nextHsnCode,
-                    mrp: newMrp.toFixed(2),
+        if (normalizedCode && linkedMedicine) {
+            const nextPack = (updatedItem.packType || '').trim() || (linkedMedicine.pack || '').trim();
+            const nextGstRate = Number(updatedItem.gstPercent ?? linkedMedicine.gstRate ?? 0);
+            const nextHsnCode = (updatedItem.hsnCode || linkedMedicine.hsnCode || '').trim();
+            
+            const nextMaterialMaster: Medicine = {
+                ...linkedMedicine,
+                pack: nextPack,
+                gstRate: nextGstRate,
+                hsnCode: nextHsnCode,
+                mrp: newMrp.toFixed(2),
+                rateA: Number(updatedItem.rateA || 0),
+                rateB: Number(updatedItem.rateB || 0),
+                rateC: Number(updatedItem.rateC || 0),
+            };
+
+            const today = new Date().toISOString().slice(0, 10);
+            const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
+                if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
+                return {
+                    ...record,
+                    mrp: newMrp,
                     rateA: Number(updatedItem.rateA || 0),
                     rateB: Number(updatedItem.rateB || 0),
                     rateC: Number(updatedItem.rateC || 0),
+                    lastUpdatedBy: currentUser.full_name || currentUser.email,
+                    lastUpdatedOn: new Date().toISOString(),
+                    auditTrail: [
+                        ...(record.auditTrail || []),
+                        {
+                            changedAt: new Date().toISOString(),
+                            changedBy: currentUser.full_name || currentUser.email,
+                            sourceModule: 'Inventory' as const,
+                            field: 'mrp_rate_sync',
+                            oldValue: `MRP:${record.mrp} RateA:${record.rateA} RateB:${record.rateB} RateC:${record.rateC}`,
+                            newValue: `MRP:${newMrp} RateA:${Number(updatedItem.rateA || 0)} RateB:${Number(updatedItem.rateB || 0)} RateC:${Number(updatedItem.rateC || 0)}`
+                        }
+                    ]
                 };
+            });
 
-                const today = new Date().toISOString().slice(0, 10);
-                const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
-                    if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
+            const finalMaterialMaster: Medicine = {
+                ...nextMaterialMaster,
+                masterPriceMaintains: nextPriceRecords
+            };
+
+            // 1. Save Master Record
+            await storage.saveData('material_master', finalMaterialMaster, currentUser, true);
+            
+            // 2. Update local state immediately
+            setMedicines(prev => prev.map(m => m.id === finalMaterialMaster.id ? finalMaterialMaster : m));
+
+            // 3. Propagate to ALL other batches sharing this Material Code
+            const otherBatches = inventory.filter(i => i.id !== updatedItem.id && normalizeCode(i.code) === normalizedCode);
+            if (otherBatches.length > 0) {
+                await Promise.all(
+                    otherBatches.map(batch => 
+                        storage.saveData('inventory', {
+                            ...batch,
+                            packType: updatedItem.packType,
+                            unitsPerPack: updatedItem.unitsPerPack,
+                            gstPercent: updatedItem.gstPercent,
+                            hsnCode: updatedItem.hsnCode,
+                            mrp: updatedItem.mrp,
+                            rateA: updatedItem.rateA,
+                            rateB: updatedItem.rateB,
+                            rateC: updatedItem.rateC,
+                        }, currentUser, true)
+                    )
+                );
+            }
+
+            // 4. Force local inventory state to align for all batches
+            setInventory(prev => prev.map(item => {
+                const itemCode = normalizeCode(item.code);
+                if (itemCode && itemCode === normalizedCode) {
                     return {
-                        ...record,
-                        mrp: newMrp,
-                        rateA: Number(syncedInventoryItem.rateA || 0),
-                        rateB: Number(syncedInventoryItem.rateB || 0),
-                        rateC: Number(syncedInventoryItem.rateC || 0),
-                        lastUpdatedBy: currentUser.full_name || currentUser.email,
-                        lastUpdatedOn: new Date().toISOString(),
-                        auditTrail: [
-                            ...(record.auditTrail || []),
-                            {
-                                changedAt: new Date().toISOString(),
-                                changedBy: currentUser.full_name || currentUser.email,
-                                sourceModule: 'Inventory',
-                                field: 'mrp_rate_sync',
-                                oldValue: `MRP:${record.mrp} RateA:${record.rateA} RateB:${record.rateB} RateC:${record.rateC}`,
-                                newValue: `MRP:${newMrp} RateA:${Number(syncedInventoryItem.rateA || 0)} RateB:${Number(syncedInventoryItem.rateB || 0)} RateC:${Number(syncedInventoryItem.rateC || 0)}`
-                            }
-                        ]
+                        ...item,
+                        packType: updatedItem.packType,
+                        unitsPerPack: updatedItem.unitsPerPack,
+                        gstPercent: updatedItem.gstPercent,
+                        hsnCode: updatedItem.hsnCode,
+                        mrp: updatedItem.mrp,
+                        rateA: updatedItem.rateA,
+                        rateB: updatedItem.rateB,
+                        rateC: updatedItem.rateC,
                     };
-                });
+                }
+                return item;
+            }));
 
-                await storage.saveData('material_master', {
-                    ...nextMaterialMaster,
-                    masterPriceMaintains: nextPriceRecords
-                }, currentUser, true);
-
-                syncedInventoryItem = syncInventoryItemWithMaterialMaster(updatedItem, nextMaterialMaster);
-
-                if (Math.abs(oldMrp - newMrp) >= 0.0001) {
+            if (Math.abs(oldMrp - newMrp) >= 0.0001) {
                 await createMrpChangeLog(
                     'Inventory',
-                    syncedInventoryItem.code || linkedMedicine.materialCode,
-                    syncedInventoryItem.name || linkedMedicine.name,
+                    normalizedCode,
+                    updatedItem.name || linkedMedicine.name,
                     oldMrp,
                     newMrp
                 );
-                }
             }
         }
 
         await storage.saveData('inventory', syncedInventoryItem, currentUser, true);
-
         await loadData(currentUser, 'background');
-    }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber, syncInventoryItemWithMaterialMaster]);
+    }, [currentUser, inventory, medicines, normalizeCode, parseMrpNumber, syncInventoryItemWithMaterialMaster, createMrpChangeLog, loadData]);
 
     const handleAddMedicineMaster = async (med: Omit<Medicine, 'id'>) => {
         if (!currentUser) throw new Error("Unauthorized");
@@ -1113,14 +1160,19 @@ const App: React.FC = () => {
         if (!currentUser) throw new Error("Unauthorized");
         const updatedPack = (updatedMedicine.pack || '').trim();
         const inferredUnitsPerPack = resolveUnitsPerStrip(extractPackMultiplier(updatedPack) ?? 1, updatedPack);
-        const normalizedMaterialCode = normalizeCode(updatedMedicine.materialCode);
+        
+        const previousMedicine = medicines.find(m => m.id === updatedMedicine.id);
+        const normalizedOldCode = normalizeCode(previousMedicine?.materialCode);
+        const normalizedNewCode = normalizeCode(updatedMedicine.materialCode);
 
         const isLinkedInventoryItem = (item: InventoryItem) => {
             const itemCode = normalizeCode(item.code);
-            return Boolean(itemCode && normalizedMaterialCode && itemCode === normalizedMaterialCode);
+            return Boolean(itemCode && (
+                (normalizedOldCode && itemCode === normalizedOldCode) ||
+                (normalizedNewCode && itemCode === normalizedNewCode)
+            ));
         };
 
-        const previousMedicine = medicines.find(m => m.id === updatedMedicine.id);
         const oldMrp = parseMrpNumber(previousMedicine?.mrp);
         const newMrp = parseMrpNumber(updatedMedicine.mrp);
 
@@ -1148,7 +1200,7 @@ const App: React.FC = () => {
                         rateC: Number(updatedMedicine.rateC || 0),
                         packType: updatedPack,
                         unitsPerPack: inferredUnitsPerPack,
-                    }, currentUser)
+                    }, currentUser, true)
                 )
             );
 

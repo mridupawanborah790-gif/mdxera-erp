@@ -97,6 +97,9 @@ const Inventory: React.FC<InventoryProps> = ({
             effectiveGst: Number(linkedMedicine?.gstRate ?? item.gstPercent ?? 0),
             effectiveHsnCode: linkedMedicine?.hsnCode || item.hsnCode || '',
             effectiveMrp: Number(linkedMedicine?.mrp ?? item.mrp ?? 0),
+            effectiveRateA: Number(linkedMedicine?.rateA ?? item.rateA ?? 0),
+            effectiveRateB: Number(linkedMedicine?.rateB ?? item.rateB ?? 0),
+            effectiveRateC: Number(linkedMedicine?.rateC ?? item.rateC ?? 0),
             isManagedByMaster: Boolean(linkedMedicine),
         };
     }, [medicineByCode]);
@@ -400,7 +403,16 @@ const Inventory: React.FC<InventoryProps> = ({
                             </thead>
                             <tbody className="divide-y divide-gray-200" ref={tableBodyRef}>
                                 {paginatedItems.map((item, idx) => {
-                                    const { effectivePackType, effectiveUnitsPerPack, effectiveHsnCode, effectiveMrp, effectiveGst } = getEffectiveFields(item);
+                                    const { 
+                                        effectivePackType, 
+                                        effectiveUnitsPerPack, 
+                                        effectiveHsnCode, 
+                                        effectiveMrp, 
+                                        effectiveGst,
+                                        effectiveRateA,
+                                        effectiveRateB,
+                                        effectiveRateC
+                                    } = getEffectiveFields(item);
                                     const uPP = effectiveUnitsPerPack;
                                     const strips = Math.floor(item.stock / uPP);
                                     const loose = item.stock % uPP;
@@ -441,9 +453,9 @@ const Inventory: React.FC<InventoryProps> = ({
                                             {isFieldVisible('colBaseUnit') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.baseUnit}</td>}
                                             {isFieldVisible('colPtr') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.ptr || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colMrp') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(effectiveMrp || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colRateA') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.rateA || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colRateB') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.rateB || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colRateC') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.rateC || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colRateA') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(effectiveRateA || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colRateB') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(effectiveRateB || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colRateC') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(effectiveRateC || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colValue') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.value || 0).toFixed(2)}</td>}
                                             {isFieldVisible('colExpiry') && (
                                                 <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>
@@ -462,6 +474,9 @@ const Inventory: React.FC<InventoryProps> = ({
                                                             gstPercent: effectiveGst,
                                                             hsnCode: effectiveHsnCode,
                                                             mrp: effectiveMrp,
+                                                            rateA: effectiveRateA,
+                                                            rateB: effectiveRateB,
+                                                            rateC: effectiveRateC,
                                                         });
                                                     }}
                                                     className={`font-black uppercase text-[10px] px-2 py-0.5 border transition-all ${isSelected ? 'bg-white text-primary border-white' : 'bg-primary/5 text-primary border-primary/20 group-hover:bg-white group-hover:text-primary group-hover:border-white'}`}

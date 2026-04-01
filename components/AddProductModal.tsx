@@ -117,6 +117,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
         setProduct(prev => ({
             ...prev,
             name: med.name,
+            code: med.materialCode, // Essential for linking to Material Master
             brand: med.brand || '',
             category: med.composition ? "Medicine" : "General",
             manufacturer: med.manufacturer || med.marketer || '',
