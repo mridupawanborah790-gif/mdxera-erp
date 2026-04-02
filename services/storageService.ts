@@ -519,6 +519,21 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 }
                 
                 await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], syncedData);
+                // Refresh full organization dataset for this table so UI state never collapses to only the recently saved row.
+                // This keeps local cache complete even after insert/update and avoids requiring a manual app reload.
+                if (navigator.onLine) {
+                    setTimeout(async () => {
+                        try {
+                            const storeKey = tableName.toUpperCase() as keyof typeof STORES;
+                            const normalized = await refreshTableCacheFromSupabase(tableName, user);
+                            if (normalized) {
+                                await idb.putBulk(STORES[storeKey], normalized);
+                            }
+                        } catch (refreshError) {
+                            console.warn(`Post-save cache refresh failed for ${tableName}:`, refreshError);
+                        }
+                    }, 0);
+                }
                 return syncedData;
             } catch (e: any) {
                 if (isNetworkError(e)) {
@@ -733,25 +748,42 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         return allData;
     };
 
+    const getRecordOrganizationId = (record: any): string | undefined => {
+        if (!record || typeof record !== 'object') return undefined;
+        return record.organization_id || record.organizationId;
+    };
+
+    const refreshTableCacheFromSupabase = async (tableName: string, user: RegisteredPharmacy): Promise<any[] | null> => {
+        if (!navigator.onLine) return null;
+        const storeKey = tableName.toUpperCase() as keyof typeof STORES;
+        const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
+        const normalized = allData.map(d => fromSupabase(tableName, d));
+        memoryCache[storeKey] = normalized;
+        return normalized;
+    };
+
     export const getData = async (tableName: string, defaultValue: any[] = [], user: RegisteredPharmacy | null): Promise<any[]> => {
         if (!user) return defaultValue;
         const storeKey = tableName.toUpperCase() as keyof typeof STORES;
-        
-        // Priority 1: Check Memory Cache (for when IDB is disabled or during same session)
-        if (memoryCache[storeKey] && memoryCache[storeKey].length > 0) {
-            return memoryCache[storeKey];
-        }
+        const organizationId = user.organization_id;
 
-        // Priority 2: Local IndexedDB for instant UI
-        const cached = await idb.getAll(STORES[storeKey]);
+        // Priority 1: Local IndexedDB for instant UI
+        const cached = (await idb.getAll(STORES[storeKey]))
+            .filter((row: any) => getRecordOrganizationId(row) === organizationId);
+        const memoryRows = (memoryCache[storeKey] || [])
+            .filter((row: any) => getRecordOrganizationId(row) === organizationId);
+        const mergedById = new Map<string, any>();
+        [...cached, ...memoryRows].forEach((row: any) => {
+            if (row?.id) mergedById.set(row.id, row);
+        });
+        const mergedLocal = Array.from(mergedById.values());
 
         // Priority 2: Fetch updates in background if online
         if (navigator.onLine) {
-            if (cached.length === 0) {
+            if (mergedLocal.length === 0) {
                 try {
-                    const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
-                    if (allData.length > 0) {
-                        const normalized = allData.map(d => fromSupabase(tableName, d));
+                    const normalized = await refreshTableCacheFromSupabase(tableName, user);
+                    if (normalized && normalized.length > 0) {
                         await idb.putBulk(STORES[storeKey], normalized);
                         return normalized;
                     }
@@ -761,9 +793,8 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             } else {
                 setTimeout(async () => {
                     try {
-                        const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
-                        if (allData.length > 0) {
-                            const normalized = allData.map(d => fromSupabase(tableName, d));
+                        const normalized = await refreshTableCacheFromSupabase(tableName, user);
+                        if (normalized) {
                             await idb.putBulk(STORES[storeKey], normalized);
                         }
                     } catch (e) {
@@ -772,7 +803,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 }, 0);
             }
         }
-        return cached.length > 0 ? cached : defaultValue;
+        return mergedLocal.length > 0 ? mergedLocal : defaultValue;
     };
 
     export const getDataById = async <T = any>(
