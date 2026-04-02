@@ -254,8 +254,14 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         // All modernized tables now use 'id' as the PK.
         if (tableName === 'sales_bill' || tableName === 'physical_inventory') {
             if (!payload.id) {
-                 sanitized.id = payload.invoiceNumber || generateUUID();
+                 sanitized.id = (tableName === 'sales_bill' ? payload.invoiceNumber : null) || generateUUID();
             }
+            // Compatibility: Support both 'id' and 'voucher_no' column names in database
+            // This prevents "null value in column voucher_no violates not-null constraint" errors on legacy schemas.
+            sanitized.voucher_no = sanitized.id;
+            
+            // SPECIAL: For physical_inventory, if 'id' is a custom voucher (e.g. PHY-001)
+            // and it's being used as the primary key, we must NOT delete it in step 3.
         } else if (!TEXT_PK_TABLES.includes(tableName)) {
             // Ensure 'id' is a valid UUID, otherwise strip it so DB can generate a new one
             if (payload.id && !isValidUuid(payload.id)) {
@@ -266,14 +272,23 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         // 3. Apply Ownership Tracking Mappings
         if (OWNER_TRACKING_TABLES.includes(tableName)) {
             // Map the app's 'user_id' (Auth User UUID) to 'created_by_id' in DB
+            // Special: physical_inventory uses 'user_id' column directly as a FK to auth.users
             if (payload.user_id && isValidUuid(payload.user_id)) {
-                sanitized.created_by_id = payload.user_id;
+                if (tableName !== 'physical_inventory') {
+                    sanitized.created_by_id = payload.user_id;
+                }
+            }
+
+            // Map performedById if present (critical for physical_inventory)
+            if (payload.performedById && isValidUuid(payload.performedById)) {
+                sanitized.performed_by_id = payload.performedById;
             }
             
-            // Critical: Never send user_id as a column to the database.
-            // In your schema, user_id is often a legacy alias for the primary key.
-            // Removing it here prevents "Duplicate Key" and "UUID = Text" errors.
-            delete sanitized.user_id;
+            // Critical: Only delete user_id if it's NOT a recognized column or primary key.
+            // physical_inventory NEEDS the user_id column for its own foreign key constraint.
+            if (!UUID_PK_TABLES.includes(tableName) && tableName !== 'physical_inventory') {
+                delete sanitized.user_id;
+            }
         }
 
         // 6. Generic UUID Guard for all ID fields and metadata cleanup
@@ -284,8 +299,16 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
                 continue;
             }
 
-            if (field.endsWith('Id') && sanitized[field]) {
+            // Handle both camelCase 'performedById' and snake_case 'performed_by_id', 'created_by_id', 'user_id'
+            const isIdField = field.endsWith('Id') || 
+                             field === 'performed_by_id' || 
+                             field === 'created_by_id' || 
+                             field === 'user_id' ||
+                             field === 'assigned_staff_id';
+
+            if (isIdField && sanitized[field]) {
                 // Exempt fields that are known to be text IDs rather than strict UUIDs
+                if (field === 'id' && (tableName === 'sales_bill' || tableName === 'physical_inventory' || TEXT_PK_TABLES.includes(tableName))) continue;
                 if (field === 'originalInvoiceId' || field === 'originalPurchaseInvoiceId' || field === 'purchaseSerialId') continue;
                 
                 if (!isValidUuid(sanitized[field])) {
@@ -326,6 +349,8 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             delete sanitized.updatedAt;
             delete sanitized.user_id;
             delete sanitized.created_by_id;
+            delete sanitized.performed_by_id;
+            delete sanitized.performedById;
         }
         
         if (tableName === 'purchase_returns') {
@@ -336,6 +361,8 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             delete sanitized.updatedAt;
             delete sanitized.user_id;
             delete sanitized.created_by_id;
+            delete sanitized.performed_by_id;
+            delete sanitized.performedById;
         }
 
         return sanitized;
@@ -346,7 +373,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         if (Array.isArray(obj)) return obj.map(toCamel);
         return Object.keys(obj).reduce((acc, key) => {
             const preservedKeys = [
-                'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 
+                'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'performed_by_id',
                 'narration', 'adjustment',
                 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
                 'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
@@ -378,12 +405,18 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         let normalized = toCamel(payload);
 
         // Map db primary key back to app.id
-        if (UUID_PK_TABLES.includes(tableName) && payload.user_id) {
+        if (tableName === 'physical_inventory' && payload.voucher_no) {
+            // CRITICAL: For stock audits, 'voucher_no' (e.g. PHY-001) is the primary identifier in the app
+            normalized.id = payload.voucher_no;
+        } else if (UUID_PK_TABLES.includes(tableName) && payload.user_id) {
             // For modern schema tables, 'user_id' is the actual record UUID
             normalized.id = payload.user_id;
         } else if (payload.id) {
             // For legacy or text-id tables, use 'id'
             normalized.id = payload.id;
+        } else if (payload.voucher_no) {
+            // Fallback for legacy schemas where 'id' was renamed to 'voucher_no'
+            normalized.id = payload.voucher_no;
         }
 
         // Map db.created_by_id back to app.user_id (owner)
@@ -399,7 +432,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         return Object.keys(obj).reduce((acc, key) => {
             if (key.startsWith('_')) return acc;
             const preservedKeys = [
-                'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 
+                'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'performed_by_id',
                 'narration', 'adjustment',
                 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
                 'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
@@ -789,16 +822,24 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         documentNumber: string,
         referenceId?: string
     ): Promise<void> => {
-        const { error } = await supabase.rpc('log_voucher_number_event', {
+        // Attempt to REVERT the counter if this was the latest generated number.
+        // This prevents gaps if a user creates and immediately discards an audit/bill.
+        const { error } = await supabase.rpc('revert_voucher_number', {
             p_organization_id: user.organization_id,
             p_document_type: docType,
-            p_event_type: 'cancelled',
-            p_document_number: documentNumber,
-            p_reference_id: referenceId || null,
+            p_document_number: documentNumber
         });
 
         if (error) {
-            throw new Error(parseNetworkAndApiError(error));
+            console.warn('Voucher revert failed (likely not the latest in sequence), falling back to audit log:', error);
+            // Fallback: Just log it as cancelled without reverting the counter
+            await supabase.rpc('log_voucher_number_event', {
+                p_organization_id: user.organization_id,
+                p_document_type: docType,
+                p_event_type: 'cancelled',
+                p_document_number: documentNumber,
+                p_reference_id: referenceId || null,
+            });
         }
     };
 
@@ -3133,7 +3174,13 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     };
 
     export const finalizePhysicalInventorySession = async (session: PhysicalInventorySession, user: RegisteredPharmacy) => {
-        const finalized = { ...session, status: PhysicalInventoryStatus.COMPLETED, endDate: new Date().toISOString() };
+        const finalized = { 
+            ...session, 
+            status: PhysicalInventoryStatus.COMPLETED, 
+            endDate: new Date().toISOString(),
+            performedById: user.user_id,
+            performedByName: user.full_name
+        };
         await saveData('physical_inventory', finalized, user);
         for (const item of session.items) {
             const invItem = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem;

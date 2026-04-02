@@ -963,6 +963,8 @@ export enum PhysicalInventoryStatus {
 export interface PhysicalInventorySession {
     id: string;
     organization_id: string;
+    user_id?: string;
+    voucher_no?: string;
     status: PhysicalInventoryStatus;
     startDate: string;
     endDate?: string;

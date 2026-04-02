@@ -2201,12 +2201,13 @@ const App: React.FC = () => {
                                 const session: PhysicalInventorySession = {
                                     id: sessionId,
                                     organization_id: currentUser.organization_id,
+                                    user_id: currentUser.user_id, // Ensure owner tracking uses Auth UUID
                                     status: PhysicalInventoryStatus.IN_PROGRESS,
                                     startDate: new Date().toISOString(),
                                     reason: '',
                                     items: [],
                                     totalVarianceValue: 0,
-                                    performedById: currentUser.id,
+                                    performedById: currentUser.user_id, // Use Auth UUID for DB FK consistency
                                     performedByName: currentUser.full_name,
                                 };
 
@@ -2218,15 +2219,39 @@ const App: React.FC = () => {
                             }
                         }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
                         onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
-                        onCancelCount={(session) => {
+                        onCancelCount={async (session) => {
+                            if (!currentUser) return;
+
+                            // IF the session is empty (no items added), we treat it as a "discard" of a new session.
+                            // We should RECLAIM the ID by not saving it and calling markVoucherCancelled (which reverts the counter).
+                            const isNewEmptySession = !session.items || session.items.length === 0;
+
+                            if (isNewEmptySession) {
+                                // 1. Remove from local IndexedDB if it was ever saved there
+                                await storage.deleteData('physical_inventory', session.id);
+                                // 2. Attempt to revert the counter in Supabase
+                                await storage.markVoucherCancelled('physical-inventory', currentUser, session.voucher_no || session.id, session.id);
+                                // 3. Refresh local state
+                                await loadData(currentUser, 'background');
+                                return;
+                            }
+
+                            // Standard cancellation for sessions that actually had data
                             const cancelledSession: PhysicalInventorySession = {
                                 ...session,
+                                user_id: currentUser.user_id,
                                 status: PhysicalInventoryStatus.CANCELLED,
                                 endDate: new Date().toISOString(),
+                                performedById: currentUser.user_id,
+                                performedByName: currentUser.full_name,
                             };
+                            
                             return storage.saveData('physical_inventory', cancelledSession, currentUser)
-                                .then(() => storage.markVoucherCancelled('physical-inventory', currentUser!, cancelledSession.id, cancelledSession.id))
-                                .then(() => loadData(currentUser!, 'background'));
+                                .then(() => storage.markVoucherCancelled('physical-inventory', currentUser, cancelledSession.voucher_no || cancelledSession.id, cancelledSession.id))
+                                .catch(err => {
+                                    console.warn('Sync failed during audit discard, but local state will be updated:', err);
+                                })
+                                .then(() => loadData(currentUser, 'background'));
                         }}
                     />;
                 case 'suppliers':
