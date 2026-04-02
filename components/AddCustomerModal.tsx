@@ -28,13 +28,15 @@ interface AddCustomerModalProps {
     teamMembers?: OrganizationMember[];
     organizationId: string;
     defaultControlGlId?: string;
+    initialName?: string;
+    initialPhone?: string;
 }
 
 const CUSTOMER_GROUP_OPTIONS = ['Sundry Debtors', 'Cash Customers', 'Corporate Customers', 'Retail Customers', 'Government Customers'] as const;
 
-const createInitialState = () => ({
-    name: '',
-    phone: '',
+const createInitialState = (initialName?: string, initialPhone?: string) => ({
+    name: initialName || '',
+    phone: initialPhone || '',
     address: '',
     area: '',
     pincode: '',
@@ -63,9 +65,9 @@ const createInitialState = () => ({
     overrideApprovalRequired: false,
 });
 
-const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, onAdd, teamMembers = [], organizationId, defaultControlGlId }) => {
+const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, onAdd, teamMembers = [], organizationId, defaultControlGlId, initialName, initialPhone }) => {
     const effectiveControlGlId = useMemo(() => defaultControlGlId || '', [defaultControlGlId]);
-    const initialState = useMemo(() => ({ ...createInitialState(), organization_id: organizationId, controlGlId: effectiveControlGlId }), [organizationId, effectiveControlGlId]);
+    const initialState = useMemo(() => ({ ...createInitialState(initialName, initialPhone), organization_id: organizationId, controlGlId: effectiveControlGlId }), [organizationId, effectiveControlGlId, initialName, initialPhone]);
 
     const [formData, setFormData] = useState(initialState);
     const [isPincodeLoading, setIsPincodeLoading] = useState(false);

@@ -5,6 +5,8 @@ import SchemeModal from '../components/SchemeModal';
 import SchemeCalculatorModal from '../components/SchemeCalculatorModal';
 import Modal from '../components/Modal';
 import AddMedicineModal from '../components/AddMedicineModal';
+import AddCustomerModal from './AddCustomerModal';
+import SearchableDropdown from './SearchableDropdown';
 import BatchSelectionModal from './BatchSelectionModal';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import CustomerSearchModal from './CustomerSearchModal';
@@ -13,7 +15,7 @@ import ProductInsightsPanel from './ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { supabase } from '../services/supabaseClient';
-import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput, MasterPriceMaintainRecord, SalesChallan, DoctorMaster } from '../types';
+import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput, MasterPriceMaintainRecord, SalesChallan, DoctorMaster, OrganizationMember } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
@@ -46,6 +48,9 @@ interface POSProps {
         gstNumber?: string;
         customerGroup?: string;
     }) => Promise<{ customer: Customer; isDuplicate: boolean }>;
+    onAddCustomer?: (data: Omit<Customer, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<Customer | undefined>;
+    teamMembers?: OrganizationMember[];
+    defaultCustomerControlGlId?: string;
     onRefreshConfig?: () => void;
     openChallanExposure?: number;
     salesChallans?: SalesChallan[];
@@ -238,6 +243,9 @@ const POS = forwardRef<any, POSProps>(({
     onCancel,
     onAddMedicineMaster,
     onQuickAddCustomer,
+    onAddCustomer,
+    teamMembers = [],
+    defaultCustomerControlGlId,
     onRefreshConfig,
     openChallanExposure = 0,
     salesChallans = []
@@ -279,6 +287,11 @@ const POS = forwardRef<any, POSProps>(({
     const activeDoctors = useMemo(
         () => doctors.filter(d => d.is_active !== false).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
         [doctors]
+    );
+
+    const doctorOptions = useMemo(() => 
+        activeDoctors.map(d => ({ id: d.id, name: d.name })), 
+        [activeDoctors]
     );
 
     useEffect(() => {
@@ -359,15 +372,7 @@ const POS = forwardRef<any, POSProps>(({
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
-    const [isQuickAddCustomerOpen, setIsQuickAddCustomerOpen] = useState(false);
-    const [isQuickAddCustomerSaving, setIsQuickAddCustomerSaving] = useState(false);
-    const [quickAddCustomerForm, setQuickAddCustomerForm] = useState({
-        name: '',
-        phone: '',
-        address: '',
-        gstNumber: '',
-        customerGroup: 'Walk-in / Retail',
-    });
+    const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
     const [roundOff, setRoundOff] = useState(0);
@@ -824,7 +829,7 @@ const POS = forwardRef<any, POSProps>(({
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (isCustomerSearchModalOpen || schemeItem || pendingBatchSelection || isSearchModalOpen || isSchemeCalcOpen) return;
+            if (isCustomerSearchModalOpen || schemeItem || pendingBatchSelection || isSearchModalOpen || isSchemeCalcOpen || isAddCustomerModalOpen) return;
             
             if (!shouldHandleScreenShortcut(e, ['pos', 'nonGstPos'], { allowWhenInputFocused: true })) return;
             if (e.ctrlKey && e.key.toLowerCase() === 's') {
@@ -863,8 +868,8 @@ const POS = forwardRef<any, POSProps>(({
                         setIsInsightsOpen(false);
                     } else if (isCustomerSearchModalOpen) {
                         setIsCustomerSearchModalOpen(false);
-                    } else if (isQuickAddCustomerOpen) {
-                        setIsQuickAddCustomerOpen(false);
+                    } else if (isAddCustomerModalOpen) {
+                        setIsAddCustomerModalOpen(false);
                     } else if (onCancel) {
                         onCancel();
                     }
@@ -1123,12 +1128,12 @@ const POS = forwardRef<any, POSProps>(({
     const handleCustomerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.ctrlKey && e.key === 'Enter') {
             e.preventDefault();
-            if (!onQuickAddCustomer) {
-                addNotification('Quick customer creation is not available in this screen.', 'warning');
+            if (!onAddCustomer) {
+                addNotification('Full customer registration is not available in this screen.', 'warning');
                 return;
             }
             if (!customerSearch.trim()) {
-                addNotification('Enter customer name before creating.', 'warning');
+                addNotification('Enter customer name before registering.', 'warning');
                 return;
             }
             const exactMatch = customers.find(c => (c.name || '').trim().toLowerCase() === customerSearch.trim().toLowerCase());
@@ -1137,14 +1142,7 @@ const POS = forwardRef<any, POSProps>(({
                 addNotification(`Customer "${exactMatch.name}" already exists. Please select from suggestions.`, 'warning');
                 return;
             }
-            setQuickAddCustomerForm({
-                name: customerSearch.trim(),
-                phone: customerPhone.trim(),
-                address: '',
-                gstNumber: '',
-                customerGroup: 'Walk-in / Retail',
-            });
-            setIsQuickAddCustomerOpen(true);
+            setIsAddCustomerModalOpen(true);
             return;
         }
 
@@ -1158,38 +1156,16 @@ const POS = forwardRef<any, POSProps>(({
         }
     };
 
-    const handleQuickAddCustomerSave = async () => {
-        const trimmedName = quickAddCustomerForm.name.trim();
-        if (!trimmedName) {
-            addNotification('Customer Name is required.', 'error');
-            return;
-        }
-
-        setIsQuickAddCustomerSaving(true);
+    const handleAddCustomerModalSave = async (data: Omit<Customer, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
+        if (!onAddCustomer) return;
         try {
-            if (!onQuickAddCustomer) {
-                throw new Error('Quick customer creation is not available in this screen.');
+            const newCust = await onAddCustomer(data, balance, date);
+            if (newCust) {
+                handleSelectCustomer(newCust);
             }
-            const result = await onQuickAddCustomer({
-                name: trimmedName,
-                phone: quickAddCustomerForm.phone.trim() || undefined,
-                address: quickAddCustomerForm.address.trim() || undefined,
-                gstNumber: quickAddCustomerForm.gstNumber.trim() || undefined,
-                customerGroup: quickAddCustomerForm.customerGroup.trim() || 'Walk-in / Retail',
-            });
-            handleSelectCustomer(result.customer);
-            setIsQuickAddCustomerOpen(false);
-            addNotification(
-                result.isDuplicate
-                    ? `Customer "${result.customer.name}" already existed and was selected.`
-                    : `Customer "${result.customer.name}" created and selected.`,
-                result.isDuplicate ? 'warning' : 'success'
-            );
+            setIsAddCustomerModalOpen(false);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to save customer.';
-            addNotification(message, 'error');
-        } finally {
-            setIsQuickAddCustomerSaving(false);
+            console.error('Failed to add customer from modal:', error);
         }
     };
 
@@ -1631,10 +1607,14 @@ const POS = forwardRef<any, POSProps>(({
         setSelectedRowIndex(index);
     }, []);
 
-    const handleReferredByChange = (value: string) => {
+    const handleReferredByChange = (value: string, id?: string) => {
         setReferredBy(value);
-        const matchedDoctor = activeDoctors.find(d => (d.name || '').trim().toLowerCase() === value.trim().toLowerCase());
-        setDoctorId(matchedDoctor?.id || null);
+        if (id) {
+            setDoctorId(id);
+        } else {
+            const matchedDoctor = activeDoctors.find(d => (d.name || '').trim().toLowerCase() === value.trim().toLowerCase());
+            setDoctorId(matchedDoctor?.id || null);
+        }
     };
 
     const handleQuickDoctorSave = async () => {
@@ -1758,21 +1738,14 @@ const POS = forwardRef<any, POSProps>(({
                     {isFieldVisible('colReferred') && (
                         <div>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Referred By</label>
-                            <input
-                                type="text"
+                            <SearchableDropdown
+                                options={doctorOptions}
                                 value={referredBy}
-                                onChange={e => handleReferredByChange(e.target.value)}
+                                onChange={handleReferredByChange}
                                 onKeyDown={handleReferredByKeyDown}
-                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50"
                                 placeholder="Doctor Name"
                                 disabled={isReadOnly}
-                                list="doctor-master-options"
                             />
-                            <datalist id="doctor-master-options">
-                                {activeDoctors.map(doc => (
-                                    <option key={doc.id} value={doc.name} />
-                                ))}
-                            </datalist>
                         </div>
                     )}
                     {isFieldVisible('optBillingCategory') && (
@@ -2164,17 +2137,33 @@ const POS = forwardRef<any, POSProps>(({
                 </Card>
 
                 <div className="grid grid-cols-12 gap-2 flex-shrink-0 min-h-[145px] xl:min-h-[170px]">
-                    <div className="col-span-2 bg-[#e5f0f0] px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center overflow-hidden">
-                        <div className="text-[10px] xl:text-[12px] font-bold uppercase space-y-0.5 xl:space-y-1">
-                            <div className="truncate">Item : <span className="text-primary" title={activeStockSnapshot?.item || '-'}>{activeStockSnapshot?.item || '-'}</span></div>
-                            <div className="truncate">Batch : <span className="text-primary">{activeStockSnapshot?.batch || '-'}</span></div>
-                            <div className="truncate">Expiry : <span className="text-primary">{activeStockSnapshot?.expiry || '-'}</span></div>
-                            <div>Stock : <span className="text-primary">{activeStockSnapshot?.stock ?? 0}</span></div>
-                            <div>MRP : <span className="text-primary">₹{(activeStockSnapshot?.mrp || 0).toFixed(2)}</span></div>
+                    <div className="col-span-2 bg-[#f8fcfc] px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col overflow-hidden">
+                        <div className="text-[9px] xl:text-[10px] font-black uppercase text-teal-700 border-b border-teal-100 pb-1 mb-2">Stock Snapshot</div>
+                        <div className="space-y-1 text-[10px] xl:text-[11px] font-bold uppercase">
+                            <div className="truncate flex justify-between gap-1">
+                                <span className="text-gray-400 shrink-0">Item:</span>
+                                <span className="text-primary truncate" title={activeStockSnapshot?.item || '-'}>{activeStockSnapshot?.item || '-'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-gray-400">Batch:</span>
+                                <span className="text-primary">{activeStockSnapshot?.batch || '-'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-gray-400">Expiry:</span>
+                                <span className="text-primary">{activeStockSnapshot?.expiry || '-'}</span>
+                            </div>
+                            <div className="flex justify-between border-t border-teal-50 pt-0.5">
+                                <span className="text-gray-400">Stock:</span>
+                                <span className="text-emerald-700 font-black">{activeStockSnapshot?.stock ?? 0}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-gray-400">MRP:</span>
+                                <span className="text-primary">₹{(activeStockSnapshot?.mrp || 0).toFixed(2)}</span>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="col-span-6 bg-[#e5f0f0] px-2 py-1.5 tally-border !rounded-none shadow-sm">
+                    <div className="col-span-7 bg-[#f8fcfc] px-3 py-1.5 tally-border !rounded-none shadow-sm">
                         <h4 className="text-[8px] xl:text-[10px] font-black text-gray-500 uppercase tracking-[0.16em] mb-1 border-b border-gray-200 pb-0.5">{activeLineTotals ? 'Item Summary' : 'Bill Summary'}</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 md:gap-x-4 gap-y-0.5 text-[8px] xl:text-[11px] font-bold uppercase tracking-tight leading-tight">
                             <div className="space-y-0.5">
@@ -2252,23 +2241,31 @@ const POS = forwardRef<any, POSProps>(({
                         </div>
                     </div>
 
-                    <div className="col-span-2 bg-white px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col justify-center">
-                        <div className="text-[9px] xl:text-[10px] font-black uppercase text-gray-500 mb-0.5">Customer Info</div>
-                        <div className="text-[10px] xl:text-[11px] font-bold uppercase space-y-0.5 xl:space-y-1">
-                            <div className="truncate">Area: {customerSnapshot.area}</div>
-                            <div className="truncate">Route: {customerSnapshot.route}</div>
+                    <div className="col-span-3 flex flex-col gap-2">
+                        <div className="bg-white px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col overflow-hidden">
+                            <div className="text-[9px] xl:text-[10px] font-black uppercase text-gray-500 border-b border-gray-100 pb-1 mb-1.5">Customer Info</div>
+                            <div className="grid grid-cols-2 gap-2 text-[9px] xl:text-[10px] font-bold uppercase leading-tight">
+                                <div className="truncate">
+                                    <span className="text-[7px] text-gray-400 block mb-0.5">Area</span>
+                                    <span className="text-gray-800" title={customerSnapshot.area}>{customerSnapshot.area}</span>
+                                </div>
+                                <div className="truncate">
+                                    <span className="text-[7px] text-gray-400 block mb-0.5">Route</span>
+                                    <span className="text-gray-800" title={customerSnapshot.route}>{customerSnapshot.route}</span>
+                                </div>
+                            </div>
                         </div>
-                    </div>
 
-                    <div className="col-span-2 bg-white px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col">
-                        <div className="text-[9px] xl:text-[10px] font-black uppercase text-gray-500 mb-0.5">Narration</div>
-                        <textarea
-                            value={narration}
-                            onChange={e => setNarration(e.target.value)}
-                            className="flex-1 w-full p-1 text-[10px] xl:text-[11px] font-bold uppercase border border-gray-300 outline-none focus:bg-yellow-50 resize-none leading-tight"
-                            placeholder="Type narration here..."
-                            disabled={isReadOnly}
-                        />
+                        <div className="flex-1 bg-white px-2 py-1.5 tally-border !rounded-none shadow-sm flex flex-col min-h-0">
+                            <div className="text-[9px] xl:text-[10px] font-black uppercase text-gray-500 mb-0.5 border-b border-gray-100 pb-1">Narration</div>
+                            <textarea
+                                value={narration}
+                                onChange={e => setNarration(e.target.value)}
+                                className="flex-1 w-full p-1 text-[10px] xl:text-[11px] font-bold uppercase border-none outline-none focus:bg-yellow-50 resize-none leading-tight"
+                                placeholder="Type narration here..."
+                                disabled={isReadOnly}
+                            />
+                        </div>
                     </div>
 
                     <div className="col-span-12 bg-[#255d55] px-2 py-1.5 text-white flex items-center gap-1 overflow-x-auto">
@@ -2543,96 +2540,19 @@ const POS = forwardRef<any, POSProps>(({
                 initialSearch={customerSearch}
             />
 
-            <Modal
-                isOpen={isQuickAddCustomerOpen}
+            <AddCustomerModal
+                isOpen={isAddCustomerModalOpen}
                 onClose={() => {
-                    setIsQuickAddCustomerOpen(false);
+                    setIsAddCustomerModalOpen(false);
                     setTimeout(() => customerSearchInputRef.current?.focus(), 100);
                 }}
-                title="Add New Customer"
-            >
-                <div
-                    className="p-4 space-y-3"
-                    onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                            e.preventDefault();
-                            setIsQuickAddCustomerOpen(false);
-                            setTimeout(() => customerSearchInputRef.current?.focus(), 100);
-                            return;
-                        }
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            if (!isQuickAddCustomerSaving) {
-                                handleQuickAddCustomerSave();
-                            }
-                        }
-                    }}
-                >
-                    <div>
-                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">Customer Name *</label>
-                        <input
-                            type="text"
-                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold uppercase focus:bg-yellow-50 outline-none"
-                            value={quickAddCustomerForm.name}
-                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, name: e.target.value }))}
-                            autoFocus
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">Phone Number</label>
-                        <input
-                            type="text"
-                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold focus:bg-yellow-50 outline-none"
-                            value={quickAddCustomerForm.phone}
-                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, phone: e.target.value }))}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">Address</label>
-                        <input
-                            type="text"
-                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold focus:bg-yellow-50 outline-none"
-                            value={quickAddCustomerForm.address}
-                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, address: e.target.value }))}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">GST (Optional)</label>
-                        <input
-                            type="text"
-                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold uppercase focus:bg-yellow-50 outline-none"
-                            value={quickAddCustomerForm.gstNumber}
-                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, gstNumber: e.target.value }))}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">Customer Group</label>
-                        <input
-                            type="text"
-                            className="w-full h-9 border border-gray-400 p-2 text-xs font-bold focus:bg-yellow-50 outline-none"
-                            value={quickAddCustomerForm.customerGroup}
-                            onChange={e => setQuickAddCustomerForm(prev => ({ ...prev, customerGroup: e.target.value }))}
-                        />
-                    </div>
-                    <div className="pt-2 flex justify-end gap-2">
-                        <button
-                            className="px-4 py-2 text-xs font-black uppercase border border-gray-300 text-gray-600"
-                            onClick={() => setIsQuickAddCustomerOpen(false)}
-                            type="button"
-                        >
-                            Cancel (Esc)
-                        </button>
-                        <button
-                            className="px-4 py-2 text-xs font-black uppercase bg-primary text-white disabled:opacity-60"
-                            onClick={handleQuickAddCustomerSave}
-                            disabled={isQuickAddCustomerSaving}
-                            type="button"
-                        >
-                            {isQuickAddCustomerSaving ? 'Saving...' : 'Save & Select (Enter)'}
-                        </button>
-                    </div>
-                </div>
-            </Modal>
+                onAdd={handleAddCustomerModalSave as any}
+                teamMembers={teamMembers}
+                organizationId={currentUser?.organization_id || ''}
+                defaultControlGlId={defaultCustomerControlGlId}
+                initialName={customerSearch.trim()}
+                initialPhone={customerPhone.trim()}
+            />
 
             <Modal
                 isOpen={isDoctorQuickAddOpen}
