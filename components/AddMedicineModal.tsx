@@ -48,6 +48,7 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
     const [errors, setErrors] = useState<FormErrors>({});
     const [showConfirmClose, setShowConfirmClose] = useState(false);
 
+    const [isSaving, setIsSaving] = useState(false);
     const isDirty = useMemo(() => {
         return (
             formState.name !== (initialName || initialState.name) ||
@@ -86,18 +87,27 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
         if (isOpen) {
             setFormState({ ...initialState, name: initialName || '', organization_id: organizationId });
             setErrors({});
+            setIsSaving(false);
         }
     }, [isOpen, initialName, organizationId]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!validate()) return;
+        if (isSaving || !validate()) return;
 
-        const savedMedicine = await onAddMedicine({ ...formState, organization_id: organizationId });
-        if (savedMedicine && typeof savedMedicine === 'object' && 'id' in savedMedicine && 'name' in savedMedicine) {
-            onMedicineSaved?.(savedMedicine as Medicine);
+        try {
+            setIsSaving(true);
+            const savedMedicine = await onAddMedicine({ ...formState, organization_id: organizationId });
+            if (savedMedicine && typeof savedMedicine === 'object' && 'id' in savedMedicine && 'name' in savedMedicine) {
+                onMedicineSaved?.(savedMedicine as Medicine);
+            }
+            onClose();
+        } catch (error: any) {
+            console.error("Failed to save SKU:", error);
+            alert(error.message || "Failed to save SKU. Please try again.");
+        } finally {
+            setIsSaving(false);
         }
-        onClose();
     };
     
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {

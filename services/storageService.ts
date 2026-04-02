@@ -57,12 +57,14 @@ const MATERIAL_TYPE_LABEL_TO_DB: Record<string, string> = {
 };
 
 const parseMaterialCodeNumber = (value: unknown): number | null => {
-        if (typeof value !== 'string') return null;
-        const trimmed = value.trim();
-        if (!/^\d{8}$/.test(trimmed)) return null;
-        const parsed = Number(trimmed);
-        if (!Number.isInteger(parsed) || parsed < MATERIAL_CODE_START) return null;
-        return parsed;
+    if (typeof value === 'number') return value;
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    // Match any sequence of digits, even if it's shorter than 8 digits
+    const match = trimmed.match(/^\d+$/);
+    if (!match) return null;
+    const parsed = Number(trimmed);
+    return Number.isInteger(parsed) ? parsed : null;
 };
 
 const getIncrementedMaterialCode = (currentCode: unknown): string | null => {
@@ -88,17 +90,34 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
     };
 
     const getHighestRemoteMaterialCode = async (organizationId: string): Promise<number> => {
-        const { data, error } = await supabase
-            .from('material_master')
-            .select('material_code')
-            .eq('organization_id', organizationId)
-            .order('material_code', { ascending: false })
-            .limit(200);
+        let allCodes: string[] = [];
+        let from = 0;
+        const PAGE_SIZE = 1000;
+        let hasMore = true;
 
-        if (error) throw error;
+        // Fetch all material codes for this organization to accurately find the numeric maximum.
+        // We avoid string-based sorting in the database because it fails with mixed-length numbers 
+        // (e.g., '9' sorts higher than '10000000').
+        while (hasMore) {
+            const { data, error } = await supabase
+                .from('material_master')
+                .select('material_code')
+                .eq('organization_id', organizationId)
+                .range(from, from + PAGE_SIZE - 1);
 
-        return (data || []).reduce((max, row: any) => {
-            const parsed = parseMaterialCodeNumber(row?.material_code);
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+                allCodes = [...allCodes, ...data.map(r => r.material_code)];
+                hasMore = data.length === PAGE_SIZE;
+                from += PAGE_SIZE;
+            } else {
+                hasMore = false;
+            }
+        }
+
+        return allCodes.reduce((max, code) => {
+            const parsed = parseMaterialCodeNumber(code);
             return parsed !== null && parsed > max ? parsed : max;
         }, MATERIAL_CODE_START - 1);
     };
@@ -399,7 +418,12 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
         // Update memory cache
         const storeKey = tableName.toUpperCase();
-        if (!memoryCache[storeKey]) memoryCache[storeKey] = [];
+        if (!memoryCache[storeKey]) {
+            // Populate from IDB first if we have data there, so we don't lose existing items from the view
+            const existingItems = await idb.getAll(STORES[storeKey as keyof typeof STORES]);
+            memoryCache[storeKey] = Array.isArray(existingItems) ? [...existingItems] : [];
+        }
+        
         const index = memoryCache[storeKey].findIndex(item => item.id === dbPayload.id);
         if (index >= 0) memoryCache[storeKey][index] = dbPayload;
         else memoryCache[storeKey].push(dbPayload);
@@ -485,13 +509,28 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                             throw new Error(`Voucher number ${dbPayload.id} already exists in database. Please refresh and try again.`);
                         }
 
-                        const incremented = getIncrementedMaterialCode(dbPayload.materialCode);
-                        dbPayload.materialCode = incremented || await getNextMaterialCode(user.organization_id);
+                        // Conflict occurred: Likely someone else created a record with this code, 
+                        // or a previous attempt by this client actually succeeded but timed out.
+                        // We must delete the old ID from local storage to prevent duplicates,
+                        // and generate a WHOLE NEW record identity (New ID + New Code) for the next attempt.
+                        await idb.delete(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload.id);
+                        
+                        // Increment logic: 
+                        // 1. Generate a new UUID so we don't hit "id already exists" if the previous record actually went through.
+                        // 2. Refresh the highest code from remote again to be sure.
+                        dbPayload.id = generateUUID();
+                        dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+                        
+                        // Update local tracking and snake payload for the next attempt
                         await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
+                        snakeData.id = dbPayload.id;
                         snakeData.material_code = dbPayload.materialCode;
 
+                        // Add a small jittered delay to reduce concurrent collisions
+                        await new Promise(r => setTimeout(r, 100 + Math.random() * 200));
+
                         if (attempt === maxAttempts) {
-                            throw new Error('Unable to generate a unique Material Code. Please try again.');
+                            throw new Error('Unable to generate a unique Material Code after multiple attempts. Please try again.');
                         }
                     }
                 } else {
@@ -745,6 +784,11 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         // Priority 2: Local IndexedDB for instant UI
         const cached = await idb.getAll(STORES[storeKey]);
 
+        // If we found data in IDB, populate memory cache to keep them in sync
+        if (cached && cached.length > 0) {
+            memoryCache[storeKey] = [...cached];
+        }
+
         // Priority 2: Fetch updates in background if online
         if (navigator.onLine) {
             if (cached.length === 0) {
@@ -752,6 +796,10 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
                     if (allData.length > 0) {
                         const normalized = allData.map(d => fromSupabase(tableName, d));
+                        
+                        // Always update memory cache so the session stays consistent
+                        memoryCache[storeKey] = [...normalized];
+                        
                         await idb.putBulk(STORES[storeKey], normalized);
                         return normalized;
                     }
@@ -764,6 +812,10 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                         const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
                         if (allData.length > 0) {
                             const normalized = allData.map(d => fromSupabase(tableName, d));
+                            
+                            // Always update memory cache so the session stays consistent
+                            memoryCache[storeKey] = [...normalized];
+                            
                             await idb.putBulk(STORES[storeKey], normalized);
                         }
                     } catch (e) {
