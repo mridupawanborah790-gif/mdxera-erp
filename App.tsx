@@ -1872,6 +1872,7 @@ const App: React.FC = () => {
                         purchases={purchases}
                         medicines={medicines}
                         onQuickAddCustomer={handleQuickAddCustomerFromPos}
+                        onGoToPOS={() => handleNavigate('pos')}
                     />;
                 case 'manualSalesEntry':
                     return <ManualSalesEntry
@@ -2557,7 +2558,19 @@ const App: React.FC = () => {
             </div>
             <NotificationSystem notifications={notifications} removeNotification={removeNotification} />
 
-            {printBill && <PrintBillModal isOpen={!!printBill} onClose={() => setPrintBill(null)} bill={printBill} medicines={medicines} />}
+            {printBill && (
+                <PrintBillModal 
+                    isOpen={!!printBill} 
+                    onClose={() => {
+                        setPrintBill(null);
+                        if (currentPage === 'pos' || currentPage === 'nonGstPos') {
+                            setCurrentPage('salesHistory');
+                        }
+                    }} 
+                    bill={printBill} 
+                    medicines={medicines} 
+                />
+            )}
             {viewTransaction && (
                 <TransactionDetailModal
                     isOpen={!!viewTransaction}

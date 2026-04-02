@@ -30,6 +30,7 @@ interface SalesHistoryProps {
     purchases: Purchase[];
     medicines: Medicine[];
     onQuickAddCustomer: any;
+    onGoToPOS?: () => void;
 }
 
 const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -38,12 +39,20 @@ const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
     </svg>
 );
 
+const POSIcon = (props: React.SVGProps<SVGSVGElement>) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+        <line x1="8" y1="21" x2="16" y2="21"/>
+        <line x1="12" y1="17" x2="12" y2="21"/>
+    </svg>
+);
+
 const ITEMS_PER_PAGE = 15;
 
 const SalesHistory: React.FC<SalesHistoryProps> = ({ 
     transactions, inventory, customers, onViewDetails, onPrintBill, onCancelTransaction, initialFilters, 
     onFiltersChange, currentUser, onRefresh, onViewSale, onEditSale, onCreateReturn, salesReturns, 
-    configurations, onAddMedicineMaster, purchases, medicines, onQuickAddCustomer
+    configurations, onAddMedicineMaster, purchases, medicines, onQuickAddCustomer, onGoToPOS
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchInput, setSearchInput] = useState('');
@@ -269,6 +278,9 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
             } else if (e.key === 'Enter') {
                 e.preventDefault();
                 handleViewSelected();
+            } else if (e.key === 'F1') {
+                e.preventDefault();
+                if (onGoToPOS) onGoToPOS();
             } else if (e.key === 'F4') {
                 e.preventDefault();
                 handleEditSelected();
@@ -442,6 +454,10 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                         </div>
                         {actionWarning && <div className="text-[11px] font-bold text-red-700 bg-red-100 border border-red-200 px-2 py-1">{actionWarning}</div>}
                         <div className="flex flex-wrap gap-2">
+                            <button onClick={() => onGoToPOS?.()} className="px-3 py-1.5 tally-border bg-primary text-white text-[10px] font-black uppercase flex items-center gap-2 hover:bg-primary-dark transition-colors shadow-md">
+                                <POSIcon className="w-3 h-3" />
+                                F1: POS Sales
+                            </button>
                             <button disabled={!selectedTransaction} onClick={handleViewSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Enter: View</button>
                             <button disabled={!selectedTransaction} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
                             <button disabled={!selectedTransaction} onClick={handleReturnOrderSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Return Order</button>
