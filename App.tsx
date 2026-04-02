@@ -1401,6 +1401,7 @@ const App: React.FC = () => {
             }
             await loadData(currentUser, 'background');
             addNotification(`Customer ${data.name} saved successfully.`, "success");
+            return newCust;
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
         }
@@ -1843,6 +1844,9 @@ const App: React.FC = () => {
                         billType={pageId === 'nonGstPos' ? 'non-gst' : 'regular'}
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
                         onQuickAddCustomer={handleQuickAddCustomerFromPos}
+                        onAddCustomer={handleAddCustomer}
+                        teamMembers={teamMembers}
+                        defaultCustomerControlGlId={defaultCustomerControlGlId}
                         onCancel={() => {
                             const wasEditing = !!editingSale;
                             setEditingSale(null);
