@@ -26,6 +26,7 @@ export const STORES = {
     TEAM_MEMBERS: 'team_members',
     BUSINESS_ROLES: 'business_roles',
     MRP_CHANGE_LOG: 'mrp_change_log',
+    DOCTOR_MASTER: 'doctor_master',
 };
 
 export const openDB = (): Promise<IDBDatabase> => {

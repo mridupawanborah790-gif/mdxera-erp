@@ -3,7 +3,7 @@
     import {
         RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier,
         Customer, PurchaseOrder, TransactionLedgerItem, UserRole, OrganizationMember,
-        Medicine, SupplierProductMap, EWayBill,
+        Medicine, SupplierProductMap, EWayBill, DoctorMaster,
         DeliveryChallan, DeliveryChallanStatus, PhysicalInventorySession, PhysicalInventoryStatus,
         CustomerPriceListEntry, SalesChallanStatus, SalesChallan, AppConfigurations,
         SalesReturn, PurchaseReturn
@@ -48,6 +48,53 @@ import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHand
 
 const MATERIAL_CODE_START = 10000000;
 const MATERIAL_CODE_LENGTH = 8;
+const DOCTOR_CODE_PREFIX = 'DOC-';
+const DOCTOR_CODE_START = 1;
+
+const parseDoctorCodeNumber = (value: unknown): number | null => {
+    if (typeof value !== 'string' || !value.startsWith(DOCTOR_CODE_PREFIX)) return null;
+    const numPart = value.substring(DOCTOR_CODE_PREFIX.length);
+    const parsed = parseInt(numPart, 10);
+    return isNaN(parsed) ? null : parsed;
+};
+
+const getHighestLocalDoctorCode = async (organizationId: string): Promise<number> => {
+    const localRows = await idb.getAll(STORES.DOCTOR_MASTER);
+    return localRows.reduce((max, row) => {
+        if (row?.organization_id !== organizationId) return max;
+        const parsed = parseDoctorCodeNumber(row?.doctorCode);
+        return parsed !== null && parsed > max ? parsed : max;
+    }, DOCTOR_CODE_START - 1);
+};
+
+const getHighestRemoteDoctorCode = async (organizationId: string): Promise<number> => {
+    const { data, error } = await supabase
+        .from('doctor_master')
+        .select('doctor_code')
+        .eq('organization_id', organizationId)
+        .not('doctor_code', 'is', null);
+
+    if (error) throw error;
+    
+    return (data || []).reduce((max, r) => {
+        const parsed = parseDoctorCodeNumber(r.doctor_code);
+        return parsed !== null && parsed > max ? parsed : max;
+    }, DOCTOR_CODE_START - 1);
+};
+
+const getNextDoctorCode = async (organizationId: string): Promise<string> => {
+    const localHighest = await getHighestLocalDoctorCode(organizationId);
+    let remoteHighest = DOCTOR_CODE_START - 1;
+
+    if (navigator.onLine) {
+        try {
+            remoteHighest = await getHighestRemoteDoctorCode(organizationId);
+        } catch { }
+    }
+
+    const next = Math.max(localHighest, remoteHighest) + 1;
+    return `${DOCTOR_CODE_PREFIX}${String(next).padStart(6, '0')}`;
+};
 const MATERIAL_TYPE_LABEL_TO_DB: Record<string, string> = {
     'Trading Goods': 'trading_goods',
     'Finished Goods': 'finished_goods',
@@ -231,6 +278,12 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
 
         // 6. Generic UUID Guard for all ID fields and metadata cleanup
         for (const field in sanitized) {
+            // NEW: Convert empty strings to null for doctor_master to avoid 409 conflicts on unique constraints (like doctor_code)
+            if (tableName === 'doctor_master' && typeof sanitized[field] === 'string' && sanitized[field].trim() === '') {
+                sanitized[field] = null;
+                continue;
+            }
+
             if (field.endsWith('Id') && sanitized[field]) {
                 // Exempt fields that are known to be text IDs rather than strict UUIDs
                 if (field === 'originalInvoiceId' || field === 'originalPurchaseInvoiceId' || field === 'purchaseSerialId') continue;
@@ -400,6 +453,10 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
         }
 
+        if (tableName === 'doctor_master' && !isUpdate) {
+            dbPayload.doctorCode = await getNextDoctorCode(user.organization_id);
+        }
+
         if (tableName === 'material_master') {
             const normalizedMaterialType = normalizeMaterialMasterType(dbPayload.materialMasterType);
             if (normalizedMaterialType) {
@@ -474,17 +531,15 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 // Use .insert() for new records to ensure we don't accidentally overwrite existing data
                 // Use .upsert() only when explicitly requested as an update
                 if (!isUpdate && ['sales_bill', 'purchases', 'purchase_orders', 'material_master', 'doctor_master'].includes(tableName)) {
-                    const maxAttempts = tableName === 'material_master' ? 5 : 1;
+                    const maxAttempts = (tableName === 'material_master' || tableName === 'doctor_master') ? 5 : 1;
                     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                        if (tableName === 'material_master') {
-                            console.info('[material_master:create] insert payload', {
+                        if (tableName === 'material_master' || tableName === 'doctor_master') {
+                            console.info(`[${tableName}:create] insert payload`, {
                                 attempt,
                                 mode: 'insert',
                                 id: snakeData.id,
                                 organization_id: snakeData.organization_id,
-                                name: snakeData.name,
-                                material_code: snakeData.material_code,
-                                material_master_type: snakeData.material_master_type
+                                code: tableName === 'material_master' ? snakeData.material_code : snakeData.doctor_code
                             });
                         }
                         const { data: saved, error } = await supabase.from(tableName).insert(snakeData).select().single();
@@ -493,44 +548,40 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                             break;
                         }
 
-                        if (tableName === 'material_master') {
-                            console.error('[material_master:create] insert failed', {
+                        if (tableName === 'material_master' || tableName === 'doctor_master') {
+                            console.error(`[${tableName}:create] insert failed`, {
                                 attempt,
                                 mode: 'insert',
                                 organization_id: snakeData.organization_id,
-                                material_code: snakeData.material_code,
+                                code: tableName === 'material_master' ? snakeData.material_code : snakeData.doctor_code,
                                 error
                             });
                         }
 
                         if (error.code !== '23505') throw error;
 
-                        if (tableName !== 'material_master') {
+                        if (tableName !== 'material_master' && tableName !== 'doctor_master') {
                             throw new Error(`Voucher number ${dbPayload.id} already exists in database. Please refresh and try again.`);
                         }
 
-                        // Conflict occurred: Likely someone else created a record with this code, 
-                        // or a previous attempt by this client actually succeeded but timed out.
-                        // We must delete the old ID from local storage to prevent duplicates,
-                        // and generate a WHOLE NEW record identity (New ID + New Code) for the next attempt.
                         await idb.delete(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload.id);
                         
-                        // Increment logic: 
-                        // 1. Generate a new UUID so we don't hit "id already exists" if the previous record actually went through.
-                        // 2. Refresh the highest code from remote again to be sure.
                         dbPayload.id = generateUUID();
-                        dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+                        if (tableName === 'material_master') {
+                            dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+                            snakeData.material_code = dbPayload.materialCode;
+                        } else if (tableName === 'doctor_master') {
+                            dbPayload.doctorCode = await getNextDoctorCode(user.organization_id);
+                            snakeData.doctor_code = dbPayload.doctorCode;
+                        }
                         
-                        // Update local tracking and snake payload for the next attempt
                         await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
                         snakeData.id = dbPayload.id;
-                        snakeData.material_code = dbPayload.materialCode;
 
-                        // Add a small jittered delay to reduce concurrent collisions
                         await new Promise(r => setTimeout(r, 100 + Math.random() * 200));
 
                         if (attempt === maxAttempts) {
-                            throw new Error('Unable to generate a unique Material Code after multiple attempts. Please try again.');
+                            throw new Error(`Unable to generate a unique ${tableName === 'material_master' ? 'Material Code' : 'Doctor Code'} after multiple attempts. Please try again.`);
                         }
                     }
                 } else {
@@ -557,7 +608,14 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     syncedData = { ...dbPayload, sync_status: 'synced' };
                 }
                 
-                await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], syncedData);
+                const storeKey = tableName.toUpperCase() as keyof typeof STORES;
+                await idb.put(STORES[storeKey], syncedData);
+                
+                // CRITICAL FIX: Clear memory cache for this table to force the next getData/fetch to read from IDB (fresh data)
+                if (memoryCache[storeKey]) {
+                    delete memoryCache[storeKey];
+                }
+
                 return syncedData;
             } catch (e: any) {
                 if (isNetworkError(e)) {
@@ -647,6 +705,11 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     export const fetchTeamMembers = (user: RegisteredPharmacy) => getData('team_members', [], user);
     export const fetchSupplierProductMaps = (user: RegisteredPharmacy) => getData('supplier_product_map', [], user);
     export const fetchCustomerPriceList = (user: RegisteredPharmacy) => getData('customer_price_list', [], user);
+
+    export const fetchDoctors = async (user: RegisteredPharmacy): Promise<DoctorMaster[]> => {
+        const data = await getData('doctor_master', [], user);
+        return (data || []).sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+    };
 
     // Added missing fetchPhysicalInventory function
     export const fetchPhysicalInventory = (user: RegisteredPharmacy) => getData('physical_inventory', [], user);
