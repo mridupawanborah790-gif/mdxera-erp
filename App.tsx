@@ -353,7 +353,7 @@ const App: React.FC = () => {
                     case 'purchases': setPurchases(await storage.fetchPurchases(user)); break;
                     case 'suppliers': setSuppliers(await storage.fetchSuppliers(user)); break;
                     case 'customers': setCustomers(await storage.fetchCustomers(user)); break;
-                    case 'doctor_master': setDoctors(await storage.getData('doctor_master', [], user)); break;
+                    case 'doctor_master': setDoctors(await storage.fetchDoctors(user)); break;
                     case 'configurations':
                         const cfg = await storage.getData('configurations', [], user);
                         if (cfg && cfg.length > 0) {
@@ -401,7 +401,7 @@ const App: React.FC = () => {
                 storage.fetchPurchases(user),
                 storage.fetchSuppliers(user),
                 storage.fetchCustomers(user),
-                storage.getData('doctor_master', [], user),
+                storage.fetchDoctors(user),
                 storage.fetchEWayBills(user),
                 storage.fetchSupplierProductMaps(user),
                 storage.fetchPhysicalInventory(user),
@@ -2250,11 +2250,29 @@ const App: React.FC = () => {
                     return <DoctorsMaster
                         doctors={doctors}
                         onSaveDoctor={async (doctor, isUpdate) => {
-                            await storage.saveData('doctor_master', doctor, currentUser, isUpdate);
+                            const saved = await storage.saveData('doctor_master', doctor, currentUser, isUpdate);
+                            setDoctors(prev => {
+                                const index = prev.findIndex(d => d.id === saved.id);
+                                if (index >= 0) {
+                                    const next = [...prev];
+                                    next[index] = saved;
+                                    return next;
+                                }
+                                return [...prev, saved].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                            });
                             await loadData(currentUser!, 'targeted', 'doctor_master');
                         }}
                         onToggleDoctorStatus={async (doctor, nextActive) => {
-                            await storage.saveData('doctor_master', { ...doctor, is_active: nextActive }, currentUser, true);
+                            const saved = await storage.saveData('doctor_master', { ...doctor, is_active: nextActive }, currentUser, true);
+                            setDoctors(prev => {
+                                const index = prev.findIndex(d => d.id === saved.id);
+                                if (index >= 0) {
+                                    const next = [...prev];
+                                    next[index] = saved;
+                                    return next;
+                                }
+                                return prev;
+                            });
                             await loadData(currentUser!, 'targeted', 'doctor_master');
                         }}
                     />;

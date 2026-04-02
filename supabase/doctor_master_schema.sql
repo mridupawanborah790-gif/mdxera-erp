@@ -51,13 +51,24 @@ drop trigger if exists tr_update_doctor_master_modtime on public.doctor_master;
 create trigger tr_update_doctor_master_modtime before update on doctor_master
 for each row execute function update_doctor_master_modtime();
 
+-- Security Helper (Ensures lookup via profiles table linked to current auth.uid)
+CREATE OR REPLACE FUNCTION public.get_my_org_id()
+RETURNS text AS $$
+DECLARE
+  found_org_id text;
+BEGIN
+  SELECT organization_id::text INTO found_org_id FROM public.profiles WHERE user_id = auth.uid();
+  RETURN COALESCE(found_org_id, '');
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
 alter table public.doctor_master enable row level security;
 
 drop policy if exists "Org isolation for doctor_master" on public.doctor_master;
 create policy "Org isolation for doctor_master"
 on public.doctor_master for all
-using (organization_id = (auth.jwt() ->> 'organization_id'))
-with check (organization_id = (auth.jwt() ->> 'organization_id'));
+using (organization_id::text = public.get_my_org_id())
+with check (organization_id::text = public.get_my_org_id());
 
 alter table public.sales_bill
   add column if not exists doctor_id uuid references public.doctor_master(id) on delete set null;
