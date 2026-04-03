@@ -626,6 +626,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const applyMatch = (foundMed: Medicine): PurchaseItem => ({
                 ...item,
                 inventoryItemId: foundMed.id,
+                materialCode: foundMed.materialCode,
                 matchStatus: 'matched' as const,
                 hsnCode: foundMed.hsnCode || item.hsnCode,
                 gstPercent: foundMed.gstRate || item.gstPercent,
@@ -1222,6 +1223,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             rateC: batch.rateC,
             gstPercent: batch.gstPercent || 5,
             hsnCode: batch.hsnCode || '',
+            materialCode: batch.code,
             discountPercent: 0,
             schemeDiscountPercent: 0,
             schemeDiscountAmount: 0,

@@ -417,6 +417,7 @@ export interface PurchaseItem {
     unitOfMeasurement?: string;
     manufacturer?: string;
     inventoryItemId?: string;
+    materialCode?: string;
     oldMrp?: number;
     composition?: string;
     lineBaseAmount?: number;
