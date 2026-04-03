@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { RegisteredPharmacy } from '../types';
 import { downloadCsv, arrayToCsvRow } from '../utils/csv';
+declare const XLSX: any;
 
 interface ReportPreviewModalProps {
   isOpen: boolean;
@@ -80,6 +81,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   const [openFilterHeader, setOpenFilterHeader] = useState<string | null>(null);
   const [doctorViewMode, setDoctorViewMode] = useState<'summary' | 'item'>('summary');
   const columnDropdownRef = useRef<HTMLDivElement>(null);
+  const filterPanelRef = useRef<HTMLDivElement>(null);
   const effectiveHeaders = isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemHeaders : doctorSummaryHeaders;
 
   useEffect(() => {
@@ -89,6 +91,10 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       setFilterSearchTerms({});
       setDoctorViewMode('summary');
       setVisibleHeaders(doctorSummaryHeaders); 
+      setIsFilterPanelOpen(false);
+      setSelectedFilterFields([]);
+      setDraftStructuredFilters({});
+      setAppliedStructuredFilters({});
     }
   }, [isOpen, doctorSummaryHeaders]);
 
@@ -98,6 +104,10 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     setFilterSearchTerms({});
     setOpenFilterHeader(null);
     setVisibleHeaders(effectiveHeaders);
+    setIsFilterPanelOpen(false);
+    setSelectedFilterFields([]);
+    setDraftStructuredFilters({});
+    setAppliedStructuredFilters({});
   }, [effectiveHeaders]);
 
   useEffect(() => {
@@ -105,12 +115,15 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       if (columnDropdownRef.current && !columnDropdownRef.current.contains(event.target as Node)) {
         setIsColumnDropdownOpen(false);
       }
+      if (filterPanelRef.current && !filterPanelRef.current.contains(event.target as Node)) {
+        setIsFilterPanelOpen(false);
+      }
     };
-    if (isColumnDropdownOpen) {
+    if (isColumnDropdownOpen || isFilterPanelOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isColumnDropdownOpen]);
+  }, [isColumnDropdownOpen, isFilterPanelOpen]);
 
   const doctorItemData = useMemo(() => {
     if (!isDoctorWiseSalesReport || doctorViewMode !== 'item') return [];
@@ -298,6 +311,35 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       });
     });
 
+    Object.entries(appliedStructuredFilters).forEach(([header, filter]) => {
+      const values = filter.values || [];
+      const min = filter.min !== '' ? Number(filter.min) : undefined;
+      const max = filter.max !== '' ? Number(filter.max) : undefined;
+      const startDate = filter.startDate ? new Date(filter.startDate) : undefined;
+      const endDate = filter.endDate ? new Date(filter.endDate) : undefined;
+      if (startDate) startDate.setHours(0, 0, 0, 0);
+      if (endDate) endDate.setHours(23, 59, 59, 999);
+
+      filteredData = filteredData.filter(row => {
+        const rawValue = row[header];
+        const valueAsText = String(rawValue ?? '');
+        if (values.length > 0 && !values.includes(valueAsText)) return false;
+        if (min !== undefined || max !== undefined) {
+          const n = Number(rawValue);
+          if (Number.isNaN(n)) return false;
+          if (min !== undefined && n < min) return false;
+          if (max !== undefined && n > max) return false;
+        }
+        if (startDate || endDate) {
+          const d = new Date(rawValue);
+          if (Number.isNaN(d.getTime())) return false;
+          if (startDate && d < startDate) return false;
+          if (endDate && d > endDate) return false;
+        }
+        return true;
+      });
+    });
+
     if (sortConfig !== null) {
       filteredData.sort((a, b) => {
         const aValue = a[sortConfig.key];
@@ -395,6 +437,24 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     window.print();
   };
 
+  const handleExportExcel = () => {
+    if (typeof XLSX === 'undefined') {
+      alert('Excel library not loaded.');
+      return;
+    }
+    const rows = processedData.map(row => {
+      const mapped: Record<string, any> = {};
+      visibleHeaders.forEach(header => {
+        mapped[header] = row[header];
+      });
+      return mapped;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, title.slice(0, 28));
+    XLSX.writeFile(wb, `${title.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const handleDownloadCsv = () => {
     if (processedData.length === 0) {
         alert("No data to download.");
@@ -455,6 +515,15 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     initialFilters.invoiceIdFilter && `ID Filter: "${initialFilters.invoiceIdFilter}"`,
   ].filter(Boolean).join(' | ');
   const emptyMessage = initialFilters?.emptyMessage || 'No data found for selected date range';
+  const activeFilterChips = Object.entries(appliedStructuredFilters).flatMap(([header, filter]) => {
+    const chips: string[] = [];
+    (filter.values || []).forEach(v => chips.push(`${header}: ${v}`));
+    if (filter.min) chips.push(`${header} ≥ ${filter.min}`);
+    if (filter.max) chips.push(`${header} ≤ ${filter.max}`);
+    if (filter.startDate) chips.push(`${header} from ${filter.startDate}`);
+    if (filter.endDate) chips.push(`${header} to ${filter.endDate}`);
+    return chips;
+  });
 
   return (
     <div id="print-report-modal-container" className="fixed inset-0 bg-white z-[100] flex flex-col animate-in fade-in duration-200 text-xs">
@@ -502,6 +571,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       <div className="flex-shrink-0 no-print bg-gray-900 text-white p-4 flex justify-between items-center shadow-lg">
           <div className="flex items-center space-x-4">
               <h2 className="text-sm font-bold uppercase tracking-widest">{title}</h2>
+              <span className="px-2 py-1 text-[9px] font-black uppercase rounded bg-blue-900/60 border border-blue-700">Preview</span>
               {isDoctorWiseSalesReport && (
                   <div className="flex items-center bg-gray-800 rounded border border-gray-700 overflow-hidden text-[10px] font-bold">
                       <button
@@ -542,12 +612,98 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                       </div>
                   )}
               </div>
+              <div className="relative" ref={filterPanelRef}>
+                  <button onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)} className="flex items-center space-x-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-[10px] font-bold border border-gray-700 transition-colors">
+                      <span>FILTER</span>
+                  </button>
+                  {isFilterPanelOpen && (
+                    <div className="absolute top-full left-0 mt-1 w-[640px] max-w-[92vw] bg-white border border-gray-200 rounded shadow-xl z-[120] p-3 text-black">
+                      <p className="text-[10px] font-black uppercase text-gray-500 mb-2">Apply Filters</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="border border-gray-200 rounded p-2 max-h-72 overflow-y-auto custom-scrollbar">
+                          <p className="text-[9px] font-black uppercase text-gray-400 mb-2">Filter Fields</p>
+                          {effectiveHeaders.map(header => (
+                            <label key={header} className="flex items-center gap-2 p-1.5 rounded hover:bg-gray-50 text-[11px]">
+                              <input
+                                type="checkbox"
+                                checked={selectedFilterFields.includes(header)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setSelectedFilterFields(prev => [...prev, header]);
+                                  else {
+                                    setSelectedFilterFields(prev => prev.filter(h => h !== header));
+                                    setDraftStructuredFilters(prev => {
+                                      const copy = { ...prev };
+                                      delete copy[header];
+                                      return copy;
+                                    });
+                                  }
+                                }}
+                              />
+                              <span className="font-semibold">{header}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="border border-gray-200 rounded p-2 max-h-72 overflow-y-auto custom-scrollbar space-y-3">
+                          <p className="text-[9px] font-black uppercase text-gray-400">Selected Field Filters</p>
+                          {selectedFilterFields.length === 0 && <p className="text-[11px] text-gray-500">Select at least one field to configure filters.</p>}
+                          {selectedFilterFields.map(header => {
+                            const meta = fieldMetadata[header];
+                            const current = draftStructuredFilters[header] || {};
+                            return (
+                              <div key={header} className="border border-gray-200 rounded p-2">
+                                <p className="text-[10px] font-black uppercase mb-2">{header} <span className="text-gray-400">({meta?.fieldType || 'text'})</span></p>
+                                {(meta?.fieldType === 'text' || meta?.fieldType === 'status') && (
+                                  <div className="max-h-28 overflow-y-auto custom-scrollbar space-y-1">
+                                    {meta.options.map(opt => (
+                                      <label key={opt} className="flex items-center gap-2 text-[11px]">
+                                        <input
+                                          type="checkbox"
+                                          checked={(current.values || []).includes(opt)}
+                                          onChange={(e) => {
+                                            const selected = new Set(current.values || []);
+                                            if (e.target.checked) selected.add(opt);
+                                            else selected.delete(opt);
+                                            setDraftStructuredFilters(prev => ({ ...prev, [header]: { ...current, values: Array.from(selected) } }));
+                                          }}
+                                        />
+                                        <span>{opt}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                                {meta?.fieldType === 'number' && (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <input type="number" placeholder="Min" value={current.min || ''} onChange={(e) => setDraftStructuredFilters(prev => ({ ...prev, [header]: { ...current, min: e.target.value } }))} className="border border-gray-300 px-2 py-1 text-[11px]" />
+                                    <input type="number" placeholder="Max" value={current.max || ''} onChange={(e) => setDraftStructuredFilters(prev => ({ ...prev, [header]: { ...current, max: e.target.value } }))} className="border border-gray-300 px-2 py-1 text-[11px]" />
+                                  </div>
+                                )}
+                                {meta?.fieldType === 'date' && (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <input type="date" value={current.startDate || ''} onChange={(e) => setDraftStructuredFilters(prev => ({ ...prev, [header]: { ...current, startDate: e.target.value } }))} className="border border-gray-300 px-2 py-1 text-[11px]" />
+                                    <input type="date" value={current.endDate || ''} onChange={(e) => setDraftStructuredFilters(prev => ({ ...prev, [header]: { ...current, endDate: e.target.value } }))} className="border border-gray-300 px-2 py-1 text-[11px]" />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button className="px-3 py-1.5 text-[10px] font-black uppercase border border-gray-300" onClick={() => { setDraftStructuredFilters({}); setSelectedFilterFields([]); }}>Clear</button>
+                        <button className="px-3 py-1.5 text-[10px] font-black uppercase bg-primary text-white" onClick={() => { setAppliedStructuredFilters(draftStructuredFilters); setIsFilterPanelOpen(false); }}>Apply Filter</button>
+                      </div>
+                    </div>
+                  )}
+              </div>
           </div>
           
           <div className="flex items-center space-x-3">
               <button onClick={handleDownloadCsv} className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-[10px] font-bold border border-gray-700 transition-colors flex items-center">
                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   CSV
+              </button>
+              <button onClick={handleExportExcel} className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-[10px] font-bold border border-gray-700 transition-colors flex items-center">
+                  XLSX
               </button>
               <button onClick={handlePrint} className="px-4 py-1.5 bg-[#11A66C] hover:bg-[#0f8a5a] text-white rounded text-[10px] font-bold transition-colors flex items-center shadow-md shadow-green-900/20">
                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -617,7 +773,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               </div>
 
               <table className="report-table">
-                  <thead>
+                  <thead className="sticky top-0 z-10">
                       <tr className="bg-gray-100">
                           {visibleHeaders.map(header => (
                               <th key={header} className="p-2 text-left font-black uppercase tracking-wider text-[8pt]">
