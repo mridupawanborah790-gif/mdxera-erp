@@ -53,7 +53,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, onCloseBlocked, disableC
 
   return createPortal(
     <div 
-      className="fixed inset-0 bg-black/40 z-[200] flex justify-center items-center backdrop-blur-[1px] print:hidden"
+      className="fixed inset-0 bg-black/40 z-[200] flex justify-center items-center backdrop-blur-[1px]"
       onClick={handleCloseRequest}
     >
       <div 

@@ -2483,23 +2483,24 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
     export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
         const customer = await findCustomerForTransaction(tx);
-        if (!customer) return;
-
-        await upsertAutoLedgerEntry(
-            { type: 'customer', id: customer.id },
-            user,
-            {
-                id: `auto-sale-${tx.id}`,
-                date: tx.date,
-                type: 'sale',
-                description: `Sales Voucher ${tx.invoiceNumber || tx.id}`,
-                debit: Number(tx.total || 0),
-                credit: 0,
-                referenceInvoiceId: tx.id,
-                referenceInvoiceNumber: tx.invoiceNumber,
-            },
-            tx.status !== 'cancelled'
-        );
+        
+        if (customer) {
+            await upsertAutoLedgerEntry(
+                { type: 'customer', id: customer.id },
+                user,
+                {
+                    id: `auto-sale-${tx.id}`,
+                    date: tx.date,
+                    type: 'sale',
+                    description: `Sales Voucher ${tx.invoiceNumber || tx.id}`,
+                    debit: Number(tx.total || 0),
+                    credit: 0,
+                    referenceInvoiceId: tx.id,
+                    referenceInvoiceNumber: tx.invoiceNumber,
+                },
+                tx.status !== 'cancelled'
+            );
+        }
 
         if (tx.status === 'cancelled') return;
 
@@ -2628,23 +2629,25 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
     export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPharmacy) => {
         const supplier = await findSupplierForPurchase(purchase);
-        if (!supplier) return;
-
-        await upsertAutoLedgerEntry(
-            { type: 'supplier', id: supplier.id },
-            user,
-            {
-                id: `auto-purchase-${purchase.id}`,
-                date: purchase.date,
-                type: 'purchase',
-                description: `Purchase Voucher ${purchase.invoiceNumber || purchase.id}`,
-                debit: Number(purchase.totalAmount || 0),
-                credit: 0,
-            },
-            purchase.status !== 'cancelled'
-        );
+        
+        if (supplier) {
+            await upsertAutoLedgerEntry(
+                { type: 'supplier', id: supplier.id },
+                user,
+                {
+                    id: `auto-purchase-${purchase.id}`,
+                    date: purchase.date,
+                    type: 'purchase',
+                    description: `Purchase Voucher ${purchase.invoiceNumber || purchase.id}`,
+                    debit: Number(purchase.totalAmount || 0),
+                    credit: 0,
+                },
+                purchase.status !== 'cancelled'
+            );
+        }
 
         if (purchase.status === 'cancelled') return;
+
 
         const postingContext = await ensurePostingContext(purchase, user);
         purchase.companyCodeId = postingContext.companyCodeId;
