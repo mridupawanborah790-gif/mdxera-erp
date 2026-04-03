@@ -147,7 +147,7 @@ const HistoryView: React.FC<{
             <Card className="p-3 tally-border !rounded-none grid grid-cols-1 md:grid-cols-4 gap-4 items-end bg-white">
                 <div className="md:col-span-2">
                     <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Search Audits</label>
-                    <input type="text" placeholder="Session ID, Reason..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold focus:bg-yellow-50 outline-none" />
+                    <input type="text" placeholder="Session ID, Reason..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold focus:bg-primary/5 outline-none" />
                 </div>
                 <div>
                     <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">From Date</label>
@@ -174,16 +174,16 @@ const HistoryView: React.FC<{
                         </thead>
                         <tbody className="divide-y divide-gray-200">
                             {completedSessions.map((s, idx) => (
-                                <tr key={s.id} className="hover:bg-accent transition-colors cursor-pointer" onClick={() => onViewSession(s)}>
-                                    <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">{idx + 1}</td>
-                                    <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary uppercase">{s.id}</td>
-                                    <td className="p-2 border-r border-gray-200 uppercase font-bold text-gray-700">{s.reason || 'Manual Audit'}</td>
-                                    <td className="p-2 border-r border-gray-200 uppercase text-[10px] font-black">{s.performedByName}</td>
-                                    <td className={`p-2 border-r border-gray-200 text-right font-black ${s.totalVarianceValue > 0 ? 'text-green-700' : s.totalVarianceValue < 0 ? 'text-red-700' : ''}`}>
+                                <tr key={s.id} className="hover:bg-primary hover:text-white group transition-colors cursor-pointer" onClick={() => onViewSession(s)}>
+                                    <td className="p-2 border-r border-gray-200 text-center text-gray-400 group-hover:text-white/70 font-bold">{idx + 1}</td>
+                                    <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary group-hover:text-white uppercase">{s.id}</td>
+                                    <td className="p-2 border-r border-gray-200 uppercase font-bold text-gray-700 group-hover:text-white">{s.reason || 'Manual Audit'}</td>
+                                    <td className="p-2 border-r border-gray-200 uppercase text-[10px] font-black group-hover:text-white">{s.performedByName}</td>
+                                    <td className={`p-2 border-r border-gray-200 text-right font-black ${s.totalVarianceValue > 0 ? 'text-green-700 group-hover:text-white' : s.totalVarianceValue < 0 ? 'text-red-700 group-hover:text-red-200' : 'group-hover:text-white'}`}>
                                         ₹{(s.totalVarianceValue || 0).toFixed(2)}
                                     </td>
                                     <td className="p-2 text-right">
-                                        <button className="text-primary font-black uppercase text-[10px] hover:underline">View Log</button>
+                                        <button className="text-primary font-black uppercase text-[10px] group-hover:text-white hover:underline">View Log</button>
                                     </td>
                                 </tr>
                             ))}
@@ -522,7 +522,7 @@ const CountingView: React.FC<{
                                     const phyPacks = Math.floor(item.physicalCount / uPP);
                                     const phyLoose = item.physicalCount % uPP;
                                     return (
-                                        <tr key={item.inventoryItemId} className="hover:bg-accent transition-colors">
+                                        <tr key={item.inventoryItemId} className="hover:bg-green-100 transition-colors">
                                             <td className="p-2 border-r border-gray-200">
                                                 <p className="font-bold text-gray-900 uppercase">{item.name}</p>
                                                 <p className="text-[9px] text-gray-400 font-bold uppercase">Batch: {item.batch}</p>
@@ -536,7 +536,7 @@ const CountingView: React.FC<{
                                                         value={phyPacks} 
                                                         onChange={e => handleCountChange(item.inventoryItemId, parseInt(e.target.value) || 0, phyLoose)} 
                                                         onKeyDown={e => handleActualCountKeyDown(e, item.inventoryItemId, 'packs')}
-                                                        className="w-16 p-1 border border-gray-400 text-center font-black no-spinner outline-none focus:bg-yellow-50" 
+                                                        className="w-16 p-1 border border-gray-400 text-center font-black no-spinner outline-none focus:bg-green-100" 
                                                         placeholder="Pkts"
                                                     />
                                                     <span className="font-black">:</span>
@@ -546,7 +546,7 @@ const CountingView: React.FC<{
                                                         value={phyLoose} 
                                                         onChange={e => handleCountChange(item.inventoryItemId, phyPacks, parseInt(e.target.value) || 0)} 
                                                         onKeyDown={e => handleActualCountKeyDown(e, item.inventoryItemId, 'loose')}
-                                                        className="w-12 p-1 border border-gray-400 text-center font-bold no-spinner outline-none focus:bg-yellow-50" 
+                                                        className="w-12 p-1 border border-gray-400 text-center font-bold no-spinner outline-none focus:bg-green-100" 
                                                         placeholder="Lse"
                                                     />
                                                 </div>
@@ -579,7 +579,7 @@ const CountingView: React.FC<{
                                                     onKeyDown={handleAddProductRowKeyDown}
                                                     onFocus={() => setSelectedDiscoveryIndex(0)}
                                                     placeholder="Type item name or code..."
-                                                    className="w-full border border-gray-400 px-2 py-1 text-[11px] font-black uppercase tracking-wide outline-none focus:border-primary focus:bg-yellow-50"
+                                                    className="w-full border border-gray-400 px-2 py-1 text-[11px] font-black uppercase tracking-wide outline-none focus:border-primary focus:bg-green-100"
                                                 />
                                             </div>
                                         </div>
@@ -642,7 +642,7 @@ const CountingView: React.FC<{
                                                 data-index={idx}
                                                 onMouseEnter={() => setSelectedDiscoveryIndex(idx)}
                                                 onClick={() => addItemFromDiscovery(item)}
-                                                className={`cursor-pointer transition-all border-b border-gray-100 ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : 'hover:bg-yellow-50'}`}
+                                                className={`cursor-pointer transition-all border-b border-gray-100 ${isSelected ? 'bg-primary text-white scale-[1.01] z-10 shadow-xl' : 'hover:bg-green-100'}`}
                                             >
                                                 <td className="p-1.5 px-3 border-r border-gray-200">
                                                     <p className={`leading-none ${uniformTextStyle} ${isSelected ? 'text-white' : 'text-gray-950'}`}>{item.name}</p>

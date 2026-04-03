@@ -11,6 +11,7 @@
     import { parseNetworkAndApiError } from '../utils/error';
     import { normalizeImportDate } from '../utils/helpers';
     import { deductStockLooseFirst, normalizeUnitsPerPack } from '../utils/stock';
+    import { resolveUnitsPerStrip, extractPackMultiplier } from '../utils/pack';
 import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHandling';
     import { DEFAULT_CONFIG_MISSING_MESSAGE, loadDefaultPostingContext } from './companyDefaultsService';
 
@@ -3184,12 +3185,96 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             performedById: user.user_id,
             performedByName: user.full_name
         };
+        
+        // 1. Save the session itself
         await saveData('physical_inventory', finalized, user);
+        
+        // 2. Fetch current state to ensure we have the most recent data (especially if IDB is disabled)
+        const currentInventory = await fetchInventory(user);
+        const inventoryById = new Map(currentInventory.map(i => [i.id, i]));
+        
+        // Also fetch medicine master for potential new inventory items (discovery)
+        const meds = await fetchMedicineMaster(user);
+        const medsById = new Map(meds.map(m => [m.id, m]));
+
+        // Get config for stock movement logging
+        const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
+        const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
+
+        // 3. Process each item in the audit
         for (const item of session.items) {
-            const invItem = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem;
+            let invItem: InventoryItem | undefined;
+            
+            // Try to find existing inventory record
+            if (item.inventoryItemId && !item.inventoryItemId.startsWith('mm-')) {
+                invItem = inventoryById.get(item.inventoryItemId);
+            }
+            
             if (invItem) {
-                invItem.stock = item.physicalCount;
-                await saveData('inventory', invItem, user);
+                // UPDATE EXISTING
+                const stockBefore = Number(invItem.stock || 0);
+                const stockAfter = Number(item.physicalCount);
+                const variance = stockAfter - stockBefore;
+                
+                if (variance !== 0) {
+                    logStockMovement({ 
+                        transactionType: 'stock-audit-adjustment', 
+                        voucherId: session.id, 
+                        item: invItem.name, 
+                        batch: invItem.batch || 'UNSET', 
+                        qty: Math.abs(variance), 
+                        qtyIn: variance > 0 ? variance : 0,
+                        qtyOut: variance < 0 ? Math.abs(variance) : 0,
+                        stockBefore, 
+                        stockAfter, 
+                        organizationId: user.organization_id, 
+                        validationResult: 'allowed', 
+                        mode: stockHandling.mode 
+                    });
+                    
+                    invItem.stock = stockAfter;
+                    await saveData('inventory', invItem, user, true);
+                }
+            } else if (item.inventoryItemId?.startsWith('mm-')) {
+                // CREATE NEW FROM MEDICINE MASTER (DISCOVERY)
+                const medId = item.inventoryItemId.replace('mm-', '');
+                const med = medsById.get(medId);
+                
+                if (med && item.physicalCount > 0) {
+                    const newInv: Omit<InventoryItem, 'id'> = {
+                        organization_id: user.organization_id,
+                        name: med.name,
+                        brand: med.brand || '',
+                        category: med.category || 'Medicine',
+                        manufacturer: med.manufacturer || '',
+                        stock: item.physicalCount,
+                        unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(med.pack) ?? 1, med.pack),
+                        batch: item.batch || 'UNSET',
+                        expiry: item.expiry || '',
+                        purchasePrice: 0, // Audit usually doesn't provide purchase price for new items
+                        mrp: parseFloat(med.mrp || '0'),
+                        gstPercent: med.gstRate || 0,
+                        hsnCode: med.hsnCode || '',
+                        minStockLimit: 10,
+                        is_active: true
+                    };
+                    
+                    logStockMovement({ 
+                        transactionType: 'stock-audit-new-item', 
+                        voucherId: session.id, 
+                        item: newInv.name, 
+                        batch: newInv.batch, 
+                        qty: item.physicalCount, 
+                        qtyIn: item.physicalCount,
+                        stockBefore: 0, 
+                        stockAfter: item.physicalCount, 
+                        organizationId: user.organization_id, 
+                        validationResult: 'allowed', 
+                        mode: stockHandling.mode 
+                    });
+                    
+                    await saveData('inventory', newInv, user);
+                }
             }
         }
     };
