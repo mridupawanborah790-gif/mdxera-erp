@@ -587,16 +587,23 @@ const POS = forwardRef<any, POSProps>(({
         const grouped = new Map<string, { item: InventoryItem; batches: InventoryItem[] }>();
         const term = modalSearchTerm.toLowerCase().trim();
 
+        // 1. First check the inventory
         inventoryWithPolicy.forEach(({ item: i, policy }) => {
             if (!policy.salesEnabled) return;
             const name = i.name.toLowerCase();
             const code = (i.code || '').toLowerCase();
-            if (!term || name.startsWith(term) || code.startsWith(term)) {
-                const key = `${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
-                if (!grouped.has(key)) grouped.set(key, { item: i, batches: [i] });
-                else {
+            const barcode = (i.barcode || '').toLowerCase();
+
+            if (!term || name.includes(term) || code.includes(term) || barcode.includes(term)) {
+                // Use code as primary key if available, otherwise name|brand
+                const key = i.code ? `CODE:${i.code.toLowerCase()}` : `NAME:${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
+                
+                if (!grouped.has(key)) {
+                    grouped.set(key, { item: i, batches: [i] });
+                } else {
                     const existing = grouped.get(key)!;
                     existing.batches.push(i);
+                    // Ensure the representative item has the aggregated stock
                     existing.item = {
                         ...existing.item,
                         stock: existing.batches.reduce((sum, batch) => sum + (batch.stock || 0), 0),
@@ -605,13 +612,18 @@ const POS = forwardRef<any, POSProps>(({
             }
         });
 
+        // 2. Then check the material master (medicines)
         medicines.forEach(m => {
             const medPolicy = getResolvedMedicinePolicy(m);
             if (!medPolicy.salesEnabled) return;
             const name = m.name.toLowerCase();
             const materialCode = (m.materialCode || '').toLowerCase();
-            if (!term || name.startsWith(term) || materialCode.startsWith(term)) {
-                const key = `${m.name.toLowerCase()}|${m.brand?.toLowerCase() || ''}`;
+            const barcode = (m.barcode || '').toLowerCase();
+
+            if (!term || name.includes(term) || materialCode.includes(term) || barcode.includes(term)) {
+                const key = m.materialCode ? `CODE:${m.materialCode.toLowerCase()}` : `NAME:${m.name.toLowerCase()}|${m.brand?.toLowerCase() || ''}`;
+                
+                // Only add if not already present from inventory (prevents duplicates)
                 if (!grouped.has(key)) {
                     const virtualItem: InventoryItem = {
                         id: m.id,
@@ -641,9 +653,24 @@ const POS = forwardRef<any, POSProps>(({
         });
 
         return Array.from(grouped.values())
-            .sort((a, b) => a.item.name.localeCompare(b.item.name))
+            .sort((a, b) => {
+                // Priority 1: Items with stock first
+                const stockA = a.item.stock || 0;
+                const stockB = b.item.stock || 0;
+                if (stockA > 0 && stockB <= 0) return -1;
+                if (stockA <= 0 && stockB > 0) return 1;
+
+                // Priority 2: Items in inventory (even if 0 stock) over virtual items
+                const isInvA = a.batches.length > 0;
+                const isInvB = b.batches.length > 0;
+                if (isInvA && !isInvB) return -1;
+                if (!isInvA && isInvB) return 1;
+
+                // Priority 3: Alphabetical
+                return a.item.name.localeCompare(b.item.name);
+            })
             .slice(0, 30);
-    }, [modalSearchTerm, inventoryWithPolicy, medicines]);
+    }, [modalSearchTerm, inventoryWithPolicy, medicines, getResolvedMedicinePolicy]);
 
     const activeIntelItem = useMemo(() => {
         if (isSearchModalOpen && deduplicatedSearchInventory.length > 0) {

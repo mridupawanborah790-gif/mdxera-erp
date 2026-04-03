@@ -245,36 +245,51 @@ const CountingView: React.FC<{
     }, [countedItems, reason, session, debouncedUpdate, totalVarianceValue]);
 
     const discoveryResults = useMemo(() => {
-        const term = modalSearchTerm.trim();
+        const term = modalSearchTerm.toLowerCase().trim();
+        const grouped = new Map<string, { item: InventoryItem; batches: InventoryItem[] }>();
 
-        const grouped = new Map<string, InventoryItem>();
-
+        // 1. First check the inventory
         inventory.forEach(i => {
             const invPolicy = getInventoryPolicy(i, medicines);
             if (!invPolicy.inventorised) return;
-            if (
-                !term ||
-                fuzzyMatch(i.name, term) ||
-                (i.barcode && fuzzyMatch(i.barcode, term)) ||
-                (i.code && fuzzyMatch(i.code, term))
-            ) {
-                grouped.set(`${i.name.toLowerCase()}|${(i.brand || '').toLowerCase()}`, i);
+            
+            const name = i.name.toLowerCase();
+            const code = (i.code || '').toLowerCase();
+            const barcode = (i.barcode || '').toLowerCase();
+
+            if (!term || name.includes(term) || code.includes(term) || barcode.includes(term)) {
+                // Use code as primary key if available, otherwise name|brand
+                const key = i.code ? `CODE:${i.code.toLowerCase()}` : `NAME:${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
+                
+                if (!grouped.has(key)) {
+                    grouped.set(key, { item: i, batches: [i] });
+                } else {
+                    const existing = grouped.get(key)!;
+                    existing.batches.push(i);
+                    // Ensure representative item has aggregated stock
+                    existing.item = {
+                        ...existing.item,
+                        stock: existing.batches.reduce((sum, b) => sum + (b.stock || 0), 0)
+                    };
+                }
             }
         });
 
+        // 2. Then check material master
         medicines.forEach(m => {
             const medPolicy = getResolvedMedicinePolicy(m);
             if (!medPolicy.inventorised) return;
-            if (
-                !term ||
-                fuzzyMatch(m.name, term) ||
-                (m.barcode && fuzzyMatch(m.barcode, term)) ||
-                (m.materialCode && fuzzyMatch(m.materialCode, term))
-            ) {
-                const key = `${m.name.toLowerCase()}|${(m.brand || '').toLowerCase()}`;
+
+            const name = m.name.toLowerCase();
+            const materialCode = (m.materialCode || '').toLowerCase();
+            const barcode = (m.barcode || '').toLowerCase();
+
+            if (!term || name.includes(term) || materialCode.includes(term) || barcode.includes(term)) {
+                const key = m.materialCode ? `CODE:${m.materialCode.toLowerCase()}` : `NAME:${m.name.toLowerCase()}|${m.brand?.toLowerCase() || ''}`;
+
                 if (!grouped.has(key)) {
-                    grouped.set(key, {
-                        id: `mm-${m.id}`,
+                    const virtualItem: InventoryItem = {
+                        id: m.id,
                         organization_id: m.organization_id || '',
                         name: m.name,
                         code: m.materialCode,
@@ -282,23 +297,42 @@ const CountingView: React.FC<{
                         category: 'Medicine',
                         manufacturer: m.manufacturer || '',
                         stock: 0,
-                        unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '1', 10),
+                        unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '10', 10),
+                        packType: m.pack || '',
                         minStockLimit: 0,
-                        batch: medPolicy.inventorised ? 'UNTRACKED' : '',
-                        expiry: medPolicy.inventorised ? 'N/A' : '',
+                        batch: 'NEW-STOCK',
+                        expiry: 'N/A',
                         purchasePrice: 0,
                         mrp: parseFloat(m.mrp || '0'),
                         gstPercent: m.gstRate || 0,
                         hsnCode: m.hsnCode || '',
                         composition: m.composition || '',
                         barcode: m.barcode || '',
-                        is_active: true,
-                    });
+                        is_active: true
+                    };
+                    grouped.set(key, { item: virtualItem, batches: [] });
                 }
             }
         });
 
-        return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name));
+        return Array.from(grouped.values())
+            .sort((a, b) => {
+                // Priority 1: Items with stock first
+                const stockA = a.item.stock || 0;
+                const stockB = b.item.stock || 0;
+                if (stockA > 0 && stockB <= 0) return -1;
+                if (stockA <= 0 && stockB > 0) return 1;
+
+                // Priority 2: Inventory items over virtual
+                const isInvA = a.batches.length > 0;
+                const isInvB = b.batches.length > 0;
+                if (isInvA && !isInvB) return -1;
+                if (!isInvA && isInvB) return 1;
+
+                return a.item.name.localeCompare(b.item.name);
+            })
+            .map(wrapper => wrapper.item)
+            .slice(0, 30);
     }, [modalSearchTerm, inventory, medicines]);
 
     useEffect(() => {
