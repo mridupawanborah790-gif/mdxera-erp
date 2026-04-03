@@ -162,7 +162,7 @@ const HistoryView: React.FC<{
                             {completedSessions.map((s, idx) => (
                                 <tr key={s.id} className="hover:bg-accent transition-colors cursor-pointer" onClick={() => onViewSession(s)}>
                                     <td className="p-2 border-r border-gray-200 text-center text-gray-400 font-bold">{idx + 1}</td>
-                                    <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary uppercase">{s.id}</td>
+                                    <td className="p-2 border-r border-gray-200 font-mono font-bold text-primary uppercase">{s.voucher_no || s.id}</td>
                                     <td className="p-2 border-r border-gray-200 uppercase font-bold text-gray-700">{s.reason || 'Manual Audit'}</td>
                                     <td className="p-2 border-r border-gray-200 uppercase text-[10px] font-black">{s.performedByName}</td>
                                     <td className={`p-2 border-r border-gray-200 text-right font-black ${s.totalVarianceValue > 0 ? 'text-green-700' : s.totalVarianceValue < 0 ? 'text-red-700' : ''}`}>
