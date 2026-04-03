@@ -503,6 +503,13 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   })];
   const estimatedLandscape = visibleHeaders.length > 9 || visibleHeaders.some(header => header.length > 16);
   const printOrientation = estimatedLandscape ? 'landscape' : 'portrait';
+  const generatedAt = useMemo(() => new Date(), []);
+  const generatedDate = generatedAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const generatedTime = generatedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  const hasDateRange = Boolean(initialFilters?.startDate || initialFilters?.endDate);
+  const reportPeriodLabel = hasDateRange
+    ? `${initialFilters?.startDate || 'N/A'} to ${initialFilters?.endDate || 'N/A'}`
+    : 'All Dates';
   const isNumericColumn = (header: string, value: unknown) => (
     NUMERIC_HEADER_PATTERN.test(header) ||
     typeof value === 'number' ||
@@ -534,6 +541,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               z-index: auto !important;
               display: block !important;
               background: #fff !important;
+              overflow: visible !important;
             }
             #print-report-modal-container .custom-scrollbar {
               overflow: visible !important;
@@ -549,7 +557,11 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                 border: 0 !important;
                 box-shadow: none !important;
             }
+            #print-area * {
+              max-height: none !important;
+            }
             .no-print { display: none !important; }
+            .print-only { display: block !important; }
             
             table {
               width: 100% !important;
@@ -581,12 +593,56 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             }
             
             thead { display: table-header-group; }
-            tfoot { display: table-footer-group; }
+            tfoot { display: table-row-group; }
             thead th { position: static !important; top: auto !important; }
             .report-footer-signature { page-break-inside: avoid; }
 
+            .print-meta-row th {
+              background: #fff !important;
+              border: 0 !important;
+              padding: 0 0 3pt 0 !important;
+              text-transform: none !important;
+            }
+            .print-meta-block {
+              display: flex !important;
+              align-items: flex-start !important;
+              justify-content: space-between !important;
+              gap: 8pt !important;
+              border-bottom: 1pt solid #111 !important;
+              padding-bottom: 5pt !important;
+              margin-bottom: 2pt !important;
+            }
+            .print-meta-company h1 {
+              margin: 0 !important;
+              font-size: 12.5pt !important;
+              font-weight: 900 !important;
+              text-transform: uppercase !important;
+            }
+            .print-meta-company p {
+              margin: 1pt 0 !important;
+              font-size: 8pt !important;
+              line-height: 1.35 !important;
+            }
+            .print-meta-report {
+              text-align: right !important;
+              font-size: 8pt !important;
+              line-height: 1.35 !important;
+              min-width: 45% !important;
+            }
+            .print-meta-report-title {
+              font-size: 10pt !important;
+              font-weight: 900 !important;
+              text-transform: uppercase !important;
+              margin-bottom: 2pt !important;
+            }
+            .print-page-number::after {
+              content: "Page " counter(page);
+              font-weight: 800 !important;
+            }
             tr { page-break-inside: avoid; break-inside: avoid; }
         }
+
+        .print-only { display: none; }
         
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
@@ -760,7 +816,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       <div className="flex-1 overflow-auto bg-gray-100 custom-scrollbar pb-10">
           <div id="print-area" data-print-orientation={printOrientation} className="report-content shadow-2xl border border-gray-200">
               
-              <div className="flex justify-between items-center mb-8 border-b-2 border-black pb-4 gap-4">
+              <div className="flex justify-between items-center mb-8 border-b-2 border-black pb-4 gap-4 no-print">
                   <div className="flex-1 text-left">
                       <h1 className="text-xl font-black uppercase text-black leading-tight">{pharmacyDetails.pharmacy_name}</h1>
                       <p className="text-[9pt] font-medium text-black mt-1 whitespace-pre-line">{pharmacyDetails.address}</p>
@@ -781,8 +837,8 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                         {title}
                       </h2>
                       <div className="text-[8pt] text-gray-600 font-bold uppercase space-y-0.5">
-                          <p>DATE: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
-                          <p>GENERATED AT: {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+                          <p>DATE: {generatedDate}</p>
+                          <p>GENERATED AT: {generatedTime}</p>
                       </div>
                   </div>
               </div>
@@ -815,6 +871,24 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
 
               <table className="report-table">
                   <thead className="sticky top-0 z-10">
+                      <tr className="print-only print-meta-row">
+                        <th colSpan={Math.max(visibleHeaders.length, 1)}>
+                          <div className="print-meta-block">
+                            <div className="print-meta-company">
+                              <h1>{pharmacyDetails.pharmacy_name}</h1>
+                              <p>{pharmacyDetails.address || '-'}</p>
+                              <p>GSTIN: {pharmacyDetails.gstin || '-'}</p>
+                              <p>DL: {pharmacyDetails.drug_license || '-'}</p>
+                            </div>
+                            <div className="print-meta-report">
+                              <div className="print-meta-report-title">{title}</div>
+                              <div>Period: {reportPeriodLabel}</div>
+                              <div>Printed: {generatedDate} {generatedTime}</div>
+                              <div className="print-page-number" />
+                            </div>
+                          </div>
+                        </th>
+                      </tr>
                       <tr className="bg-gray-100">
                           {visibleHeaders.map(header => (
                               <th key={header} data-align={isNumericColumn(header, undefined) ? 'right' : 'left'} className={`p-2 font-black uppercase tracking-wider text-[8pt] ${isNumericColumn(header, undefined) ? 'text-right' : 'text-left'}`}>
