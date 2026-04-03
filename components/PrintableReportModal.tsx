@@ -16,6 +16,8 @@ const ColumnsIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7m0-18H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7m0-18v18"/></svg>
 );
 
+const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
+
 const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   isOpen,
   onClose,
@@ -25,19 +27,48 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   filters: initialFilters,
   pharmacyDetails,
 }) => {
+  const isDoctorWiseSalesReport = title === 'Doctor-wise Sales Report';
+  const doctorSummaryHeaders = headers;
+  const doctorItemHeaders = [
+    'Doctor Name',
+    'Doctor Code',
+    'Bill No',
+    'Bill Date',
+    'Customer Name',
+    'Item Name',
+    'Batch',
+    'Expiry',
+    'Pack',
+    'Qty',
+    'Free Qty',
+    'Rate',
+    'Discount',
+    'GST %',
+    'GST Amount',
+    'Line Amount (Net)',
+  ];
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [visibleHeaders, setVisibleHeaders] = useState<string[]>([]);
   const [isColumnDropdownOpen, setIsColumnDropdownOpen] = useState(false);
+  const [doctorViewMode, setDoctorViewMode] = useState<'summary' | 'item'>('summary');
   const columnDropdownRef = useRef<HTMLDivElement>(null);
+  const effectiveHeaders = isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemHeaders : doctorSummaryHeaders;
 
   useEffect(() => {
     if (isOpen) {
       setSortConfig(null);
       setColumnFilters({});
-      setVisibleHeaders(headers); 
+      setDoctorViewMode('summary');
+      setVisibleHeaders(doctorSummaryHeaders); 
     }
-  }, [isOpen, headers]);
+  }, [isOpen, doctorSummaryHeaders]);
+
+  useEffect(() => {
+    setSortConfig(null);
+    setColumnFilters({});
+    setVisibleHeaders(effectiveHeaders);
+  }, [effectiveHeaders]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -51,9 +82,131 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isColumnDropdownOpen]);
 
+  const doctorItemData = useMemo(() => {
+    if (!isDoctorWiseSalesReport || doctorViewMode !== 'item') return [];
+
+    const sourceRows = Array.isArray(initialFilters?.doctorWiseItemSource) ? initialFilters.doctorWiseItemSource : [];
+    const groupedByDoctor = new Map<string, {
+      doctorName: string;
+      doctorCode: string;
+      rows: any[];
+      totals: { qty: number; sales: number; discount: number; gst: number };
+    }>();
+    let grandQty = 0;
+    let grandSales = 0;
+    let grandDiscount = 0;
+    let grandGst = 0;
+
+    sourceRows.forEach((tx: any) => {
+      const doctorName = String(tx.doctorName || '').trim();
+      if (!doctorName) return;
+      const doctorKey = `${doctorName.toLowerCase()}|${String(tx.doctorCode || '').toLowerCase()}`;
+      const doctorGroup = groupedByDoctor.get(doctorKey) || {
+        doctorName,
+        doctorCode: tx.doctorCode || 'N/A',
+        rows: [] as any[],
+        totals: { qty: 0, sales: 0, discount: 0, gst: 0 },
+      };
+
+      (tx.items || []).forEach((item: any) => {
+        const qty = Number(item.quantity || 0);
+        const freeQty = Number(item.freeQuantity || 0);
+        const rate = Number(item.rate ?? item.mrp ?? 0);
+        const tradeDiscount = Number(item.itemFlatDiscount || 0) + (qty * rate * (Number(item.discountPercent || 0) / 100));
+        const discount = tradeDiscount + Number(item.schemeDiscountAmount || 0);
+        const taxable = (qty * rate) - discount;
+        const gstPercent = Number(item.gstPercent || 0);
+        const gstAmount = taxable * (gstPercent / 100);
+        const lineNet = taxable + gstAmount;
+
+        doctorGroup.rows.push({
+          'Doctor Name': doctorGroup.doctorName,
+          'Doctor Code': doctorGroup.doctorCode,
+          'Bill No': tx.invoiceNumber || tx.id,
+          'Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
+          'Customer Name': tx.customerName || 'N/A',
+          'Item Name': item.name || 'N/A',
+          'Batch': item.batch || 'N/A',
+          'Expiry': item.expiry ? new Date(item.expiry).toLocaleDateString('en-GB') : 'N/A',
+          'Pack': item.packType || item.packUnit || item.unitOfMeasurement || 'N/A',
+          'Qty': round2(qty),
+          'Free Qty': round2(freeQty),
+          'Rate': round2(rate),
+          'Discount': round2(discount),
+          'GST %': round2(gstPercent),
+          'GST Amount': round2(gstAmount),
+          'Line Amount (Net)': round2(lineNet),
+          _rowType: 'item',
+        });
+
+        doctorGroup.totals.qty += qty;
+        doctorGroup.totals.sales += lineNet;
+        doctorGroup.totals.discount += discount;
+        doctorGroup.totals.gst += gstAmount;
+      });
+
+      groupedByDoctor.set(doctorKey, doctorGroup);
+    });
+
+    const rows: any[] = [];
+    Array.from(groupedByDoctor.values())
+      .sort((a, b) => a.doctorName.localeCompare(b.doctorName))
+      .forEach(group => {
+        rows.push(...group.rows);
+        rows.push({
+          'Doctor Name': group.doctorName,
+          'Doctor Code': group.doctorCode,
+          'Bill No': '',
+          'Bill Date': '',
+          'Customer Name': '',
+          'Item Name': 'DOCTOR SUBTOTAL',
+          'Batch': '',
+          'Expiry': '',
+          'Pack': '',
+          'Qty': round2(group.totals.qty),
+          'Free Qty': 0,
+          'Rate': 0,
+          'Discount': round2(group.totals.discount),
+          'GST %': 0,
+          'GST Amount': round2(group.totals.gst),
+          'Line Amount (Net)': round2(group.totals.sales),
+          _rowType: 'subtotal',
+        });
+        grandQty += group.totals.qty;
+        grandSales += group.totals.sales;
+        grandDiscount += group.totals.discount;
+        grandGst += group.totals.gst;
+      });
+
+    if (rows.length > 0) {
+      rows.push({
+        'Doctor Name': 'GRAND TOTAL',
+        'Doctor Code': '',
+        'Bill No': '',
+        'Bill Date': '',
+        'Customer Name': '',
+        'Item Name': '',
+        'Batch': '',
+        'Expiry': '',
+        'Pack': '',
+        'Qty': round2(grandQty),
+        'Free Qty': 0,
+        'Rate': 0,
+        'Discount': round2(grandDiscount),
+        'GST %': 0,
+        'GST Amount': round2(grandGst),
+        'Line Amount (Net)': round2(grandSales),
+        _rowType: 'grand',
+      });
+    }
+
+    return rows;
+  }, [doctorViewMode, initialFilters, isDoctorWiseSalesReport]);
+
   const processedData = useMemo(() => {
-    if (!data) return [];
-    let filteredData = [...data];
+    const sourceData = isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemData : data;
+    if (!sourceData) return [];
+    let filteredData = [...sourceData];
 
     Object.entries(columnFilters).forEach(([key, value]) => {
       if (value) {
@@ -86,7 +239,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     }
     
     return filteredData;
-  }, [data, columnFilters, sortConfig]);
+  }, [columnFilters, data, doctorItemData, doctorViewMode, isDoctorWiseSalesReport, sortConfig]);
 
   const columnTotals = useMemo(() => {
     if (!processedData || processedData.length === 0) {
@@ -163,19 +316,21 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     })));
 
     // 3. Build Totals Row
-    const totalsRowArr = visibleHeaders.map((header, index) => {
-        if (index === 0) return 'TOTALS';
-        const total = columnTotals[header];
-        return total !== undefined ? total.toFixed(2) : '';
-    });
+    const includeGenericTotals = !(isDoctorWiseSalesReport && doctorViewMode === 'item');
+    const totalsRowArr = includeGenericTotals
+      ? visibleHeaders.map((header, index) => {
+          if (index === 0) return 'TOTALS';
+          const total = columnTotals[header];
+          return total !== undefined ? total.toFixed(2) : '';
+        })
+      : [];
 
     // Combine everything
     const csvContent = [
         ...metaRows,
         tableHeaderRow,
         ...dataRows,
-        arrayToCsvRow(['']), // Spacer before totals
-        arrayToCsvRow(totalsRowArr)
+        ...(includeGenericTotals ? [arrayToCsvRow(['']), arrayToCsvRow(totalsRowArr)] : [])
     ].join('\n');
     
     const formattedTitle = title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
@@ -235,6 +390,22 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       <div className="flex-shrink-0 no-print bg-gray-900 text-white p-4 flex justify-between items-center shadow-lg">
           <div className="flex items-center space-x-4">
               <h2 className="text-sm font-bold uppercase tracking-widest">{title}</h2>
+              {isDoctorWiseSalesReport && (
+                  <div className="flex items-center bg-gray-800 rounded border border-gray-700 overflow-hidden text-[10px] font-bold">
+                      <button
+                          onClick={() => setDoctorViewMode('summary')}
+                          className={`px-3 py-1.5 transition-colors ${doctorViewMode === 'summary' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                      >
+                          Doctor Summary
+                      </button>
+                      <button
+                          onClick={() => setDoctorViewMode('item')}
+                          className={`px-3 py-1.5 transition-colors ${doctorViewMode === 'item' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                      >
+                          Item-wise Detail
+                      </button>
+                  </div>
+              )}
               <div className="relative" ref={columnDropdownRef}>
                   <button onClick={() => setIsColumnDropdownOpen(!isColumnDropdownOpen)} className="flex items-center space-x-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-[10px] font-bold border border-gray-700 transition-colors">
                       <ColumnsIcon />
@@ -244,7 +415,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                       <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded shadow-xl z-[110] p-2 text-black">
                           <p className="text-[9px] font-black text-gray-400 uppercase mb-2 px-1">Select Columns</p>
                           <div className="max-h-60 overflow-y-auto custom-scrollbar">
-                              {headers.map(h => (
+                              {effectiveHeaders.map(h => (
                                   <label key={h} className="flex items-center p-1.5 hover:bg-gray-50 rounded cursor-pointer">
                                       <input 
                                           type="checkbox" 
@@ -344,7 +515,16 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                   </thead>
                   <tbody>
                       {processedData.map((row, rIdx) => (
-                          <tr key={rIdx} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                          <tr
+                              key={rIdx}
+                              className={`border-b border-gray-100 transition-colors ${
+                                row._rowType === 'subtotal'
+                                  ? 'bg-amber-50 font-bold'
+                                  : row._rowType === 'grand'
+                                    ? 'bg-gray-200 font-black'
+                                    : 'hover:bg-gray-50'
+                              }`}
+                          >
                               {visibleHeaders.map(header => {
                                   const val = row[header];
                                   const isNumeric = typeof val === 'number';
@@ -360,7 +540,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                           <tr><td colSpan={visibleHeaders.length} className="p-12 text-center text-[10pt] font-medium text-gray-400 italic uppercase tracking-widest">{emptyMessage}</td></tr>
                       )}
                   </tbody>
-                  {Object.keys(columnTotals).length > 0 && (
+                  {Object.keys(columnTotals).length > 0 && !(isDoctorWiseSalesReport && doctorViewMode === 'item') && (
                     <tfoot className="border-t-2 border-black font-black bg-gray-100">
                         <tr>
                             {visibleHeaders.map((header, index) => {
