@@ -187,6 +187,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     initialFilters.endDate && `To: ${initialFilters.endDate}`,
     initialFilters.invoiceIdFilter && `ID Filter: "${initialFilters.invoiceIdFilter}"`,
   ].filter(Boolean).join(' | ');
+  const emptyMessage = initialFilters?.emptyMessage || 'No data found for selected date range';
 
   return (
     <div id="print-report-modal-container" className="fixed inset-0 bg-white z-[100] flex flex-col animate-in fade-in duration-200 text-xs">
@@ -356,7 +357,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                           </tr>
                       ))}
                       {processedData.length === 0 && (
-                          <tr><td colSpan={visibleHeaders.length} className="p-12 text-center text-[10pt] font-medium text-gray-400 italic uppercase tracking-widest">No data found for selected date range</td></tr>
+                          <tr><td colSpan={visibleHeaders.length} className="p-12 text-center text-[10pt] font-medium text-gray-400 italic uppercase tracking-widest">{emptyMessage}</td></tr>
                       )}
                   </tbody>
                   {Object.keys(columnTotals).length > 0 && (
