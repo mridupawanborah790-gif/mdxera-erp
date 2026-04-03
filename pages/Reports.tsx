@@ -243,6 +243,23 @@ const Reports: React.FC<ReportsProps> = ({
                         'Net Sales Value': round2(row.net)
                     }));
 
+                filters.doctorWiseItemSource = validDoctorSales.map(tx => {
+                    const doctorFromId = tx.doctorId ? doctorById.get(tx.doctorId) : undefined;
+                    const doctorFromName = !doctorFromId ? doctorByName.get((tx.referredBy || '').trim().toLowerCase()) : undefined;
+                    const doctor = doctorFromId || doctorFromName;
+                    const doctorName = (doctor?.name || tx.referredBy || '').trim();
+
+                    return {
+                        id: tx.id,
+                        invoiceNumber: tx.invoiceNumber || tx.id,
+                        date: tx.date,
+                        customerName: tx.customerName,
+                        doctorName,
+                        doctorCode: doctor?.doctorCode || '',
+                        items: tx.items || []
+                    };
+                }).filter(tx => tx.doctorName);
+
                 filters.emptyMessage = 'No doctor-wise sales found for selected date range';
                 break;
             }
