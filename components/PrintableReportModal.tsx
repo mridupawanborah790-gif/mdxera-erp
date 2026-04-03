@@ -28,6 +28,7 @@ type StructuredFilter = {
 };
 
 const normalizeText = (value: unknown) => String(value ?? '').trim().toLowerCase();
+const NUMERIC_HEADER_PATTERN = /(amount|amt|total|net|tax|gst|cgst|sgst|igst|rate|price|value|qty|quantity|discount|margin|profit|balance|debit|credit|closing|opening|stock|free)/i;
 
 const normalizeDateValue = (value: unknown): number | null => {
   if (value === null || value === undefined) return null;
@@ -500,31 +501,91 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     if (filter.endDate) chips.push(`${header} to ${filter.endDate}`);
     return chips;
   })];
+  const estimatedLandscape = visibleHeaders.length > 9 || visibleHeaders.some(header => header.length > 16);
+  const printOrientation = estimatedLandscape ? 'landscape' : 'portrait';
+  const isNumericColumn = (header: string, value: unknown) => (
+    NUMERIC_HEADER_PATTERN.test(header) ||
+    typeof value === 'number' ||
+    (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value.replace(/,/g, ''))))
+  );
 
   return (
     <div id="print-report-modal-container" className="fixed inset-0 bg-white z-[100] flex flex-col animate-in fade-in duration-200 text-xs">
       <style>{`
         @media print {
             @page { 
-              margin: 0.3cm; 
-              size: auto;
+              size: A4 ${printOrientation};
+              margin: 10mm 8mm;
             }
-            body { margin: 0; padding: 0; color: #000 !important; background: white !important; }
+            html, body {
+              margin: 0 !important;
+              padding: 0 !important;
+              color: #000 !important;
+              background: #fff !important;
+              width: 100%;
+              min-width: 100%;
+              font-size: 10pt;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            #print-report-modal-container {
+              position: static !important;
+              inset: auto !important;
+              z-index: auto !important;
+              display: block !important;
+              background: #fff !important;
+            }
+            #print-report-modal-container .custom-scrollbar {
+              overflow: visible !important;
+            }
             #print-area {
                 padding: 0 !important;
                 display: block !important;
                 overflow: visible !important;
                 background: white !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                border: 0 !important;
+                box-shadow: none !important;
             }
             .no-print { display: none !important; }
             
-            table { width: 100% !important; border-collapse: collapse; border: 0.1px solid #000; }
-            th, td { border: 0.1px solid #000; padding: 2pt 4pt !important; font-size: 8pt !important; color: #000 !important; white-space: pre-line !important; }
+            table {
+              width: 100% !important;
+              table-layout: auto !important;
+              border-collapse: collapse !important;
+              border: 0.35pt solid #111 !important;
+            }
+            th, td {
+              border: 0.35pt solid #111 !important;
+              padding: 3pt 5pt !important;
+              font-size: ${estimatedLandscape ? '8.2pt' : '9pt'} !important;
+              line-height: 1.25 !important;
+              color: #000 !important;
+              vertical-align: top !important;
+              white-space: normal !important;
+              word-break: break-word !important;
+            }
+            th {
+              font-weight: 800 !important;
+              text-transform: uppercase !important;
+              background: #f2f2f2 !important;
+            }
+            td[data-align="right"], th[data-align="right"] {
+              text-align: right !important;
+              font-variant-numeric: tabular-nums !important;
+            }
+            td[data-align="left"], th[data-align="left"] {
+              text-align: left !important;
+            }
             
             thead { display: table-header-group; }
             tfoot { display: table-footer-group; }
+            thead th { position: static !important; top: auto !important; }
+            .report-footer-signature { page-break-inside: avoid; }
 
-            tr { page-break-inside: avoid; }
+            tr { page-break-inside: avoid; break-inside: avoid; }
         }
         
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -533,11 +594,16 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
 
         .report-content {
           background: white;
-          padding: 0.3cm;
-          width: 98%;
-          max-width: 1600px;
-          margin: 1rem auto;
+          padding: 10mm 8mm;
+          width: min(100%, 210mm);
+          max-width: 210mm;
+          margin: 0.75rem auto;
           color: #000;
+        }
+
+        .report-content[data-print-orientation="landscape"] {
+          width: min(100%, 297mm);
+          max-width: 297mm;
         }
         
         .report-table { width: 100%; table-layout: auto; }
@@ -692,7 +758,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       </div>
 
       <div className="flex-1 overflow-auto bg-gray-100 custom-scrollbar pb-10">
-          <div id="print-area" className="report-content shadow-2xl border border-gray-200">
+          <div id="print-area" data-print-orientation={printOrientation} className="report-content shadow-2xl border border-gray-200">
               
               <div className="flex justify-between items-center mb-8 border-b-2 border-black pb-4 gap-4">
                   <div className="flex-1 text-left">
@@ -751,7 +817,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                   <thead className="sticky top-0 z-10">
                       <tr className="bg-gray-100">
                           {visibleHeaders.map(header => (
-                              <th key={header} className="p-2 text-left font-black uppercase tracking-wider text-[8pt]">
+                              <th key={header} data-align={isNumericColumn(header, undefined) ? 'right' : 'left'} className={`p-2 font-black uppercase tracking-wider text-[8pt] ${isNumericColumn(header, undefined) ? 'text-right' : 'text-left'}`}>
                                   <div className="flex flex-col space-y-2">
                                       <div 
                                           className="flex items-center justify-between cursor-pointer group no-print"
@@ -790,10 +856,13 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                           >
                               {visibleHeaders.map(header => {
                                   const val = row[header];
-                                  const isNumeric = typeof val === 'number';
+                                  const isNumeric = isNumericColumn(header, val);
+                                  const numericValue = typeof val === 'number' ? val : Number(typeof val === 'string' ? val.replace(/,/g, '') : val);
                                   return (
-                                      <td key={header} className={`p-2 text-[9pt] ${isNumeric ? 'text-right font-mono' : ''}`}>
-                                          {isNumeric ? val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (val ?? '-')}
+                                      <td key={header} data-align={isNumeric ? 'right' : 'left'} className={`p-2 text-[9pt] ${isNumeric ? 'text-right font-mono' : ''}`}>
+                                          {isNumeric && Number.isFinite(numericValue)
+                                            ? numericValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                            : (val ?? '-')}
                                       </td>
                                   );
                               })}
@@ -809,7 +878,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                             {visibleHeaders.map((header, index) => {
                                 const total = columnTotals[header];
                                 return (
-                                    <td key={header} className={`p-2 text-[9pt] ${total !== undefined ? 'text-right font-mono' : ''}`}>
+                                    <td key={header} data-align={total !== undefined ? 'right' : 'left'} className={`p-2 text-[9pt] ${total !== undefined ? 'text-right font-mono' : ''}`}>
                                         {index === 0 && !total ? 'TOTALS' : (total !== undefined ? total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '')}
                                     </td>
                                 );
@@ -819,7 +888,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                   )}
               </table>
 
-              <div className="mt-12 flex justify-between items-end border-t border-gray-200 pt-8">
+              <div className="mt-12 flex justify-between items-end border-t border-gray-200 pt-8 report-footer-signature">
                   <div className="text-[8pt] text-gray-500 font-bold uppercase italic">
                       <p>This is a system generated report from <strong>MDXERA ERP</strong>.</p>
                       <p>E. & O. E.</p>
