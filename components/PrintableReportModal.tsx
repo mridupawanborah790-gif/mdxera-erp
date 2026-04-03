@@ -487,6 +487,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     initialFilters.endDate && `To: ${initialFilters.endDate}`,
     initialFilters.invoiceIdFilter && `ID Filter: "${initialFilters.invoiceIdFilter}"`,
   ].filter(Boolean).join(' | ');
+  const printFilterSummary = appliedFilters || 'None';
   const emptyMessage = initialFilters?.emptyMessage || 'No data found for selected date range';
   const activeFilterChips = [
     ...Object.entries(activeFilters.columnFilters)
@@ -529,6 +530,8 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               padding: 0 !important;
               color: #000 !important;
               background: #fff !important;
+              height: auto !important;
+              overflow: visible !important;
               width: 100%;
               min-width: 100%;
               font-size: 10pt;
@@ -541,7 +544,15 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               z-index: auto !important;
               display: block !important;
               background: #fff !important;
+              height: auto !important;
               overflow: visible !important;
+            }
+            .print-scroll-root {
+              display: block !important;
+              height: auto !important;
+              overflow: visible !important;
+              padding-bottom: 0 !important;
+              background: #fff !important;
             }
             #print-report-modal-container .custom-scrollbar {
               overflow: visible !important;
@@ -549,6 +560,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             #print-area {
                 padding: 0 !important;
                 display: block !important;
+                height: auto !important;
                 overflow: visible !important;
                 background: white !important;
                 width: 100% !important;
@@ -562,6 +574,17 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             }
             .no-print { display: none !important; }
             .print-only { display: block !important; }
+            .report-content {
+              width: 100% !important;
+              max-width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              border: 0 !important;
+              box-shadow: none !important;
+            }
+            .report-table-wrap {
+              overflow: visible !important;
+            }
             
             table {
               width: 100% !important;
@@ -595,7 +618,11 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             thead { display: table-header-group; }
             tfoot { display: table-row-group; }
             thead th { position: static !important; top: auto !important; }
-            .report-footer-signature { page-break-inside: avoid; }
+            .report-footer-signature,
+            .totals-row { 
+              page-break-inside: avoid !important; 
+              break-inside: avoid-page !important;
+            }
 
             .print-meta-row th {
               background: #fff !important;
@@ -636,10 +663,13 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               margin-bottom: 2pt !important;
             }
             .print-page-number::after {
-              content: "Page " counter(page);
+              content: "Page " counter(page) " of " counter(pages);
               font-weight: 800 !important;
             }
-            tr { page-break-inside: avoid; break-inside: avoid; }
+            tr, td, th { 
+              page-break-inside: avoid !important; 
+              break-inside: avoid !important;
+            }
         }
 
         .print-only { display: none; }
@@ -813,7 +843,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
           </div>
       </div>
 
-      <div className="flex-1 overflow-auto bg-gray-100 custom-scrollbar pb-10">
+      <div className="flex-1 overflow-auto bg-gray-100 custom-scrollbar pb-10 print-scroll-root">
           <div id="print-area" data-print-orientation={printOrientation} className="report-content shadow-2xl border border-gray-200">
               
               <div className="flex justify-between items-center mb-8 border-b-2 border-black pb-4 gap-4 no-print">
@@ -869,6 +899,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                 </div>
               )}
 
+              <div className="report-table-wrap">
               <table className="report-table">
                   <thead className="sticky top-0 z-10">
                       <tr className="print-only print-meta-row">
@@ -883,6 +914,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                             <div className="print-meta-report">
                               <div className="print-meta-report-title">{title}</div>
                               <div>Period: {reportPeriodLabel}</div>
+                              <div>Filters: {printFilterSummary}</div>
                               <div>Printed: {generatedDate} {generatedTime}</div>
                               <div className="print-page-number" />
                             </div>
@@ -948,7 +980,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                   </tbody>
                   {Object.keys(columnTotals).length > 0 && !(isDoctorWiseSalesReport && doctorViewMode === 'item') && (
                     <tfoot className="border-t-2 border-black font-black bg-gray-100">
-                        <tr>
+                        <tr className="totals-row">
                             {visibleHeaders.map((header, index) => {
                                 const total = columnTotals[header];
                                 return (
@@ -961,6 +993,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                     </tfoot>
                   )}
               </table>
+              </div>
 
               <div className="mt-12 flex justify-between items-end border-t border-gray-200 pt-8 report-footer-signature">
                   <div className="text-[8pt] text-gray-500 font-bold uppercase italic">
