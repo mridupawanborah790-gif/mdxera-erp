@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import Card from '../components/Card';
-import type { InventoryItem, Transaction, Purchase, Distributor, Customer, SalesReturn, PurchaseReturn, ModuleConfig } from '../types';
+import type { InventoryItem, Transaction, Purchase, Distributor, Customer, SalesReturn, PurchaseReturn, ModuleConfig, DoctorMaster } from '../types';
 import { configurableModules } from '../constants';
 import { getOutstandingBalance } from '../utils/helpers';
 import { getStockBreakup } from '../utils/stock';
@@ -11,6 +11,7 @@ interface ReportsProps {
   purchases: Purchase[];
   distributors: Distributor[];
   customers: Customer[];
+  doctors: DoctorMaster[];
   salesReturns: SalesReturn[];
   purchaseReturns: PurchaseReturn[];
   onPrintReport: (report: { title: string; data: any[]; headers: string[]; filters: any; }) => void;
@@ -20,7 +21,7 @@ interface ReportsProps {
 const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
 
 const Reports: React.FC<ReportsProps> = ({
-  inventory, transactions, purchases, distributors, customers, salesReturns, purchaseReturns, onPrintReport, config,
+  inventory, transactions, purchases, distributors, customers, doctors, salesReturns, purchaseReturns, onPrintReport, config,
 }) => {
     const todayIso = new Date().toISOString().split('T')[0];
     const firstOfMonthIso = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
@@ -36,7 +37,7 @@ const Reports: React.FC<ReportsProps> = ({
     const generateReportData = (reportId: string) => {
         const effectiveStartDate = reportStartDate || firstOfMonthIso;
         const effectiveEndDate = reportEndDate || todayIso;
-        const filters = { startDate: effectiveStartDate, endDate: effectiveEndDate };
+        const filters: any = { startDate: effectiveStartDate, endDate: effectiveEndDate };
         let filteredData: any[] = [];
         let headers: string[] = [];
         let title = '';
@@ -52,6 +53,12 @@ const Reports: React.FC<ReportsProps> = ({
         };
 
         const customerByName = new Map(customers.map(c => [c.name, c]));
+        const doctorById = new Map(doctors.map(d => [d.id, d]));
+        const doctorByName = new Map(
+            doctors
+                .filter(d => (d.name || '').trim())
+                .map(d => [(d.name || '').trim().toLowerCase(), d] as const)
+        );
         const sales = applyDateFilter(transactions).filter(tx => tx.status !== 'draft');
         const completedSales = sales.filter(tx => tx.status !== 'cancelled');
         const cancelledSales = sales.filter(tx => tx.status === 'cancelled');
@@ -152,6 +159,91 @@ const Reports: React.FC<ReportsProps> = ({
                     'Net Amount': round2(data.net),
                     'Outstanding': round2(getOutstandingBalance(customerByName.get(name)))
                 }));
+                break;
+            }
+            case 'doctorWiseSales': {
+                title = 'Doctor-wise Sales Report';
+                headers = [
+                    'Doctor Name',
+                    'Doctor Code',
+                    'Specialization',
+                    'Mobile',
+                    'Area',
+                    'Number of Bills',
+                    'Number of Customers',
+                    'Total Sales Amount',
+                    'Total Discount',
+                    'Total GST',
+                    'Net Sales Value'
+                ];
+
+                const validDoctorSales = completedSales.filter(tx => {
+                    const ref = (tx.referredBy || '').trim();
+                    return Boolean(tx.doctorId || ref);
+                });
+
+                const map = new Map<string, {
+                    doctorName: string;
+                    doctorCode: string;
+                    specialization: string;
+                    mobile: string;
+                    area: string;
+                    bills: number;
+                    customers: Set<string>;
+                    sales: number;
+                    discount: number;
+                    gst: number;
+                    net: number;
+                }>();
+
+                validDoctorSales.forEach(tx => {
+                    const doctorFromId = tx.doctorId ? doctorById.get(tx.doctorId) : undefined;
+                    const doctorFromName = !doctorFromId ? doctorByName.get((tx.referredBy || '').trim().toLowerCase()) : undefined;
+                    const doctor = doctorFromId || doctorFromName;
+                    const doctorName = (doctor?.name || tx.referredBy || '').trim();
+                    if (!doctorName) return;
+
+                    const key = doctor?.id || doctorName.toLowerCase();
+                    const current = map.get(key) || {
+                        doctorName,
+                        doctorCode: doctor?.doctorCode || '',
+                        specialization: doctor?.specialization || '',
+                        mobile: doctor?.mobile || '',
+                        area: doctor?.area || '',
+                        bills: 0,
+                        customers: new Set<string>(),
+                        sales: 0,
+                        discount: 0,
+                        gst: 0,
+                        net: 0
+                    };
+
+                    current.bills += 1;
+                    current.customers.add(tx.customerId || tx.customerName || 'Walk-in');
+                    current.sales += Number(tx.subtotal || 0);
+                    current.discount += Number(tx.totalItemDiscount || 0) + Number(tx.schemeDiscount || 0);
+                    current.gst += Number(tx.totalGst || 0);
+                    current.net += Number(tx.total || 0);
+                    map.set(key, current);
+                });
+
+                filteredData = Array.from(map.values())
+                    .sort((a, b) => a.doctorName.localeCompare(b.doctorName))
+                    .map(row => ({
+                        'Doctor Name': row.doctorName,
+                        'Doctor Code': row.doctorCode || 'N/A',
+                        'Specialization': row.specialization || 'N/A',
+                        'Mobile': row.mobile || 'N/A',
+                        'Area': row.area || 'N/A',
+                        'Number of Bills': row.bills,
+                        'Number of Customers': row.customers.size,
+                        'Total Sales Amount': round2(row.sales),
+                        'Total Discount': round2(row.discount),
+                        'Total GST': round2(row.gst),
+                        'Net Sales Value': round2(row.net)
+                    }));
+
+                filters.emptyMessage = 'No doctor-wise sales found for selected date range';
                 break;
             }
             case 'itemWiseSales': {
