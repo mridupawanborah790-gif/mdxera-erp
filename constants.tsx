@@ -442,6 +442,7 @@ export const configurableModules = [
         { id: 'billWiseSales', name: 'Bill-wise Sales' },
         { id: 'dateWiseSales', name: 'Date-wise Sales' },
         { id: 'partyWiseSales', name: 'Party-wise Sales' },
+        { id: 'doctorWiseSales', name: 'Doctor-wise Sales Report' },
         { id: 'itemWiseSales', name: 'Item-wise Sales' },
         { id: 'categoryWiseSales', name: 'Category-wise Sales' },
         { id: 'areaWiseSales', name: 'Area-wise Sales' },

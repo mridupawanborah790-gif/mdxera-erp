@@ -2329,7 +2329,7 @@ const App: React.FC = () => {
                 case 'reports':
                     return <Reports
                         inventory={inventory} transactions={transactions} purchases={purchases}
-                        distributors={suppliers} customers={customers} salesReturns={salesReturns}
+                        distributors={suppliers} customers={customers} doctors={doctors} salesReturns={salesReturns}
                         purchaseReturns={purchaseReturns} onPrintReport={setViewReport} config={config}
                     />;
                 case 'dailyReports':
