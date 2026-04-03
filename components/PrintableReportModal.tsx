@@ -18,13 +18,30 @@ const ColumnsIcon = (props: React.SVGProps<SVGSVGElement>) => (
 );
 
 const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
-type FieldType = 'text' | 'number' | 'date' | 'status';
-type StructuredFilter = {
-  values?: string[];
-  min?: string;
-  max?: string;
-  startDate?: string;
-  endDate?: string;
+const DATE_NORMALIZE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+const normalizeText = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+const normalizeDateValue = (value: unknown): string => {
+  if (value == null || value === '') return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  if (DATE_NORMALIZE_REGEX.test(raw)) return raw;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const year = parsed.getFullYear();
+  const month = `${parsed.getMonth() + 1}`.padStart(2, '0');
+  const day = `${parsed.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseNumberValue = (value: unknown): number | null => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value == null) return null;
+  const normalized = String(value).replace(/,/g, '').trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
 };
 
 const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
@@ -57,13 +74,11 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     'Line Amount (Net)',
   ];
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
+  const [filterSearchTerms, setFilterSearchTerms] = useState<Record<string, string>>({});
   const [visibleHeaders, setVisibleHeaders] = useState<string[]>([]);
   const [isColumnDropdownOpen, setIsColumnDropdownOpen] = useState(false);
-  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-  const [selectedFilterFields, setSelectedFilterFields] = useState<string[]>([]);
-  const [draftStructuredFilters, setDraftStructuredFilters] = useState<Record<string, StructuredFilter>>({});
-  const [appliedStructuredFilters, setAppliedStructuredFilters] = useState<Record<string, StructuredFilter>>({});
+  const [openFilterHeader, setOpenFilterHeader] = useState<string | null>(null);
   const [doctorViewMode, setDoctorViewMode] = useState<'summary' | 'item'>('summary');
   const columnDropdownRef = useRef<HTMLDivElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
@@ -72,7 +87,8 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setSortConfig(null);
-      setColumnFilters({});
+      setActiveFilters({});
+      setFilterSearchTerms({});
       setDoctorViewMode('summary');
       setVisibleHeaders(doctorSummaryHeaders); 
       setIsFilterPanelOpen(false);
@@ -84,7 +100,9 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
 
   useEffect(() => {
     setSortConfig(null);
-    setColumnFilters({});
+    setActiveFilters({});
+    setFilterSearchTerms({});
+    setOpenFilterHeader(null);
     setVisibleHeaders(effectiveHeaders);
     setIsFilterPanelOpen(false);
     setSelectedFilterFields([]);
@@ -228,17 +246,69 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     return rows;
   }, [doctorViewMode, initialFilters, isDoctorWiseSalesReport]);
 
-  const processedData = useMemo(() => {
+  const baseData = useMemo(() => {
     const sourceData = isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemData : data;
-    if (!sourceData) return [];
-    let filteredData = [...sourceData];
+    return Array.isArray(sourceData) ? [...sourceData] : [];
+  }, [data, doctorItemData, doctorViewMode, isDoctorWiseSalesReport]);
 
-    Object.entries(columnFilters).forEach(([key, value]) => {
-      if (value) {
-        filteredData = filteredData.filter(row =>
-          String(row[key] ?? '').toLowerCase().includes(String(value ?? '').toLowerCase())
-        );
+  const fieldTypes = useMemo(() => {
+    const types: Record<string, 'number' | 'date' | 'text'> = {};
+    effectiveHeaders.forEach(header => {
+      const sample = baseData.find(row => row?.[header] != null && String(row[header]).trim() !== '')?.[header];
+      if (typeof sample === 'number') {
+        types[header] = 'number';
+        return;
       }
+      if (normalizeDateValue(sample)) {
+        types[header] = 'date';
+        return;
+      }
+      types[header] = 'text';
+    });
+    return types;
+  }, [baseData, effectiveHeaders]);
+
+  const filterOptionMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    effectiveHeaders.forEach(header => {
+      const uniqueValues = new Set<string>();
+      baseData.forEach(row => {
+        const value = row?.[header];
+        if (value == null || value === '') return;
+        uniqueValues.add(String(value).trim());
+      });
+      map[header] = Array.from(uniqueValues).sort((a, b) => a.localeCompare(b));
+    });
+    return map;
+  }, [baseData, effectiveHeaders]);
+
+  const processedData = useMemo(() => {
+    let filteredData = [...baseData];
+
+    Object.entries(activeFilters).forEach(([key, values]) => {
+      if (!values || values.length === 0) return;
+      const fieldType = fieldTypes[key] || 'text';
+      const normalizedSelections = values.map(v => String(v).trim()).filter(Boolean);
+      if (normalizedSelections.length === 0) return;
+
+      filteredData = filteredData.filter(row => {
+        const rowValue = row?.[key];
+        if (fieldType === 'number') {
+          const rowNum = parseNumberValue(rowValue);
+          if (rowNum === null) return false;
+          return normalizedSelections.some(selection => {
+            const selectedNum = parseNumberValue(selection);
+            return selectedNum !== null && rowNum === selectedNum;
+          });
+        }
+        if (fieldType === 'date') {
+          const rowDate = normalizeDateValue(rowValue);
+          if (!rowDate) return false;
+          return normalizedSelections.some(selection => normalizeDateValue(selection) === rowDate);
+        }
+        const rowText = normalizeText(rowValue);
+        return normalizedSelections.some(selection => rowText.includes(normalizeText(selection)));
+      });
     });
 
     Object.entries(appliedStructuredFilters).forEach(([header, filter]) => {
@@ -293,26 +363,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     }
     
     return filteredData;
-  }, [appliedStructuredFilters, columnFilters, data, doctorItemData, doctorViewMode, isDoctorWiseSalesReport, sortConfig]);
-
-  const fieldMetadata = useMemo(() => {
-    const sourceData = isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemData : data;
-    return effectiveHeaders.reduce((acc, header) => {
-      const values = sourceData
-        .map(row => row?.[header])
-        .filter(v => v !== null && v !== undefined && String(v).trim() !== '');
-      const uniqueValues = Array.from(new Set(values.map(v => String(v))));
-      const numericCount = values.filter(v => !Number.isNaN(Number(v))).length;
-      const dateCount = values.filter(v => !Number.isNaN(new Date(v as any).getTime())).length;
-      const isStatus = /status/i.test(header) || (uniqueValues.length > 0 && uniqueValues.length <= 6);
-      let fieldType: FieldType = 'text';
-      if (values.length > 0 && numericCount === values.length) fieldType = 'number';
-      else if (/date/i.test(header) || (values.length > 0 && dateCount / values.length > 0.8)) fieldType = 'date';
-      else if (isStatus) fieldType = 'status';
-      acc[header] = { fieldType, options: uniqueValues.sort((a, b) => a.localeCompare(b)).slice(0, 200) };
-      return acc;
-    }, {} as Record<string, { fieldType: FieldType; options: string[] }>);
-  }, [data, doctorItemData, doctorViewMode, effectiveHeaders, isDoctorWiseSalesReport]);
+  }, [activeFilters, baseData, fieldTypes, sortConfig]);
 
   const columnTotals = useMemo(() => {
     if (!processedData || processedData.length === 0) {
@@ -337,11 +388,41 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     setSortConfig({ key, direction });
   };
 
-  const handleFilterChange = (header: string, value: string) => {
-    setColumnFilters(prev => ({
-      ...prev,
-      [header]: value,
-    }));
+  const toggleFilterValue = (header: string, value: string) => {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) return;
+    setActiveFilters(prev => {
+      const current = prev[header] || [];
+      const updated = current.includes(normalized)
+        ? current.filter(v => v !== normalized)
+        : [...current, normalized];
+      if (updated.length === 0) {
+        const { [header]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [header]: updated };
+    });
+  };
+
+  const clearFilterForHeader = (header: string) => {
+    setActiveFilters(prev => {
+      const { [header]: _, ...rest } = prev;
+      return rest;
+    });
+    setFilterSearchTerms(prev => ({ ...prev, [header]: '' }));
+  };
+
+  const clearAllFilters = () => {
+    setActiveFilters({});
+    setFilterSearchTerms({});
+    setSortConfig(null);
+  };
+
+  const addSearchTermAsFilter = (header: string) => {
+    const term = String(filterSearchTerms[header] || '').trim();
+    if (!term) return;
+    toggleFilterValue(header, term);
+    setFilterSearchTerms(prev => ({ ...prev, [header]: '' }));
   };
 
   const toggleHeaderVisibility = (header: string) => {
@@ -670,25 +751,26 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                     <span>{appliedFilters}</span>
                 </div>
               )}
-              {activeFilterChips.length > 0 && (
-                <div className="mb-4 flex flex-wrap gap-2 no-print">
-                  {activeFilterChips.map(chip => (
-                    <span key={chip} className="inline-flex items-center gap-2 px-2 py-1 rounded-full bg-blue-50 border border-blue-200 text-[10px] font-semibold text-blue-900">
-                      {chip}
-                    </span>
-                  ))}
+              <div className="mb-4 no-print flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => {
-                      setAppliedStructuredFilters({});
-                      setDraftStructuredFilters({});
-                      setSelectedFilterFields([]);
-                    }}
-                    className="px-2 py-1 rounded-full border border-gray-300 text-[10px] font-bold uppercase"
+                    onClick={clearAllFilters}
+                    className="px-2 py-1 border border-gray-300 bg-white rounded text-[8pt] font-bold hover:bg-gray-50"
                   >
                     Clear All
                   </button>
-                </div>
-              )}
+                  {Object.entries(activeFilters).flatMap(([header, values]) =>
+                    values.map(value => (
+                      <button
+                        key={`${header}-${value}`}
+                        onClick={() => toggleFilterValue(header, value)}
+                        className="px-2 py-1 rounded-full bg-blue-100 text-blue-900 text-[8pt] font-semibold border border-blue-200"
+                        title={`Remove filter ${header}: ${value}`}
+                      >
+                        {header}: {value} ✕
+                      </button>
+                    ))
+                  )}
+              </div>
 
               <table className="report-table">
                   <thead className="sticky top-0 z-10">
@@ -706,14 +788,56 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                                           </span>
                                       </div>
                                       <span className="hidden print:inline">{header}</span>
-                                      <input 
-                                          type="text" 
-                                          placeholder="Filter..."
-                                          value={columnFilters[header] || ''}
-                                          onChange={(e) => handleFilterChange(header, e.target.value)}
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="no-print w-full p-1 border border-gray-300 rounded text-[7pt] font-medium bg-white focus:ring-1 focus:ring-primary outline-none"
-                                      />
+                                      <div className="no-print relative">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenFilterHeader(prev => (prev === header ? null : header));
+                                          }}
+                                          className="w-full p-1 border border-gray-300 rounded text-[7pt] font-medium bg-white text-left"
+                                        >
+                                          {(activeFilters[header]?.length || 0) > 0 ? `${activeFilters[header].length} selected` : 'Filter...'}
+                                        </button>
+                                        {openFilterHeader === header && (
+                                          <div className="absolute z-[120] mt-1 w-64 max-h-64 overflow-auto bg-white border border-gray-200 rounded shadow-lg p-2">
+                                            <div className="flex gap-1 mb-2">
+                                              <input
+                                                type="text"
+                                                value={filterSearchTerms[header] || ''}
+                                                onChange={(e) => setFilterSearchTerms(prev => ({ ...prev, [header]: e.target.value }))}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    addSearchTermAsFilter(header);
+                                                  }
+                                                }}
+                                                placeholder="Type and press Enter"
+                                                className="flex-1 p-1 border border-gray-300 rounded text-[7pt]"
+                                              />
+                                              <button
+                                                onClick={() => clearFilterForHeader(header)}
+                                                className="px-1.5 py-1 border border-gray-300 rounded text-[7pt] font-bold"
+                                              >
+                                                Clear
+                                              </button>
+                                            </div>
+                                            {filterOptionMap[header]
+                                              .filter(option => normalizeText(option).includes(normalizeText(filterSearchTerms[header] || '')))
+                                              .slice(0, 200)
+                                              .map(option => (
+                                                <label key={option} className="flex items-center gap-1 py-0.5 text-[7pt]">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={(activeFilters[header] || []).includes(option)}
+                                                    onChange={() => toggleFilterValue(header, option)}
+                                                  />
+                                                  <span>{option || '(Blank)'}</span>
+                                                </label>
+                                              ))}
+                                          </div>
+                                        )}
+                                      </div>
                                   </div>
                               </th>
                           ))}
