@@ -27,6 +27,32 @@ type StructuredFilter = {
   endDate?: string;
 };
 
+const normalizeText = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+const normalizeDateValue = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const direct = new Date(raw);
+  if (!Number.isNaN(direct.getTime())) {
+    return new Date(direct.getFullYear(), direct.getMonth(), direct.getDate()).getTime();
+  }
+
+  const ddmmyyyy = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (ddmmyyyy) {
+    const day = Number(ddmmyyyy[1]);
+    const month = Number(ddmmyyyy[2]) - 1;
+    const year = Number(ddmmyyyy[3].length === 2 ? `20${ddmmyyyy[3]}` : ddmmyyyy[3]);
+    const normalized = new Date(year, month, day);
+    if (!Number.isNaN(normalized.getTime())) {
+      return new Date(normalized.getFullYear(), normalized.getMonth(), normalized.getDate()).getTime();
+    }
+  }
+
+  return null;
+};
+
 const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   isOpen,
   onClose,
@@ -57,13 +83,18 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     'Line Amount (Net)',
   ];
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [activeFilters, setActiveFilters] = useState<{
+    columnFilters: Record<string, string>;
+    structuredFilters: Record<string, StructuredFilter>;
+  }>({
+    columnFilters: {},
+    structuredFilters: {},
+  });
   const [visibleHeaders, setVisibleHeaders] = useState<string[]>([]);
   const [isColumnDropdownOpen, setIsColumnDropdownOpen] = useState(false);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [selectedFilterFields, setSelectedFilterFields] = useState<string[]>([]);
   const [draftStructuredFilters, setDraftStructuredFilters] = useState<Record<string, StructuredFilter>>({});
-  const [appliedStructuredFilters, setAppliedStructuredFilters] = useState<Record<string, StructuredFilter>>({});
   const [doctorViewMode, setDoctorViewMode] = useState<'summary' | 'item'>('summary');
   const columnDropdownRef = useRef<HTMLDivElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
@@ -72,24 +103,22 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setSortConfig(null);
-      setColumnFilters({});
+      setActiveFilters({ columnFilters: {}, structuredFilters: {} });
       setDoctorViewMode('summary');
       setVisibleHeaders(doctorSummaryHeaders); 
       setIsFilterPanelOpen(false);
       setSelectedFilterFields([]);
       setDraftStructuredFilters({});
-      setAppliedStructuredFilters({});
     }
   }, [isOpen, doctorSummaryHeaders]);
 
   useEffect(() => {
     setSortConfig(null);
-    setColumnFilters({});
+    setActiveFilters({ columnFilters: {}, structuredFilters: {} });
     setVisibleHeaders(effectiveHeaders);
     setIsFilterPanelOpen(false);
     setSelectedFilterFields([]);
     setDraftStructuredFilters({});
-    setAppliedStructuredFilters({});
   }, [effectiveHeaders]);
 
   useEffect(() => {
@@ -228,50 +257,72 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     return rows;
   }, [doctorViewMode, initialFilters, isDoctorWiseSalesReport]);
 
-  const processedData = useMemo(() => {
-    const sourceData = isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemData : data;
-    if (!sourceData) return [];
-    let filteredData = [...sourceData];
+  const baseData = useMemo(() => {
+    return isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemData : data;
+  }, [data, doctorItemData, doctorViewMode, isDoctorWiseSalesReport]);
 
-    Object.entries(columnFilters).forEach(([key, value]) => {
-      if (value) {
-        filteredData = filteredData.filter(row =>
-          String(row[key] ?? '').toLowerCase().includes(String(value ?? '').toLowerCase())
-        );
-      }
-    });
+  const filteredData = useMemo(() => {
+    if (!baseData) return [];
 
-    Object.entries(appliedStructuredFilters).forEach(([header, filter]) => {
-      const values = filter.values || [];
-      const min = filter.min !== '' ? Number(filter.min) : undefined;
-      const max = filter.max !== '' ? Number(filter.max) : undefined;
-      const startDate = filter.startDate ? new Date(filter.startDate) : undefined;
-      const endDate = filter.endDate ? new Date(filter.endDate) : undefined;
-      if (startDate) startDate.setHours(0, 0, 0, 0);
-      if (endDate) endDate.setHours(23, 59, 59, 999);
+    return baseData.filter(row => {
+      const columnMatch = Object.entries(activeFilters.columnFilters).every(([key, value]) => {
+        if (!value) return true;
+        return normalizeText(row[key]).includes(normalizeText(value));
+      });
+      if (!columnMatch) return false;
 
-      filteredData = filteredData.filter(row => {
+      return Object.entries(activeFilters.structuredFilters).every(([header, filter]) => {
         const rawValue = row[header];
-        const valueAsText = String(rawValue ?? '');
-        if (values.length > 0 && !values.includes(valueAsText)) return false;
+        const normalizedCellText = normalizeText(rawValue);
+        const values = (filter.values || []).map(v => String(v));
+
+        if (values.length > 0) {
+          const hasMatch = values.some(selectedValue => {
+            const normalizedSelected = normalizeText(selectedValue);
+            const selectedAsDate = normalizeDateValue(selectedValue);
+            const cellAsDate = normalizeDateValue(rawValue);
+            const selectedAsNumber = Number(selectedValue);
+            const cellAsNumber = Number(rawValue);
+
+            if (selectedAsDate !== null && cellAsDate !== null) {
+              return cellAsDate === selectedAsDate;
+            }
+            if (!Number.isNaN(selectedAsNumber) && !Number.isNaN(cellAsNumber)) {
+              return cellAsNumber === selectedAsNumber;
+            }
+            return normalizedCellText.includes(normalizedSelected);
+          });
+
+          if (!hasMatch) return false;
+        }
+
+        const min = filter.min !== '' && filter.min !== undefined ? Number(filter.min) : undefined;
+        const max = filter.max !== '' && filter.max !== undefined ? Number(filter.max) : undefined;
         if (min !== undefined || max !== undefined) {
           const n = Number(rawValue);
           if (Number.isNaN(n)) return false;
           if (min !== undefined && n < min) return false;
           if (max !== undefined && n > max) return false;
         }
-        if (startDate || endDate) {
-          const d = new Date(rawValue);
-          if (Number.isNaN(d.getTime())) return false;
-          if (startDate && d < startDate) return false;
-          if (endDate && d > endDate) return false;
+
+        const startDate = normalizeDateValue(filter.startDate);
+        const endDate = normalizeDateValue(filter.endDate);
+        if (startDate !== null || endDate !== null) {
+          const rowDate = normalizeDateValue(rawValue);
+          if (rowDate === null) return false;
+          if (startDate !== null && rowDate < startDate) return false;
+          if (endDate !== null && rowDate > endDate) return false;
         }
+
         return true;
       });
     });
+  }, [activeFilters.columnFilters, activeFilters.structuredFilters, baseData]);
 
+  const processedData = useMemo(() => {
+    const workingData = [...filteredData];
     if (sortConfig !== null) {
-      filteredData.sort((a, b) => {
+      workingData.sort((a, b) => {
         const aValue = a[sortConfig.key];
         const bValue = b[sortConfig.key];
         
@@ -292,18 +343,17 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       });
     }
     
-    return filteredData;
-  }, [appliedStructuredFilters, columnFilters, data, doctorItemData, doctorViewMode, isDoctorWiseSalesReport, sortConfig]);
+    return workingData;
+  }, [filteredData, sortConfig]);
 
   const fieldMetadata = useMemo(() => {
-    const sourceData = isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemData : data;
     return effectiveHeaders.reduce((acc, header) => {
-      const values = sourceData
+      const values = baseData
         .map(row => row?.[header])
         .filter(v => v !== null && v !== undefined && String(v).trim() !== '');
       const uniqueValues = Array.from(new Set(values.map(v => String(v))));
       const numericCount = values.filter(v => !Number.isNaN(Number(v))).length;
-      const dateCount = values.filter(v => !Number.isNaN(new Date(v as any).getTime())).length;
+      const dateCount = values.filter(v => normalizeDateValue(v) !== null).length;
       const isStatus = /status/i.test(header) || (uniqueValues.length > 0 && uniqueValues.length <= 6);
       let fieldType: FieldType = 'text';
       if (values.length > 0 && numericCount === values.length) fieldType = 'number';
@@ -312,7 +362,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       acc[header] = { fieldType, options: uniqueValues.sort((a, b) => a.localeCompare(b)).slice(0, 200) };
       return acc;
     }, {} as Record<string, { fieldType: FieldType; options: string[] }>);
-  }, [data, doctorItemData, doctorViewMode, effectiveHeaders, isDoctorWiseSalesReport]);
+  }, [baseData, effectiveHeaders]);
 
   const columnTotals = useMemo(() => {
     if (!processedData || processedData.length === 0) {
@@ -338,9 +388,12 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   };
 
   const handleFilterChange = (header: string, value: string) => {
-    setColumnFilters(prev => ({
+    setActiveFilters(prev => ({
       ...prev,
-      [header]: value,
+      columnFilters: {
+        ...prev.columnFilters,
+        [header]: value,
+      },
     }));
   };
 
@@ -434,7 +487,11 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     initialFilters.invoiceIdFilter && `ID Filter: "${initialFilters.invoiceIdFilter}"`,
   ].filter(Boolean).join(' | ');
   const emptyMessage = initialFilters?.emptyMessage || 'No data found for selected date range';
-  const activeFilterChips = Object.entries(appliedStructuredFilters).flatMap(([header, filter]) => {
+  const activeFilterChips = [
+    ...Object.entries(activeFilters.columnFilters)
+      .filter(([, value]) => normalizeText(value))
+      .map(([header, value]) => `${header} contains "${String(value).trim()}"`),
+    ...Object.entries(activeFilters.structuredFilters).flatMap(([header, filter]) => {
     const chips: string[] = [];
     (filter.values || []).forEach(v => chips.push(`${header}: ${v}`));
     if (filter.min) chips.push(`${header} ≥ ${filter.min}`);
@@ -442,7 +499,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     if (filter.startDate) chips.push(`${header} from ${filter.startDate}`);
     if (filter.endDate) chips.push(`${header} to ${filter.endDate}`);
     return chips;
-  });
+  })];
 
   return (
     <div id="print-report-modal-container" className="fixed inset-0 bg-white z-[100] flex flex-col animate-in fade-in duration-200 text-xs">
@@ -609,7 +666,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                       </div>
                       <div className="mt-3 flex justify-end gap-2">
                         <button className="px-3 py-1.5 text-[10px] font-black uppercase border border-gray-300" onClick={() => { setDraftStructuredFilters({}); setSelectedFilterFields([]); }}>Clear</button>
-                        <button className="px-3 py-1.5 text-[10px] font-black uppercase bg-primary text-white" onClick={() => { setAppliedStructuredFilters(draftStructuredFilters); setIsFilterPanelOpen(false); }}>Apply Filter</button>
+                        <button className="px-3 py-1.5 text-[10px] font-black uppercase bg-primary text-white" onClick={() => { setActiveFilters(prev => ({ ...prev, structuredFilters: draftStructuredFilters })); setIsFilterPanelOpen(false); }}>Apply Filter</button>
                       </div>
                     </div>
                   )}
@@ -679,7 +736,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                   ))}
                   <button
                     onClick={() => {
-                      setAppliedStructuredFilters({});
+                      setActiveFilters({ columnFilters: {}, structuredFilters: {} });
                       setDraftStructuredFilters({});
                       setSelectedFilterFields([]);
                     }}
@@ -709,7 +766,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                                       <input 
                                           type="text" 
                                           placeholder="Filter..."
-                                          value={columnFilters[header] || ''}
+                                          value={activeFilters.columnFilters[header] || ''}
                                           onChange={(e) => handleFilterChange(header, e.target.value)}
                                           onClick={(e) => e.stopPropagation()}
                                           className="no-print w-full p-1 border border-gray-300 rounded text-[7pt] font-medium bg-white focus:ring-1 focus:ring-primary outline-none"
