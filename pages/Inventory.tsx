@@ -414,7 +414,10 @@ const Inventory: React.FC<InventoryProps> = ({
                                         effectiveRateC
                                     } = getEffectiveFields(item);
                                     const uPP = effectiveUnitsPerPack;
-                                    const strips = Math.floor(item.stock / uPP);
+                                    const totalStrips = Math.floor(item.stock / uPP);
+                                    const freeUnits = Math.min(item.stock, Number(item.purchaseFree || 0));
+                                    const freeStrips = Math.floor(freeUnits / uPP);
+                                    const paidStrips = totalStrips - freeStrips;
                                     const loose = item.stock % uPP;
                                     const isLow = item.stock <= item.minStockLimit;
                                     const isSelected = idx === selectedIndex;
@@ -447,7 +450,13 @@ const Inventory: React.FC<InventoryProps> = ({
                                             {isFieldVisible('colHsn') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{effectiveHsnCode}</td>}
                                             {isFieldVisible('colBarcode') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.barcode}</td>}
                                             {isFieldVisible('colBatch') && <td className={`py-1 px-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{item.batch}</td>}
-                                            {isFieldVisible('colStrips') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{strips}</td>}
+                                            {isFieldVisible('colStrips') && (
+                                                <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>
+                                                    {freeStrips > 0 ? (
+                                                        <span>{paidStrips} <span className="text-[10px] opacity-75">+ {freeStrips} (free)</span></span>
+                                                    ) : totalStrips}
+                                                </td>
+                                            )}
                                             {isFieldVisible('colLoose') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{loose}</td>}
                                             {isFieldVisible('colStock') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle} ${isSelected ? 'text-white' : (isLow ? 'text-red-700 font-bold group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{item.stock}</td>}
                                             {isFieldVisible('colBaseUnit') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.baseUnit}</td>}

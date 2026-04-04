@@ -1255,17 +1255,18 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
         // Use a Map to accumulate stock changes for this purchase
         // Key is inventoryItemId or "name|batch" if not linked
-        const stockChanges = new Map<string, { units: number, item: PurchaseItem }>();
+        const stockChanges = new Map<string, { units: number, freeUnits: number, item: PurchaseItem }>();
 
         for (const item of p.items) {
             if (!item.name) continue;
             const key = item.inventoryItemId || `${(item.name || '').toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
-            const existing = stockChanges.get(key) || { units: 0, item };
+            const existing = stockChanges.get(key) || { units: 0, freeUnits: 0, item };
 
             const uPP = item.unitsPerPack || 1;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + Number(item.freeQuantity || 0);
+            const freeUnits = Number(item.freeQuantity || 0) * uPP;
+            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
 
-            stockChanges.set(key, { units: existing.units + units, item });
+            stockChanges.set(key, { units: existing.units + units, freeUnits: (existing.freeUnits || 0) + freeUnits, item });
         }
 
         const currentInventory = await fetchInventory(user);
@@ -1295,6 +1296,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             if (existingInv) {
                 const stockBefore = Number(existingInv.stock || 0);
                 existingInv.stock = stockBefore + change.units;
+                existingInv.purchaseFree = Number(existingInv.purchaseFree || 0) + change.freeUnits;
                 logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: existingInv.name, batch: existingInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore, stockAfter: existingInv.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 // Normalize expiry if present in purchase item
                 if (change.item.expiry) {
@@ -1311,6 +1313,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     category: change.item.category || 'General',
                     manufacturer: change.item.manufacturer || '',
                     stock: change.units,
+                    purchaseFree: change.freeUnits,
                     unitsPerPack: uPP,
                     batch: change.item.batch || 'UNSET',
                     expiry: normalizeImportDate(change.item.expiry) || '',
@@ -1348,31 +1351,34 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         };
 
         // map key: identification string
-        const itemMap = new Map<string, { oldUnits: number, newUnits: number, item: PurchaseItem }>();
+        const itemMap = new Map<string, { oldUnits: number, oldFreeUnits: number, newUnits: number, newFreeUnits: number, item: PurchaseItem }>();
 
         // Process original items
         for (const item of original.items) {
             if (!item.name) continue;
             const key = item.inventoryItemId || `${item.name.toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
             const uPP = item.unitsPerPack || 1;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + Number(item.freeQuantity || 0);
-            itemMap.set(key, { oldUnits: units, newUnits: 0, item });
+            const freeUnits = Number(item.freeQuantity || 0) * uPP;
+            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
+            itemMap.set(key, { oldUnits: units, oldFreeUnits: freeUnits, newUnits: 0, newFreeUnits: 0, item });
         }
 
         // Process new items
         for (const item of p.items) {
             if (!item.name) continue;
             const key = item.inventoryItemId || `${item.name.toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
-            const existing = itemMap.get(key) || { oldUnits: 0, newUnits: 0, item };
+            const existing = itemMap.get(key) || { oldUnits: 0, oldFreeUnits: 0, newUnits: 0, newFreeUnits: 0, item };
             const uPP = item.unitsPerPack || 1;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + Number(item.freeQuantity || 0);
-            itemMap.set(key, { ...existing, newUnits: units, item });
+            const freeUnits = Number(item.freeQuantity || 0) * uPP;
+            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
+            itemMap.set(key, { ...existing, newUnits: units, newFreeUnits: freeUnits, item });
         }
 
         // Apply changes
         for (const [key, data] of itemMap.entries()) {
             const diff = data.newUnits - data.oldUnits;
-            if (diff === 0) continue;
+            const freeDiff = (data.newFreeUnits || 0) - (data.oldFreeUnits || 0);
+            if (diff === 0 && freeDiff === 0) continue;
 
             let invItem: InventoryItem | undefined;
             if (data.item.inventoryItemId) {
@@ -1391,6 +1397,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             if (invItem) {
                 const stockBefore = Number(invItem.stock || 0);
                 invItem.stock = stockBefore + diff;
+                invItem.purchaseFree = Number(invItem.purchaseFree || 0) + freeDiff;
                 logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: invItem.name, batch: invItem.batch || 'UNSET', qty: Math.abs(diff), qtyIn: diff > 0 ? diff : 0, qtyOut: diff < 0 ? Math.abs(diff) : 0, stockBefore, stockAfter: invItem.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 // Normalize expiry if present in purchase item
                 if (data.item.expiry) {
@@ -1408,6 +1415,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     category: data.item.category || 'General',
                     manufacturer: data.item.manufacturer || '',
                     stock: diff,
+                    purchaseFree: data.newFreeUnits,
                     unitsPerPack: uPP,
                     batch: data.item.batch || 'UNSET',
                     expiry: normalizeImportDate(data.item.expiry) || '',
