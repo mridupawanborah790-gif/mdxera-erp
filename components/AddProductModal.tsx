@@ -97,15 +97,16 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
     useEffect(() => {
         if (!isOpen) return;
         const unitsPerPack = product.unitsPerPack || 1;
-        let total = (stockPacks * unitsPerPack) + stockLoose + stockFree;
+        const freeUnits = stockFree * unitsPerPack;
+        let total = (stockPacks * unitsPerPack) + stockLoose + freeUnits;
 
         const unitCost = unitsPerPack > 0 ? (product.purchasePrice / unitsPerPack) : product.purchasePrice;
-        const totalValue = total * unitCost;
+        const totalValue = (total - freeUnits) * unitCost; // Valuation usually excludes free units
 
         setProduct(prev => ({
             ...prev,
             stock: total,
-            free: stockFree,
+            purchaseFree: freeUnits,
             cost: unitCost,
             value: totalValue
         }));

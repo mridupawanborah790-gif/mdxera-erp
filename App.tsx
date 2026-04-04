@@ -1010,11 +1010,13 @@ const App: React.FC = () => {
 
                 if (inventoryMatch) {
                     const uPP = resolveUnitsPerStrip(inventoryMatch.unitsPerPack, inventoryMatch.packType);
-                    const unitsToRemove = (item.quantity * uPP) + (item.looseQuantity || 0) + (item.freeQuantity || 0);
+                    const freeUnitsToRemove = (item.freeQuantity || 0) * uPP;
+                    const unitsToRemove = ((item.quantity + (item.freeQuantity || 0)) * uPP) + (item.looseQuantity || 0);
 
                     const updatedInv = {
                         ...inventoryMatch,
-                        stock: Math.max(0, Number(inventoryMatch.stock || 0) - unitsToRemove)
+                        stock: Math.max(0, Number(inventoryMatch.stock || 0) - unitsToRemove),
+                        purchaseFree: Math.max(0, Number(inventoryMatch.purchaseFree || 0) - freeUnitsToRemove)
                     };
                     await storage.saveData('inventory', updatedInv, currentUser, true);
                 }
