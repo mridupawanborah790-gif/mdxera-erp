@@ -2088,9 +2088,8 @@ const App: React.FC = () => {
                         config={configurations.modules?.['purchase']}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
                         organizationId={currentUser?.organization_id || ''} onCancel={() => {
-                            const wasEditing = !!editingPurchase;
                             setEditingPurchase(null);
-                            handleNavigate(wasEditing ? 'purchaseHistory' : 'dashboard', true);
+                            handleNavigate('purchaseHistory', true);
                         }}
                         onPrint={setViewPurchase}
                     />;
@@ -2115,9 +2114,8 @@ const App: React.FC = () => {
                         config={configurations.modules?.['purchase']}
                         mobileSyncSessionId={mobileSyncSessionId} setMobileSyncSessionId={setMobileSyncSessionId}
                         organizationId={currentUser?.organization_id || ''} onCancel={() => {
-                            const wasEditing = !!editingPurchase;
                             setEditingPurchase(null);
-                            handleNavigate(wasEditing ? 'purchaseHistory' : 'dashboard', true);
+                            handleNavigate('purchaseHistory', true);
                         }}
                         onPrint={setViewPurchase}
                     />;
@@ -2166,6 +2164,7 @@ const App: React.FC = () => {
                         onAddMedicineMaster={handleAddMedicineMaster}
                         onPrintPurchase={setViewPurchase}
                         configurations={configurations}
+                        onCreateNew={() => handleNavigate('manualPurchaseEntry')}
                     />;
                 case 'inventory':
                     return <Inventory

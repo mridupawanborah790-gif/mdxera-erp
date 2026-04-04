@@ -41,6 +41,7 @@ interface PurchaseHistoryProps {
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
     onPrintPurchase?: (purchase: Purchase) => void;
     configurations: AppConfigurations;
+    onCreateNew?: () => void;
 }
 
 const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -69,6 +70,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     configurations,
     onSaveMapping,
     onUpdatePurchase,
+    onCreateNew,
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchInput, setSearchInput] = useState('');
@@ -390,6 +392,9 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             } else if (e.key === 'F9') {
                 e.preventDefault();
                 handleCopySelected();
+            } else if (e.key === 'F2') {
+                e.preventDefault();
+                onCreateNew?.();
             }
         };
 
@@ -502,6 +507,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                             <button disabled={!selectedPurchase} onClick={handleCancelSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase text-red-700 disabled:opacity-50">Delete: Cancel</button>
                             <button disabled={!selectedPurchase} onClick={handleExportSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F3: Export</button>
                             <button onClick={handleRefresh} disabled={isSyncing} className="px-3 py-1.5 tally-button-primary text-[10px] font-black uppercase disabled:opacity-60">F5: Refresh</button>
+                            <button onClick={onCreateNew} className="px-3 py-1.5 tally-border bg-emerald-600 text-white text-[10px] font-black uppercase hover:bg-emerald-700 shadow-md">F2: New Purchase</button>
                         </div>
                     </div>
                     <div className="flex-1 overflow-auto">
