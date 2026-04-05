@@ -310,7 +310,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             if (isIdField && sanitized[field]) {
                 // Exempt fields that are known to be text IDs rather than strict UUIDs
                 if (field === 'id' && (tableName === 'sales_bill' || tableName === 'physical_inventory' || TEXT_PK_TABLES.includes(tableName))) continue;
-                if (field === 'originalInvoiceId' || field === 'originalPurchaseInvoiceId' || field === 'purchaseSerialId') continue;
+                if (field === 'originalInvoiceId' || field === 'originalPurchaseInvoiceId' || field === 'purchaseSerialId' || field === 'serialId' || field === 'challanSerialId') continue;
                 
                 if (!isValidUuid(sanitized[field])) {
                     sanitized[field] = null;

@@ -50,7 +50,7 @@ import { supabase } from './services/supabaseClient';
 import { parseNetworkAndApiError } from './utils/error';
 import { evaluateCustomerCredit, getCustomerOpenChallanExposure } from './utils/creditControl';
 import {
-    RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier,
+    RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier, Distributor,
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
     Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
     PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
@@ -150,7 +150,7 @@ const App: React.FC = () => {
     const [printBill, setPrintBill] = useState<(DetailedBill & { inventory: InventoryItem[]; configurations: AppConfigurations; }) | null>(null);
     const [viewTransaction, setViewTransaction] = useState<Transaction | null>(null);
     const [viewPurchase, setViewPurchase] = useState<Purchase | null>(null);
-    const [printPO, setPrintPO] = useState<PurchaseOrder | null>(null);
+    const [printPO, setPrintPO] = useState<(PurchaseOrder & { distributor: Distributor }) | null>(null);
     const [viewReport, setViewReport] = useState<any>(null);
 
     const resolveAuthViewFromLocation = (): 'auth' | 'forgot' | 'reset' => {
@@ -2056,7 +2056,25 @@ const App: React.FC = () => {
                             setSourceChallansForPurchase({ items, supplier: po.distributorId, ids: [po.id] });
                             handleNavigate('manualSupplierInvoice');
                         }}
-                        onPrintPurchaseOrder={setPrintPO as any}
+                        onPrintPurchaseOrder={(po) => {
+                            const distributor = suppliers.find(d => d.id === po.distributorId);
+                            if (distributor) {
+                                setPrintPO({ ...po, distributor });
+                            } else {
+                                // Fallback if distributor object is not found in suppliers list
+                                setPrintPO({
+                                    ...po,
+                                    distributor: {
+                                        id: po.distributorId,
+                                        name: po.distributorName,
+                                        organization_id: po.organization_id,
+                                        is_active: true,
+                                        address: '',
+                                        gst_number: ''
+                                    } as any
+                                });
+                            }
+                        }}
                         onCancelPurchaseOrder={async (id) => {
                             const po = purchaseOrders.find(p => p.id === id);
                             if (po) {
