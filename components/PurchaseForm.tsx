@@ -2730,7 +2730,20 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 <div className="text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">{currentsupplier ? 'Supplier History' : 'Last 20 Purchases'}</div>
                 <div className="space-y-1.5">
                     {historyItems.map((pur) => (
-                        <div key={pur.id} className="p-2 bg-white border border-gray-200 hover:border-primary/50 hover:bg-emerald-50 transition-colors cursor-pointer text-[11px] shadow-sm">
+                        <div
+                            key={pur.id}
+                            className="p-2 bg-white border border-gray-200 hover:border-primary/50 hover:bg-emerald-50 transition-colors cursor-pointer text-[11px] shadow-sm"
+                            onClick={() => onPrint?.(pur)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    onPrint?.(pur);
+                                }
+                            }}
+                            aria-label={`View purchase ${pur.invoiceNumber || pur.purchaseSerialId || pur.id}`}
+                        >
                             <div className="flex justify-between items-start mb-0.5">
                                 <span className="font-black text-gray-800 uppercase truncate pr-2 flex-1" title={pur.supplier}>{pur.supplier}</span>
                                 <span className="shrink-0 font-black text-primary">₹{(pur.totalAmount || 0).toFixed(2)}</span>
