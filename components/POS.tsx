@@ -310,6 +310,8 @@ const POS = forwardRef<any, POSProps>(({
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
+    const [viewingHistorySale, setViewingHistorySale] = useState<Transaction | null>(null);
+    const [historyPreviewLoadingId, setHistoryPreviewLoadingId] = useState<string | null>(null);
     const [stats, setStats] = useState({ monthTotal: 0, todayTotal: 0, monthCount: 0 });
 
     const fetchStats = useCallback(async () => {
@@ -367,6 +369,33 @@ const POS = forwardRef<any, POSProps>(({
     useEffect(() => {
         fetchStats();
     }, [fetchStats]);
+
+    const handleOpenRecentSalePreview = useCallback(async (sale: Transaction) => {
+        if (!sale?.id) return;
+
+        if (!currentUser?.organization_id) {
+            setViewingHistorySale(sale);
+            return;
+        }
+
+        setHistoryPreviewLoadingId(sale.id);
+        try {
+            const { data, error } = await supabase
+                .from('sales_bill')
+                .select('*')
+                .eq('organization_id', currentUser.organization_id)
+                .eq('id', sale.id)
+                .single();
+
+            if (error) throw error;
+            setViewingHistorySale(data ? storage.toCamel(data) : sale);
+        } catch (error) {
+            console.error('Error opening invoice preview from Last 20 Sales:', error);
+            addNotification('Unable to open invoice preview. Please try again.', 'error');
+        } finally {
+            setHistoryPreviewLoadingId(null);
+        }
+    }, [addNotification, currentUser?.organization_id]);
 
     const [isInsightsLoading, setIsInsightsLoading] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
@@ -2689,16 +2718,24 @@ const POS = forwardRef<any, POSProps>(({
                 <div className="text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Last 20 Sales</div>
                 <div className="space-y-1.5">
                     {salesHistory.map((sale) => (
-                        <div key={sale.id} className="p-2 bg-white border border-gray-200 hover:bg-primary group transition-colors cursor-pointer text-[11px] shadow-sm">
+                        <button
+                            key={sale.id}
+                            type="button"
+                            onClick={() => handleOpenRecentSalePreview(sale)}
+                            disabled={historyPreviewLoadingId === sale.id}
+                            className="w-full text-left p-2 bg-white border border-gray-200 hover:bg-primary group transition-colors cursor-pointer text-[11px] shadow-sm disabled:opacity-60 disabled:cursor-wait"
+                        >
                             <div className="flex justify-between items-start mb-0.5">
                                 <span className="font-black text-gray-800 uppercase truncate pr-2 flex-1 group-hover:text-white" title={sale.customerName}>{sale.customerName}</span>
-                                <span className="shrink-0 font-black text-primary group-hover:text-white">₹{sale.total.toFixed(2)}</span>
+                                <span className="shrink-0 font-black text-primary group-hover:text-white">
+                                    {historyPreviewLoadingId === sale.id ? 'Opening...' : `₹${sale.total.toFixed(2)}`}
+                                </span>
                             </div>
                             <div className="flex justify-between text-[9px] text-gray-400 font-bold uppercase group-hover:text-white/70">
                                 <span>{sale.invoiceNumber || sale.id}</span>
                                 <span>{(sale.date || '').split('T')[0]}</span>
                             </div>
-                        </div>
+                        </button>
                     ))}
                     {salesHistory.length === 0 && (
                         <div className="text-center py-10 text-gray-400 text-xs italic">No recent sales</div>
@@ -2706,6 +2743,42 @@ const POS = forwardRef<any, POSProps>(({
                 </div>
             </div>
         </div>
+
+        {viewingHistorySale && (
+            <Modal
+                isOpen={!!viewingHistorySale}
+                onClose={() => setViewingHistorySale(null)}
+                title={`View Sales Invoice: ${viewingHistorySale.invoiceNumber || viewingHistorySale.id}`}
+            >
+                <div className="h-[90vh] overflow-hidden flex flex-col">
+                    <POS
+                        inventory={inventory}
+                        purchases={purchases}
+                        medicines={medicines}
+                        customers={customers}
+                        doctors={doctors}
+                        onSaveOrUpdateTransaction={() => Promise.resolve()}
+                        onPrintBill={onPrintBill}
+                        currentUser={currentUser}
+                        config={config}
+                        configurations={configurations}
+                        billType={billType}
+                        transactionToEdit={viewingHistorySale}
+                        isReadOnly={true}
+                        onCancel={() => setViewingHistorySale(null)}
+                        onAddMedicineMaster={onAddMedicineMaster}
+                        onQuickAddCustomer={onQuickAddCustomer}
+                        onAddCustomer={onAddCustomer}
+                        teamMembers={teamMembers}
+                        defaultCustomerControlGlId={defaultCustomerControlGlId}
+                        onRefreshConfig={onRefreshConfig}
+                        openChallanExposure={openChallanExposure}
+                        salesChallans={salesChallans}
+                        addNotification={addNotification}
+                    />
+                </div>
+            </Modal>
+        )}
     </div>
 );
 
