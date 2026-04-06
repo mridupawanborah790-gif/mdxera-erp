@@ -158,6 +158,12 @@ interface MobileSyncInvoicePayload {
     };
 }
 
+type PurchaseLookupCandidate = Partial<Purchase> & {
+    serial_id?: string;
+    supplier_bill_id?: string;
+    supplierBillId?: string;
+};
+
 
 const MOBILE_SYNC_DEVICE_ID_KEY = 'mdxera_mobile_sync_device_id';
 
@@ -290,6 +296,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [items, setItems] = useState<PurchaseItem[]>([createBlankItem()]);
     const [activeRowId, setActiveRowId] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const isSubmittingRef = useRef(false);
     const [isUploading, setIsUploading] = useState(false);
     const [importWorkflowStage, setImportWorkflowStage] = useState<ImportWorkflowStage>('idle');
     const [importWorkflowError, setImportWorkflowError] = useState<string | null>(null);
@@ -364,6 +371,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [mobileSyncDeviceId] = useState<string>(() => getOrCreateMobileSyncDeviceId());
     const [supplierQuickCreatePrefill, setSupplierQuickCreatePrefill] = useState<Partial<Supplier> | undefined>(undefined);
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+    const [selectedHistoryPurchaseId, setSelectedHistoryPurchaseId] = useState<string | null>(null);
+    const [historyPreviewPurchase, setHistoryPreviewPurchase] = useState<Purchase | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
@@ -489,6 +498,38 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
         return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 20);
     }, [purchases, currentsupplier]);
+
+    const getPurchaseLookupKeys = useCallback((purchase: PurchaseLookupCandidate): string[] => {
+        const keys = [
+            String(purchase.id || ''),
+            String(purchase.purchaseSerialId || ''),
+            String(purchase.invoiceNumber || ''),
+            String(purchase.serial_id || ''),
+            String(purchase.supplier_bill_id || ''),
+            String(purchase.supplierBillId || ''),
+        ];
+        return keys.map(key => key.trim()).filter(Boolean);
+    }, []);
+
+    const resolvePurchaseForPreview = useCallback((purchase: Purchase): Purchase | null => {
+        const scopedPurchases = purchases.filter(entry => entry.organization_id === organizationId);
+        const lookupKeys = new Set(getPurchaseLookupKeys(purchase));
+        return scopedPurchases.find(entry => {
+            const entryKeys = getPurchaseLookupKeys(entry);
+            return entryKeys.some(key => lookupKeys.has(key));
+        }) || null;
+    }, [getPurchaseLookupKeys, organizationId, purchases]);
+
+    const handleHistoryPurchasePreview = useCallback((purchase: Purchase) => {
+        if (isReadOnly) return;
+        setSelectedHistoryPurchaseId(purchase.id);
+        const matchedPurchase = resolvePurchaseForPreview(purchase);
+        if (!matchedPurchase) {
+            addNotification('Purchase record not found', 'warning');
+            return;
+        }
+        setHistoryPreviewPurchase(matchedPurchase);
+    }, [addNotification, isReadOnly, resolvePurchaseForPreview]);
 
     const canOpenJournalEntry = Boolean(purchaseToEdit?.id);
     const isPostedVoucher = (purchaseToEdit?.status || '') === 'completed';
@@ -830,18 +871,24 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         });
     }, [supplier, invoiceNumber, purchaseToEdit, purchases, organizationId]);
 
-    const handleSubmit = async () => {
-        if (isSubmitting) return null;
+    const handleSubmit = useCallback(async () => {
+        if (isSubmittingRef.current) return null;
+        isSubmittingRef.current = true;
+        setIsSubmitting(true);
         
         // Field Validations with Notifications
         if (!supplier.trim()) { 
             setSupplierNameError("Supplier name is required."); 
             addNotification("Please select or enter a Supplier name.", "warning");
+            isSubmittingRef.current = false;
+            setIsSubmitting(false);
             return null; 
         }
         if (!invoiceNumber.trim()) { 
             setInvoiceNumberError("Invoice number is required."); 
             addNotification("Supplier Invoice Number is required.", "warning");
+            isSubmittingRef.current = false;
+            setIsSubmitting(false);
             return null; 
         }
         
@@ -849,12 +896,16 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             const duplicateMessage = "Duplicate Supplier Invoice # already recorded. Please verify Purchase History.";
             setInvoiceNumberError(duplicateMessage);
             addNotification(duplicateMessage, "error");
+            isSubmittingRef.current = false;
+            setIsSubmitting(false);
             return null;
         }
         
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { 
             addNotification("At least one item is required to save.", "error"); 
+            isSubmittingRef.current = false;
+            setIsSubmitting(false);
             return null; 
         }
 
@@ -864,10 +915,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         });
         if (invalidExpiryItem) {
             addNotification(`Invalid expiry for ${invalidExpiryItem.name}. Use MM/YY format (e.g., 01/25).`, "error");
+            isSubmittingRef.current = false;
+            setIsSubmitting(false);
             return null;
         }
-
-        setIsSubmitting(true);
         try {
             console.log('PurchaseForm: Starting submission...', { supplier, invoiceNumber, itemCount: activeItems.length });
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;
@@ -912,9 +963,18 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             addNotification(`Save Failed: ${parseNetworkAndApiError(e)}`, "error");
             return null;
         } finally {
+            isSubmittingRef.current = false;
             setIsSubmitting(false);
         }
-    };
+    }, [supplier, invoiceNumber, hasDuplicateSupplierInvoice, items, calculatedTotals, purchaseToEdit, currentUser, date, organizationId, onUpdatePurchase, supplierGst, onAddPurchase, onClearDraft, addNotification]);
+
+    const triggerSaveAction = useCallback(async () => {
+        const saved = await handleSubmit();
+        if (saved && onCancel && !purchaseToEdit) {
+            onCancel();
+        }
+        return saved;
+    }, [handleSubmit, onCancel, purchaseToEdit]);
 
     const handleDiscard = useCallback(() => {
         resetFormForNewEntry();
@@ -1066,6 +1126,12 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const handleGlobalKeyDown = useCallback((e: KeyboardEvent) => {
         if (isSearchModalOpen || isWebcamModalOpen || isAddSupplierModalOpen || isAddMedicineMasterModalOpen || isLinkModalOpen || isRateTierModalOpen || isSupplierSearchModalOpen) return;
 
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            triggerSaveAction();
+            return;
+        }
+
         const isInputFocused = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
 
         if (!isInputFocused && activeRowId) {
@@ -1085,7 +1151,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 (nameInput as HTMLInputElement)?.select();
             }
         }
-    }, [activeRowId, items, isSearchModalOpen, isWebcamModalOpen, isAddSupplierModalOpen, isAddMedicineMasterModalOpen, isLinkModalOpen, isRateTierModalOpen, isSupplierSearchModalOpen]);
+    }, [activeRowId, items, isSearchModalOpen, isWebcamModalOpen, isAddSupplierModalOpen, isAddMedicineMasterModalOpen, isLinkModalOpen, isRateTierModalOpen, isSupplierSearchModalOpen, triggerSaveAction]);
 
     useEffect(() => {
         window.addEventListener('keydown', handleGlobalKeyDown);
@@ -2337,10 +2403,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         onClick={async () => {
                                             if (btn === 'SAVE') {
                                                 console.log('PurchaseForm: Save clicked');
-                                                const saved = await handleSubmit();
-                                                if (saved && onCancel) {
-                                                    if (!purchaseToEdit) onCancel();
-                                                }
+                                                await triggerSaveAction();
                                             }
                                             if (btn === 'PRINT') {
                                                 console.log('PurchaseForm: Print clicked');
@@ -2349,14 +2412,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                     addNotification("Please complete required fields (Supplier, Invoice #, Items) before printing.", "warning");
                                                     return;
                                                 }
-                                                const saved = await handleSubmit();
+                                                const saved = await triggerSaveAction();
                                                 if (saved) {
                                                     if (onPrint) onPrint(saved);
                                                 }
                                             }
                                             if (btn === 'RETURN') handleDiscard();
                                         }}
-                                        className={`px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap hover:bg-white hover:text-[#255d55] transition-colors ${btn === 'PURC' ? 'bg-white text-[#255d55]' : ''}`}
+                                        disabled={isSubmitting && (btn === 'SAVE' || btn === 'PRINT')}
+                                        className={`px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap transition-colors ${btn === 'PURC' ? 'bg-white text-[#255d55]' : ''} ${isSubmitting && (btn === 'SAVE' || btn === 'PRINT') ? 'opacity-60 cursor-not-allowed' : 'hover:bg-white hover:text-[#255d55]'}`}
                                     >
                                         {btn}
                                     </button>
@@ -2730,7 +2794,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 <div className="text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">{currentsupplier ? 'Supplier History' : 'Last 20 Purchases'}</div>
                 <div className="space-y-1.5">
                     {historyItems.map((pur) => (
-                        <div key={pur.id} className="p-2 bg-white border border-gray-200 hover:border-primary/50 hover:bg-emerald-50 transition-colors cursor-pointer text-[11px] shadow-sm">
+                        <div
+                            key={pur.id}
+                            onClick={() => handleHistoryPurchasePreview(pur)}
+                            className={`p-2 border transition-colors cursor-pointer text-[11px] shadow-sm ${selectedHistoryPurchaseId === pur.id ? 'bg-teal-600/10 border-teal-600' : 'bg-white border-gray-200 hover:border-primary/50 hover:bg-emerald-50'}`}
+                        >
                             <div className="flex justify-between items-start mb-0.5">
                                 <span className="font-black text-gray-800 uppercase truncate pr-2 flex-1" title={pur.supplier}>{pur.supplier}</span>
                                 <span className="shrink-0 font-black text-primary">₹{(pur.totalAmount || 0).toFixed(2)}</span>
@@ -2747,6 +2815,43 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
             </div>
         </div>
+
+        {historyPreviewPurchase && (
+            <Modal
+                isOpen={!!historyPreviewPurchase}
+                onClose={() => setHistoryPreviewPurchase(null)}
+                title={`View Purchase: ${historyPreviewPurchase.purchaseSerialId}`}
+            >
+                <div className="h-[90vh] overflow-hidden flex flex-col">
+                    <PurchaseForm
+                        onAddPurchase={() => Promise.resolve()}
+                        onUpdatePurchase={onUpdatePurchase}
+                        inventory={inventory}
+                        suppliers={suppliers}
+                        medicines={medicines}
+                        mappings={[]}
+                        purchases={purchases}
+                        purchaseToEdit={historyPreviewPurchase}
+                        draftItems={null}
+                        onClearDraft={() => {}}
+                        currentUser={currentUser}
+                        onAddMedicineMaster={onAddMedicineMaster}
+                        onAddsupplier={async () => ({} as any)}
+                        onSaveMapping={async (map) => onSaveMapping(map as SupplierProductMap)}
+                        setIsDirty={() => {}}
+                        addNotification={addNotification}
+                        title="View Purchase"
+                        configurations={configurations}
+                        isReadOnly={true}
+                        mobileSyncSessionId={null}
+                        setMobileSyncSessionId={() => {}}
+                        onCancel={() => setHistoryPreviewPurchase(null)}
+                        onPrint={onPrint}
+                        organizationId={organizationId}
+                    />
+                </div>
+            </Modal>
+        )}
     </div>
     );
 });
