@@ -147,8 +147,7 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
           {(billDetails.items || []).map(item => (
             <tr key={item.id}>
               <td className="p-1 border-r border-b border-black text-center">
-                  {formatPackLooseQuantity(item.quantity, item.looseQuantity)}
-                  {item.freeQuantity ? <span className="text-[8px] ml-0.5">+{item.freeQuantity}</span> : ''}
+                  {formatPackLooseQuantity((item.quantity || 0) + (item.freeQuantity || 0), item.looseQuantity)}
               </td>
               <td className="p-1 border-r border-b border-black">{item.packType || 'N/A'}</td>
               <td className="p-1 border-r border-b border-black font-medium">{item.name}</td>

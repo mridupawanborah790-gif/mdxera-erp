@@ -260,8 +260,8 @@ const AddToStockModal: React.FC<AddToStockModalProps> = ({ isOpen, onClose, medi
                             <legend className="px-2 text-sm font-medium">Quantity & Batch</legend>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div className="col-span-full"><p className="text-sm">Units per pack: <span className="font-semibold">{unitsPerPack}</span> (from Master)</p></div>
-                                <InputField label="Qty (Packs)" name="qtyPacks" type="number" min={0} value={qtyPacks} onChange={e => setQtyPacks(parseInt(e.target.value) || 0)} error={errors.quantity} />
-                                <InputField label="Qty (Loose)" name="qtyLoose" type="number" min={0} value={qtyLoose} onChange={e => setQtyLoose(parseInt(e.target.value) || 0)} />
+                                <InputField label="Pack qty" name="qtyPacks" type="number" min={0} value={qtyPacks} onChange={e => setQtyPacks(parseInt(e.target.value) || 0)} error={errors.quantity} />
+                                <InputField label="Loose qty" name="qtyLoose" type="number" min={0} value={qtyLoose} onChange={e => setQtyLoose(parseInt(e.target.value) || 0)} />
                                 <div className="pt-6">
                                     <p className="text-sm font-medium">Total Loose: <span className="font-bold text-lg text-primary">{totalLooseQty}</span></p>
                                 </div>

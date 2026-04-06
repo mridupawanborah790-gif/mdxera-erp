@@ -1,8 +1,9 @@
 export const getPackTypeText = (packType?: string | null): string => (packType || '').trim();
 
-// Strip-based examples: 10s, 2'S, 10 TAB, 10 Cap, 15 tablets
-const STRIP_PACK_PATTERN = /\b\d+\s*(?:['’]?s|tab(?:let)?s?|cap(?:sule)?s?)\b/i;
-const LIQUID_WEIGHT_PACK_PATTERN = /\b(?:\d+(?:\.\d+)?)\s*(?:ml|millilit(?:er|re)s?|l|ltr|lit(?:er|re)s?|mg|milligram(?:s)?|g|gm|gram(?:s)?|kg|kilogram(?:s)?)\b/i;
+// Strip-based examples: 10s, 2'S, 10 TAB, 10 Cap, 15 tablets, 10 strips
+const STRIP_PACK_PATTERN = /\b\d+\s*(?:['’]?s|tab(?:let)?(?:['’]s|s)?|cap(?:sule)?s?|strips?)\b/i;
+const LIQUID_WEIGHT_PACK_PATTERN = /\b(?:\d+(?:\.\d+)?)\s*(?:ml|millilit(?:er|re)s?|l|ltr|lit(?:er|re)s?|litter|mg|milligram(?:s)?|miligarm|g|gm|gram(?:s)?|kg|kilogram(?:s)?|injection|inj|vial|drop|pack|pac|pcs)\b/i;
+
 const PACK_MULTIPLIER_PATTERN = /\b(\d+)\s*[x×]\s*(\d+)\b/i;
 
 export const isStripBasedPack = (packType?: string | null): boolean => {

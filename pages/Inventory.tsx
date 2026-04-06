@@ -387,8 +387,8 @@ const Inventory: React.FC<InventoryProps> = ({
                                     {isFieldVisible('colHsn') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">HSN</th>}
                                     {isFieldVisible('colBarcode') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-24">Barcode</th>}
                                     {isFieldVisible('colBatch') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-20">Batch</th>}
-                                    {isFieldVisible('colStrips') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">Strips</th>}
-                                    {isFieldVisible('colLoose') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">Loose</th>}
+                                    {isFieldVisible('colStrips') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">Pack qty</th>}
+                                    {isFieldVisible('colLoose') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">Loose qty</th>}
                                     {isFieldVisible('colStock') && <th className="py-1.5 px-2 border-r border-gray-400 text-right w-20">Total Stock</th>}
                                     {isFieldVisible('colBaseUnit') && <th className="py-1.5 px-2 border-r border-gray-400 text-center w-16">B.Unit</th>}
                                     {isFieldVisible('colPtr') && <th className="py-1.5 px-2 border-r border-gray-400 text-right w-24">PTR</th>}
@@ -452,9 +452,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                             {isFieldVisible('colBatch') && <td className={`py-1 px-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{item.batch}</td>}
                                             {isFieldVisible('colStrips') && (
                                                 <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>
-                                                    {freeStrips > 0 ? (
-                                                        <span>{paidStrips} <span className="text-[10px] opacity-75">+ {freeStrips} (free)</span></span>
-                                                    ) : totalStrips}
+                                                    {totalStrips}
                                                 </td>
                                             )}
                                             {isFieldVisible('colLoose') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{loose}</td>}

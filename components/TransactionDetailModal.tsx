@@ -233,7 +233,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                                         </td>
                                         <td className="p-2 text-center">
                                             <div className="flex flex-col items-center">
-                                                <span className="text-base text-gray-900">{formatPackLooseQuantity(netQty, item.looseQuantity || 0)}</span>
+                                                <span className="text-base text-gray-900">{formatPackLooseQuantity((item.quantity || 0) + (item.freeQuantity || 0), item.looseQuantity || 0)}</span>
                                                 {returnedQty > 0 && (
                                                     <span className="text-[9px] font-black text-red-500 uppercase">
                                                         ({originalQty} - {returnedQty} Ret)

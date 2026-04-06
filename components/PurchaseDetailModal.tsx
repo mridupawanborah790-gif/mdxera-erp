@@ -156,13 +156,12 @@ const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ isOpen, onClo
                                         </td>
                                         <td className="p-2 text-center">
                                             <div className="flex flex-col items-center">
-                                                <span className="font-black text-base text-gray-900">{netQty}</span>
+                                                <span className="font-black text-base text-gray-900">{netQty + (item.freeQuantity || 0)}</span>
                                                 {returned > 0 && (
                                                     <span className="text-[9px] font-black text-red-500 uppercase">
-                                                        ({qty} - {returned} Ret)
+                                                        ({qty + (item.freeQuantity || 0)} - {returned} Ret)
                                                     </span>
                                                 )}
-                                                {item.freeQuantity > 0 && <span className="block text-[10px] font-black text-emerald-600 uppercase">+{item.freeQuantity} FREE</span>}
                                             </div>
                                         </td>
                                         <td className="p-2 text-right font-bold text-gray-600 text-base">₹{rate.toFixed(2)}</td>
