@@ -20,6 +20,7 @@ import Promotions from './pages/Promotions';
 import Reports from './pages/Reports';
 import DailyReports from './pages/DailyReports';
 import BalanceCarryforward from './pages/BalanceCarryforward';
+import NewJournalEntryVoucher from './pages/NewJournalEntryVoucher';
 import GstCenter from './pages/GstCenter';
 import EWayBilling from './pages/EWayBilling';
 import EWayLoginSetup from './pages/EWayLoginSetup';
@@ -79,7 +80,7 @@ const PERSISTABLE_SCREENS = new Set([
     'doctorsMaster',
     'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst', 'eway', 'ewayLoginSetup',
     'businessUsers', 'businessRoles', 'companyConfiguration', 'configuration', 'settings',
-    'classification', 'accountReceivable', 'accountPayable'
+    'classification', 'accountReceivable', 'accountPayable', 'newJournalEntryVoucher'
 ]);
 
 type PersistedScreenState = {
@@ -2363,6 +2364,8 @@ const App: React.FC = () => {
                     />;
                 case 'balanceCarryforward':
                     return <BalanceCarryforward />;
+                case 'newJournalEntryVoucher':
+                    return <NewJournalEntryVoucher currentUser={currentUser} addNotification={addNotification} />;
                 case 'gst':
                     return <GstCenter
                         transactions={transactions} purchases={purchases} customers={customers}

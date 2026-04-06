@@ -281,6 +281,7 @@ export const navigation: NavItem[] = [
     children: [
       { id: 'reports', name: 'Report', href: '#', icon: ReportsIcon, roles: ['owner', 'admin', 'manager'] },
       { id: 'balanceCarryforward', name: 'Balance Carryforward', href: '#', icon: ReportsIcon, roles: ['owner', 'admin', 'manager'] },
+      { id: 'newJournalEntryVoucher', name: 'New Journal Entry Voucher', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager'] },
     ],
   },
   { id: 'eway', name: 'E-Way Billing', href: '#', icon: GstIcon, roles: ['owner', 'admin', 'manager'] },
