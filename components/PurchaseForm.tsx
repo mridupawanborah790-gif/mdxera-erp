@@ -158,6 +158,12 @@ interface MobileSyncInvoicePayload {
     };
 }
 
+type PurchaseLookupCandidate = Partial<Purchase> & {
+    serial_id?: string;
+    supplier_bill_id?: string;
+    supplierBillId?: string;
+};
+
 
 const MOBILE_SYNC_DEVICE_ID_KEY = 'mdxera_mobile_sync_device_id';
 
@@ -364,6 +370,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [mobileSyncDeviceId] = useState<string>(() => getOrCreateMobileSyncDeviceId());
     const [supplierQuickCreatePrefill, setSupplierQuickCreatePrefill] = useState<Partial<Supplier> | undefined>(undefined);
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+    const [selectedHistoryPurchaseId, setSelectedHistoryPurchaseId] = useState<string | null>(null);
+    const [historyPreviewPurchase, setHistoryPreviewPurchase] = useState<Purchase | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const supplierNameInputRef = useRef<HTMLInputElement>(null);
@@ -489,6 +497,38 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
         return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 20);
     }, [purchases, currentsupplier]);
+
+    const getPurchaseLookupKeys = useCallback((purchase: PurchaseLookupCandidate): string[] => {
+        const keys = [
+            String(purchase.id || ''),
+            String(purchase.purchaseSerialId || ''),
+            String(purchase.invoiceNumber || ''),
+            String(purchase.serial_id || ''),
+            String(purchase.supplier_bill_id || ''),
+            String(purchase.supplierBillId || ''),
+        ];
+        return keys.map(key => key.trim()).filter(Boolean);
+    }, []);
+
+    const resolvePurchaseForPreview = useCallback((purchase: Purchase): Purchase | null => {
+        const scopedPurchases = purchases.filter(entry => entry.organization_id === organizationId);
+        const lookupKeys = new Set(getPurchaseLookupKeys(purchase));
+        return scopedPurchases.find(entry => {
+            const entryKeys = getPurchaseLookupKeys(entry);
+            return entryKeys.some(key => lookupKeys.has(key));
+        }) || null;
+    }, [getPurchaseLookupKeys, organizationId, purchases]);
+
+    const handleHistoryPurchasePreview = useCallback((purchase: Purchase) => {
+        if (isReadOnly) return;
+        setSelectedHistoryPurchaseId(purchase.id);
+        const matchedPurchase = resolvePurchaseForPreview(purchase);
+        if (!matchedPurchase) {
+            addNotification('Purchase record not found', 'warning');
+            return;
+        }
+        setHistoryPreviewPurchase(matchedPurchase);
+    }, [addNotification, isReadOnly, resolvePurchaseForPreview]);
 
     const canOpenJournalEntry = Boolean(purchaseToEdit?.id);
     const isPostedVoucher = (purchaseToEdit?.status || '') === 'completed';
@@ -2730,7 +2770,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 <div className="text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">{currentsupplier ? 'Supplier History' : 'Last 20 Purchases'}</div>
                 <div className="space-y-1.5">
                     {historyItems.map((pur) => (
-                        <div key={pur.id} className="p-2 bg-white border border-gray-200 hover:border-primary/50 hover:bg-emerald-50 transition-colors cursor-pointer text-[11px] shadow-sm">
+                        <div
+                            key={pur.id}
+                            onClick={() => handleHistoryPurchasePreview(pur)}
+                            className={`p-2 border transition-colors cursor-pointer text-[11px] shadow-sm ${selectedHistoryPurchaseId === pur.id ? 'bg-teal-600/10 border-teal-600' : 'bg-white border-gray-200 hover:border-primary/50 hover:bg-emerald-50'}`}
+                        >
                             <div className="flex justify-between items-start mb-0.5">
                                 <span className="font-black text-gray-800 uppercase truncate pr-2 flex-1" title={pur.supplier}>{pur.supplier}</span>
                                 <span className="shrink-0 font-black text-primary">₹{(pur.totalAmount || 0).toFixed(2)}</span>
@@ -2747,6 +2791,43 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 </div>
             </div>
         </div>
+
+        {historyPreviewPurchase && (
+            <Modal
+                isOpen={!!historyPreviewPurchase}
+                onClose={() => setHistoryPreviewPurchase(null)}
+                title={`View Purchase: ${historyPreviewPurchase.purchaseSerialId}`}
+            >
+                <div className="h-[90vh] overflow-hidden flex flex-col">
+                    <PurchaseForm
+                        onAddPurchase={() => Promise.resolve()}
+                        onUpdatePurchase={onUpdatePurchase}
+                        inventory={inventory}
+                        suppliers={suppliers}
+                        medicines={medicines}
+                        mappings={[]}
+                        purchases={purchases}
+                        purchaseToEdit={historyPreviewPurchase}
+                        draftItems={null}
+                        onClearDraft={() => {}}
+                        currentUser={currentUser}
+                        onAddMedicineMaster={onAddMedicineMaster}
+                        onAddsupplier={async () => ({} as any)}
+                        onSaveMapping={async (map) => onSaveMapping(map as SupplierProductMap)}
+                        setIsDirty={() => {}}
+                        addNotification={addNotification}
+                        title="View Purchase"
+                        configurations={configurations}
+                        isReadOnly={true}
+                        mobileSyncSessionId={null}
+                        setMobileSyncSessionId={() => {}}
+                        onCancel={() => setHistoryPreviewPurchase(null)}
+                        onPrint={onPrint}
+                        organizationId={organizationId}
+                    />
+                </div>
+            </Modal>
+        )}
     </div>
     );
 });
