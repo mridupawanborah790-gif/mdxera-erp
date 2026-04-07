@@ -458,6 +458,13 @@ const POS = forwardRef<any, POSProps>(({
                     const item = cartItems[targetIdx];
                     if (item) setSelectedRowId(item.id);
                     return;
+                } else if (e.key === 'Delete') {
+                    if (selectedRowId) {
+                        e.preventDefault();
+                        const idx = cartItems.findIndex(i => i.id === selectedRowId);
+                        handleDeleteRow(selectedRowId, idx);
+                    }
+                    return;
                 } else if (e.key === 'Enter') {
                     if (selectedRowId) {
                         e.preventDefault();
@@ -965,11 +972,14 @@ const POS = forwardRef<any, POSProps>(({
         if (isReadOnly) return;
 
         setCartItems(prev => {
-            if (prev.length <= 1) {
-                setSelectedRowId(null);
-                return [createBlankItem()];
-            }
             const newItems = prev.filter(item => item.id !== id);
+            if (newItems.length === 0) {
+                setSelectedRowId(null);
+                // If no items left, focus the search input
+                setTimeout(() => productSearchInputRef.current?.focus(), 10);
+                return [];
+            }
+            
             const nextFocusIdx = index < newItems.length ? index : newItems.length - 1;
             const itemToFocus = newItems[nextFocusIdx];
             if (itemToFocus) {
@@ -1247,7 +1257,14 @@ const POS = forwardRef<any, POSProps>(({
                                             }}
                                             className={`group h-10 cursor-pointer transition-colors ${selectedRowId === item.id ? 'bg-sky-100/90 outline outline-1 outline-sky-300' : 'hover:bg-gray-50'}`}
                                         >
-                                            <td className={`p-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{idx + 1}</td>
+                                            <td 
+                                                className={`p-2 border-r border-gray-200 text-center cursor-pointer hover:bg-red-600 hover:text-white transition-colors group/del ${selectedRowId === item.id ? 'text-white' : 'text-gray-400 group-hover:text-white'} ${uniformTextStyle}`}
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteRow(item.id, idx); }}
+                                                title="Click to delete this line item"
+                                            >
+                                                <span className="group-hover/del:hidden">{idx + 1}</span>
+                                                <span className="hidden group-hover/del:inline">✕</span>
+                                            </td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-2 border-r border-gray-200 text-primary uppercase w-72 truncate ${uniformTextStyle}`} title={item.name}>
                                                     <input

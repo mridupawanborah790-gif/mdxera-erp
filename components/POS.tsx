@@ -964,6 +964,13 @@ const POS = forwardRef<any, POSProps>(({
                     e.preventDefault();
                     setSelectedRowIndex(prev => Math.min(cartItems.length - 1, prev + 1));
                     return;
+                } else if (e.key === 'Delete') {
+                    e.preventDefault();
+                    const item = cartItems[selectedRowIndex];
+                    if (item) {
+                        handleDeleteRow(item.id, selectedRowIndex);
+                    }
+                    return;
                 } else if (e.key === 'Enter') {
                     const item = cartItems[selectedRowIndex];
                     if (item) {
@@ -1583,10 +1590,8 @@ const POS = forwardRef<any, POSProps>(({
         if (isReadOnly) return;
 
         setCartItems(prev => {
-            if (prev.length <= 1) {
-                return [createBlankItem()];
-            }
             const newItems = prev.filter(item => item.id !== id);
+            
             const nextFocusIdx = index < newItems.length ? index : newItems.length - 1;
             const itemToFocus = newItems[nextFocusIdx];
             if (itemToFocus) {
@@ -1595,6 +1600,9 @@ const POS = forwardRef<any, POSProps>(({
                     qtyInput?.focus();
                     if (qtyInput instanceof HTMLInputElement) qtyInput.select();
                 }, 10);
+            } else {
+                // If no items left, focus the search input
+                setTimeout(() => productSearchInputRef.current?.focus(), 10);
             }
             return newItems;
         });
@@ -1985,12 +1993,17 @@ const POS = forwardRef<any, POSProps>(({
                                                     setSelectedRowIndex(idx);
                                                 }
                                             }}
-                                            onFocusCapture={() => setSelectedRowIndex(idx)}
                                             title={rowIssue ? `Available: ${rowIssue.available} | Required: ${rowIssue.required}` : undefined}
                                             className={`group h-10 cursor-pointer transition-colors hover:bg-primary hover:text-white ${selectedRowIndex === idx ? 'bg-primary text-white shadow-md' : ''} ${rowIssue ? 'bg-red-100 border border-red-400' : ''}`}
-                                            className={`group h-10 cursor-pointer transition-colors hover:bg-primary hover:text-white ${selectedRowIndex === idx ? 'bg-primary text-white shadow-md' : ''}`}
                                         >
-                                            <td className={`p-2 border-r border-gray-200 text-center ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
+                                            <td 
+                                                className={`p-2 border-r border-gray-200 text-center cursor-pointer hover:bg-red-600 hover:text-white transition-colors group/del ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-gray-400'} ${uniformTextStyle}`}
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteRow(item.id, idx); }}
+                                                title="Click to delete this line item"
+                                            >
+                                                <span className="group-hover/del:hidden">{idx + 1}</span>
+                                                <span className="hidden group-hover/del:inline">✕</span>
+                                            </td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-2 border-r border-gray-200 uppercase w-72 truncate ${uniformTextStyle} ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-primary'}`} title={item.name}>
                                                     <input

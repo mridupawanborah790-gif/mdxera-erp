@@ -461,6 +461,12 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({
                                                 type="number" 
                                                 value={item.quantity} 
                                                 onChange={e => handleUpdateCartItem(item.id, 'quantity', e.target.value)} 
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Delete') {
+                                                        e.preventDefault();
+                                                        handleRemoveItem(item.id);
+                                                    }
+                                                }}
                                                 className="w-12 text-center border p-1 rounded font-bold disabled:bg-gray-100" 
                                                 disabled={isReadOnly}
                                             />
@@ -471,6 +477,12 @@ export const NewBillModal: React.FC<NewBillModalProps> = ({
                                                 type="number" 
                                                 value={item.discountPercent} 
                                                 onChange={e => handleUpdateCartItem(item.id, 'discountPercent', e.target.value)} 
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Delete') {
+                                                        e.preventDefault();
+                                                        handleRemoveItem(item.id);
+                                                    }
+                                                }}
                                                 className="w-12 text-right border p-1 rounded disabled:bg-gray-100" 
                                                 disabled={isReadOnly}
                                             />

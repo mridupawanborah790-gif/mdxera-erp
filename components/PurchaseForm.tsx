@@ -115,7 +115,7 @@ const createBlankItem = (): PurchaseItem => ({
     freeQuantity: 0,
     purchasePrice: 0,
     mrp: 0,
-    gstPercent: 5,
+    gstPercent: 0,
     hsnCode: '',
     discountPercent: 0,
     schemeDiscountPercent: 0,
@@ -1144,6 +1144,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 e.preventDefault();
                 const prevRow = items[rowIndex - 1];
                 if (prevRow) setActiveRowId(prevRow.id);
+            } else if (e.key === 'Delete') {
+                e.preventDefault();
+                handleDeleteRow(activeRowId, rowIndex);
             } else if (e.key === 'Enter') {
                 e.preventDefault();
                 const nameInput = document.getElementById(`name-${activeRowId}`);
@@ -1158,7 +1161,36 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         return () => window.removeEventListener('keydown', handleGlobalKeyDown);
     }, [handleGlobalKeyDown]);
 
+    const handleDeleteRow = useCallback((id: string, index: number) => {
+        if (isReadOnly) return;
+
+        setItems(prev => {
+            const newItems = prev.filter(item => item.id !== id);
+            if (newItems.length === 0) return [createBlankItem()];
+            
+            const nextFocusIdx = index < newItems.length ? index : newItems.length - 1;
+            const itemToFocus = newItems[nextFocusIdx];
+            if (itemToFocus) {
+                setTimeout(() => {
+                    const qtyInput = document.getElementById(`qty-${itemToFocus.id}`) || document.getElementById(`name-${itemToFocus.id}`);
+                    qtyInput?.focus();
+                    if (qtyInput instanceof HTMLInputElement) qtyInput.select();
+                }, 10);
+            }
+            return newItems;
+        });
+    }, [isReadOnly]);
+
     const handleGridKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowId: string, field: string) => {
+        if (isReadOnly) return;
+
+        if (e.key === 'Delete') {
+            e.preventDefault();
+            const index = items.findIndex(item => item.id === rowId);
+            handleDeleteRow(rowId, index);
+            return;
+        }
+
         const fields = [
             'name',
             'mfr',
@@ -1402,8 +1434,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (field === 'quantity' || field === 'purchasePrice') {
                 updatedItem.lineBaseAmount = calculatePurchaseLineBaseAmount(updatedItem, purchaseLineAmountMode);
             }
+            const wasEmpty = !prev[index].name && !prev[index].inventoryItemId;
             const updated = prev.map(p => p.id === id ? updatedItem : p);
-            if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
+            if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1 && wasEmpty) return [...updated, createBlankItem()];
             return updated;
         });
     };
@@ -2143,7 +2176,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             style={isActive ? { backgroundColor: '#004242', color: 'white' } : {}}
                                             className={`group h-10 cursor-pointer transition-colors ${isActive ? 'shadow-md' : 'hover:bg-primary hover:text-white'}`}
                                         >
-                                            <td className={`p-1 border-r border-gray-200 text-center ${isActive ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
+                                            <td 
+                                                className={`p-1 border-r border-gray-200 text-center cursor-pointer hover:bg-red-600 hover:text-white transition-colors group/del ${isActive ? 'text-white' : 'text-gray-400'} ${uniformTextStyle}`}
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteRow(p.id, idx); }}
+                                                title="Click to delete this line item"
+                                            >
+                                                <span className="group-hover/del:hidden">{idx + 1}</span>
+                                                <span className="hidden group-hover/del:inline">✕</span>
+                                            </td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-1 border-r border-gray-200 uppercase relative min-w-[200px] ${uniformTextStyle} ${isActive ? 'text-white' : 'text-primary'}`}>
                                                     <input
