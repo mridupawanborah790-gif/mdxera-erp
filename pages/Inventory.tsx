@@ -86,7 +86,7 @@ const Inventory: React.FC<InventoryProps> = ({
         const itemCode = (item.code || '').trim().toLowerCase();
         const linkedMedicine = itemCode ? medicineByCode.get(itemCode) : undefined;
         const masterPack = linkedMedicine?.pack || '';
-        const effectivePackType = masterPack.trim() || (item.packType || '').trim();
+        const effectivePackType = (item.packType || '').trim() || masterPack.trim();
         const effectiveUnitsPerPack = resolveUnitsPerStrip(
             extractPackMultiplier(effectivePackType) ?? item.unitsPerPack,
             effectivePackType,
@@ -94,12 +94,12 @@ const Inventory: React.FC<InventoryProps> = ({
         return {
             effectivePackType,
             effectiveUnitsPerPack,
-            effectiveGst: Number(linkedMedicine?.gstRate ?? item.gstPercent ?? 0),
-            effectiveHsnCode: linkedMedicine?.hsnCode || item.hsnCode || '',
-            effectiveMrp: Number(linkedMedicine?.mrp ?? item.mrp ?? 0),
-            effectiveRateA: Number(linkedMedicine?.rateA ?? item.rateA ?? 0),
-            effectiveRateB: Number(linkedMedicine?.rateB ?? item.rateB ?? 0),
-            effectiveRateC: Number(linkedMedicine?.rateC ?? item.rateC ?? 0),
+            effectiveGst: Number(item.gstPercent ?? linkedMedicine?.gstRate ?? 0),
+            effectiveHsnCode: item.hsnCode || linkedMedicine?.hsnCode || '',
+            effectiveMrp: Number(item.mrp ?? linkedMedicine?.mrp ?? 0),
+            effectiveRateA: Number(item.rateA ?? linkedMedicine?.rateA ?? 0),
+            effectiveRateB: Number(item.rateB ?? linkedMedicine?.rateB ?? 0),
+            effectiveRateC: Number(item.rateC ?? linkedMedicine?.rateC ?? 0),
             isManagedByMaster: Boolean(linkedMedicine),
         };
     }, [medicineByCode]);

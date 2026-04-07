@@ -337,6 +337,14 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
                             <label className="block text-xs font-medium text-app-text-secondary">Sales Rate (Rate A)</label>
                             <input type="number" name="rateA" value={product.rateA} onChange={handleChange} className="mt-1 block w-full border border-gray-400 p-2 bg-input-bg text-app-text-primary focus:bg-yellow-50 outline-none font-bold" />
                         </div>
+                        <div>
+                            <label className="block text-xs font-medium text-app-text-secondary">Rate B</label>
+                            <input type="number" name="rateB" value={product.rateB} onChange={handleChange} className="mt-1 block w-full border border-gray-400 p-2 bg-input-bg text-app-text-primary focus:bg-yellow-50 outline-none font-bold" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-app-text-secondary">Rate C</label>
+                            <input type="number" name="rateC" value={product.rateC} onChange={handleChange} className="mt-1 block w-full border border-gray-400 p-2 bg-input-bg text-app-text-primary focus:bg-yellow-50 outline-none font-bold" />
+                        </div>
                     </div>
 
                     <div className="bg-slate-50 p-4 border border-gray-200">

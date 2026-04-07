@@ -226,7 +226,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                             <MedicineSortableHeader label="Item Description" sortKey="name" sortConfig={medSortConfig} requestSort={(k) => setMedSortConfig({key: k, direction: medSortConfig.direction === 'ascending' ? 'descending' : 'ascending'})} />
                                             <th className="py-1.5 px-2 border-r border-gray-400 text-left w-20">Material Code</th>
                                             <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">Pack</th>
-                                            <th className="py-1.5 px-2 border-r border-gray-400 text-right w-16">MRP</th>
                                             <th className="py-1.5 px-2 border-r border-gray-400 text-center w-12">GST%</th>
                                             <th className="py-1.5 px-2 border-r border-gray-400 text-center w-8">Rx</th>
                                             <th className="py-1.5 px-2 text-right w-16">Action</th>
@@ -249,7 +248,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                                     {med.materialCode}
                                                 </td>
                                                 <td className={`py-1.5 px-2 border-r border-gray-200 text-center group-hover:text-white ${uniformTextStyle}`}>{med.pack || '—'}</td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-right group-hover:text-white text-primary ${uniformTextStyle}`}>₹{parseFloat(med.mrp || '0').toFixed(2)}</td>
                                                 <td className={`py-1.5 px-2 border-r border-gray-200 text-center group-hover:text-white text-gray-600 ${uniformTextStyle}`}>{med.gstRate}%</td>
                                                 <td className="py-1.5 px-2 border-r border-gray-400 text-center group-hover:text-white">
                                                     {med.isPrescriptionRequired && <span className="text-red-600 font-black text-[10px] px-1.5 py-0.5 bg-red-50 border border-red-100 rounded group-hover:bg-red-600 group-hover:text-white group-hover:border-red-700">H</span>}
