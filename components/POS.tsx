@@ -77,6 +77,16 @@ interface PendingSchemeApplication {
     schemeDisplayPercent?: number;
 }
 
+interface StockValidationIssue {
+    rowId: string;
+    rowIndex: number;
+    itemName: string;
+    batch: string;
+    available: number;
+    required: number;
+    reason: 'insufficient' | 'batch_missing' | 'no_stock';
+}
+
 const uniformTextStyle = "text-sm font-bold tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-base font-bold tracking-tight uppercase leading-tight";
 
@@ -411,8 +421,11 @@ const POS = forwardRef<any, POSProps>(({
     const [activeSchemeCalcRowId, setActiveSchemeCalcRowId] = useState<string | null>(null);
     const [selectedRowIndex, setSelectedRowIndex] = useState(0);
     const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+    const [stockValidationIssues, setStockValidationIssues] = useState<StockValidationIssue[]>([]);
+    const [isStockIssueModalOpen, setIsStockIssueModalOpen] = useState(false);
 
     const activeRowIdRef = useRef<string | null>(null);
+    const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
     useEffect(() => {
         setSelectedSearchIndex(0);
@@ -493,6 +506,8 @@ const POS = forwardRef<any, POSProps>(({
     useEffect(() => {
         if (cartItems.length === 0) {
             setSelectedRowIndex(0);
+            setStockValidationIssues([]);
+            setIsStockIssueModalOpen(false);
             return;
         }
 
@@ -570,6 +585,13 @@ const POS = forwardRef<any, POSProps>(({
             finalLineTotal
         };
     }, [activeBillItem, activeLineTotals, billingSettings.schemeBase]);
+
+    const stockIssueMap = useMemo(() => {
+        return stockValidationIssues.reduce<Record<string, StockValidationIssue>>((acc, issue) => {
+            acc[issue.rowId] = issue;
+            return acc;
+        }, {});
+    }, [stockValidationIssues]);
 
 
     const customerSnapshot = useMemo(() => {
@@ -728,16 +750,79 @@ const POS = forwardRef<any, POSProps>(({
         }
 
         if (shouldPreventNegativeStock) {
-            for (const item of cartItems) {
-                const invItem = inventory.find(i => i.id === item.inventoryItemId);
-                if (invItem) {
-                    const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
-                    const requiredUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-                    if (invItem.stock <= 0 || invItem.stock < requiredUnits) {
-                        addNotification('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.', "error");
-                        return;
-                    }
+            const stockIssues: StockValidationIssue[] = cartItems.reduce((issues, item, idx) => {
+                const batchCode = (item.batch || '').trim();
+                if (!batchCode) {
+                    issues.push({
+                        rowId: item.id,
+                        rowIndex: idx,
+                        itemName: item.name || 'Unknown Item',
+                        batch: 'Not selected',
+                        available: 0,
+                        required: Number(item.quantity || 0) + Number(item.looseQuantity || 0),
+                        reason: 'batch_missing'
+                    });
+                    return issues;
                 }
+
+                const invItem = inventory.find(i => i.id === item.inventoryItemId);
+                if (!invItem) return issues;
+
+                const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
+                const requiredUnits = (Number(item.quantity || 0) * unitsPerPack) + Number(item.looseQuantity || 0);
+                const availableUnits = Number(invItem.stock || 0);
+
+                if (availableUnits <= 0) {
+                    issues.push({
+                        rowId: item.id,
+                        rowIndex: idx,
+                        itemName: item.name || invItem.name || 'Unknown Item',
+                        batch: batchCode,
+                        available: availableUnits,
+                        required: requiredUnits,
+                        reason: 'no_stock'
+                    });
+                    return issues;
+                }
+
+                if (requiredUnits > availableUnits) {
+                    issues.push({
+                        rowId: item.id,
+                        rowIndex: idx,
+                        itemName: item.name || invItem.name || 'Unknown Item',
+                        batch: batchCode,
+                        available: availableUnits,
+                        required: requiredUnits,
+                        reason: 'insufficient'
+                    });
+                }
+
+                return issues;
+            }, [] as StockValidationIssue[]);
+
+            if (stockIssues.length > 0) {
+                setStockValidationIssues(stockIssues);
+                setIsStockIssueModalOpen(true);
+
+                const firstIssue = stockIssues[0];
+                setSelectedRowIndex(firstIssue.rowIndex);
+                setTimeout(() => {
+                    rowRefs.current[firstIssue.rowId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 0);
+
+                if (stockIssues.length === 1) {
+                    const issue = stockIssues[0];
+                    if (issue.reason === 'batch_missing') {
+                        addNotification(`Please select batch for item: ${issue.itemName}`, 'error');
+                    } else if (issue.reason === 'no_stock') {
+                        addNotification(`No stock available for: ${issue.itemName} (Batch: ${issue.batch})`, 'error');
+                    } else {
+                        addNotification(`Insufficient stock for ${issue.itemName} (Batch: ${issue.batch}).`, 'error');
+                    }
+                } else {
+                    addNotification(`Stock issue in ${stockIssues.length} items. Click to view details.`, 'error');
+                }
+                return;
             }
         }
 
@@ -1296,7 +1381,7 @@ const POS = forwardRef<any, POSProps>(({
         }
 
         if (shouldPreventNegativeStock && Number(batch.stock || 0) <= 0) {
-            addNotification('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.', 'error');
+            addNotification(`No stock available for: ${batch.name} (Batch: ${batch.batch || 'N/A'})`, 'error');
             return;
         }
 
@@ -1881,10 +1966,12 @@ const POS = forwardRef<any, POSProps>(({
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
                                     const lineAmount = calculateLineNetAmount(item, configurations, currentUser?.organization_type, localPricingMode);
+                                    const rowIssue = stockIssueMap[item.id];
 
                                     return (
                                         <tr 
                                             key={item.id} 
+                                            ref={(node) => { rowRefs.current[item.id] = node; }}
                                             onMouseEnter={() => setHoveredRowId(item.id)}
                                             onMouseLeave={() => setHoveredRowId(null)}
                                             onClick={() => {
@@ -1898,6 +1985,9 @@ const POS = forwardRef<any, POSProps>(({
                                                     setSelectedRowIndex(idx);
                                                 }
                                             }}
+                                            onFocusCapture={() => setSelectedRowIndex(idx)}
+                                            title={rowIssue ? `Available: ${rowIssue.available} | Required: ${rowIssue.required}` : undefined}
+                                            className={`group h-10 cursor-pointer transition-colors hover:bg-primary hover:text-white ${selectedRowIndex === idx ? 'bg-primary text-white shadow-md' : ''} ${rowIssue ? 'bg-red-100 border border-red-400' : ''}`}
                                             className={`group h-10 cursor-pointer transition-colors hover:bg-primary hover:text-white ${selectedRowIndex === idx ? 'bg-primary text-white shadow-md' : ''}`}
                                         >
                                             <td className={`p-2 border-r border-gray-200 text-center ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
@@ -2385,6 +2475,40 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </div>
             </div>
+
+            <Modal
+                isOpen={isStockIssueModalOpen}
+                onClose={() => setIsStockIssueModalOpen(false)}
+                title="Stock Validation Errors"
+                widthClass="max-w-3xl"
+                heightClass="h-auto max-h-[80vh]"
+            >
+                <div className="space-y-3">
+                    {stockValidationIssues.length > 0 && (
+                        <>
+                            <p className="text-sm font-bold text-red-700">
+                                {stockValidationIssues.length === 1 ? 'Insufficient stock for:' : 'Insufficient stock for the following items:'}
+                            </p>
+                            <div className="max-h-72 overflow-auto border border-red-200 rounded p-3 bg-red-50">
+                                <ul className="space-y-2 text-xs">
+                                    {stockValidationIssues.map((issue, index) => (
+                                        <li key={`${issue.rowId}-${index}`} className="font-semibold text-red-800">
+                                            {issue.reason === 'batch_missing'
+                                                ? `${index + 1}. Please select batch for item: ${issue.itemName}`
+                                                : issue.reason === 'no_stock'
+                                                    ? `${index + 1}. No stock available for: Item: ${issue.itemName} | Batch: ${issue.batch}`
+                                                    : `${index + 1}. Item: ${issue.itemName} | Batch: ${issue.batch} | Available: ${issue.available} | Required: ${issue.required}`}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            <p className="text-xs text-gray-600">
+                                Tip: Update batch or reduce quantity. Your entered data is preserved.
+                            </p>
+                        </>
+                    )}
+                </div>
+            </Modal>
 
             <Modal
                 isOpen={isSearchModalOpen}

@@ -1,4 +1,4 @@
-import type { AppConfigurations, BillItem, LineAmountCalculationMode } from '../types';
+import type { AppConfigurations, BillItem, LineAmountCalculationMode, Transaction } from '../types';
 
 export type SchemeDiscountCalculationBase = 'subtotal' | 'after_trade_discount' | 'ask_user';
 export type TaxCalculationBaseOption = 'subtotal' | 'after_trade_discount' | 'after_all_discounts';
@@ -28,6 +28,17 @@ export interface BillingTotals {
   baseTotal: number;
   autoRoundOff: number;
   pricingMode: 'mrp' | 'rate';
+}
+
+export interface FinalizedBillTotals {
+  subtotal: number;
+  taxAmount: number;
+  tradeDiscount: number;
+  billDiscount: number;
+  roundOff: number;
+  adjustment: number;
+  grandTotal: number;
+  balanceAmount: number;
 }
 
 const resolveSchemeBaseForItem = (item: BillItem, schemeBase: SchemeDiscountCalculationBase): 'subtotal' | 'after_trade_discount' => {
@@ -206,4 +217,27 @@ export const calculateLineNetAmount = (item: BillItem, configurations?: AppConfi
   const schemeBaseAmount = effectiveSchemeBase === 'subtotal' ? gross : afterTrade;
   const scheme = Math.min(afterTrade, getSchemeDiscountAmount(item, schemeBaseAmount));
   return Math.max(0, afterTrade - scheme);
+};
+
+export const getFinalizedBillTotals = (
+  bill: Pick<Transaction, 'subtotal' | 'totalGst' | 'totalItemDiscount' | 'schemeDiscount' | 'roundOff' | 'adjustment' | 'total' | 'amountReceived'>,
+): FinalizedBillTotals => {
+  const subtotal = Number(bill.subtotal ?? 0);
+  const taxAmount = Number(bill.totalGst ?? 0);
+  const tradeDiscount = Number(bill.totalItemDiscount ?? 0);
+  const billDiscount = Number(bill.schemeDiscount ?? 0);
+  const roundOff = Number(bill.roundOff ?? 0);
+  const adjustment = Number(bill.adjustment ?? 0);
+  const grandTotal = Number(bill.total ?? 0);
+  const amountReceived = Number(bill.amountReceived ?? 0);
+  return {
+    subtotal,
+    taxAmount,
+    tradeDiscount,
+    billDiscount,
+    roundOff,
+    adjustment,
+    grandTotal,
+    balanceAmount: Number((grandTotal - amountReceived).toFixed(2)),
+  };
 };
