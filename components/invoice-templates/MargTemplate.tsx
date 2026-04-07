@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
-import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { calculateBillingTotals, getDisplaySchemePercent, getFinalizedBillTotals, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
@@ -103,16 +103,17 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    const tradeDiscount = computedBillTotals.tradeDiscount || bill.totalItemDiscount || 0;
-    const billDiscount = showBillDiscount ? (computedBillTotals.billDiscount || 0) : 0;
+    const savedTotals = getFinalizedBillTotals(bill);
+    const tradeDiscount = savedTotals.tradeDiscount;
+    const billDiscount = showBillDiscount ? savedTotals.billDiscount : 0;
     const taxableValue = computedBillTotals.taxableValue;
-    const totalGst = isNonGst ? 0 : computedBillTotals.tax;
-    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
-    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
-    const grandTotal = computedBillTotals.baseTotal;
+    const totalGst = isNonGst ? 0 : savedTotals.taxAmount;
+    const roundOff = savedTotals.roundOff;
+    const adjustment = savedTotals.adjustment;
+    const grandTotal = savedTotals.grandTotal;
 
     const schemeDiscount = computedBillTotals.schemeTotal || 0;
-    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, adjustment, taxableValue, totalGst, roundOff, grandTotal };
+    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, adjustment, taxableValue, totalGst, roundOff, grandTotal, balanceAmount: savedTotals.balanceAmount };
   }, [bill, isNonGst, computedBillTotals, showBillDiscount]);
 
   return (
@@ -354,7 +355,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                       <div className="mt-2 flex justify-between items-end">
                           <div>
                               <span className="text-base font-black text-gray-900 mr-2">BAL:</span>
-                              <span className="text-base font-black text-red-600">₹{(calculations.grandTotal - (bill.amountReceived || 0)).toFixed(2)}</span>
+                              <span className="text-base font-black text-red-600">₹{calculations.balanceAmount.toFixed(2)}</span>
                           </div>
                           <div className="text-center pr-1">
                               <p className="text-[6pt] font-black mb-4 uppercase tracking-wider">FOR {bill.pharmacy.pharmacy_name}</p>
