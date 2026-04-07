@@ -20,15 +20,16 @@ import { deleteData } from './services/storageService';
 import { supabase } from './services/supabaseClient';
 import { normalizeStockHandlingConfig } from './utils/stockHandling';
 
-const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: boolean) => void; description?: string }> = ({ label, enabled, setEnabled, description }) => (
-    <div className="py-3 border-b border-gray-100 last:border-0 flex items-center justify-between group">
+const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: boolean) => void; description?: string; disabled?: boolean }> = ({ label, enabled, setEnabled, description, disabled }) => (
+    <div className={`py-3 border-b border-gray-100 last:border-0 flex items-center justify-between group ${disabled ? 'opacity-60' : ''}`}>
         <div className="flex flex-col">
              <span className="text-sm font-black text-gray-700 uppercase tracking-tight group-hover:text-primary transition-colors">{label}</span>
              {description && <p className="text-[10px] text-gray-400 mt-0.5 leading-none font-bold uppercase">{description}</p>}
         </div>
         <button 
             type="button" 
-            onClick={() => setEnabled(!enabled)} 
+            onClick={() => !disabled && setEnabled(!enabled)}
+            disabled={disabled}
             className={`${enabled ? 'bg-primary shadow-[0_0_10px_rgba(0,66,66,0.2)]' : 'bg-gray-300 dark:bg-gray-600'} relative inline-flex items-center h-6 rounded-none w-12 transition-all focus:outline-none ring-2 ring-transparent focus:ring-primary/20`}
         >
             <span className={`${enabled ? 'translate-x-6' : 'translate-x-1'} inline-block w-4 h-4 transform bg-white transition-transform shadow-sm`}/>
@@ -251,6 +252,9 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                 const isEnableNegativeStock = field === 'enableNegativeStock';
                 if (isStrictStock) updatedSectionData.enableNegativeStock = !value;
                 if (isEnableNegativeStock) updatedSectionData.strictStock = !value;
+                if (field === 'allowAlternateBatchSuggestion' && value === false) {
+                    updatedSectionData.allowQuantitySplitAcrossBatches = false;
+                }
             }
             
             return { ...prev, [section]: updatedSectionData, _isDirty: true };
@@ -500,6 +504,72 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                             setEnabled={(v) => handleConfigChange('displayOptions', 'enableNegativeStock', v)}
                                             description="Allow inventory to drop below zero if needed."
                                         />
+                                        <div className="pt-3">
+                                            <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-2">Advanced Stock Validation Settings</h3>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+                                                <Toggle
+                                                    label="Allow Alternate Batch Suggestion"
+                                                    enabled={localConfigs.displayOptions?.allowAlternateBatchSuggestion ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'allowAlternateBatchSuggestion', v)}
+                                                    description="When selected batch has insufficient stock, suggest other available batches."
+                                                />
+                                                <Toggle
+                                                    label="Allow Quantity Split Across Batches"
+                                                    enabled={localConfigs.displayOptions?.allowQuantitySplitAcrossBatches ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'allowQuantitySplitAcrossBatches', v)}
+                                                    disabled={(localConfigs.displayOptions?.allowAlternateBatchSuggestion ?? true) === false}
+                                                    description="Allow required quantity to be split across multiple batches when needed."
+                                                />
+                                                <Toggle
+                                                    label="Show Detailed Stock Error Message"
+                                                    enabled={localConfigs.displayOptions?.showDetailedStockErrorMessage ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'showDetailedStockErrorMessage', v)}
+                                                    description="Display item, batch, available stock, required quantity, and shortfall."
+                                                />
+                                                <Toggle
+                                                    label="Highlight Error Rows"
+                                                    enabled={localConfigs.displayOptions?.highlightErrorRows ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'highlightErrorRows', v)}
+                                                    description="Highlight invalid line items in the entry grid on stock/validation error."
+                                                />
+                                                <Toggle
+                                                    label="Auto Scroll to First Error Row"
+                                                    enabled={localConfigs.displayOptions?.autoScrollToFirstErrorRow ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'autoScrollToFirstErrorRow', v)}
+                                                    description="Move screen focus to the first line item having validation error."
+                                                />
+                                                <Toggle
+                                                    label="Show Validation Popup"
+                                                    enabled={localConfigs.displayOptions?.showValidationPopup ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'showValidationPopup', v)}
+                                                    description="Show detailed popup with all invalid items and stock issues during save validation."
+                                                />
+                                                <Toggle
+                                                    label="Enforce Original Batch in Sales Return"
+                                                    enabled={localConfigs.displayOptions?.enforceOriginalBatchInSalesReturn ?? false}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'enforceOriginalBatchInSalesReturn', v)}
+                                                    description="Sales return must match the same batch used in the original sales invoice."
+                                                />
+                                                <Toggle
+                                                    label="Require Batch in Purchase Entry"
+                                                    enabled={localConfigs.displayOptions?.requireBatchInPurchaseEntry ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'requireBatchInPurchaseEntry', v)}
+                                                    description="Do not allow purchase save if batch is missing for batch-wise materials."
+                                                />
+                                                <Toggle
+                                                    label="Require Expiry in Purchase Entry"
+                                                    enabled={localConfigs.displayOptions?.requireExpiryInPurchaseEntry ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'requireExpiryInPurchaseEntry', v)}
+                                                    description="Do not allow purchase save if expiry is missing for expiry-tracked materials."
+                                                />
+                                                <Toggle
+                                                    label="Merge Duplicate Item-Batch in Stock Audit"
+                                                    enabled={localConfigs.displayOptions?.mergeDuplicateItemBatchInStockAudit ?? true}
+                                                    setEnabled={(v) => handleConfigChange('displayOptions', 'mergeDuplicateItemBatchInStockAudit', v)}
+                                                    description="Merge duplicate stock audit rows with same item and batch into one line."
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <div className="space-y-4">

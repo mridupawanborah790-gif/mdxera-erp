@@ -203,6 +203,16 @@ export interface AppConfigurations {
         purchaseLineAmountCalculationMode?: LineAmountCalculationMode;
         posLineAmountCalculationMode?: LineAmountCalculationMode;
         pricingMode?: 'mrp' | 'rate';
+        allowAlternateBatchSuggestion?: boolean;
+        allowQuantitySplitAcrossBatches?: boolean;
+        showDetailedStockErrorMessage?: boolean;
+        highlightErrorRows?: boolean;
+        autoScrollToFirstErrorRow?: boolean;
+        showValidationPopup?: boolean;
+        enforceOriginalBatchInSalesReturn?: boolean;
+        requireBatchInPurchaseEntry?: boolean;
+        requireExpiryInPurchaseEntry?: boolean;
+        mergeDuplicateItemBatchInStockAudit?: boolean;
         pharmacy_logo_url?: string;
         dashboard_logo_url?: string;
     };
