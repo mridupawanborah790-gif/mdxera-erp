@@ -1625,17 +1625,12 @@ const POS = forwardRef<any, POSProps>(({
         if (e.key === 'Delete') {
             e.preventDefault();
             handleDeleteRow(id, index);
-        } else if (e.key === 'Backspace') {
-            const target = e.target as HTMLInputElement;
-            if (target.value === '') {
-                e.preventDefault();
-                handleDeleteRow(id, index);
-            }
         }
+        // Removed Backspace row deletion logic as per request
     };
 
     const handleRowKeyNavigation = useCallback((e: React.KeyboardEvent, id: string) => {
-        const fieldPrefixes = ['name', 'batch', 'expiry', 'mrp', 'qty-p', 'qty-l', 'free', 'rate', 'disc', 'gst', 'scheme'];
+        const fieldPrefixes = ['name', 'batch', 'expiry', 'mrp', 'rate', 'qty-p', 'qty-l', 'free', 'disc', 'gst', 'scheme'];
         const target = e.target as HTMLElement;
         const activeElement = target.closest('input, button') as HTMLElement | null;
         const currentId = activeElement?.id || target.id || '';
@@ -1647,10 +1642,10 @@ const POS = forwardRef<any, POSProps>(({
                 `batch-${rowId}`,
                 `expiry-${rowId}`,
                 `mrp-${rowId}`,
+                `rate-${rowId}`,
                 `qty-p-${rowId}`,
                 `qty-l-${rowId}`,
                 `free-${rowId}`,
-                `rate-${rowId}`,
                 `disc-${rowId}`,
                 `gst-${rowId}`,
                 `scheme-${rowId}`
@@ -1980,12 +1975,20 @@ const POS = forwardRef<any, POSProps>(({
                                             onMouseEnter={() => setHoveredRowId(item.id)}
                                             onMouseLeave={() => setHoveredRowId(null)}
                                             onClick={() => {
-                                                setSelectedRowIndex(idx);
-                                                focusFirstEditableFieldInRow(item.id);
+                                                if (selectedRowIndex !== idx) {
+                                                    setSelectedRowIndex(idx);
+                                                }
+                                                // Removed focusFirstEditableFieldInRow to allow direct cell click
+                                            }}
+                                            onFocusCapture={() => {
+                                                if (selectedRowIndex !== idx) {
+                                                    setSelectedRowIndex(idx);
+                                                }
                                             }}
                                             onFocusCapture={() => setSelectedRowIndex(idx)}
                                             title={rowIssue ? `Available: ${rowIssue.available} | Required: ${rowIssue.required}` : undefined}
                                             className={`group h-10 cursor-pointer transition-colors hover:bg-primary hover:text-white ${selectedRowIndex === idx ? 'bg-primary text-white shadow-md' : ''} ${rowIssue ? 'bg-red-100 border border-red-400' : ''}`}
+                                            className={`group h-10 cursor-pointer transition-colors hover:bg-primary hover:text-white ${selectedRowIndex === idx ? 'bg-primary text-white shadow-md' : ''}`}
                                         >
                                             <td className={`p-2 border-r border-gray-200 text-center ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-gray-400'} ${uniformTextStyle}`}>{idx + 1}</td>
                                             {isFieldVisible('colName') && (

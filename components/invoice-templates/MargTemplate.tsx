@@ -77,7 +77,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         billedQty,
         billedRate: rate,
         displayAmount: lineAmount,
-        displayQty: `${formatPackLooseQuantity(item.quantity, item.looseQuantity)}${(item.freeQuantity || 0) > 0 ? `+${item.freeQuantity}` : ''}`,
+        displayQty: formatPackLooseQuantity((item.quantity || 0) + (item.freeQuantity || 0), item.looseQuantity),
         taxableVal,
         gstAmt,
         lineTotal: lineAmount,

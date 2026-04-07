@@ -98,10 +98,7 @@ const ChallanDetailModal: React.FC<ChallanDetailModalProps> = ({ isOpen, onClose
                                           <span className="text-[10px] text-gray-400 font-black uppercase">{item.expiry || '—'}</span>
                                       </td>
                                       <td className="p-2 text-center font-black text-gray-950">
-                                          <span className="text-base">{item.quantity}</span>
-                                          {Number(item.freeQuantity || 0) > 0 && (
-                                              <span className="block text-[10px] font-black text-emerald-600 uppercase tracking-tighter">+{item.freeQuantity} Free</span>
-                                          )}
+                                          <span className="text-base">{(item.quantity || 0) + (item.freeQuantity || 0)}</span>
                                       </td>
                                       <td className="p-2 text-right font-bold text-gray-600">₹{Number(item.purchasePrice || 0).toFixed(2)}</td>
                                       <td className="p-6 text-right font-black text-lg text-gray-950">

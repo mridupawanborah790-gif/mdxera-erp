@@ -214,7 +214,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="p-1 border-r border-black">{item.batch}</td>
                             <td className="p-1 border-r border-black text-center">{item.expiry}</td>
                             <td className="p-1 border-r border-black text-center font-bold">
-                                {formatPackLooseQuantity(item.quantity, item.looseQuantity)} {item.freeQuantity ? `+${item.freeQuantity}` : ''}
+                                {formatPackLooseQuantity((item.quantity || 0) + (item.freeQuantity || 0), item.looseQuantity)}
                             </td>
                             {showRateColumn && <td className="p-1 border-r border-black text-right">{(item.billedRate || 0).toFixed(2)}</td>}
                             {showTradeDiscountColumn && <td className="p-1 border-r border-black text-right">{item.discountPercent || 0}</td>}

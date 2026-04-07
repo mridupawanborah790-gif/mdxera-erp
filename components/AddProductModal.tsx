@@ -305,11 +305,11 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
                             {errors.expiry && <p className="text-red-500 text-xs mt-1">{errors.expiry}</p>}
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-app-text-secondary">Stock (Packs)</label>
+                            <label className="block text-xs font-medium text-app-text-secondary">Pack qty</label>
                             <input type="number" name="stockPacksInput" value={stockPacks} onChange={handleChange} className="mt-1 block w-full border border-gray-400 p-2 bg-input-bg text-app-text-primary focus:bg-yellow-50 outline-none font-bold no-spinner" />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-app-text-secondary">Loose Units</label>
+                            <label className="block text-xs font-medium text-app-text-secondary">Loose qty</label>
                             <input type="number" name="stockLooseInput" value={stockLoose} onChange={handleChange} className="mt-1 block w-full border border-gray-400 p-2 bg-input-bg text-app-text-primary focus:bg-yellow-50 outline-none font-bold no-spinner" />
                         </div>
                         <div>

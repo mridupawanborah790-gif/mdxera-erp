@@ -357,15 +357,15 @@ const Reports: React.FC<ReportsProps> = ({
       case 'stockSummary':
       case 'batchWiseStock':
       case 'expiryWiseStock':
-        reportHeaders = reportId === 'stockSummary' ? ['Item Name', 'Batch', 'Pack', 'Stock (Strips / Loose / Total)', 'MRP', 'PTR / Cost', 'Value', 'Expiry'] : reportId === 'batchWiseStock' ? ['Item', 'Batch', 'Expiry', 'Quantity', 'Value'] : ['Item', 'Batch', 'Expiry', 'Qty', 'Value'];
+        reportHeaders = reportId === 'stockSummary' ? ['Item Name', 'Batch', 'Pack', 'Stock (Pack / Loose / Total)', 'MRP', 'PTR / Cost', 'Value', 'Expiry'] : reportId === 'batchWiseStock' ? ['Item', 'Batch', 'Expiry', 'Quantity', 'Value'] : ['Item', 'Batch', 'Expiry', 'Qty', 'Value'];
         rows = inventory.map(item => {
-          const breakup = getStockBreakup(item.stock, item.unitsPerPack, item.packType);
+          const breakup = getStockBreakup(item.stock, item.unitsPerPack);
           return {
             'Item Name': item.name,
             'Item': item.name,
             'Batch': item.batch,
-            'Pack': item.packType || item.packUnit || 'N/A',
-            'Stock (Strips / Loose / Total)': `${breakup.pack} / ${breakup.loose} / ${breakup.totalUnits}`,
+            'Pack': item.packType || 'N/A',
+            'Stock (Pack / Loose / Total)': `${breakup.pack} / ${breakup.loose} / ${breakup.totalUnits}`,
             'MRP': round2(item.mrp || 0),
             'PTR / Cost': round2(item.ptr || item.purchasePrice || 0),
             'Value': round2(breakup.totalUnits * Number(item.purchasePrice || item.ptr || 0)),

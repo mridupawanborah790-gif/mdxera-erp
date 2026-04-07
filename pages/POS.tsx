@@ -988,17 +988,12 @@ const POS = forwardRef<any, POSProps>(({
         if (e.key === 'Delete') {
             e.preventDefault();
             handleDeleteRow(id, index);
-        } else if (e.key === 'Backspace') {
-            const target = e.target as HTMLInputElement;
-            if (target.value === '') {
-                e.preventDefault();
-                handleDeleteRow(id, index);
-            }
         }
+        // Removed Backspace row deletion logic as per request
     };
 
     const handleRowKeyNavigation = useCallback((e: React.KeyboardEvent, id: string) => {
-        const fieldPrefixes = ['name', 'batch', 'qty-p', 'qty-l', 'free', 'rate', 'disc', 'gst', 'scheme'];
+        const fieldPrefixes = ['name', 'batch', 'expiry', 'mrp', 'rate', 'qty-p', 'qty-l', 'free', 'disc', 'gst', 'scheme'];
         const target = e.target as HTMLElement;
         const activeElement = target.closest('input, button') as HTMLElement | null;
         const currentId = activeElement?.id || target.id || '';
@@ -1008,10 +1003,12 @@ const POS = forwardRef<any, POSProps>(({
             [
                 `name-${rowId}`,
                 `batch-${rowId}`,
+                `expiry-${rowId}`,
+                `mrp-${rowId}`,
+                `rate-${rowId}`,
                 `qty-p-${rowId}`,
                 `qty-l-${rowId}`,
                 `free-${rowId}`,
-                `rate-${rowId}`,
                 `disc-${rowId}`,
                 `gst-${rowId}`,
                 `scheme-${rowId}`
@@ -1237,14 +1234,17 @@ const POS = forwardRef<any, POSProps>(({
                                             key={item.id}
                                             onMouseEnter={() => setHoveredRowId(item.id)}
                                             onMouseLeave={() => setHoveredRowId(null)}
-                                            onClick={(event) => {
-                                                setSelectedRowId(item.id);
-                                                const target = event.target as HTMLElement;
-                                                if (!target.closest('input, button')) {
-                                                    focusFirstEditableFieldInRow(item.id);
+                                            onClick={(e) => {
+                                                if (selectedRowId !== item.id) {
+                                                    setSelectedRowId(item.id);
+                                                }
+                                                // Removed focusFirstEditableFieldInRow to allow direct cell click
+                                            }}
+                                            onFocusCapture={() => {
+                                                if (selectedRowId !== item.id) {
+                                                    setSelectedRowId(item.id);
                                                 }
                                             }}
-                                            onFocusCapture={() => setSelectedRowId(item.id)}
                                             className={`group h-10 cursor-pointer transition-colors ${selectedRowId === item.id ? 'bg-sky-100/90 outline outline-1 outline-sky-300' : 'hover:bg-gray-50'}`}
                                         >
                                             <td className={`p-2 border-r border-gray-200 text-center text-gray-400 ${uniformTextStyle}`}>{idx + 1}</td>

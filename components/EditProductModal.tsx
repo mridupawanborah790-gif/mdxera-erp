@@ -213,7 +213,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                             <label className="block text-[10px] font-black uppercase text-emerald-700 tracking-widest mb-2">Current Stock Breakup</label>
                             <div className="grid gap-4 grid-cols-2">
                                 <div>
-                                    <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">Current Stock (Strip)</label>
+                                    <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">Pack qty</label>
                                     <input
                                         type="number"
                                         min={0}
@@ -223,7 +223,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                                     />
                                 </div>
                                 <div>
-                                        <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">Current Stock (Loose)</label>
+                                        <label className="block text-[9px] font-black uppercase text-emerald-800 mb-1 ml-1">Loose qty</label>
                                         <input
                                             type="number"
                                             min={0}
