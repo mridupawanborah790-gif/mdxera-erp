@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals, getDisplaySchemePercent, getFinalizedBillTotals, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -82,13 +82,12 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    const savedTotals = getFinalizedBillTotals(bill);
-    const billDiscount = savedTotals.billDiscount;
-    const roundOff = savedTotals.roundOff;
-    const adjustment = savedTotals.adjustment;
-    const subtotalFromBill = savedTotals.subtotal;
-    const totalTaxFromBill = isNonGst ? 0 : savedTotals.taxAmount;
-    const grandTotal = savedTotals.grandTotal;
+    const billDiscount = bill.schemeDiscount || 0;
+    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
+    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const subtotalFromBill = computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax);
+    const totalTaxFromBill = isNonGst ? 0 : computedBillTotals.tax;
+    const grandTotal = computedBillTotals.baseTotal;
 
     const tradeDiscount = computedBillTotals.tradeDiscount || 0;
     const schemeDiscount = computedBillTotals.schemeTotal || 0;

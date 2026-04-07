@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatExpiryToMMYY } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals, getFinalizedBillTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -79,11 +79,10 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
       gstBreakdown[rate].tax += item.gstAmount;
     });
 
-    const savedTotals = getFinalizedBillTotals(bill);
-    const adjustment = savedTotals.adjustment;
-    const grandTotal = savedTotals.grandTotal;
+    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const grandTotal = computedBillTotals.baseTotal;
 
-    return { items, subtotal: savedTotals.subtotal, totalGst: (isNonGst ? 0 : savedTotals.taxAmount), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal, roundOff: savedTotals.roundOff };
+    return { items, subtotal: computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax), totalGst: (isNonGst ? 0 : computedBillTotals.tax), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal };
   }, [bill, isNonGst, computedBillTotals]);
 
   return (
@@ -152,7 +151,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
         )}
 
         {(bill.schemeDiscount || 0) > 0 && <div className="flex justify-between"><span>Bill Disc</span><span>-{bill.schemeDiscount.toFixed(2)}</span></div>}
-        {(billDetails.roundOff || 0) !== 0 && <div className="flex justify-between"><span>Round Off</span><span>{billDetails.roundOff > 0 ? '+' : ''}{billDetails.roundOff.toFixed(2)}</span></div>}
+        {(bill.roundOff || 0) !== 0 && <div className="flex justify-between"><span>Round Off</span><span>{bill.roundOff > 0 ? '+' : ''}{bill.roundOff.toFixed(2)}</span></div>}
         {(billDetails.totalDiscountValue + (bill.schemeDiscount || 0)) > 0 && (
           <div className="flex justify-between font-semibold">
             <span>Savings</span>
@@ -163,7 +162,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
 
       <div className="border-t border-b border-dashed border-black mt-1 py-0.5 flex justify-between text-[11px] font-bold">
         <span>TOTAL</span>
-        <span>{(billDetails.grandTotal || 0).toFixed(2)}</span>
+        <span>{Math.round(bill.total).toFixed(2)}</span>
       </div>
 
       <div className="text-[9px] mt-1">
