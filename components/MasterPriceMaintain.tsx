@@ -732,7 +732,7 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
         <table className="min-w-full text-xs">
           <thead className="bg-gray-100 sticky top-0">
             <tr>
-              <th className="p-2 text-left">Material Code</th><th className="p-2 text-left">Material Name</th><th className="p-2 text-right">MRP</th><th className="p-2 text-right">Rate A</th><th className="p-2 text-right">Rate B</th><th className="p-2 text-right">Rate C</th><th className="p-2 text-right">Disc %</th><th className="p-2 text-right">Sch %</th><th className="p-2 text-left">Scheme Basis</th><th className="p-2 text-left">Scheme Format</th><th className="p-2 text-right">Scheme Rate</th><th className="p-2 text-left">Valid From</th><th className="p-2 text-left">Valid To</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Actions</th>
+              <th className="p-2 text-left">Material Code</th><th className="p-2 text-left">Material Name</th><th className="p-2 text-right">Rate A</th><th className="p-2 text-right">Rate B</th><th className="p-2 text-right">Rate C</th><th className="p-2 text-right">Disc %</th><th className="p-2 text-right">Sch %</th><th className="p-2 text-left">Scheme Basis</th><th className="p-2 text-left">Scheme Format</th><th className="p-2 text-right">Scheme Rate</th><th className="p-2 text-left">Valid From</th><th className="p-2 text-left">Valid To</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -746,7 +746,7 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
                 <tr key={med.id} className="border-t border-gray-200">
                   <td className="p-2">{med.materialCode}</td>
                   <td className="p-2">{med.name}</td>
-                  {(['mrp', 'rateA', 'rateB', 'rateC', 'defaultDiscountPercent', 'schemePercent'] as const).map(field => (
+                  {(['rateA', 'rateB', 'rateC', 'defaultDiscountPercent', 'schemePercent'] as const).map(field => (
                     <td key={field} className="p-2 text-right">
                       {isEditing ? <input type="number" min={0} className="w-20 border border-gray-300 px-1 py-0.5 text-right" value={Number((value as any)[field] || 0)} onChange={e => setDraft(prev => prev ? ({ ...prev, [field]: Number(e.target.value) }) : prev)} /> : Number((value as any)[field] || 0).toFixed(2)}
                     </td>

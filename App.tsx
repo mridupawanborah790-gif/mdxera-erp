@@ -2274,7 +2274,6 @@ const App: React.FC = () => {
                         onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))} onDeleteMapping={(id) => storage.deleteData('supplier_product_map', id).then(() => loadData(currentUser!, 'background'))}
                         mappings={mappings}
                         initialSubModule={pageId === 'vendorNomenclature' ? 'sync' : pageId === 'bulkUtility' ? 'bulk' : pageId === 'masterPriceMaintain' ? 'pricing' : 'master'}
-                        mrpChangeLogs={mrpChangeLogs}
                         addNotification={addNotification}
                     />;
                 case 'substituteFinder':
