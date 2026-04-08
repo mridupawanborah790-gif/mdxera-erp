@@ -77,6 +77,15 @@ interface PendingSchemeApplication {
     schemeDisplayPercent?: number;
 }
 
+interface StockValidationIssue {
+    itemId: string;
+    itemName: string;
+    batch: string;
+    available: number;
+    required: number;
+    reason: 'insufficient' | 'no_stock' | 'batch_missing';
+}
+
 const uniformTextStyle = "text-sm font-bold tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-base font-bold tracking-tight uppercase leading-tight";
 
@@ -411,6 +420,8 @@ const POS = forwardRef<any, POSProps>(({
     const [activeSchemeCalcRowId, setActiveSchemeCalcRowId] = useState<string | null>(null);
     const [selectedRowIndex, setSelectedRowIndex] = useState(0);
     const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+    const [stockValidationIssues, setStockValidationIssues] = useState<StockValidationIssue[]>([]);
+    const [isStockIssueModalOpen, setIsStockIssueModalOpen] = useState(false);
 
     const activeRowIdRef = useRef<string | null>(null);
 
@@ -728,17 +739,99 @@ const POS = forwardRef<any, POSProps>(({
         }
 
         if (shouldPreventNegativeStock) {
+            const issues: StockValidationIssue[] = [];
+
             for (const item of cartItems) {
-                const invItem = inventory.find(i => i.id === item.inventoryItemId);
-                if (invItem) {
-                    const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
-                    const requiredUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
-                    if (invItem.stock <= 0 || invItem.stock < requiredUnits) {
-                        addNotification('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.', "error");
-                        return;
-                    }
+                const normalizedBatch = (item.batch || '').trim();
+                if (!normalizedBatch) {
+                    issues.push({
+                        itemId: item.id,
+                        itemName: item.name || 'Unknown Item',
+                        batch: 'Not selected',
+                        available: 0,
+                        required: Math.max(0, Number(item.quantity || 0) + Number(item.looseQuantity || 0)),
+                        reason: 'batch_missing',
+                    });
+                    continue;
+                }
+
+                const invItem = inventory.find(i => i.id === item.inventoryItemId)
+                    || inventory.find(i => (i.name || '').trim().toLowerCase() === (item.name || '').trim().toLowerCase()
+                        && (i.batch || '').trim().toLowerCase() === normalizedBatch.toLowerCase());
+
+                if (!invItem) {
+                    issues.push({
+                        itemId: item.id,
+                        itemName: item.name || 'Unknown Item',
+                        batch: normalizedBatch,
+                        available: 0,
+                        required: Math.max(0, Number(item.quantity || 0) + Number(item.looseQuantity || 0)),
+                        reason: 'no_stock',
+                    });
+                    continue;
+                }
+
+                const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
+                const requiredUnits = Math.max(0, (Number(item.quantity || 0) * unitsPerPack) + Number(item.looseQuantity || 0));
+                const availableUnits = Math.max(0, Number(invItem.stock || 0));
+
+                if (availableUnits <= 0) {
+                    issues.push({
+                        itemId: item.id,
+                        itemName: item.name || invItem.name || 'Unknown Item',
+                        batch: normalizedBatch || invItem.batch || 'N/A',
+                        available: availableUnits,
+                        required: requiredUnits,
+                        reason: 'no_stock',
+                    });
+                    continue;
+                }
+
+                if (requiredUnits > availableUnits) {
+                    issues.push({
+                        itemId: item.id,
+                        itemName: item.name || invItem.name || 'Unknown Item',
+                        batch: normalizedBatch || invItem.batch || 'N/A',
+                        available: availableUnits,
+                        required: requiredUnits,
+                        reason: 'insufficient',
+                    });
                 }
             }
+
+            if (issues.length > 0) {
+                setStockValidationIssues(issues);
+                setIsStockIssueModalOpen(true);
+                const firstIssue = issues[0];
+                const firstIssueIndex = cartItems.findIndex(ci => ci.id === firstIssue.itemId);
+                if (firstIssueIndex >= 0) setSelectedRowIndex(firstIssueIndex);
+
+                if (issues.length === 1) {
+                    const issue = issues[0];
+                    const singleMessage = issue.reason === 'batch_missing'
+                        ? `Please select batch for item: ${issue.itemName}`
+                        : issue.reason === 'no_stock'
+                            ? `No stock available for: Item: ${issue.itemName} | Batch: ${issue.batch}`
+                            : `Insufficient stock for:\nItem: ${issue.itemName}\nBatch: ${issue.batch}\nAvailable: ${issue.available}\nRequired: ${issue.required}`;
+                    addNotification(singleMessage, 'error');
+                } else {
+                    addNotification(`Stock issue in ${issues.length} items. Click to view details.`, 'error');
+                }
+
+                setTimeout(() => {
+                    const rowEl = document.getElementById(`cart-row-${firstIssue.itemId}`);
+                    rowEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                    const preferredFieldId = firstIssue.reason === 'batch_missing'
+                        ? `batch-${firstIssue.itemId}`
+                        : `qty-p-${firstIssue.itemId}`;
+                    const preferredField = document.getElementById(preferredFieldId) as HTMLInputElement | HTMLButtonElement | null;
+                    preferredField?.focus();
+                }, 0);
+                return;
+            }
+            setStockValidationIssues([]);
+            setIsStockIssueModalOpen(false);
         }
 
         setIsSaving(true);
@@ -1889,23 +1982,12 @@ const POS = forwardRef<any, POSProps>(({
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
                                     const lineAmount = calculateLineNetAmount(item, configurations, currentUser?.organization_type, localPricingMode);
-                                    
-                                    const invItem = inventory.find(i => i.id === item.inventoryItemId);
-                                    let rowIssue = null;
-                                    if (invItem) {
-                                        const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
-                                        const requiredUnits = (Number(item.quantity || 0) * (unitsPerPack || 1)) + Number(item.looseQuantity || 0);
-                                        if (invItem.stock < requiredUnits) {
-                                            rowIssue = {
-                                                available: invItem.stock,
-                                                required: requiredUnits
-                                            };
-                                        }
-                                    }
+                                    const rowIssue = stockValidationIssues.find(issue => issue.itemId === item.id);
 
                                     return (
                                         <tr 
                                             key={item.id} 
+                                            id={`cart-row-${item.id}`}
                                             onMouseEnter={() => setHoveredRowId(item.id)}
                                             onMouseLeave={() => setHoveredRowId(null)}
                                             onClick={() => {
@@ -2705,6 +2787,51 @@ const POS = forwardRef<any, POSProps>(({
                 batches={pendingBatchSelection?.batches || []}
                 onSelect={addSelectedBatchToGrid}
             />
+
+            <Modal
+                isOpen={isStockIssueModalOpen}
+                onClose={() => setIsStockIssueModalOpen(false)}
+                title={`Stock Validation (${stockValidationIssues.length})`}
+                widthClass="max-w-3xl"
+            >
+                <div className="p-4 overflow-auto">
+                    <div className="text-[11px] font-black uppercase tracking-wider text-red-700 mb-3">
+                        Insufficient stock for the following items:
+                    </div>
+                    <div className="space-y-2">
+                        {stockValidationIssues.map((issue, index) => (
+                            <button
+                                key={`${issue.itemId}-${index}`}
+                                type="button"
+                                onClick={() => {
+                                    setIsStockIssueModalOpen(false);
+                                    const targetIndex = cartItems.findIndex(ci => ci.id === issue.itemId);
+                                    if (targetIndex >= 0) setSelectedRowIndex(targetIndex);
+                                    setTimeout(() => {
+                                        const rowEl = document.getElementById(`cart-row-${issue.itemId}`);
+                                        rowEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        const targetFieldId = issue.reason === 'batch_missing' ? `batch-${issue.itemId}` : `qty-p-${issue.itemId}`;
+                                        const targetField = document.getElementById(targetFieldId) as HTMLElement | null;
+                                        targetField?.focus();
+                                    }, 0);
+                                }}
+                                className="w-full text-left p-2 border border-red-200 bg-red-50 hover:bg-red-100 transition-colors"
+                            >
+                                <div className="text-[11px] font-black text-red-800">
+                                    {index + 1}. Item: {issue.itemName} | Batch: {issue.batch} | Available: {issue.available} | Required: {issue.required}
+                                </div>
+                                <div className="text-[10px] font-bold text-red-600 mt-1 uppercase">
+                                    {issue.reason === 'batch_missing'
+                                        ? 'Please select batch for this item.'
+                                        : issue.reason === 'no_stock'
+                                            ? 'No stock available in selected batch.'
+                                            : 'Required quantity exceeds available stock.'}
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </Modal>
 
             <WebcamCaptureModal
                 isOpen={isWebcamOpen}
