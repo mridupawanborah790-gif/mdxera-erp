@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
-import { calculateBillingTotals, getFinalizedBillTotals, resolveEffectivePricingMode } from '../../utils/billing';
+import { calculateBillingTotals, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -76,13 +76,12 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    const savedTotals = getFinalizedBillTotals(bill);
-    const billDiscount = savedTotals.billDiscount;
-    const roundOff = savedTotals.roundOff;
-    const adjustment = savedTotals.adjustment;
-    const grandTotal = savedTotals.grandTotal;
+    const billDiscount = bill.schemeDiscount || 0;
+    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
+    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const grandTotal = bill.total || 0;
 
-    return { items, itemChunks, subtotalValue: savedTotals.subtotal, totalGst: (isNonGst ? 0 : savedTotals.taxAmount), billDiscount, adjustment, roundOff, grandTotal };
+    return { items, itemChunks, subtotalValue: computedBillTotals.taxableValue, totalGst: (isNonGst ? 0 : computedBillTotals.tax), billDiscount, adjustment, roundOff, grandTotal };
   }, [bill, isNonGst, computedBillTotals]);
 
   return (

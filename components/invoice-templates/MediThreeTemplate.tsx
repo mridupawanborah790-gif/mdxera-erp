@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import type { AppConfigurations, DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
-import { calculateBillingTotals, getFinalizedBillTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
@@ -69,13 +69,12 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
     return { items };
   }, [bill.items, bill.inventory, isNonGst, bill.pricingMode, bill.pharmacy?.organization_type, bill.configurations]);
 
-  const savedTotals = getFinalizedBillTotals(bill);
   const totals = {
-    subTotal: savedTotals.subtotal,
-    discount: savedTotals.billDiscount,
-    adjustment: savedTotals.adjustment,
-    taxTotal: isNonGst ? 0 : savedTotals.taxAmount,
-    grandTotal: savedTotals.grandTotal,
+    subTotal: computedTotals.taxableValue || 0,
+    discount: computedTotals.billDiscount || bill.schemeDiscount || 0,
+    adjustment: bill.adjustment || computedTotals.adjustment || 0,
+    taxTotal: isNonGst ? 0 : (computedTotals.tax || 0),
+    grandTotal: bill.total || 0,
   };
 
   const paginatedItems = useMemo(() => {

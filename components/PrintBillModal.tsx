@@ -9,7 +9,6 @@ import GftTemplate from './invoice-templates/GftTemplate';
 import AbhigyanTemplate from './invoice-templates/AbhigyanTemplate';
 import MediThreeTemplate from './invoice-templates/MediThreeTemplate';
 import ThermalTemplate from './invoice-templates/ThermalTemplate';
-import { calculateBillingTotals, getFinalizedBillTotals } from '../utils/billing';
 
 // Declare html2pdf for TypeScript since it's loaded via CDN
 declare const html2pdf: any;
@@ -35,43 +34,22 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
   useEffect(() => {
     if (!bill) return;
-    const isNonGst = bill.billType === 'non-gst';
-    const recomputed = calculateBillingTotals({
-      items: bill.items || [],
-      billDiscount: bill.schemeDiscount || 0,
-      adjustment: bill.adjustment || 0,
-      isNonGst,
-      configurations: bill.configurations,
-      organizationType: bill.pharmacy?.organization_type,
-      pricingMode: bill.pricingMode,
+    console.debug('[Invoice Print Debug]', {
+      invoiceId: bill.id,
+      template,
+      dbSubtotal: bill.subtotal ?? 0,
+      dbTotalGst: bill.totalGst ?? 0,
+      dbTradeDiscount: bill.totalItemDiscount ?? 0,
+      dbSchemeDiscount: bill.schemeDiscount ?? 0,
+      dbBillDiscount: bill.schemeDiscount ?? 0,
+      dbRoundOff: bill.roundOff ?? 0,
+      dbFinalTotal: bill.total ?? 0,
+      printSubtotal: bill.subtotal ?? 0,
+      printTax: bill.totalGst ?? 0,
+      printRoundOff: bill.roundOff ?? 0,
+      printGrandTotal: bill.total ?? 0
     });
-    const saved = getFinalizedBillTotals(bill);
-    const printedGrandTotal = saved.grandTotal;
-    console.info('[Invoice Print Validation]', {
-      invoice: bill.invoiceNumber || bill.id,
-      saved: {
-        subtotal: saved.subtotal,
-        tax: saved.taxAmount,
-        roundOff: saved.roundOff,
-        tradeDiscount: saved.tradeDiscount,
-        billDiscount: saved.billDiscount,
-        finalNetAmount: saved.grandTotal,
-      },
-      printed: {
-        subtotal: saved.subtotal,
-        tax: saved.taxAmount,
-        roundOff: saved.roundOff,
-        grandTotal: printedGrandTotal,
-      },
-      recomputed: {
-        subtotal: recomputed.subtotal,
-        tax: recomputed.tax,
-        roundOff: recomputed.autoRoundOff,
-        grandTotal: recomputed.baseTotal,
-      },
-      hasMismatch: Number(printedGrandTotal.toFixed(2)) !== Number(saved.grandTotal.toFixed(2)),
-    });
-  }, [bill]);
+  }, [bill, template]);
 
   const effectiveOrientation: 'portrait' | 'landscape' = orientation;
   const isLandscape = effectiveOrientation === 'landscape';
