@@ -5,7 +5,6 @@ import EditMedicineModal from '../components/EditMedicineModal';
 import AddMedicineModal from '../components/AddMedicineModal';
 import SupplierSyncView from './SupplierSyncView';
 import ExportOptionsModal from './ExportOptionsModal';
-import MrpChangeLogModal from './MrpChangeLogModal';
 import MasterPriceMaintain from './MasterPriceMaintain';
 import type { Medicine, RegisteredPharmacy, Supplier, Purchase, SupplierProductMap, MrpChangeLogEntry } from '../types';
 import { fuzzyMatch } from '../utils/search';
@@ -48,7 +47,6 @@ interface MaterialMasterProps {
     onDeleteMapping: (id: string) => Promise<void>;
     mappings: SupplierProductMap[];
     initialSubModule?: SubModule;
-    mrpChangeLogs?: MrpChangeLogEntry[];
     addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
 }
 
@@ -59,7 +57,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
     suppliers, onAddPurchase, onBulkAddMedicines, onSearchMedicines, 
     onMassUpdateClick, onSaveMapping, onDeleteMapping, mappings,
     initialSubModule = 'master',
-    mrpChangeLogs = [],
     addNotification
 }) => {
     const [activeSubModule, setActiveSubModule] = useState<SubModule>(initialSubModule);
@@ -70,7 +67,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-    const [isMrpLogOpen, setIsMrpLogOpen] = useState(false);
     const [medicineToEdit, setMedicineToEdit] = useState<Medicine | null>(null);
 
     useEffect(() => {
@@ -106,11 +102,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
             let aVal = a[medSortConfig.key] ?? '';
             let bVal = b[medSortConfig.key] ?? '';
             
-            if (medSortConfig.key === 'mrp') {
-                aVal = parseFloat(aVal) || 0;
-                bVal = parseFloat(bVal) || 0;
-            }
-
             if (aVal < bVal) return medSortConfig.direction === 'ascending' ? -1 : 1;
             if (aVal > bVal) return medSortConfig.direction === 'ascending' ? 1 : -1;
             return 0;
@@ -210,12 +201,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">{moduleTitles[activeSubModule]}</h2>
                     {activeSubModule === 'master' && (
                         <div className="flex gap-2">
-                            <button
-                                onClick={() => setIsMrpLogOpen(true)}
-                                className="px-5 py-2 tally-border bg-white text-primary font-black uppercase text-[10px] shadow-sm hover:bg-gray-50 transition-all active:scale-95"
-                            >
-                                MRP Log
-                            </button>
                             <button 
                                 onClick={() => setIsExportModalOpen(true)} 
                                 className="px-6 py-2 tally-border bg-white text-primary font-black uppercase text-[10px] shadow-sm flex items-center gap-2 hover:bg-gray-50 transition-all active:scale-95"
@@ -235,7 +220,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     {activeSubModule === 'master' && (
                         <Card className="h-full flex flex-col p-0 tally-border !rounded-none overflow-hidden bg-white shadow-inner">
                             <div className="p-2 border-b border-gray-400 bg-gray-50 flex-shrink-0 flex gap-4 items-center justify-between">
-                                <div className="relative flex-1 max-w-lg">
+                                <div className="relative flex-1 max-lg">
                                     <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                                     <input type="text" placeholder="Search by SKU Name, Code, Brand..." value={medSearchTerm} onChange={e => setMedSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-4 py-2 border border-gray-400 text-sm font-bold focus:bg-yellow-50 outline-none shadow-sm" />
                                 </div>
@@ -248,7 +233,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                             <MedicineSortableHeader label="Item Description" sortKey="name" sortConfig={medSortConfig} requestSort={(k) => setMedSortConfig({key: k, direction: medSortConfig.direction === 'ascending' ? 'descending' : 'ascending'})} />
                                             <th className="py-1.5 px-2 border-r border-gray-400 text-left w-20 whitespace-nowrap">Code</th>
                                             <th className="py-1.5 px-2 border-r border-gray-400 text-center w-10 whitespace-nowrap">Pack</th>
-                                            <th className="py-1.5 px-2 border-r border-gray-400 text-right w-14 whitespace-nowrap">MRP</th>
                                             <th className="py-1.5 px-2 border-r border-gray-400 text-center w-10 whitespace-nowrap">GST%</th>
                                             <th className="py-1.5 px-2 border-r border-gray-400 text-center w-7 whitespace-nowrap">Rx</th>
                                             <th className="py-1.5 px-2 text-right w-14 whitespace-nowrap">Action</th>
@@ -265,7 +249,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                                     {med.materialCode}
                                                 </td>
                                                 <td className={`py-1.5 px-2 border-r border-gray-200 text-center group-hover:text-white ${uniformTextStyle}`}>{med.pack || '—'}</td>
-                                                <td className={`py-1.5 px-2 border-r border-gray-200 text-right text-primary group-hover:text-white ${uniformTextStyle}`}>₹{parseFloat(med.mrp || '0').toFixed(2)}</td>
                                                 <td className={`py-1.5 px-2 border-r border-gray-200 text-center text-gray-600 group-hover:text-white ${uniformTextStyle}`}>{med.gstRate}%</td>
                                                 <td className="py-1.5 px-2 border-r border-gray-400 text-center">
                                                     {med.isPrescriptionRequired && <span className="text-red-600 font-black text-[10px] px-1.5 py-0.5 bg-red-50 border border-red-100 rounded">H</span>}
@@ -282,7 +265,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                         ))}
                                         {paginatedMedicines.length === 0 && (
                                             <tr>
-                                                <td colSpan={8} className="p-20 text-center text-gray-300 font-black uppercase tracking-[0.4em] italic text-sm">
+                                                <td colSpan={7} className="p-20 text-center text-gray-300 font-black uppercase tracking-[0.4em] italic text-sm">
                                                     No master records found
                                                 </td>
                                             </tr>
@@ -383,9 +366,9 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     pharmacyName={currentUser?.pharmacy_name || 'MDXERA ERP'}
                 />
             )}
-            <MrpChangeLogModal isOpen={isMrpLogOpen} onClose={() => setIsMrpLogOpen(false)} logs={mrpChangeLogs} />
         </main>
     );
 };
 
 export default MaterialMaster;
+

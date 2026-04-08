@@ -16,7 +16,7 @@ interface ExportOptionsModalProps {
 }
 
 const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({ isOpen, onClose, data, title, pharmacyName }) => {
-    const headers = ['S.No', 'Product Name', 'Material Code', 'Brand/Mfr', 'Composition', 'Pack', 'MRP', 'GST%', 'Status'];
+    const headers = ['S.No', 'Product Name', 'Material Code', 'Brand/Mfr', 'Composition', 'Pack', 'GST%', 'Status'];
 
     const getExportData = () => {
         return data.map((item, idx) => [
@@ -26,7 +26,6 @@ const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({ isOpen, onClose
             item.brand || item.manufacturer || '',
             item.composition || '',
             item.pack || '',
-            parseFloat(item.mrp || '0').toFixed(2),
             `${item.gstRate}%`,
             item.is_active ? 'Active' : 'Inactive'
         ]);

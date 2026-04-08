@@ -57,7 +57,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
     const [activeSubModule, setActiveSubModule] = useState<SubModule>(initialSubModule);
     const [medSearchTerm, setMedSearchTerm] = useState('');
     const [medSortConfig, setMedSortConfig] = useState<{ key: MedicineSortableKeys; direction: 'ascending' | 'descending' }>({ key: 'name', direction: 'ascending' });
-    
+
     // Modal States
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -85,11 +85,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
         filtered.sort((a: any, b: any) => {
             let aVal = a[medSortConfig.key] ?? '';
             let bVal = b[medSortConfig.key] ?? '';
-            
-            if (medSortConfig.key === 'mrp') {
-                aVal = parseFloat(aVal) || 0;
-                bVal = parseFloat(bVal) || 0;
-            }
 
             if (aVal < bVal) return medSortConfig.direction === 'ascending' ? -1 : 1;
             if (aVal > bVal) return medSortConfig.direction === 'ascending' ? 1 : -1;
@@ -151,7 +146,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                             <MedicineSortableHeader label="Item Description" sortKey="name" sortConfig={medSortConfig} requestSort={(k) => setMedSortConfig({key: k, direction: medSortConfig.direction === 'ascending' ? 'descending' : 'ascending'})} />
                                             <th className="p-3 border-r border-gray-400 text-left">Brand / Marketer</th>
                                             <th className="p-3 border-r border-gray-400 text-center w-24">Pack</th>
-                                            <th className="p-3 border-r border-gray-400 text-right w-28">MRP</th>
                                             <th className="p-3 border-r border-gray-400 text-center w-28">HSN</th>
                                             <th className="p-3 border-r border-gray-400 text-center w-20">GST%</th>
                                             <th className="p-3 border-r border-gray-400 text-center w-12">Rx</th>
@@ -175,7 +169,6 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                                                     </div>
                                                 </td>
                                                 <td className="p-3 border-r border-gray-200 text-center uppercase font-black text-sm">{med.pack || '—'}</td>
-                                                <td className="p-3 border-r border-gray-200 text-right font-black text-primary text-base">₹{parseFloat(med.mrp || '0').toFixed(2)}</td>
                                                 <td className="p-3 border-r border-gray-200 text-center font-mono text-sm text-gray-600">{med.hsnCode || '—'}</td>
                                                 <td className="p-3 border-r border-gray-200 text-center font-black text-gray-600">{med.gstRate}%</td>
                                                 <td className="p-3 border-r border-gray-200 text-center">
@@ -216,7 +209,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     )}
                 </div>
             </div>
-            
+
             {isAddModalOpen && (
                 <AddMedicineModal
                     isOpen={isAddModalOpen}

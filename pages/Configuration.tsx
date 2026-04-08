@@ -154,9 +154,9 @@ const MedicineMasterImportPreviewModal = ({ isOpen, onClose, onSave, data }: any
     <Modal isOpen={isOpen} onClose={onClose} title="Material Master Preview" widthClass="max-w-5xl">
         <div className="p-4 overflow-auto max-h-[70vh]">
             <table className="min-w-full text-xs">
-                <thead className="bg-gray-100 font-black uppercase"><tr><th className="p-2 text-left">Name</th><th className="p-2 text-left">Brand</th><th className="p-2 text-center">GST%</th><th className="p-2 text-right">MRP</th></tr></thead>
+                <thead className="bg-gray-100 font-black uppercase"><tr><th className="p-2 text-left">Name</th><th className="p-2 text-left">Brand</th><th className="p-2 text-center">GST%</th></tr></thead>
                 <tbody className="divide-y">
-                    {data.map((m: any, i: number) => (<tr key={i}><td className="p-2 font-bold uppercase">{m.name}</td><td className="p-2">{m.brand}</td><td className="p-2 text-center">{m.gstRate}%</td><td className="p-2 text-right">₹{m.mrp}</td></tr>))}
+                    {data.map((m: any, i: number) => (<tr key={i}><td className="p-2 font-bold uppercase">{m.name}</td><td className="p-2">{m.brand}</td><td className="p-2 text-center">{m.gstRate}%</td></tr>))}
                 </tbody>
             </table>
         </div>
