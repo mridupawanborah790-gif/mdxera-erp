@@ -109,7 +109,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     const totalGst = isNonGst ? 0 : computedBillTotals.tax;
     const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
     const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
-    const grandTotal = computedBillTotals.baseTotal;
+    const grandTotal = bill.total || 0;
 
     const schemeDiscount = computedBillTotals.schemeTotal || 0;
     return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, adjustment, taxableValue, totalGst, roundOff, grandTotal };

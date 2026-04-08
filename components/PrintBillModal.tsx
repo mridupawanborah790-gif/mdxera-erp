@@ -32,6 +32,25 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     }
   }, [template]);
 
+  useEffect(() => {
+    if (!bill) return;
+    console.debug('[Invoice Print Debug]', {
+      invoiceId: bill.id,
+      template,
+      dbSubtotal: bill.subtotal ?? 0,
+      dbTotalGst: bill.totalGst ?? 0,
+      dbTradeDiscount: bill.totalItemDiscount ?? 0,
+      dbSchemeDiscount: bill.schemeDiscount ?? 0,
+      dbBillDiscount: bill.schemeDiscount ?? 0,
+      dbRoundOff: bill.roundOff ?? 0,
+      dbFinalTotal: bill.total ?? 0,
+      printSubtotal: bill.subtotal ?? 0,
+      printTax: bill.totalGst ?? 0,
+      printRoundOff: bill.roundOff ?? 0,
+      printGrandTotal: bill.total ?? 0
+    });
+  }, [bill, template]);
+
   const effectiveOrientation: 'portrait' | 'landscape' = orientation;
   const isLandscape = effectiveOrientation === 'landscape';
   const isThermal = template === 'thermal';

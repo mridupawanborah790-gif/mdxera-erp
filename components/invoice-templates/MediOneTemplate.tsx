@@ -79,7 +79,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
     const billDiscount = bill.schemeDiscount || 0;
     const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
     const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
-    const grandTotal = computedBillTotals.baseTotal;
+    const grandTotal = bill.total || 0;
 
     return { items, itemChunks, subtotalValue: computedBillTotals.taxableValue, totalGst: (isNonGst ? 0 : computedBillTotals.tax), billDiscount, adjustment, roundOff, grandTotal };
   }, [bill, isNonGst, computedBillTotals]);

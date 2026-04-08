@@ -74,7 +74,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
     discount: computedTotals.billDiscount || bill.schemeDiscount || 0,
     adjustment: bill.adjustment || computedTotals.adjustment || 0,
     taxTotal: isNonGst ? 0 : (computedTotals.tax || 0),
-    grandTotal: computedTotals.baseTotal,
+    grandTotal: bill.total || 0,
   };
 
   const paginatedItems = useMemo(() => {
