@@ -229,13 +229,15 @@ interface ConfigurationPageProps {
     onBulkAddMappings: (list: any[]) => void;
     mappings: SupplierProductMap[];
     onMigrationLockChange?: (locked: boolean) => void;
+    onMigrationStateChange?: (state: { active: boolean; minimized: boolean; module: string; progressPercent: number; status: 'Processing…' | 'Completed' | 'Cancelled' }) => void;
+    forceShowMigrationPopupToken?: number;
 }
 
 const ConfigurationPage: React.FC<ConfigurationPageProps> = ({ 
     configurations, onUpdateConfigurations, addNotification, currentUser,
     inventory, transactions, purchases, distributors, customers, medicines,
     onBulkAddInventory, onBulkAddDistributors, onBulkAddCustomers, onBulkAddPurchases, onBulkAddSales,
-    onBulkAddMedicines, onBulkAddMappings, mappings, onMigrationLockChange
+    onBulkAddMedicines, onBulkAddMappings, mappings, onMigrationLockChange, onMigrationStateChange, forceShowMigrationPopupToken
 }) => {
     const MAX_DASHBOARD_SHORTCUTS = 12;
     const [activeSection, setActiveSection] = useState<ConfigSection>('general');
@@ -324,9 +326,27 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const [migrationStats, setMigrationStats] = useState({ totalRows: 0, processed: 0, imported: 0, updated: 0, skipped: 0, failed: 0 });
     const [migrationStatus, setMigrationStatus] = useState<'Processing…' | 'Completed' | 'Cancelled'>('Processing…');
     const [isMigrationInitializing, setIsMigrationInitializing] = useState(false);
+    const [isMigrationPopupMinimized, setIsMigrationPopupMinimized] = useState(false);
     const cancelMigrationRef = useRef(false);
 
     useEffect(() => () => onMigrationLockChange?.(false), [onMigrationLockChange]);
+    useEffect(() => {
+        if (typeof forceShowMigrationPopupToken === 'number') {
+            setIsMigrationPopupMinimized(false);
+        }
+    }, [forceShowMigrationPopupToken]);
+
+    useEffect(() => {
+        const active = migrationStats.totalRows > 0 && (isMigrationRunning || migrationStatus !== 'Processing…');
+        const progressPercent = Math.min(100, Math.round((migrationStats.processed / Math.max(migrationStats.totalRows, 1)) * 100));
+        onMigrationStateChange?.({
+            active,
+            minimized: isMigrationPopupMinimized,
+            module: migrationModule,
+            progressPercent,
+            status: migrationStatus
+        });
+    }, [isMigrationPopupMinimized, isMigrationRunning, migrationModule, migrationStats.processed, migrationStats.totalRows, migrationStatus, onMigrationStateChange]);
     const [demoPreviewRows, setDemoPreviewRows] = useState<PharmacyDemoMaterial[]>([]);
     const [demoMigrationLogs, setDemoMigrationLogs] = useState<DemoMigrationJob[]>([]);
     const scopedDemoRows = useMemo(() => demoPreviewRows, [demoPreviewRows]);
@@ -655,6 +675,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         setMigrationModule(type);
         setMigrationStatus('Processing…');
         setMigrationStats({ totalRows: rows.length, processed: 0, imported: 0, updated: 0, skipped: 0, failed: 0 });
+        setIsMigrationPopupMinimized(false);
         cancelMigrationRef.current = false;
         setImportType(null);
         setPreviewData([]);
@@ -697,7 +718,6 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         } finally {
             setIsMigrationInitializing(false);
             setIsMigrationRunning(false);
-            onMigrationLockChange?.(false);
         }
     };
 
@@ -1485,7 +1505,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                 } as AppConfigurations);
 
                                 onUpdateConfigurations(normalizeStockHandlingConfig(normalizedConfigs));
-                                addNotification('Accepted Changes and sanitized shortcut list.', 'success');
+                                    addNotification('Accepted Changes and sanitized shortcut list.', 'success');
                             }} className="px-16 py-4 tally-button-primary shadow-2xl uppercase text-[11px] font-black tracking-[0.3em] active:scale-95">Accept (Enter)</button>
                         </div>
                     </Card>
@@ -1500,8 +1520,8 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
             {importType === 'sales' && previewData.length > 0 && <SalesBillImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('sales', d, onBulkAddSales, 'Sales migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} inventory={inventory} customers={customers} />}
             {importType === 'master' && previewData.length > 0 && <MedicineMasterImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('master', d, onBulkAddMedicines, 'Material master migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} />}
             {importType === 'nomenclature' && previewData.length > 0 && <MappingImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('nomenclature', d, onBulkAddMappings, 'Vendor sync migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} distributors={distributors} medicines={medicines} mappings={mappings} />}
-            {(isMigrationRunning || migrationStatus !== 'Processing…') && migrationStats.totalRows > 0 && (
-                <div className="fixed inset-0 z-[120] bg-black/60 flex items-center justify-center p-4">
+            {(isMigrationRunning || migrationStatus !== 'Processing…') && migrationStats.totalRows > 0 && !isMigrationPopupMinimized && (
+                <div className="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center p-4">
                     <div className="w-full max-w-2xl bg-white border-2 border-primary shadow-2xl">
                         <div className="px-4 py-3 bg-primary text-white text-xs font-black uppercase tracking-widest">Migration Progress - {migrationModule}</div>
                         <div className="p-4 space-y-4">
@@ -1525,9 +1545,18 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                             <div className="flex justify-end gap-2">
                                 {isMigrationRunning && (
                                     <button
+                                        onClick={() => setIsMigrationPopupMinimized(true)}
+                                        className="px-4 py-2 border text-[10px] font-black uppercase"
+                                    >
+                                        Minimize / Hide
+                                    </button>
+                                )}
+                                {isMigrationRunning && (
+                                    <button
                                         onClick={() => {
-                                            if (!window.confirm('Cancel current migration?')) return;
+                                            if (!window.confirm('Cancel migration?')) return;
                                             cancelMigrationRef.current = true;
+                                            setMigrationStatus('Cancelled');
                                         }}
                                         className="px-4 py-2 bg-red-600 text-white text-[10px] font-black uppercase"
                                     >
@@ -1539,6 +1568,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                         onClick={() => {
                                             setMigrationStats({ totalRows: 0, processed: 0, imported: 0, updated: 0, skipped: 0, failed: 0 });
                                             setMigrationStatus('Processing…');
+                                            setIsMigrationPopupMinimized(false);
                                             onMigrationLockChange?.(false);
                                         }}
                                         className="px-4 py-2 border text-[10px] font-black uppercase"
