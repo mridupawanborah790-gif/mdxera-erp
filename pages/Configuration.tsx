@@ -602,7 +602,10 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                 case 'purchases': setPreviewData(parsePurchaseCsv(lines)); break;
                 case 'sales': setPreviewData(parseSalesCsv(lines)); break;
             }
-        } catch (err) { addNotification("Failed to parse CSV format", "error"); }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to parse CSV format";
+            addNotification(message, "error");
+        }
         e.target.value = '';
     };
 

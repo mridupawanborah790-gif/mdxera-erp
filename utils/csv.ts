@@ -187,6 +187,42 @@ export function parseInventoryCsv(lines: string[]): Omit<InventoryItem, 'id' | '
         'RackNumber', 'Cost', 'Value', 'MaterialCode', 'Description', 'PurchaseDeal', 'PurchaseFree', 'TaxBasis', 'IsActive'
     ]);
 
+    const normalizeInventoryExpiry = (rawExpiry: string | undefined, itemName: string): string => {
+        if (typeof rawExpiry === 'undefined') return '';
+        const cleanExpiry = String(rawExpiry).trim();
+        if (!cleanExpiry) return '';
+
+        // Accepted format: YYYY-MM-DD (kept as-is after validation)
+        const yyyyMmDdMatch = cleanExpiry.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (yyyyMmDdMatch) {
+            const year = Number(yyyyMmDdMatch[1]);
+            const month = Number(yyyyMmDdMatch[2]);
+            const day = Number(yyyyMmDdMatch[3]);
+            const lastDay = new Date(year, month, 0).getDate();
+            const isValid = month >= 1 && month <= 12 && day >= 1 && day <= lastDay;
+            if (isValid) return cleanExpiry;
+        }
+
+        // Accepted format: MMM-YY (case-insensitive), normalized to last day of month
+        const mmmYyMatch = cleanExpiry.match(/^([A-Za-z]{3})-(\d{2})$/);
+        if (mmmYyMatch) {
+            const monthMap: Record<string, number> = {
+                jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+                jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
+            };
+            const month = monthMap[mmmYyMatch[1].toLowerCase()];
+            const year = 2000 + Number(mmmYyMatch[2]);
+            if (month) {
+                const lastDay = new Date(year, month, 0).getDate();
+                return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+            }
+        }
+
+        throw new Error(
+            `Invalid expiry format for item: ${itemName}\nEntered value: ${cleanExpiry}\nAllowed formats: MMM-YY or YYYY-MM-DD`
+        );
+    };
+
     return lines.slice(1).filter(line => line.trim() !== '').map(line => {
         const values = parseCsvLine(line);
         const getItem = (key: string, parseFn: (val: string) => any = (v) => v) => 
@@ -196,8 +232,10 @@ export function parseInventoryCsv(lines: string[]): Omit<InventoryItem, 'id' | '
         const purchasePrice = getItem('PurchasePrice', parseNumber) || 0;
         const stock = getItem('Stock', parseNumber) || 0;
 
+        const itemName = getItem('Name') || 'UNKNOWN PRODUCT';
+
         return {
-            name: getItem('Name') || 'UNKNOWN PRODUCT',
+            name: itemName,
             brand: getItem('Brand') || '',
             category: getItem('Category') || 'General',
             manufacturer: getItem('Manufacturer') || '',
@@ -209,7 +247,7 @@ export function parseInventoryCsv(lines: string[]): Omit<InventoryItem, 'id' | '
             baseUnit: getItem('BaseUnit') || '',
             minStockLimit: getItem('MinStockLimit', parseNumber) || 10,
             batch: getItem('Batch') || 'UNSET', // Fallback for batch
-            expiry: getItem('Expiry', normalizeImportDate) || null,
+            expiry: normalizeInventoryExpiry(getItem('Expiry'), itemName),
             purchasePrice: purchasePrice,
             ptr: getItem('PTR', parseNumber) || 0,
             mrp: getItem('MRP', parseNumber) || 0,
