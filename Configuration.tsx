@@ -37,6 +37,41 @@ const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: 
 );
 
 type ConfigSection = 'general' | 'posConfig' | 'purchaseConfig' | 'invoiceNumbering' | 'dashboardShortcuts' | 'displayOptions' | 'discountMaster' | 'moduleVisibility' | 'dataManagement';
+type MigrationStatus = 'Pending' | 'Processing' | 'Completed' | 'Cancelled' | 'Failed';
+type MigrationType = 'master' | 'inventory' | 'suppliers' | 'customers' | 'nomenclature' | 'sales' | 'purchases';
+type RowErrorEntry = { rowNumber: number; itemName: string; reason: string; rawValue: string; suggestedFix: string; };
+type MigrationRunLogRow = {
+    timestamp: string;
+    organization: string;
+    user: string;
+    migrationType: string;
+    fileName: string;
+    found: number;
+    imported: number;
+    skipped: number;
+    updated: number;
+    failed: number;
+    status: MigrationStatus;
+};
+type MigrationProgressState = {
+    migrationType: string;
+    fileName: string;
+    startedAt: string;
+    startedBy: string;
+    organization: string;
+    status: MigrationStatus;
+    totalRows: number;
+    processedRows: number;
+    importedRows: number;
+    updatedRows: number;
+    skippedRows: number;
+    failedRows: number;
+    currentActivity: string;
+    logs: string[];
+    reason?: string;
+    errorRows: RowErrorEntry[];
+    cancellationRequested: boolean;
+};
 
 type MigrationDemoMaterial = {
     id: string;
@@ -106,8 +141,13 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
     // Import State
     const [importType, setImportType] = useState<string | null>(null);
+    const [importFileName, setImportFileName] = useState('');
     const [previewData, setPreviewData] = useState<any[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [migrationProgress, setMigrationProgress] = useState<MigrationProgressState | null>(null);
+    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+    const [migrationRunLog, setMigrationRunLog] = useState<MigrationRunLogRow[]>([]);
+    const cancelRequestedRef = useRef(false);
 
     const [demoTargetOrg, setDemoTargetOrg] = useState(currentUser?.organization_id || 'MDXERA');
     const [demoPreviewRows, setDemoPreviewRows] = useState<MigrationDemoMaterial[]>([]);
@@ -281,8 +321,14 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     };
 
     const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
+        if (migrationProgress?.status === 'Processing') {
+            addNotification('Another migration is already in progress. Please wait until it completes or cancel the running migration.', 'warning');
+            e.target.value = '';
+            return;
+        }
         const file = e.target.files?.[0];
         if (!file) return;
+        setImportFileName(file.name);
         const text = await file.text();
         const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== '');
         if (lines.length < 2) { addNotification("Empty file or header only", "error"); return; }
@@ -302,6 +348,154 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         e.target.value = '';
     };
 
+    const startMigration = async (type: MigrationType, rows: any[], commitChunk: (chunk: any[]) => void) => {
+        if (migrationProgress?.status === 'Processing') {
+            addNotification('Another migration is already in progress. Please wait until it completes or cancel the running migration.', 'warning');
+            return;
+        }
+        cancelRequestedRef.current = false;
+        const startedAt = new Date().toISOString();
+        const base: MigrationProgressState = {
+            migrationType: type === 'master' ? 'Material Master' :
+                type === 'inventory' ? 'Inventory (Stock)' :
+                type === 'suppliers' ? 'Supplier Master' :
+                type === 'customers' ? 'Customer Master' :
+                type === 'nomenclature' ? 'Vendor Sync' :
+                type === 'sales' ? 'Sales Import' : 'Purchase Import',
+            fileName: importFileName || `${type}.csv`,
+            startedAt,
+            startedBy: currentUser?.full_name || 'System',
+            organization: currentUser?.organization_id || 'MDXERA',
+            status: 'Processing',
+            totalRows: rows.length,
+            processedRows: 0,
+            importedRows: 0,
+            updatedRows: 0,
+            skippedRows: 0,
+            failedRows: 0,
+            currentActivity: 'Reading file...',
+            logs: ['Reading file...'],
+            errorRows: [],
+            cancellationRequested: false
+        };
+        setMigrationProgress(base);
+
+        const pushLog = (message: string) => {
+            setMigrationProgress(prev => prev ? {
+                ...prev,
+                currentActivity: message,
+                logs: [...prev.logs.slice(-5), message]
+            } : prev);
+        };
+
+        const chunkSize = 100;
+        try {
+            for (let i = 0; i < rows.length; i += chunkSize) {
+                if (cancelRequestedRef.current) break;
+                const chunk = rows.slice(i, i + chunkSize);
+                const lastRow = Math.min(i + chunk.length, rows.length);
+                pushLog(`Saving row ${lastRow} of ${rows.length}...`);
+                let committableRows = chunk;
+                let skipped = 0;
+                let failed = 0;
+                let updated = 0;
+                const rowErrors: RowErrorEntry[] = [];
+
+                if (type === 'nomenclature') {
+                    const mapped = chunk.map((d: any, idx: number) => {
+                        const dist = distributors.find((s: any) => fuzzyMatch(s.name, d.supplier_id));
+                        const med = medicines.find((m: any) => fuzzyMatch(m.name, d.master_medicine_id));
+                        if (!dist || !med) {
+                            rowErrors.push({
+                                rowNumber: i + idx + 1,
+                                itemName: d?.supplier_product_name || 'Unknown item',
+                                reason: !dist ? 'Supplier not matched' : 'Material not matched',
+                                rawValue: !dist ? String(d?.supplier_id ?? '') : String(d?.master_medicine_id ?? ''),
+                                suggestedFix: !dist ? 'Use a valid Supplier Master name/ID.' : 'Use a valid Material Master name/ID.'
+                            });
+                            return null;
+                        }
+                        const existing = (mappings || []).find((em: any) =>
+                            em.supplier_id === dist.id &&
+                            em.supplier_product_name.toLowerCase().trim() === d.supplier_product_name.toLowerCase().trim()
+                        );
+                        if (existing) {
+                            updated += 1;
+                        }
+                        return { ...d, supplier_id: dist.id, master_medicine_id: med.id, id: existing ? existing.id : crypto.randomUUID() } as SupplierProductMap;
+                    }).filter(Boolean);
+                    failed = rowErrors.length;
+                    committableRows = mapped;
+                }
+
+                if (committableRows.length > 0) commitChunk(committableRows);
+                skipped += 0;
+                await new Promise(resolve => setTimeout(resolve, 120));
+                setMigrationProgress(prev => prev ? ({
+                    ...prev,
+                    processedRows: prev.processedRows + chunk.length,
+                    importedRows: prev.importedRows + (committableRows.length - updated),
+                    updatedRows: prev.updatedRows + updated,
+                    skippedRows: prev.skippedRows + skipped,
+                    failedRows: prev.failedRows + failed,
+                    errorRows: [...prev.errorRows, ...rowErrors]
+                }) : prev);
+            }
+
+            setMigrationProgress(prev => {
+                if (!prev) return prev;
+                const cancelled = cancelRequestedRef.current;
+                const status: MigrationStatus = cancelled ? 'Cancelled' : 'Completed';
+                const reason = cancelled ? 'Migration cancelled by user.' : undefined;
+                setMigrationRunLog(logs => [{
+                    timestamp: new Date().toISOString(),
+                    organization: prev.organization,
+                    user: prev.startedBy,
+                    migrationType: prev.migrationType,
+                    fileName: prev.fileName,
+                    found: prev.totalRows,
+                    imported: prev.importedRows,
+                    skipped: prev.skippedRows,
+                    updated: prev.updatedRows,
+                    failed: prev.failedRows,
+                    status
+                }, ...logs]);
+                return {
+                    ...prev,
+                    status,
+                    reason,
+                    cancellationRequested: cancelled,
+                    currentActivity: cancelled ? 'Migration cancelled by user.' : 'Migration completed successfully.'
+                };
+            });
+            if (cancelRequestedRef.current) {
+                addNotification('Migration cancelled by user.', 'warning');
+            } else {
+                addNotification('Migration completed successfully.', 'success');
+            }
+        } catch (error: any) {
+            setMigrationProgress(prev => {
+                if (!prev) return prev;
+                const message = error?.message || 'Server exception';
+                setMigrationRunLog(logs => [{
+                    timestamp: new Date().toISOString(),
+                    organization: prev.organization,
+                    user: prev.startedBy,
+                    migrationType: prev.migrationType,
+                    fileName: prev.fileName,
+                    found: prev.totalRows,
+                    imported: prev.importedRows,
+                    skipped: prev.skippedRows,
+                    updated: prev.updatedRows,
+                    failed: prev.failedRows,
+                    status: 'Failed'
+                }, ...logs]);
+                return { ...prev, status: 'Failed', reason: message, currentActivity: `Migration failed: ${message}` };
+            });
+            addNotification(`Migration failed: ${error?.message || 'Unknown error'}`, 'error');
+        }
+    };
+
     const MigrationCard = ({ title, desc, onTemplate, type }: { title: string, desc: string, onTemplate: () => void, type: string }) => (
         <Card className="p-4 border-2 border-gray-200 hover:border-primary/40 transition-all group rounded-none bg-white">
             <div className="flex justify-between items-start mb-3">
@@ -311,7 +505,11 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
             <p className="text-[10px] font-bold text-gray-400 uppercase leading-tight mb-6 h-8 overflow-hidden">{desc}</p>
             <div className="flex gap-2">
                 <button onClick={onTemplate} className="flex-1 py-2 text-[9px] font-black uppercase border-2 border-gray-300 hover:bg-gray-50 tracking-widest transition-colors">Template</button>
-                <button onClick={() => { setImportType(type); fileInputRef.current?.click(); }} className="flex-1 py-2 text-[9px] font-black uppercase bg-primary text-white shadow-lg hover:bg-primary-dark tracking-widest transition-all">Import</button>
+                <button disabled={migrationProgress?.status === 'Processing'} onClick={() => {
+                    if (migrationProgress?.status === 'Processing') return addNotification('Data migration is currently running. Please wait until it completes or cancel the migration.', 'warning');
+                    setImportType(type);
+                    fileInputRef.current?.click();
+                }} className="flex-1 py-2 text-[9px] font-black uppercase bg-primary text-white shadow-lg hover:bg-primary-dark tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed">Import</button>
             </div>
         </Card>
     );
@@ -611,6 +809,18 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                             </table>
                                         </div>
                                     </div>
+                                    <div className="border bg-white p-2 max-h-48 overflow-auto">
+                                        <div className="text-[10px] font-black uppercase mb-1">Migration Run Log</div>
+                                        <table className="w-full text-[10px]">
+                                            <thead className="bg-gray-100 uppercase font-black">
+                                                <tr><th className="p-1 text-left">Time</th><th className="p-1 text-left">Type</th><th className="p-1 text-left">File</th><th className="p-1 text-right">Found</th><th className="p-1 text-right">Imported</th><th className="p-1 text-right">Updated</th><th className="p-1 text-right">Skipped</th><th className="p-1 text-right">Failed</th><th className="p-1 text-left">Status</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                {migrationRunLog.map((j, idx) => <tr key={`${j.timestamp}-${idx}`} className="border-t"><td className="p-1">{new Date(j.timestamp).toLocaleString()}</td><td className="p-1">{j.migrationType}</td><td className="p-1">{j.fileName}</td><td className="p-1 text-right">{j.found}</td><td className="p-1 text-right">{j.imported}</td><td className="p-1 text-right">{j.updated}</td><td className="p-1 text-right">{j.skipped}</td><td className="p-1 text-right">{j.failed}</td><td className="p-1">{j.status}</td></tr>)}
+                                                {migrationRunLog.length === 0 && <tr><td className="p-2 text-gray-500" colSpan={9}>No migration run yet.</td></tr>}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px] font-bold uppercase">
                                         <select className="tally-input" value={rollbackJobId} onChange={e => setRollbackJobId(e.target.value)}>
                                             <option value="">Select Job ID for rollback</option>
@@ -666,20 +876,83 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
                         <div className="mt-auto pt-10 border-t border-gray-200 flex justify-end gap-4">
                             <button onClick={() => setLocalConfigs(configurations)} className="px-10 py-3 tally-border bg-white text-gray-500 font-black uppercase text-[11px] hover:bg-red-50 transition-colors">Discard</button>
-                            <button onClick={() => { onUpdateConfigurations(localConfigs); addNotification('Accepted Changes.', 'success'); }} className="px-16 py-4 tally-button-primary shadow-2xl uppercase text-[11px] font-black tracking-[0.3em] active:scale-95">Accept (Enter)</button>
+                            <button disabled={migrationProgress?.status === 'Processing'} onClick={() => { onUpdateConfigurations(localConfigs); addNotification('Accepted Changes.', 'success'); }} className="px-16 py-4 tally-button-primary shadow-2xl uppercase text-[11px] font-black tracking-[0.3em] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">Accept (Enter)</button>
                         </div>
                     </Card>
                 </div>
             </div>
 
             {/* Import Previews */}
-            {importType === 'inventory' && previewData.length > 0 && <ImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={() => { onBulkAddInventory(previewData); setImportType(null); setPreviewData([]); addNotification(`Imported ${previewData.length} records`, 'success'); }} data={previewData} />}
-            {importType === 'suppliers' && previewData.length > 0 && <DistributorImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddDistributors(d); setImportType(null); setPreviewData([]); addNotification("Suppliers imported", 'success'); }} data={previewData} />}
-            {importType === 'customers' && previewData.length > 0 && <CustomerImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddCustomers(d); setImportType(null); setPreviewData([]); addNotification("Customers imported", 'success'); }} data={previewData} />}
-            {importType === 'purchases' && previewData.length > 0 && <PurchaseBillImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddPurchases(d); setImportType(null); setPreviewData([]); addNotification("Purchases imported", 'success'); }} data={previewData} inventory={inventory} distributors={distributors} />}
-            {importType === 'sales' && previewData.length > 0 && <SalesBillImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddSales(d); setImportType(null); setPreviewData([]); addNotification("Sales data imported", 'success'); }} data={previewData} inventory={inventory} customers={customers} />}
-            {importType === 'master' && previewData.length > 0 && <MedicineMasterImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddMedicines(d); setImportType(null); setPreviewData([]); addNotification("Master Data Updated", 'success'); }} data={previewData} />}
-            {importType === 'nomenclature' && previewData.length > 0 && <MappingImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { onBulkAddMappings(d); setImportType(null); setPreviewData([]); addNotification("Nomenclature Rules Updated", 'success'); }} data={previewData} distributors={distributors} medicines={medicines} mappings={mappings} />}
+            {importType === 'inventory' && previewData.length > 0 && <ImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={() => { startMigration('inventory', previewData, (chunk) => onBulkAddInventory(chunk)); setImportType(null); setPreviewData([]); }} data={previewData} />}
+            {importType === 'suppliers' && previewData.length > 0 && <DistributorImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { startMigration('suppliers', d, (chunk) => onBulkAddDistributors(chunk)); setImportType(null); setPreviewData([]); }} data={previewData} />}
+            {importType === 'customers' && previewData.length > 0 && <CustomerImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { startMigration('customers', d, (chunk) => onBulkAddCustomers(chunk)); setImportType(null); setPreviewData([]); }} data={previewData} />}
+            {importType === 'purchases' && previewData.length > 0 && <PurchaseBillImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { startMigration('purchases', d, (chunk) => onBulkAddPurchases(chunk)); setImportType(null); setPreviewData([]); }} data={previewData} inventory={inventory} distributors={distributors} />}
+            {importType === 'sales' && previewData.length > 0 && <SalesBillImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { startMigration('sales', d, (chunk) => onBulkAddSales(chunk)); setImportType(null); setPreviewData([]); }} data={previewData} inventory={inventory} customers={customers} />}
+            {importType === 'master' && previewData.length > 0 && <MedicineMasterImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { startMigration('master', d, (chunk) => onBulkAddMedicines(chunk)); setImportType(null); setPreviewData([]); }} data={previewData} />}
+            {importType === 'nomenclature' && previewData.length > 0 && <MappingImportPreviewModal isOpen={!!importType} onClose={() => { setImportType(null); setPreviewData([]); }} onSave={(d: any) => { startMigration('nomenclature', d, (chunk) => onBulkAddMappings(chunk)); setImportType(null); setPreviewData([]); }} data={previewData} distributors={distributors} medicines={medicines} mappings={mappings} />}
+
+            {migrationProgress && (
+                <div className="fixed inset-0 z-[130] bg-black/70 flex items-center justify-center p-4" onKeyDown={(e) => { if (migrationProgress.status === 'Processing' && e.key === 'Escape') e.preventDefault(); }}>
+                    <div className="w-full max-w-5xl bg-white border-4 border-primary shadow-2xl">
+                        <div className="bg-primary text-white px-4 py-3 font-black uppercase tracking-widest text-sm">Data Migration In Progress</div>
+                        <div className="p-4 space-y-3 text-xs">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 uppercase font-bold">
+                                <div>Migration Type: <span className="text-gray-700">{migrationProgress.migrationType}</span></div>
+                                <div>File Name: <span className="text-gray-700">{migrationProgress.fileName}</span></div>
+                                <div>Started At: <span className="text-gray-700">{new Date(migrationProgress.startedAt).toLocaleString()}</span></div>
+                                <div>Started By: <span className="text-gray-700">{migrationProgress.startedBy}</span></div>
+                                <div>Organization: <span className="text-gray-700">{migrationProgress.organization}</span></div>
+                                <div>Status: <span className={`${migrationProgress.status === 'Processing' ? 'text-blue-700' : migrationProgress.status === 'Completed' ? 'text-green-700' : migrationProgress.status === 'Cancelled' ? 'text-orange-600' : 'text-red-700'}`}>{migrationProgress.status}</span></div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 uppercase font-bold">
+                                <div>Total Rows Found: {migrationProgress.totalRows}</div><div>Processed Rows: {migrationProgress.processedRows}</div><div>Imported Rows: {migrationProgress.importedRows}</div><div>Updated Rows: {migrationProgress.updatedRows}</div><div>Skipped Rows: {migrationProgress.skippedRows}</div><div>Failed Rows: {migrationProgress.failedRows}</div><div>Remaining Rows: {Math.max(migrationProgress.totalRows - migrationProgress.processedRows, 0)}</div>
+                                <div>{migrationProgress.totalRows > 0 ? Math.round((migrationProgress.processedRows / migrationProgress.totalRows) * 100) : 0}% Completed</div>
+                            </div>
+                            <div className="h-4 bg-gray-200 border border-gray-300">
+                                <div className="h-full bg-primary transition-all" style={{ width: `${migrationProgress.totalRows > 0 ? (migrationProgress.processedRows / migrationProgress.totalRows) * 100 : 0}%` }} />
+                            </div>
+                            <div className="uppercase font-bold text-primary">Current Activity: {migrationProgress.currentActivity}</div>
+                            <div className="border p-2 bg-gray-50 max-h-32 overflow-auto text-[11px]">
+                                {migrationProgress.logs.map((line, idx) => <div key={`${line}-${idx}`}>• {line}</div>)}
+                            </div>
+                            {migrationProgress.reason && <div className="text-red-700 font-bold uppercase">Reason: {migrationProgress.reason}</div>}
+                            {migrationProgress.errorRows.length > 0 && (
+                                <div className="border p-2">
+                                    <div className="font-black uppercase mb-2">Row-Level Error Report</div>
+                                    <div className="max-h-36 overflow-auto">
+                                        <table className="w-full text-[10px]">
+                                            <thead className="bg-gray-100 font-black uppercase"><tr><th className="p-1 text-left">Row</th><th className="p-1 text-left">Item</th><th className="p-1 text-left">Reason</th><th className="p-1 text-left">Raw</th><th className="p-1 text-left">Suggested Fix</th></tr></thead>
+                                            <tbody>{migrationProgress.errorRows.map((er, idx) => <tr key={`${er.rowNumber}-${idx}`} className="border-t"><td className="p-1">{er.rowNumber}</td><td className="p-1">{er.itemName}</td><td className="p-1">{er.reason}</td><td className="p-1">{er.rawValue}</td><td className="p-1">{er.suggestedFix}</td></tr>)}</tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="p-2 bg-gray-100 font-bold uppercase">Data migration is currently running. Please wait until it completes or cancel the migration.</div>
+                            <div className="flex justify-end gap-2">
+                                {migrationProgress.status === 'Processing' ? (
+                                    <button onClick={() => setShowCancelConfirm(true)} className="px-4 py-2 bg-red-700 text-white font-black uppercase text-[11px]">Cancel Migration</button>
+                                ) : (
+                                    <>
+                                        <button onClick={() => setMigrationProgress(null)} className="px-4 py-2 border font-black uppercase text-[11px]">Close</button>
+                                        <button onClick={() => setMigrationRunLog(prev => [...prev])} className="px-4 py-2 bg-primary text-white font-black uppercase text-[11px]">Refresh Migration Run Log</button>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                    {showCancelConfirm && (
+                        <div className="fixed inset-0 z-[140] bg-black/60 flex items-center justify-center">
+                            <div className="bg-white border-2 border-primary p-4 w-full max-w-md">
+                                <div className="font-black uppercase mb-2">Do you want to cancel this migration?</div>
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={() => setShowCancelConfirm(false)} className="px-4 py-2 border text-xs font-black uppercase">No</button>
+                                    <button onClick={() => { cancelRequestedRef.current = true; setShowCancelConfirm(false); }} className="px-4 py-2 bg-red-700 text-white text-xs font-black uppercase">Yes</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
@@ -731,27 +1004,7 @@ const MappingImportPreviewModal = ({ isOpen, onClose, onSave, data, distributors
         </div>
         <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
             <button onClick={onClose} className="px-4 py-2 border">Cancel</button>
-            <button onClick={() => {
-                const resolved = data.map((d: any) => {
-                    const dist = distributors.find((s: any) => fuzzyMatch(s.name, d.supplier_id));
-                    const med = medicines.find((m: any) => fuzzyMatch(m.name, d.master_medicine_id));
-                    
-                    if (!dist || !med) return null;
-
-                    const existing = (mappings || []).find((em: any) => 
-                        em.supplier_id === dist.id && 
-                        em.supplier_product_name.toLowerCase().trim() === d.supplier_product_name.toLowerCase().trim()
-                    );
-
-                    return { 
-                        ...d, 
-                        supplier_id: dist.id, 
-                        master_medicine_id: med.id,
-                        id: existing ? existing.id : crypto.randomUUID() 
-                    } as SupplierProductMap;
-                }).filter(Boolean);
-                onSave(resolved);
-            }} className="px-6 py-2 bg-primary text-white font-black uppercase text-xs">Import Rules</button>
+            <button onClick={() => onSave(data)} className="px-6 py-2 bg-primary text-white font-black uppercase text-xs">Import Rules</button>
         </div>
     </Modal>
 );
