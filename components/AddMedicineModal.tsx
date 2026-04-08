@@ -204,7 +204,7 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
 
                             <div className="bg-gray-50 p-4 border border-gray-200">
                                 <p className="text-[11px] font-black text-primary uppercase tracking-widest mb-4">Pricing & Taxes</p>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">GST Rate (%)</label>
                                         <select name="gstRate" value={formState.gstRate} onChange={handleChange} className="w-full p-2 border border-gray-400 font-bold text-sm bg-white outline-none">
@@ -216,7 +216,6 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
                                         </select>
                                     </div>
                                     {renderInput('hsnCode', 'HSN Code')}
-                                    {renderInput('mrp', 'MRP (Text)', 'text', true, "0")}
                                 </div>
                             </div>
 

@@ -276,19 +276,15 @@ const App: React.FC = () => {
     const syncInventoryItemWithMaterialMaster = useCallback((item: InventoryItem, material?: Medicine): InventoryItem => {
         if (!material) return item;
         const syncedPack = (material.pack || '').trim() || (item.packType || '').trim();
-        const syncedMrp = parseMrpNumber(material.mrp);
         return {
             ...item,
             packType: syncedPack,
             unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(syncedPack) ?? item.unitsPerPack, syncedPack),
             gstPercent: Number(material.gstRate ?? item.gstPercent ?? 0),
             hsnCode: material.hsnCode || '',
-            mrp: syncedMrp,
-            rateA: Number(material.rateA || item.rateA || 0),
-            rateB: Number(material.rateB || item.rateB || 0),
-            rateC: Number(material.rateC || item.rateC || 0),
+            // MRP and Rates are now strictly batch-dependent and NOT synced from Master
         };
-    }, [parseMrpNumber]);
+    }, []);
 
     const syncInventoryFromMaterialMaster = useCallback((items: InventoryItem[], meds: Medicine[]) => {
         const medicineByCode = new Map<string, Medicine>();
@@ -1062,10 +1058,7 @@ const App: React.FC = () => {
                 pack: nextPack,
                 gstRate: nextGstRate,
                 hsnCode: nextHsnCode,
-                mrp: newMrp.toFixed(2),
-                rateA: Number(updatedItem.rateA || 0),
-                rateB: Number(updatedItem.rateB || 0),
-                rateC: Number(updatedItem.rateC || 0),
+                // MRP and Rates are strictly batch-dependent and NOT synced back to Master
             };
 
             const today = new Date().toISOString().slice(0, 10);
@@ -1073,23 +1066,9 @@ const App: React.FC = () => {
                 if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
                 return {
                     ...record,
-                    mrp: newMrp,
-                    rateA: Number(updatedItem.rateA || 0),
-                    rateB: Number(updatedItem.rateB || 0),
-                    rateC: Number(updatedItem.rateC || 0),
+                    // Identity sync only, price propagation removed
                     lastUpdatedBy: currentUser.full_name || currentUser.email,
                     lastUpdatedOn: new Date().toISOString(),
-                    auditTrail: [
-                        ...(record.auditTrail || []),
-                        {
-                            changedAt: new Date().toISOString(),
-                            changedBy: currentUser.full_name || currentUser.email,
-                            sourceModule: 'Inventory' as const,
-                            field: 'mrp_rate_sync',
-                            oldValue: `MRP:${record.mrp} RateA:${record.rateA} RateB:${record.rateB} RateC:${record.rateC}`,
-                            newValue: `MRP:${newMrp} RateA:${Number(updatedItem.rateA || 0)} RateB:${Number(updatedItem.rateB || 0)} RateC:${Number(updatedItem.rateC || 0)}`
-                        }
-                    ]
                 };
             });
 
@@ -1103,45 +1082,6 @@ const App: React.FC = () => {
             
             // 2. Update local state immediately
             setMedicines(prev => prev.map(m => m.id === finalMaterialMaster.id ? finalMaterialMaster : m));
-
-            // 3. Propagate to ALL other batches sharing this Material Code
-            const otherBatches = inventory.filter(i => i.id !== updatedItem.id && normalizeCode(i.code) === normalizedCode);
-            if (otherBatches.length > 0) {
-                await Promise.all(
-                    otherBatches.map(batch => 
-                        storage.saveData('inventory', {
-                            ...batch,
-                            packType: updatedItem.packType,
-                            unitsPerPack: updatedItem.unitsPerPack,
-                            gstPercent: updatedItem.gstPercent,
-                            hsnCode: updatedItem.hsnCode,
-                            mrp: updatedItem.mrp,
-                            rateA: updatedItem.rateA,
-                            rateB: updatedItem.rateB,
-                            rateC: updatedItem.rateC,
-                        }, currentUser, true)
-                    )
-                );
-            }
-
-            // 4. Force local inventory state to align for all batches
-            setInventory(prev => prev.map(item => {
-                const itemCode = normalizeCode(item.code);
-                if (itemCode && itemCode === normalizedCode) {
-                    return {
-                        ...item,
-                        packType: updatedItem.packType,
-                        unitsPerPack: updatedItem.unitsPerPack,
-                        gstPercent: updatedItem.gstPercent,
-                        hsnCode: updatedItem.hsnCode,
-                        mrp: updatedItem.mrp,
-                        rateA: updatedItem.rateA,
-                        rateB: updatedItem.rateB,
-                        rateC: updatedItem.rateC,
-                    };
-                }
-                return item;
-            }));
 
             if (Math.abs(oldMrp - newMrp) >= 0.0001) {
                 await createMrpChangeLog(
@@ -1189,7 +1129,6 @@ const App: React.FC = () => {
 
         const linkedInventoryItems = inventory.filter(isLinkedInventoryItem);
         if (linkedInventoryItems.length > 0) {
-            const nextMrp = newMrp;
             await Promise.all(
                 linkedInventoryItems.map(item =>
                     storage.saveData('inventory', {
@@ -1203,10 +1142,7 @@ const App: React.FC = () => {
                         hsnCode: updatedMedicine.hsnCode || '',
                         description: updatedMedicine.description || '',
                         gstPercent: Number(updatedMedicine.gstRate ?? 0),
-                        mrp: nextMrp,
-                        rateA: Number(updatedMedicine.rateA || 0),
-                        rateB: Number(updatedMedicine.rateB || 0),
-                        rateC: Number(updatedMedicine.rateC || 0),
+                        // Batch-specific pricing remains untouched
                         packType: updatedPack,
                         unitsPerPack: inferredUnitsPerPack,
                     }, currentUser, true)
@@ -1226,10 +1162,6 @@ const App: React.FC = () => {
                         hsnCode: updatedMedicine.hsnCode || '',
                         description: updatedMedicine.description || '',
                         gstPercent: Number(updatedMedicine.gstRate ?? 0),
-                        mrp: nextMrp,
-                        rateA: Number(updatedMedicine.rateA || 0),
-                        rateB: Number(updatedMedicine.rateB || 0),
-                        rateC: Number(updatedMedicine.rateC || 0),
                         packType: updatedPack,
                         unitsPerPack: inferredUnitsPerPack,
                     }

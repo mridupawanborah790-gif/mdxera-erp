@@ -146,7 +146,21 @@ const ManualPurchase = React.forwardRef<any, ManualPurchaseProps>(({
     setSearchText('');
   };
 
+  const handleDeleteRow = (id: string, index: number) => {
+    setLines((prev) => {
+      const newLines = prev.filter((line) => line.id !== id);
+      if (newLines.length === 0) return [newLine()];
+      return newLines;
+    });
+  };
+
   const handleRowNavigation = (e: React.KeyboardEvent<HTMLInputElement>, id: string) => {
+    if (e.key === 'Delete') {
+      e.preventDefault();
+      const index = lines.findIndex(l => l.id === id);
+      handleDeleteRow(id, index);
+      return;
+    }
     const fieldOrder = ['qty', 'rate', 'discount', 'tax'];
     const fieldId = e.currentTarget.id;
     const fieldIndex = fieldOrder.findIndex((f) => fieldId.startsWith(`${f}-`));
@@ -451,7 +465,14 @@ const ManualPurchase = React.forwardRef<any, ManualPurchaseProps>(({
             <tbody>
               {lines.map((line, i) => (
                 <tr key={line.id} className={`border-b border-gray-200 h-10 text-xs font-bold uppercase transition-all ${activeRowId === line.id ? 'bg-primary text-white shadow-md' : 'hover:bg-primary hover:text-white group'}`}>
-                  <td className={`p-2 border-r border-gray-200 text-center ${activeRowId === line.id ? 'text-white' : 'text-gray-500 group-hover:text-white'}`}>{i + 1}</td>
+                  <td 
+                    className={`p-2 border-r border-gray-200 text-center cursor-pointer hover:bg-red-600 hover:text-white transition-colors group/del ${activeRowId === line.id ? 'text-white' : 'text-gray-500 group-hover:text-white'}`}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteRow(line.id, i); }}
+                    title="Click to delete this line item"
+                  >
+                    <span className="group-hover/del:hidden">{i + 1}</span>
+                    <span className="hidden group-hover/del:inline">✕</span>
+                  </td>
                   <td className="p-2 border-r border-gray-200">
                     <input className={`w-full bg-transparent outline-none ${activeRowId === line.id ? 'text-white placeholder:text-white/50' : 'group-hover:text-white group-hover:placeholder:text-white/50'}`} value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })} onFocus={() => setActiveRowId(line.id)} placeholder="Item description" />
                   </td>

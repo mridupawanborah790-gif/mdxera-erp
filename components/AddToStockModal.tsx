@@ -59,7 +59,9 @@ const AddToStockModal: React.FC<AddToStockModalProps> = ({ isOpen, onClose, medi
     const [purchasePrice, setPurchasePrice] = useState(0);
     const [priceUnit, setPriceUnit] = useState<'pack' | 'unit'>('pack');
     const [mrp, setMrp] = useState(0);
-    const [saleRate, setSaleRate] = useState(0);
+    const [rateA, setRateA] = useState(0);
+    const [rateB, setRateB] = useState(0);
+    const [rateC, setRateC] = useState(0);
     const [qtyPacks, setQtyPacks] = useState(0);
     const [qtyLoose, setQtyLoose] = useState(0);
     const [batchNo, setBatchNo] = useState('');
@@ -100,7 +102,9 @@ const AddToStockModal: React.FC<AddToStockModalProps> = ({ isOpen, onClose, medi
             setPurchasePrice(0);
             setPriceUnit('pack');
             setMrp(0);
-            setSaleRate(0);
+            setRateA(0);
+            setRateB(0);
+            setRateC(0);
             setQtyPacks(1); // Default to 1 pack
             setQtyLoose(0);
             setBatchNo('');
@@ -180,6 +184,9 @@ const AddToStockModal: React.FC<AddToStockModalProps> = ({ isOpen, onClose, medi
             freeQuantity: 0,
             purchasePrice: priceUnit === 'pack' ? purchasePrice : purchasePrice * unitsPerPack,
             mrp: mrp,
+            rateA: rateA,
+            rateB: rateB,
+            rateC: rateC,
             gstPercent: gstPercent,
             hsnCode: hsnCode,
             discountPercent: 0,
@@ -290,7 +297,9 @@ const AddToStockModal: React.FC<AddToStockModalProps> = ({ isOpen, onClose, medi
                                 {errors.purchasePrice && <p className="mt-1 text-xs text-red-500">{errors.purchasePrice}</p>}
                             </div>
                             <InputField label="MRP" name="mrp" type="number" min={0} step={0.01} value={mrp} onChange={e => setMrp(parseFloat(e.target.value) || 0)} />
-                            <InputField label="Sale Rate" name="saleRate" type="number" min={0} step={0.01} value={saleRate} onChange={e => setSaleRate(parseFloat(e.target.value) || 0)} />
+                            <InputField label="Rate A" name="rateA" type="number" min={0} step={0.01} value={rateA} onChange={e => setRateA(parseFloat(e.target.value) || 0)} />
+                            <InputField label="Rate B" name="rateB" type="number" min={0} step={0.01} value={rateB} onChange={e => setRateB(parseFloat(e.target.value) || 0)} />
+                            <InputField label="Rate C" name="rateC" type="number" min={0} step={0.01} value={rateC} onChange={e => setRateC(parseFloat(e.target.value) || 0)} />
                         </fieldset>
                          {/* Summary Section */}
                         <fieldset className="p-4 border rounded-lg bg-hover/50">

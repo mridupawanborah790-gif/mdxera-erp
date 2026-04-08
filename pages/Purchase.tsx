@@ -453,6 +453,26 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         items
     }));
 
+    const handleDeleteRow = useCallback((id: string, index: number) => {
+        if (isReadOnly) return;
+
+        setItems(prev => {
+            const newItems = prev.filter(item => item.id !== id);
+            if (newItems.length === 0) return [createBlankItem()];
+
+            const nextFocusIdx = index < newItems.length ? index : newItems.length - 1;
+            const itemToFocus = newItems[nextFocusIdx];
+            if (itemToFocus) {
+                setTimeout(() => {
+                    const qtyInput = document.getElementById(`qty-p-${itemToFocus.id}`) || document.getElementById(`qty-l-${itemToFocus.id}`);
+                    qtyInput?.focus();
+                    if (qtyInput instanceof HTMLInputElement) qtyInput.select();
+                }, 10);
+            }
+            return newItems;
+        });
+    }, [isReadOnly]);
+
     const handleUpdateItem = (id: string, field: keyof PurchaseItem, value: any) => {
         if (isReadOnly || !supplier.trim()) return;
         setItems(prev => {
@@ -463,9 +483,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             if (field === 'expiry') {
                 updatedItem.expiry = normalizeExpiryInput(String(value).toUpperCase());
             }
+            const wasEmpty = !prev[index].name && !prev[index].inventoryItemId;
             const updated = prev.map(p => p.id === id ? updatedItem : p);
             // Fix: createBlankItem now defined
-            if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1) return [...updated, createBlankItem()];
+            if (field === 'name' && (value || '').trim() !== '' && index === prev.length - 1 && wasEmpty) return [...updated, createBlankItem()];
             return updated;
         });
     };
@@ -667,7 +688,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         style={activeRowId === p.id ? { backgroundColor: '#004242', color: 'white' } : {}}
                                         className={`group h-10 transition-colors ${activeRowId === p.id ? 'shadow-md' : 'hover:bg-primary hover:text-white'}`}
                                     >
-                                        <td className={`p-1 border-r border-gray-200 font-bold text-center ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white text-gray-400'}`}>{idx + 1}</td>
+                                        <td 
+                                            className={`p-1 border-r border-gray-200 font-bold text-center cursor-pointer hover:bg-red-600 hover:text-white transition-colors group/del ${activeRowId === p.id ? 'text-white' : 'text-gray-400 group-hover:text-white'}`}
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteRow(p.id, idx); }}
+                                            title="Click to delete this line item"
+                                        >
+                                            <span className="group-hover/del:hidden">{idx + 1}</span>
+                                            <span className="hidden group-hover/del:inline">✕</span>
+                                        </td>
                                         <td className={`p-1 border-r border-gray-200 font-bold uppercase relative ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white text-primary'}`}>
                                             <input 
                                                 type="text" 
@@ -684,7 +712,23 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                         <td className="p-1 border-r border-gray-200 text-center font-mono text-[10px] uppercase"><input type="text" id={`batch-${p.id}`} value={p.batch} onChange={e => handleUpdateItem(p.id, 'batch', e.target.value.toUpperCase())} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent outline-none ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} /></td>
                                         <td className="p-1 border-r border-gray-200 text-center text-[10px]"><input type="text" id={`expiry-${p.id}`} value={p.expiry} maxLength={5} inputMode="numeric" pattern="(0[1-9]|1[0-2])\/\d{2}" placeholder="MM/YY" title="Enter expiry as MM/YY" onChange={e => handleUpdateItem(p.id, 'expiry', e.target.value)} onBlur={e => handleExpiryBlur(p.id, e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent outline-none ${activeRowId === p.id ? 'text-white placeholder:text-white/50' : 'group-hover:text-white'}`} /></td>
                                         <td className="p-1 border-r border-gray-400 text-right text-[11px] font-mono whitespace-nowrap"><input type="number" id={`mrp-${p.id}`} value={p.mrp || ''} onChange={e => handleUpdateItem(p.id, 'mrp', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-right bg-transparent outline-none no-spinner ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} /></td>
-                                        {showPackQty && <td className="p-1 border-r border-gray-400 text-center font-black"><input type="number" id={`qty-p-${p.id}`} value={p.quantity || ''} onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} /></td>}
+                                        {showPackQty && <td className="p-1 border-r border-gray-400 text-center font-black">
+                                            <input 
+                                                type="number" 
+                                                id={`qty-p-${p.id}`} 
+                                                value={p.quantity || ''} 
+                                                onChange={e => handleUpdateItem(p.id, 'quantity', e.target.value)} 
+                                                onFocus={() => setActiveRowId(p.id)} 
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Delete') {
+                                                        e.preventDefault();
+                                                        const idx = items.findIndex(item => item.id === p.id);
+                                                        handleDeleteRow(p.id, idx);
+                                                    }
+                                                }}
+                                                className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} 
+                                            />
+                                        </td>}
                                         {showLooseQty && <td className="p-1 border-r border-gray-400 text-center font-black"><input type="number" id={`qty-l-${p.id}`} value={p.looseQuantity || ''} onChange={e => handleUpdateItem(p.id, 'looseQuantity', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'group-hover:text-white'}`} /></td>}
                                         <td className="p-1 border-r border-gray-400 text-center font-bold"><input type="number" value={p.freeQuantity || ''} onChange={e => handleUpdateItem(p.id, 'freeQuantity', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-center bg-transparent no-spinner outline-none font-mono ${activeRowId === p.id ? 'text-white' : 'text-emerald-600 group-hover:text-white'}`} /></td>
                                         <td className="p-1 border-r border-gray-400 text-right font-bold"><input type="number" id={`rate-${p.id}`} value={p.purchasePrice || ''} onChange={e => handleUpdateItem(p.id, 'purchasePrice', e.target.value)} onFocus={() => setActiveRowId(p.id)} className={`w-full text-right bg-transparent outline-none no-spinner font-mono ${activeRowId === p.id ? 'text-white' : 'text-blue-900 group-hover:text-white'}`} /></td>
