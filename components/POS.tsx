@@ -1889,6 +1889,19 @@ const POS = forwardRef<any, POSProps>(({
                             <tbody className="divide-y divide-gray-200">
                                 {cartItems.map((item, idx) => {
                                     const lineAmount = calculateLineNetAmount(item, configurations, currentUser?.organization_type, localPricingMode);
+                                    
+                                    const invItem = inventory.find(i => i.id === item.inventoryItemId);
+                                    let rowIssue = null;
+                                    if (invItem) {
+                                        const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
+                                        const requiredUnits = (Number(item.quantity || 0) * (unitsPerPack || 1)) + Number(item.looseQuantity || 0);
+                                        if (invItem.stock < requiredUnits) {
+                                            rowIssue = {
+                                                available: invItem.stock,
+                                                required: requiredUnits
+                                            };
+                                        }
+                                    }
 
                                     return (
                                         <tr 
