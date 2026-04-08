@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import type { Customer, InventoryItem, Medicine, RegisteredPharmacy, Supplier } from '../types';
 
 type MasterType = 'supplier' | 'customer' | 'material' | 'inventory';
@@ -71,6 +71,9 @@ const MasterDataMigrationWizard: React.FC<Props> = ({ currentUser, suppliers, cu
   const [logs, setLogs] = useState<string[]>([]);
   const [rollbackText, setRollbackText] = useState('');
   const [proceedConflict, setProceedConflict] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [cancelRequested, setCancelRequested] = useState(false);
+  const cancelMigrationRef = useRef(false);
 
   const sourceData: MasterBundle = { suppliers, customers, materials: medicines, inventory };
   const [targetByOrg, setTargetByOrg] = useState<Record<string, MasterBundle>>({
@@ -159,16 +162,27 @@ const MasterDataMigrationWizard: React.FC<Props> = ({ currentUser, suppliers, cu
     if (!canAdmin) return addNotification('Only Admin / Control Room users can run migration.', 'error');
     const hasErrors = validationIssues.some(i => i.level === 'Error');
     if (hasErrors) return addNotification('Fix validation errors before migration.', 'error');
+    if (isMigrating) return;
 
     const jobId = makeJobId();
     const jobItems: MigrationJobItem[] = [];
     const snapshots: Snapshot[] = [];
     const runtimeLogs: string[] = [];
     const nextTarget: MasterBundle = JSON.parse(JSON.stringify(targetData));
+    let cancelled = false;
+
+    setIsMigrating(true);
+    setCancelRequested(false);
+    cancelMigrationRef.current = false;
 
     const process = async <T extends { id: string }>(type: MasterType, sourceRows: T[], targetRows: T[], matcher: (s: T, t: T) => boolean, mutate: (s: T) => T) => {
       setProgress(p => ({ ...p, [type]: { done: 0, total: sourceRows.length } }));
+      let processedCount = 0;
       for (let i = 0; i < sourceRows.length; i++) {
+        if (cancelMigrationRef.current) {
+          cancelled = true;
+          break;
+        }
         const row = sourceRows[i];
         const idx = targetRows.findIndex(t => matcher(row, t));
         if (idx === -1) {
@@ -182,10 +196,12 @@ const MasterDataMigrationWizard: React.FC<Props> = ({ currentUser, suppliers, cu
         } else {
           jobItems.push({ table_name: type, source_id: row.id, target_id: targetRows[idx].id, action: 'skipped' });
         }
+        processedCount = i + 1;
         setProgress(p => ({ ...p, [type]: { done: i + 1, total: sourceRows.length } }));
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
-      runtimeLogs.push(`${type}: ${sourceRows.length} processed.`);
-      setLogs(l => [...l, `${type}: ${sourceRows.length} processed.`]);
+      runtimeLogs.push(`${type}: ${processedCount} of ${sourceRows.length} processed.`);
+      setLogs(l => [...l, `${type}: ${processedCount} of ${sourceRows.length} processed.`]);
     };
 
     const mats = selected.material ? sourceData.materials : [];
@@ -193,35 +209,59 @@ const MasterDataMigrationWizard: React.FC<Props> = ({ currentUser, suppliers, cu
     const custs = selected.customer ? sourceData.customers : [];
     const invs = selected.inventory ? sourceData.inventory : [];
 
-    await process('material', mats, nextTarget.materials, (s, t) => t.materialCode === s.materialCode || (!!t.barcode && t.barcode === s.barcode) || t.name.toLowerCase() === s.name.toLowerCase(), s => ({ ...s, id: makeId(targetOrg, 'MAT'), organization_id: targetOrg }));
-    await process('supplier', sups, nextTarget.suppliers, (s, t) => (!!s.gst_number && s.gst_number === t.gst_number) || (!!s.phone && (s.phone === t.phone || s.phone === t.mobile)) || s.name.toLowerCase() === t.name.toLowerCase(), s => ({ ...s, id: makeId(targetOrg, 'SUP'), organization_id: targetOrg }));
-    await process('customer', custs, nextTarget.customers, (s, t) => (!!s.phone && s.phone === t.phone) || s.name.toLowerCase() === t.name.toLowerCase(), s => ({ ...s, id: makeId(targetOrg, 'CUS'), organization_id: targetOrg }));
-    await process('inventory', invs, nextTarget.inventory, (s, t) => s.name.toLowerCase() === t.name.toLowerCase() && s.batch === t.batch && s.expiry === t.expiry, s => ({ ...s, id: makeId(targetOrg, 'INV'), organization_id: targetOrg }));
+    try {
+      await process('material', mats, nextTarget.materials, (s, t) => t.materialCode === s.materialCode || (!!t.barcode && t.barcode === s.barcode) || t.name.toLowerCase() === s.name.toLowerCase(), s => ({ ...s, id: makeId(targetOrg, 'MAT'), organization_id: targetOrg }));
+      if (cancelled) return addNotification('Migration cancelled by user.', 'warning');
+      await process('supplier', sups, nextTarget.suppliers, (s, t) => (!!s.gst_number && s.gst_number === t.gst_number) || (!!s.phone && (s.phone === t.phone || s.phone === t.mobile)) || s.name.toLowerCase() === t.name.toLowerCase(), s => ({ ...s, id: makeId(targetOrg, 'SUP'), organization_id: targetOrg }));
+      if (cancelled) return addNotification('Migration cancelled by user.', 'warning');
+      await process('customer', custs, nextTarget.customers, (s, t) => (!!s.phone && s.phone === t.phone) || s.name.toLowerCase() === t.name.toLowerCase(), s => ({ ...s, id: makeId(targetOrg, 'CUS'), organization_id: targetOrg }));
+      if (cancelled) return addNotification('Migration cancelled by user.', 'warning');
+      await process('inventory', invs, nextTarget.inventory, (s, t) => s.name.toLowerCase() === t.name.toLowerCase() && s.batch === t.batch && s.expiry === t.expiry, s => ({ ...s, id: makeId(targetOrg, 'INV'), organization_id: targetOrg }));
+      if (cancelled) return addNotification('Migration cancelled by user.', 'warning');
 
-    setTargetByOrg(prev => ({ ...prev, [targetOrg]: nextTarget }));
+      setTargetByOrg(prev => ({ ...prev, [targetOrg]: nextTarget }));
 
-    const created = jobItems.filter(i => i.action === 'created').length;
-    const updated = jobItems.filter(i => i.action === 'updated').length;
-    const skipped = jobItems.filter(i => i.action === 'skipped').length;
-    const job: MigrationJob = {
-      job_id: jobId,
-      source_org_id: sourceOrg,
-      target_org_id: targetOrg,
-      created_by: currentUser?.full_name || 'System',
-      created_at: new Date().toISOString(),
-      migration_type: 'master_data',
-      master_data_types: (Object.keys(selected) as MasterType[]).filter(k => selected[k]),
-      copy_mode: copyMode,
-      validation_status: 'Passed',
-      migration_status: 'Completed',
-      report: { total: jobItems.length, created, updated, skipped, failed: 0 },
-      items: jobItems,
-      snapshots,
-      logs: runtimeLogs
-    };
-    setJobs(prev => [job, ...prev]);
-    addNotification(`Migration completed. Job ID: ${jobId}`, 'success');
+      const created = jobItems.filter(i => i.action === 'created').length;
+      const updated = jobItems.filter(i => i.action === 'updated').length;
+      const skipped = jobItems.filter(i => i.action === 'skipped').length;
+      const job: MigrationJob = {
+        job_id: jobId,
+        source_org_id: sourceOrg,
+        target_org_id: targetOrg,
+        created_by: currentUser?.full_name || 'System',
+        created_at: new Date().toISOString(),
+        migration_type: 'master_data',
+        master_data_types: (Object.keys(selected) as MasterType[]).filter(k => selected[k]),
+        copy_mode: copyMode,
+        validation_status: 'Passed',
+        migration_status: 'Completed',
+        report: { total: jobItems.length, created, updated, skipped, failed: 0 },
+        items: jobItems,
+        snapshots,
+        logs: runtimeLogs
+      };
+      setJobs(prev => [job, ...prev]);
+      addNotification(`Migration completed. Job ID: ${jobId}`, 'success');
+    } finally {
+      setIsMigrating(false);
+      setCancelRequested(false);
+      cancelMigrationRef.current = false;
+    }
   };
+
+  const requestCancelMigration = () => {
+    if (!isMigrating) return;
+    setCancelRequested(true);
+    cancelMigrationRef.current = true;
+  };
+
+  const progressTotals = useMemo(() => {
+    const values = Object.values(progress);
+    const total = values.reduce((acc, p) => acc + p.total, 0);
+    const done = values.reduce((acc, p) => acc + p.done, 0);
+    const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    return { done, total, percent };
+  }, [progress]);
 
   const rollback = (job: MigrationJob) => {
     if (!canAdmin) return addNotification('Only Admin / Control Room users can rollback.', 'error');
@@ -256,6 +296,21 @@ const MasterDataMigrationWizard: React.FC<Props> = ({ currentUser, suppliers, cu
   return (
     <div className="space-y-5 p-4 border-2 border-primary/20 bg-primary/5">
       <h3 className="text-sm font-black uppercase tracking-widest">Master Data Copy & Migration Wizard</h3>
+      {(isMigrating || progressTotals.total > 0) && (
+        <div className="space-y-1 border bg-white p-2">
+          <div className="flex items-center justify-between text-[10px] font-black uppercase">
+            <span>Processing {progressTotals.done} of {progressTotals.total} records...</span>
+            <span>{progressTotals.percent}% Completed</span>
+          </div>
+          <div className="h-2 w-full bg-gray-200 overflow-hidden">
+            <div
+              className="h-full bg-green-600 transition-all duration-300 ease-out"
+              style={{ width: `${progressTotals.percent}%` }}
+            />
+          </div>
+          {cancelRequested && <div className="text-[10px] font-bold text-amber-700 uppercase">Cancelling migration...</div>}
+        </div>
+      )}
       {!canAdmin && <div className="text-[11px] text-red-700 font-bold uppercase">Restricted: Admin / ERP Control Room only.</div>}
       <div className="grid md:grid-cols-2 gap-4">
         <div><label className="text-[10px] font-black uppercase">Source Organization</label><select className="w-full tally-input" value={sourceOrg} onChange={e => setSourceOrg(e.target.value)}>{orgs.map(o => <option key={o}>{o}</option>)}</select></div>
@@ -277,7 +332,8 @@ const MasterDataMigrationWizard: React.FC<Props> = ({ currentUser, suppliers, cu
         <button onClick={runValidation} className="px-3 py-2 tally-button-primary text-[10px]">Run Validation</button>
         <button onClick={simulate} className="px-3 py-2 border text-[10px] font-black uppercase">Simulate Copy</button>
         <button onClick={downloadValidation} className="px-3 py-2 border text-[10px] font-black uppercase">Download Validation Report (CSV)</button>
-        <button onClick={upsertData} className="px-3 py-2 bg-green-700 text-white text-[10px] font-black uppercase">Start Data Migration</button>
+        <button onClick={upsertData} className="px-3 py-2 bg-green-700 text-white text-[10px] font-black uppercase" disabled={isMigrating}>Start Data Migration</button>
+        <button onClick={requestCancelMigration} className="px-3 py-2 border text-[10px] font-black uppercase" disabled={!isMigrating}>Cancel Migration</button>
       </div>
 
       <div className="grid md:grid-cols-5 gap-2 text-[10px] font-black uppercase">
