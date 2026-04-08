@@ -84,7 +84,6 @@ const TallyPrompt: React.FC<TallyPromptProps> = ({
   return createPortal(
     <div 
       className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-[1px] transition-all"
-      onMouseDown={onCancel}
     >
       <div 
         ref={containerRef}

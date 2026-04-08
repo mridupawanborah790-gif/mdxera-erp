@@ -248,11 +248,26 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
         }
     };
 
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+            }
+        };
+
+        window.addEventListener('keydown', handleEscape, true);
+        return () => window.removeEventListener('keydown', handleEscape, true);
+    }, [isOpen, onClose]);
+
     if (!isOpen) return null;
 
     return (
         createPortal(
-            <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+            <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                 <div 
                     className="w-full max-w-5xl bg-white dark:bg-gray-900 rounded-none shadow-[0_30px_70px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col md:flex-row animate-in zoom-in-95 duration-200 border border-white/10" 
                     onClick={e => e.stopPropagation()}

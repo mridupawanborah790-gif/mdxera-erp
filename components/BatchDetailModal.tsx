@@ -24,6 +24,21 @@ const BatchDetailModal: React.FC<BatchDetailModalProps> = ({ isOpen, onClose, it
         }
     }, [isOpen, item]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+            }
+        };
+
+        window.addEventListener('keydown', handleEscape, true);
+        return () => window.removeEventListener('keydown', handleEscape, true);
+    }, [isOpen, onClose]);
+
     if (!isOpen || !item) return null;
 
     const handleSave = () => {
@@ -64,7 +79,7 @@ const BatchDetailModal: React.FC<BatchDetailModalProps> = ({ isOpen, onClose, it
     };
 
     return createPortal(
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300 p-4" onClick={onClose}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300 p-4">
             <div 
                 className="w-full max-w-xl bg-white dark:bg-gray-900 rounded-none shadow-[0_20px_50px_rgba(0,0,0,0.3)] p-10 animate-in zoom-in-95 fade-in duration-300"
                 onClick={e => e.stopPropagation()}
