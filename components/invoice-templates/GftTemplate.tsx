@@ -87,7 +87,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
     const subtotalFromBill = computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax);
     const totalTaxFromBill = isNonGst ? 0 : computedBillTotals.tax;
-    const grandTotal = computedBillTotals.baseTotal;
+    const grandTotal = bill.total || 0;
 
     const tradeDiscount = computedBillTotals.tradeDiscount || 0;
     const schemeDiscount = computedBillTotals.schemeTotal || 0;

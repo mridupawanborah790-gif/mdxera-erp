@@ -80,7 +80,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
     });
 
     const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
-    const grandTotal = computedBillTotals.baseTotal;
+    const grandTotal = bill.total || 0;
 
     return { items, subtotal: computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax), totalGst: (isNonGst ? 0 : computedBillTotals.tax), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal };
   }, [bill, isNonGst, computedBillTotals]);
@@ -162,7 +162,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
 
       <div className="border-t border-b border-dashed border-black mt-1 py-0.5 flex justify-between text-[11px] font-bold">
         <span>TOTAL</span>
-        <span>{Math.round(bill.total).toFixed(2)}</span>
+        <span>{(bill.total || 0).toFixed(2)}</span>
       </div>
 
       <div className="text-[9px] mt-1">

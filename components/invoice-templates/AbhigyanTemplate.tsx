@@ -85,7 +85,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
     const billDiscount = bill.schemeDiscount || 0;
     const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
     const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
-    const grandTotal = computedBillTotals.baseTotal;
+    const grandTotal = bill.total || 0;
 
     return { items, itemChunks, subTotalTaxable: computedBillTotals.taxableValue, gstSummary, subTotal, totalTax, billDiscount, adjustment, roundOff, grandTotal };
   }, [bill, isNonGst, computedBillTotals]);
