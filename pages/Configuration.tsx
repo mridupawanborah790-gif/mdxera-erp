@@ -150,7 +150,7 @@ function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, c
     );
 }
 
-const MedicineMasterImportPreviewModal = ({ isOpen, onClose, onSave, data }: any) => (
+const MedicineMasterImportPreviewModal = ({ isOpen, onClose, onSave, data, isSaving = false }: any) => (
     <Modal isOpen={isOpen} onClose={onClose} title="Material Master Preview" widthClass="max-w-5xl">
         <div className="p-4 overflow-auto max-h-[70vh]">
             <table className="min-w-full text-xs">
@@ -160,11 +160,11 @@ const MedicineMasterImportPreviewModal = ({ isOpen, onClose, onSave, data }: any
                 </tbody>
             </table>
         </div>
-        <div className="p-4 border-t flex justify-end gap-2 bg-gray-50"><button onClick={onClose} className="px-4 py-2 border">Cancel</button><button onClick={() => onSave(data)} className="px-6 py-2 bg-primary text-white font-black uppercase text-xs">Import {data.length} Materials</button></div>
+        <div className="p-4 border-t flex justify-end gap-2 bg-gray-50"><button onClick={onClose} disabled={isSaving} className="px-4 py-2 border disabled:opacity-50">Cancel</button><button onClick={() => onSave(data)} disabled={isSaving} className="px-6 py-2 bg-primary text-white font-black uppercase text-xs disabled:opacity-50">{isSaving ? 'Processing…' : `Import ${data.length} Materials`}</button></div>
     </Modal>
 );
 
-const MappingImportPreviewModal = ({ isOpen, onClose, onSave, data, distributors, medicines, mappings }: any) => (
+const MappingImportPreviewModal = ({ isOpen, onClose, onSave, data, distributors, medicines, mappings, isSaving = false }: any) => (
     <Modal isOpen={isOpen} onClose={onClose} title="Nomenclature Rule Preview" widthClass="max-w-4xl">
         <div className="p-4 overflow-auto max-h-[70vh]">
             <table className="min-w-full text-xs">
@@ -181,7 +181,7 @@ const MappingImportPreviewModal = ({ isOpen, onClose, onSave, data, distributors
             </table>
         </div>
         <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
-            <button onClick={onClose} className="px-4 py-2 border">Cancel</button>
+            <button onClick={onClose} disabled={isSaving} className="px-4 py-2 border disabled:opacity-50">Cancel</button>
             <button onClick={() => {
                 const resolved = data.map((d: any) => {
                     const dist = distributors.find((s: any) => fuzzyMatch(s.name, d.supplier_id));
@@ -202,7 +202,7 @@ const MappingImportPreviewModal = ({ isOpen, onClose, onSave, data, distributors
                     } as SupplierProductMap;
                 }).filter(Boolean);
                 onSave(resolved);
-            }} className="px-6 py-2 bg-primary text-white font-black uppercase text-xs">Import Rules</button>
+            }} disabled={isSaving} className="px-6 py-2 bg-primary text-white font-black uppercase text-xs disabled:opacity-50">{isSaving ? 'Processing…' : 'Import Rules'}</button>
         </div>
     </Modal>
 );
@@ -323,6 +323,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     const [migrationModule, setMigrationModule] = useState<string>('');
     const [migrationStats, setMigrationStats] = useState({ totalRows: 0, processed: 0, imported: 0, updated: 0, skipped: 0, failed: 0 });
     const [migrationStatus, setMigrationStatus] = useState<'Processing…' | 'Completed' | 'Cancelled'>('Processing…');
+    const [isMigrationInitializing, setIsMigrationInitializing] = useState(false);
     const cancelMigrationRef = useRef(false);
 
     useEffect(() => () => onMigrationLockChange?.(false), [onMigrationLockChange]);
@@ -647,13 +648,19 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     };
 
     const runManagedMigration = async (type: string, rows: any[], saver: (chunk: any[]) => any, successMessage: string) => {
-        if (!rows.length) return;
+        if (!rows.length || isMigrationRunning || isMigrationInitializing) return;
+        setIsMigrationInitializing(true);
         setIsMigrationRunning(true);
         onMigrationLockChange?.(true);
         setMigrationModule(type);
         setMigrationStatus('Processing…');
         setMigrationStats({ totalRows: rows.length, processed: 0, imported: 0, updated: 0, skipped: 0, failed: 0 });
         cancelMigrationRef.current = false;
+        setImportType(null);
+        setPreviewData([]);
+
+        // Ensure progress popup renders before any save work begins.
+        await new Promise(resolve => setTimeout(resolve, 0));
 
         const CHUNK_SIZE = 50;
         let processed = 0;
@@ -662,34 +669,36 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         let skipped = 0;
         let failed = 0;
 
-        for (let idx = 0; idx < rows.length; idx += CHUNK_SIZE) {
-            if (cancelMigrationRef.current) break;
-            const chunk = rows.slice(idx, idx + CHUNK_SIZE);
-            chunk.forEach(row => {
-                const action = classifyAction(type, row);
-                if (action === 'imported') imported += 1;
-                if (action === 'updated') updated += 1;
-                if (action === 'skipped') skipped += 1;
-            });
-            try {
-                await Promise.resolve(saver(chunk));
-            } catch {
-                failed += chunk.length;
-                imported = Math.max(0, imported - chunk.length);
+        try {
+            for (let idx = 0; idx < rows.length; idx += CHUNK_SIZE) {
+                if (cancelMigrationRef.current) break;
+                const chunk = rows.slice(idx, idx + CHUNK_SIZE);
+                chunk.forEach(row => {
+                    const action = classifyAction(type, row);
+                    if (action === 'imported') imported += 1;
+                    if (action === 'updated') updated += 1;
+                    if (action === 'skipped') skipped += 1;
+                });
+                try {
+                    await Promise.resolve(saver(chunk));
+                } catch {
+                    failed += chunk.length;
+                    imported = Math.max(0, imported - chunk.length);
+                }
+                processed += chunk.length;
+                setMigrationStats({ totalRows: rows.length, processed, imported, updated, skipped, failed });
+                await new Promise(resolve => setTimeout(resolve, 10));
             }
-            processed += chunk.length;
-            setMigrationStats({ totalRows: rows.length, processed, imported, updated, skipped, failed });
-            await new Promise(resolve => setTimeout(resolve, 10));
-        }
 
-        const wasCancelled = cancelMigrationRef.current;
-        setMigrationStatus(wasCancelled ? 'Cancelled' : 'Completed');
-        const summary = `Total: ${rows.length}, Processed: ${processed}, Imported: ${imported}, Updated: ${updated}, Skipped: ${skipped}, Failed: ${failed}`;
-        addNotification(wasCancelled ? `Migration cancelled. ${summary}` : `${successMessage} ${summary}`, wasCancelled ? 'warning' : 'success');
-        setImportType(null);
-        setPreviewData([]);
-        setIsMigrationRunning(false);
-        onMigrationLockChange?.(false);
+            const wasCancelled = cancelMigrationRef.current;
+            setMigrationStatus(wasCancelled ? 'Cancelled' : 'Completed');
+            const summary = `Total: ${rows.length}, Processed: ${processed}, Imported: ${imported}, Updated: ${updated}, Skipped: ${skipped}, Failed: ${failed}`;
+            addNotification(wasCancelled ? `Migration cancelled. ${summary}` : `${successMessage} ${summary}`, wasCancelled ? 'warning' : 'success');
+        } finally {
+            setIsMigrationInitializing(false);
+            setIsMigrationRunning(false);
+            onMigrationLockChange?.(false);
+        }
     };
 
 
@@ -1484,19 +1493,23 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
             </div>
 
             {/* Import Previews */}
-            {importType === 'inventory' && previewData.length > 0 && <ImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning) { setImportType(null); setPreviewData([]); } }} onSave={() => void runManagedMigration('inventory', previewData, onBulkAddInventory, 'Inventory migration completed.')} data={previewData} />}
-            {importType === 'suppliers' && previewData.length > 0 && <DistributorImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('suppliers', d, onBulkAddDistributors, 'Supplier migration completed.')} data={previewData} />}
-            {importType === 'customers' && previewData.length > 0 && <CustomerImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('customers', d, onBulkAddCustomers, 'Customer migration completed.')} data={previewData} />}
-            {importType === 'purchases' && previewData.length > 0 && <PurchaseBillImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('purchases', d, onBulkAddPurchases, 'Purchase migration completed.')} data={previewData} inventory={inventory} distributors={distributors} />}
-            {importType === 'sales' && previewData.length > 0 && <SalesBillImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('sales', d, onBulkAddSales, 'Sales migration completed.')} data={previewData} inventory={inventory} customers={customers} />}
-            {importType === 'master' && previewData.length > 0 && <MedicineMasterImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('master', d, onBulkAddMedicines, 'Material master migration completed.')} data={previewData} />}
-            {importType === 'nomenclature' && previewData.length > 0 && <MappingImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('nomenclature', d, onBulkAddMappings, 'Vendor sync migration completed.')} data={previewData} distributors={distributors} medicines={medicines} mappings={mappings} />}
+            {importType === 'inventory' && previewData.length > 0 && <ImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={() => void runManagedMigration('inventory', previewData, onBulkAddInventory, 'Inventory migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} />}
+            {importType === 'suppliers' && previewData.length > 0 && <DistributorImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('suppliers', d, onBulkAddDistributors, 'Supplier migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} />}
+            {importType === 'customers' && previewData.length > 0 && <CustomerImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('customers', d, onBulkAddCustomers, 'Customer migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} />}
+            {importType === 'purchases' && previewData.length > 0 && <PurchaseBillImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('purchases', d, onBulkAddPurchases, 'Purchase migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} inventory={inventory} distributors={distributors} />}
+            {importType === 'sales' && previewData.length > 0 && <SalesBillImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('sales', d, onBulkAddSales, 'Sales migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} inventory={inventory} customers={customers} />}
+            {importType === 'master' && previewData.length > 0 && <MedicineMasterImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('master', d, onBulkAddMedicines, 'Material master migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} />}
+            {importType === 'nomenclature' && previewData.length > 0 && <MappingImportPreviewModal isOpen={!!importType} onClose={() => { if (!isMigrationRunning && !isMigrationInitializing) { setImportType(null); setPreviewData([]); } }} onSave={(d: any) => void runManagedMigration('nomenclature', d, onBulkAddMappings, 'Vendor sync migration completed.')} isSaving={isMigrationRunning || isMigrationInitializing} data={previewData} distributors={distributors} medicines={medicines} mappings={mappings} />}
             {(isMigrationRunning || migrationStatus !== 'Processing…') && migrationStats.totalRows > 0 && (
                 <div className="fixed inset-0 z-[120] bg-black/60 flex items-center justify-center p-4">
                     <div className="w-full max-w-2xl bg-white border-2 border-primary shadow-2xl">
                         <div className="px-4 py-3 bg-primary text-white text-xs font-black uppercase tracking-widest">Migration Progress - {migrationModule}</div>
                         <div className="p-4 space-y-4">
-                            <p className="text-[11px] font-black uppercase text-yellow-700">Migration in progress. Please wait or cancel.</p>
+                            {migrationStats.processed === 0 && isMigrationRunning ? (
+                                <div className="text-[11px] font-black uppercase text-yellow-700 animate-pulse">Initializing migration…</div>
+                            ) : (
+                                <p className="text-[11px] font-black uppercase text-yellow-700">Migration in progress. Please wait or cancel.</p>
+                            )}
                             <div className="w-full h-4 border border-gray-300 bg-gray-100">
                                 <div className="h-full bg-primary transition-all" style={{ width: `${Math.min(100, Math.round((migrationStats.processed / Math.max(migrationStats.totalRows, 1)) * 100))}%` }} />
                             </div>
