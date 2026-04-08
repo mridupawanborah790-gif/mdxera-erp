@@ -98,6 +98,8 @@ const App: React.FC = () => {
     const [isAppLoading, setIsAppLoading] = useState(true);
     const [isReloading, setIsReloading] = useState(false);
     const [isMigrationLocked, setIsMigrationLocked] = useState(false);
+    const [migrationUiState, setMigrationUiState] = useState<{ active: boolean; minimized: boolean; module: string; progressPercent: number; status: 'Processing…' | 'Completed' | 'Cancelled' }>({ active: false, minimized: false, module: '', progressPercent: 0, status: 'Processing…' });
+    const [migrationPopupToken, setMigrationPopupToken] = useState(0);
     const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
     const [isRealtimeActive, setIsRealtimeActive] = useState(false);
 
@@ -641,10 +643,6 @@ const App: React.FC = () => {
     }, [currentUser, loadData]);
 
     const handleNavigate = useCallback((pageId: string, skipPrompt = false) => {
-        if (isMigrationLocked) {
-            addNotification('Migration in progress. Please wait or cancel.', 'warning');
-            return;
-        }
         const isDailyReportLink = pageId.startsWith('dailyReports:');
         const resolvedPageId = isDailyReportLink ? 'dailyReports' : pageId;
 
@@ -672,7 +670,7 @@ const App: React.FC = () => {
         if (resolvedPageId !== 'pos' && resolvedPageId !== 'nonGstPos') {
             setEditingSale(null);
         }
-    }, [addNotification, businessRoles, currentPage, currentUser, isMigrationLocked, shouldPromptBeforeLeaving, teamMembers]);
+    }, [addNotification, businessRoles, currentPage, currentUser, shouldPromptBeforeLeaving, teamMembers]);
 
     const closeEwayLoginSetup = useCallback(() => {
         const targetPage = PERSISTABLE_SCREENS.has(ewayLoginSetupReturnPage) ? ewayLoginSetupReturnPage : 'dashboard';
@@ -2378,6 +2376,8 @@ const App: React.FC = () => {
                         onBulkAddMappings={(l: any) => storage.saveBulkData('supplier_product_map', l, currentUser)}
                         mappings={mappings}
                         onMigrationLockChange={setIsMigrationLocked}
+                        onMigrationStateChange={setMigrationUiState}
+                        forceShowMigrationPopupToken={migrationPopupToken}
                     />;
                 case 'settings':
                     return <Settings
@@ -2542,11 +2542,23 @@ const App: React.FC = () => {
                 />
             </div>
             <NotificationSystem notifications={notifications} removeNotification={removeNotification} />
-            {isMigrationLocked && (
-                <div className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-[1px]">
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-yellow-100 border-2 border-yellow-500 text-yellow-900 text-xs font-black uppercase tracking-wider shadow-xl">
-                        Migration in progress. Please wait or cancel.
-                    </div>
+            {isMigrationLocked && migrationUiState.active && migrationUiState.minimized && (
+                <div className="fixed bottom-4 right-4 z-[310] px-4 py-2 bg-yellow-100 border-2 border-yellow-500 text-yellow-900 text-xs font-black uppercase tracking-wider shadow-xl flex items-center gap-3">
+                    <span>
+                        {migrationUiState.status === 'Processing…'
+                            ? `Migration in progress (${migrationUiState.progressPercent}%)`
+                            : `Migration ${migrationUiState.status} (${migrationUiState.progressPercent}%)`}
+                    </span>
+                    <button
+                        type="button"
+                        className="px-2 py-1 border border-yellow-700 bg-white text-yellow-900"
+                        onClick={() => {
+                            setMigrationPopupToken(prev => prev + 1);
+                            setCurrentPage('configuration');
+                        }}
+                    >
+                        View
+                    </button>
                 </div>
             )}
 
