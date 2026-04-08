@@ -555,16 +555,41 @@ const App: React.FC = () => {
 
     // Handle Supabase Auth Session Changes
     useEffect(() => {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (event === 'SIGNED_OUT') {
-                setCurrentUser(null);
-                setInventory([]);
-                setMedicines([]);
-                setTransactions([]);
-                setPurchases([]);
-                setMrpChangeLogs([]);
-                setIsAppLoading(false);
-                setAuthView('auth');
+                // Robust Logout Detection:
+                // 1. Check if this is an explicit manual logout initiated by the user
+                const isManualLogout = window.localStorage.getItem('MDXERA_MANUAL_LOGOUT') === 'true';
+                
+                if (isManualLogout) {
+                    window.localStorage.removeItem('MDXERA_MANUAL_LOGOUT');
+                    setCurrentUser(null);
+                    setInventory([]);
+                    setMedicines([]);
+                    setTransactions([]);
+                    setPurchases([]);
+                    setMrpChangeLogs([]);
+                    setIsAppLoading(false);
+                    setAuthView('auth');
+                    return;
+                }
+
+                // 2. If not manual, it might be a refresh token failure or network glitch.
+                // We verify by checking the current session one last time.
+                const { data: { session: verifiedSession } } = await supabase.auth.getSession();
+                if (!verifiedSession) {
+                    // Truly gone
+                    setCurrentUser(null);
+                    setInventory([]);
+                    setMedicines([]);
+                    setTransactions([]);
+                    setPurchases([]);
+                    setMrpChangeLogs([]);
+                    setIsAppLoading(false);
+                    setAuthView('auth');
+                } else {
+                    console.warn('Recovered from transient SIGNED_OUT event.');
+                }
             } else if (event === 'PASSWORD_RECOVERY') {
                 setAuthView('reset');
             } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
