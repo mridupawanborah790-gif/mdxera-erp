@@ -84,19 +84,26 @@ const TallyPrompt: React.FC<TallyPromptProps> = ({
   return createPortal(
     <div 
       className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-[1px] transition-all"
-      onMouseDown={onCancel}
     >
       <div 
         ref={containerRef}
         tabIndex={0}
         className="bg-[#FFF0D5] border-2 border-[#004242] shadow-[20px_20px_0px_rgba(0,0,0,0.3)] w-96 outline-none animate-in zoom-in-95 duration-100 ring-4 ring-[#004242]/20"
-        onMouseDown={e => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
         {/* Modal Header */}
         <div className="bg-[#004242] text-white px-4 py-2 text-[12px] font-black uppercase tracking-widest flex justify-between items-center border-b border-[#003333]">
           <span>{title}</span>
-          <span className="opacity-50 text-[9px] font-normal">Press ESC to Cancel</span>
+          <div className="flex items-center gap-3">
+            <span className="opacity-50 text-[9px] font-normal">Press ESC to Cancel</span>
+            <button 
+              onClick={(e) => { e.stopPropagation(); onCancel(); }}
+              className="p-0.5 hover:bg-white/10 rounded transition-colors"
+              aria-label="Close"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
         </div>
         
         {/* Message Content */}
