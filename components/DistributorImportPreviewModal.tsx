@@ -28,10 +28,11 @@ interface ImportPreviewModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSave: (data: DistributorImportData[]) => void;
+    isSaving?: boolean;
     data: DistributorImportData[];
 }
 
-const DistributorImportPreviewModal: React.FC<ImportPreviewModalProps> = ({ isOpen, onClose, onSave, data }) => {
+const DistributorImportPreviewModal: React.FC<ImportPreviewModalProps> = ({ isOpen, onClose, onSave, isSaving = false, data }) => {
     if (!isOpen) return null;
 
     return (
@@ -97,16 +98,17 @@ const DistributorImportPreviewModal: React.FC<ImportPreviewModalProps> = ({ isOp
                 <div className="flex justify-end items-center p-4 bg-gray-50 dark:bg-gray-800/90 border-t border-app-border flex-shrink-0 gap-3 z-30 sticky bottom-0">
                     <button 
                         onClick={onClose} 
+                        disabled={isSaving}
                         className="px-4 py-2 text-sm font-semibold text-app-text-secondary bg-card-bg border border-app-border rounded-lg shadow-sm hover:bg-hover transition-colors"
                     >
                         Cancel Import
                     </button>
                     <button 
                         onClick={() => onSave(data)} 
-                        disabled={data.length === 0}
+                        disabled={data.length === 0 || isSaving}
                         className="px-6 py-2 text-sm font-semibold text-white bg-primary rounded-lg shadow-sm hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Save {data.length} Distributors
+                        {isSaving ? 'Processing…' : `Save ${data.length} Distributors`}
                     </button>
                 </div>
             </div>

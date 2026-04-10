@@ -97,6 +97,9 @@ const App: React.FC = () => {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isAppLoading, setIsAppLoading] = useState(true);
     const [isReloading, setIsReloading] = useState(false);
+    const [isMigrationLocked, setIsMigrationLocked] = useState(false);
+    const [migrationUiState, setMigrationUiState] = useState<{ active: boolean; minimized: boolean; module: string; progressPercent: number; status: 'Processing…' | 'Completed' | 'Cancelled' }>({ active: false, minimized: false, module: '', progressPercent: 0, status: 'Processing…' });
+    const [migrationPopupToken, setMigrationPopupToken] = useState(0);
     const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
     const [isRealtimeActive, setIsRealtimeActive] = useState(false);
 
@@ -366,6 +369,8 @@ const App: React.FC = () => {
                         break;
                     case 'delivery_challans': setDeliveryChallans(await storage.getData('delivery_challans', [], user)); break;
                     case 'sales_challans': setSalesChallans(await storage.getData('sales_challans', [], user)); break;
+                    case 'sales_returns': setSalesReturns(await storage.getData('sales_returns', [], user)); break;
+                    case 'purchase_returns': setPurchaseReturns(await storage.getData('purchase_returns', [], user)); break;
                     case 'purchase_orders': setPurchaseOrders(await storage.fetchPurchaseOrders(user)); break;
                     case 'physical_inventory': setPhysicalInventory(await storage.fetchPhysicalInventory(user)); break;
                     case 'categories': setCategories(await storage.getData('categories', [], user)); break;
@@ -461,6 +466,26 @@ const App: React.FC = () => {
             setIsReloading(false);
         }
     }, [addNotification, syncInventoryFromMaterialMaster]);
+
+    const refreshInventoryViews = useCallback(async (
+        user: RegisteredPharmacy,
+        dependentTables: Array<'transactions' | 'purchases' | 'sales_returns' | 'purchase_returns' | 'physical_inventory'> = []
+    ) => {
+        if (!user) return;
+
+        await loadData(user, 'targeted', 'inventory');
+
+        const uniqueTables = Array.from(new Set(dependentTables));
+        if (uniqueTables.length > 0) {
+            await Promise.all(
+                uniqueTables.map((table) => {
+                    if (table === 'sales_returns') return loadData(user, 'targeted', 'sales_returns');
+                    if (table === 'purchase_returns') return loadData(user, 'targeted', 'purchase_returns');
+                    return loadData(user, 'targeted', table);
+                })
+            );
+        }
+    }, [loadData]);
 
     const isDashboardScreen = currentPage === 'dashboard';
 
@@ -922,6 +947,7 @@ const App: React.FC = () => {
             }
 
             // Do not block UI success state on background refresh.
+            await refreshInventoryViews(currentUser, ['transactions']);
             loadData(currentUser, 'background').catch((err) => {
                 console.warn('Background reload after sales save failed:', err);
             });
@@ -960,6 +986,7 @@ const App: React.FC = () => {
             // Immediate local state update
             setPurchases(prev => prev.map(pur => pur.id === savedPurchase.id ? savedPurchase : pur));
 
+            await refreshInventoryViews(currentUser, ['purchases']);
             loadData(currentUser, 'background');
             addNotification("Purchase voucher updated.", "success");
             return savedPurchase;
@@ -976,6 +1003,7 @@ const App: React.FC = () => {
             // Immediate local state update
             setPurchases(prev => [savedPurchase, ...prev]);
 
+            await refreshInventoryViews(currentUser, ['purchases']);
             loadData(currentUser, 'background');
             addNotification("Purchase entry posted.", "success");
             return savedPurchase;
@@ -1044,6 +1072,7 @@ const App: React.FC = () => {
                 }
             }
 
+            await refreshInventoryViews(currentUser, ['purchases']);
             loadData(currentUser, 'background');
             addNotification("Purchase voucher cancelled and stock reversed.", "warning");
         } catch (e) {
@@ -1842,7 +1871,12 @@ const App: React.FC = () => {
                         inventory={inventory}
                         configurations={configurations}
                         addNotification={addNotification}
-                        onSaved={() => loadData(currentUser!, 'background')}
+                        onSaved={async () => {
+                            await refreshInventoryViews(currentUser!, ['transactions']);
+                            loadData(currentUser!, 'background').catch((err) => {
+                                console.warn('Background reload after manual sales save failed:', err);
+                            });
+                        }}
                     />;
                 case 'salesChallans':
                     return <SalesChallans
@@ -1938,26 +1972,13 @@ const App: React.FC = () => {
                                 console.warn('Unable to sync sales return ledger for', savedSalesReturn.id, error);
                             }
 
-                            for (const item of (savedSalesReturn.items || [])) {
-                                const inv = inventory.find(i => i.id === item.inventoryItemId);
-                                if (!inv) continue;
-                                const policy = getInventoryPolicy(inv, medicines);
-                                if (!policy.inventorised) continue;
-
-                                const returnedQty = Number(item.returnQuantity || 0);
-                                if (returnedQty <= 0) continue;
-
-                                await storage.saveData('inventory', {
-                                    ...inv,
-                                    stock: inv.stock + (returnedQty * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType))
-                                }, currentUser!);
-                            }
-
+                            await refreshInventoryViews(currentUser!, ['sales_returns']);
                             await loadData(currentUser!, 'background');
                             addNotification('Sales return recorded.', 'success');
                         }}
                         onAddPurchaseReturn={async (pr) => {
                             await storage.addPurchaseReturn(pr, currentUser!);
+                            await refreshInventoryViews(currentUser!, ['purchase_returns']);
                             await loadData(currentUser!, 'background');
                             addNotification('Purchase return recorded.', 'success');
                         }}
@@ -2195,7 +2216,11 @@ const App: React.FC = () => {
                                 addNotification(parseNetworkAndApiError(error), 'error');
                             }
                         }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
-                        onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
+                        onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!)
+                            .then(async () => {
+                                await refreshInventoryViews(currentUser!, ['physical_inventory']);
+                                await loadData(currentUser!, 'background');
+                            })}
                         onCancelCount={async (session) => {
                             if (!currentUser) return;
 
@@ -2396,6 +2421,9 @@ const App: React.FC = () => {
                         onBulkAddMedicines={(l: any) => storage.saveBulkData('material_master', l, currentUser)}
                         onBulkAddMappings={(l: any) => storage.saveBulkData('supplier_product_map', l, currentUser)}
                         mappings={mappings}
+                        onMigrationLockChange={setIsMigrationLocked}
+                        onMigrationStateChange={setMigrationUiState}
+                        forceShowMigrationPopupToken={migrationPopupToken}
                     />;
                 case 'settings':
                     return <Settings
@@ -2560,6 +2588,25 @@ const App: React.FC = () => {
                 />
             </div>
             <NotificationSystem notifications={notifications} removeNotification={removeNotification} />
+            {isMigrationLocked && migrationUiState.active && migrationUiState.minimized && (
+                <div className="fixed bottom-4 right-4 z-[310] px-4 py-2 bg-yellow-100 border-2 border-yellow-500 text-yellow-900 text-xs font-black uppercase tracking-wider shadow-xl flex items-center gap-3">
+                    <span>
+                        {migrationUiState.status === 'Processing…'
+                            ? `Migration in progress (${migrationUiState.progressPercent}%)`
+                            : `Migration ${migrationUiState.status} (${migrationUiState.progressPercent}%)`}
+                    </span>
+                    <button
+                        type="button"
+                        className="px-2 py-1 border border-yellow-700 bg-white text-yellow-900"
+                        onClick={() => {
+                            setMigrationPopupToken(prev => prev + 1);
+                            setCurrentPage('configuration');
+                        }}
+                    >
+                        View
+                    </button>
+                </div>
+            )}
 
             {printBill && (
                 <PrintBillModal 

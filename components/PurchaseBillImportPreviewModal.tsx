@@ -8,12 +8,13 @@ interface PurchaseBillImportPreviewModalProps {
     onClose: () => void;
     // FIX: Change onSave prop type to accept Purchase[]
     onSave: (data: Purchase[]) => void;
+    isSaving?: boolean;
     data: Purchase[]; // FIX: Changed data prop type to Purchase[]
     inventory: InventoryItem[];
     distributors: Distributor[];
 }
 
-const PurchaseBillImportPreviewModal: React.FC<PurchaseBillImportPreviewModalProps> = ({ isOpen, onClose, onSave, data, inventory, distributors }) => {
+const PurchaseBillImportPreviewModal: React.FC<PurchaseBillImportPreviewModalProps> = ({ isOpen, onClose, onSave, isSaving = false, data, inventory, distributors }) => {
     // Processed data now holds full Purchase objects with validation status
     const [processedPurchases, setProcessedPurchases] = useState<(Purchase & { isValid: boolean; errors: string[] })[]>([]);
 
@@ -152,16 +153,17 @@ const PurchaseBillImportPreviewModal: React.FC<PurchaseBillImportPreviewModalPro
                 <div className="flex justify-end items-center p-4 bg-gray-50 dark:bg-gray-800/90 border-t border-app-border flex-shrink-0 gap-3 z-30 sticky bottom-0">
                     <button 
                         onClick={onClose} 
+                        disabled={isSaving}
                         className="px-4 py-2 text-sm font-semibold text-app-text-secondary bg-card-bg border border-app-border rounded-lg shadow-sm hover:bg-hover transition-colors"
                     >
                         Cancel Import
                     </button>
                     <button 
                         onClick={handleSave} 
-                        disabled={hasErrors || processedPurchases.length === 0}
+                        disabled={hasErrors || processedPurchases.length === 0 || isSaving}
                         className="px-6 py-2 text-sm font-semibold text-white bg-primary rounded-lg shadow-sm hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Save {processedPurchases.filter(p => p.isValid).length} Purchase Bills
+                        {isSaving ? 'Processing…' : `Save ${processedPurchases.filter(p => p.isValid).length} Purchase Bills`}
                     </button>
                 </div>
             </div>

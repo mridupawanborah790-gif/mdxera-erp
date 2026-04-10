@@ -37,6 +37,9 @@ type SearchCatalogItem = {
   inventoryItem?: InventoryItem;
   medicine?: Medicine;
   mappedSupplierIds: string[];
+  currentStock?: number;
+  minStockLimit?: number;
+  shortageQty?: number;
 };
 
 type GridColumnKey =
@@ -156,8 +159,10 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [poSerialId, setPoSerialId] = useState('NO.NEW');
     const [isSaving, setIsSaving] = useState(false);
     const [isMatrixOpen, setIsMatrixOpen] = useState(false);
+    const [matrixMode, setMatrixMode] = useState<'all' | 'lowStock'>('all');
     const [matrixSearchTerm, setMatrixSearchTerm] = useState('');
     const [selectedMatrixIndex, setSelectedMatrixIndex] = useState(0);
+    const [selectedMatrixItemIds, setSelectedMatrixItemIds] = useState<string[]>([]);
     const [activeMatrixRowId, setActiveMatrixRowId] = useState<string | null>(null);
     const [activeCell, setActiveCell] = useState<{ rowId: string; column: GridColumnKey } | null>(null);
 
@@ -271,7 +276,10 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                 sku: inv.code,
                 source: 'inventory',
                 inventoryItem: inv,
-                mappedSupplierIds
+                mappedSupplierIds,
+                currentStock: Number(inv.stock || 0),
+                minStockLimit: Number(inv.minStockLimit || 0),
+                shortageQty: Math.max(0, Number(inv.minStockLimit || 0) - Number(inv.stock || 0))
             });
         }
 
@@ -305,14 +313,22 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
     const matrixResults = useMemo(() => {
         const lower = matrixSearchTerm.trim().toLowerCase();
+        const baseSource = matrixMode === 'lowStock'
+            ? catalog.filter(c => {
+                const min = Number(c.minStockLimit || c.inventoryItem?.minStockLimit || 0);
+                const stock = Number(c.currentStock ?? c.inventoryItem?.stock ?? 0);
+                return min > 0 && stock <= min;
+            })
+            : catalog;
+
         const source = lower
-            ? catalog.filter(c =>
+            ? baseSource.filter(c =>
                 c.name.toLowerCase().includes(lower) ||
                 (c.code || '').toLowerCase().includes(lower) ||
                 (c.sku || '').toLowerCase().includes(lower) ||
                 (c.supplierItemName || '').toLowerCase().includes(lower)
             )
-            : catalog;
+            : baseSource;
 
         return source
             .map(c => ({
@@ -321,7 +337,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             }))
             .sort((a, b) => b.supplierBoost - a.supplierBoost || a.name.localeCompare(b.name))
             .slice(0, 50);
-    }, [catalog, matrixSearchTerm, selectedDistributorId]);
+    }, [catalog, matrixSearchTerm, selectedDistributorId, matrixMode]);
 
     const recalculateLine = (line: PurchaseOrderItem): PurchaseOrderItem => {
         const qty = Number(line.quantity || 0);
@@ -360,7 +376,11 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                     sku: picked.sku || inv?.code || med?.materialCode || line.sku,
                     supplierItemName: picked.supplierItemName || line.supplierItemName,
                     brand: inv?.brand || med?.brand || line.brand || '',
-                    quantity: line.quantity > 0 ? line.quantity : 1,
+                    quantity: line.quantity > 0
+                        ? line.quantity
+                        : (matrixMode === 'lowStock'
+                            ? Math.max(1, Number(picked.shortageQty || 0))
+                            : 1),
                     estimatedRate: Number(inv?.purchasePrice || med?.rateA || line.estimatedRate || line.purchasePrice || 0),
                     purchasePrice: Number(inv?.purchasePrice || med?.rateA || line.purchasePrice || 0),
                     packType: inv?.packType || med?.pack || line.packType || '',
@@ -392,10 +412,97 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         });
     };
 
-    const openMatrixForRow = (rowId: string, initialTerm = '') => {
+    const toggleMatrixSelection = (itemId: string) => {
+        setSelectedMatrixItemIds(prev => prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]);
+    };
+
+    const handleAddSelectedMatrixItems = () => {
+        if (matrixMode !== 'lowStock') return;
+        const selectedItems = matrixResults.filter(item => selectedMatrixItemIds.includes(item.id));
+        if (selectedItems.length === 0) return;
+
+        const normalizeToken = (value?: string) => (value || '').trim().toUpperCase();
+        let mergedCount = 0;
+
+        setItems(prev => {
+            const nextRows = [...prev];
+
+            selectedItems.forEach(picked => {
+                const inv = picked.inventoryItem;
+                const med = picked.medicine;
+                const suggestedQty = Math.max(0, Number(picked.shortageQty ?? 0));
+                const defaultQty = suggestedQty > 0 ? suggestedQty : 1;
+                const pickCode = normalizeToken(picked.code || picked.sku || inv?.code || med?.materialCode);
+                const pickName = normalizeToken(picked.name);
+
+                const existingIdx = nextRows.findIndex(line => {
+                    if (isLineItemEmpty(line)) return false;
+                    if (inv?.id && line.inventoryItemId === inv.id) return true;
+                    if (med?.id && line.medicineId === med.id) return true;
+                    const lineCode = normalizeToken(line.itemCode || line.sku);
+                    const lineName = normalizeToken(line.name);
+                    return (pickCode && lineCode === pickCode) || (pickName && lineName === pickName);
+                });
+
+                if (existingIdx >= 0) {
+                    const existingRow = nextRows[existingIdx];
+                    nextRows[existingIdx] = recalculateLine({
+                        ...existingRow,
+                        quantity: Number(existingRow.quantity || 0) + defaultQty
+                    });
+                    mergedCount += 1;
+                    return;
+                }
+
+                const blankIdx = nextRows.findIndex(line => isLineItemEmpty(line));
+                const targetIdx = blankIdx >= 0 ? blankIdx : nextRows.length;
+                const baseLine = blankIdx >= 0 ? nextRows[blankIdx] : createEmptyLineItem();
+
+                nextRows[targetIdx] = recalculateLine({
+                    ...baseLine,
+                    inventoryItemId: inv?.id,
+                    medicineId: med?.id,
+                    name: picked.name,
+                    itemCode: picked.code || inv?.code || med?.materialCode || baseLine.itemCode,
+                    sku: picked.sku || inv?.code || med?.materialCode || baseLine.sku,
+                    supplierItemName: picked.supplierItemName || baseLine.supplierItemName,
+                    brand: inv?.brand || med?.brand || baseLine.brand || '',
+                    quantity: defaultQty,
+                    estimatedRate: Number(inv?.purchasePrice || med?.rateA || baseLine.estimatedRate || baseLine.purchasePrice || 0),
+                    purchasePrice: Number(inv?.purchasePrice || med?.rateA || baseLine.purchasePrice || 0),
+                    packType: inv?.packType || med?.pack || baseLine.packType || '',
+                    unitOfMeasurement: inv?.unitOfMeasurement || inv?.packUnit || baseLine.unitOfMeasurement || 'Unit',
+                    manufacturer: inv?.manufacturer || med?.manufacturer || baseLine.manufacturer,
+                    hsnCode: inv?.hsnCode || med?.hsnCode || baseLine.hsnCode || '',
+                    mrp: Number(inv?.mrp || med?.mrp || baseLine.mrp || 0),
+                    gstPercent: Number(inv?.gstPercent || med?.gstRate || baseLine.gstPercent || 0),
+                    expectedDeliveryDate: baseLine.expectedDeliveryDate || orderDate
+                });
+            });
+            return normalizeLineItems(nextRows);
+        });
+
+        if (mergedCount > 0) {
+            alert(`${mergedCount} selected item(s) already existed in this order, so quantity was increased instead of adding duplicate rows.`);
+        }
+
+        setIsMatrixOpen(false);
+        setSelectedMatrixIndex(0);
+        setSelectedMatrixItemIds([]);
+        requestAnimationFrame(() => {
+            const trailingBlank = items.find(line => isLineItemEmpty(line)) || items[items.length - 1];
+            if (trailingBlank?.id) {
+                focusCell(trailingBlank.id, 'name');
+            }
+        });
+    };
+
+    const openMatrixForRow = (rowId: string, initialTerm = '', mode: 'all' | 'lowStock' = 'all') => {
         setActiveMatrixRowId(rowId);
         setMatrixSearchTerm(initialTerm);
+        setMatrixMode(mode);
         setSelectedMatrixIndex(0);
+        setSelectedMatrixItemIds([]);
         setIsMatrixOpen(true);
         requestAnimationFrame(() => matrixSearchRef.current?.focus());
     };
@@ -622,9 +729,15 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     }), [view, items, selectedDistributorId, remarks]);
 
     const handleMatrixKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            setIsMatrixOpen(false);
+            return;
+        }
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
             e.preventDefault();
             if (matrixResults.length === 0 && activeMatrixRowId) {
+                if (matrixMode === 'lowStock') return;
                 const pendingName = matrixSearchTerm.trim();
                 if (pendingName) {
                     handleUpdateItem(activeMatrixRowId, 'name', pendingName);
@@ -643,8 +756,17 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             setSelectedMatrixIndex(prev => (prev - 1 + matrixResults.length) % matrixResults.length);
+        } else if (e.key === ' ') {
+            if (matrixMode !== 'lowStock') return;
+            e.preventDefault();
+            const target = matrixResults[selectedMatrixIndex];
+            if (target) toggleMatrixSelection(target.id);
         } else if (e.key === 'Enter') {
             e.preventDefault();
+            if (matrixMode === 'lowStock') {
+                handleAddSelectedMatrixItems();
+                return;
+            }
             if (activeMatrixRowId && matrixResults[selectedMatrixIndex]) {
                 pickCatalogItemForRow(matrixResults[selectedMatrixIndex], activeMatrixRowId);
             }
@@ -714,7 +836,19 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                 />
                             </div>
                             <div className="flex justify-end">
-                                <button onClick={() => handleInsertBlankRow()} className="px-4 py-2 text-[10px] font-black uppercase bg-slate-100 border border-slate-300">+ Add Row</button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const targetRow = items.find(line => isLineItemEmpty(line)) || items[items.length - 1];
+                                            if (!targetRow) return;
+                                            openMatrixForRow(targetRow.id, '', 'lowStock');
+                                        }}
+                                        className="px-4 py-2 text-[10px] font-black uppercase bg-red-50 text-red-700 border border-red-300"
+                                    >
+                                        Low Stock
+                                    </button>
+                                    <button onClick={() => handleInsertBlankRow()} className="px-4 py-2 text-[10px] font-black uppercase bg-slate-100 border border-slate-300">+ Add Row</button>
+                                </div>
                             </div>
                         </Card>
 
@@ -907,8 +1041,14 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             >
                 <div className="flex flex-col h-full bg-[#fffde7]" onKeyDown={handleMatrixKeyDown}>
                     <div className="py-1.5 px-4 bg-primary text-white flex justify-between items-center">
-                        <span className="text-xs font-black uppercase tracking-[0.2em]">Material / Inventory Lookup</span>
-                        <span className="text-[10px] font-bold uppercase opacity-80">↑/↓ Navigate | Enter Select | Ctrl+Enter Register Material</span>
+                        <span className="text-xs font-black uppercase tracking-[0.2em]">
+                            {matrixMode === 'lowStock' ? 'Material / Inventory Lookup · Low Stock Only' : 'Material / Inventory Lookup'}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase opacity-80">
+                            {matrixMode === 'lowStock'
+                                ? '↑/↓ Navigate | Space Toggle | Enter Add Selected | Esc Close'
+                                : '↑/↓ Navigate | Enter Select | Ctrl+Enter Register Material'}
+                        </span>
                     </div>
                     <div className="p-2 border-b border-gray-300 bg-white">
                         <input
@@ -923,17 +1063,34 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                             className="w-full border border-gray-400 p-2 text-sm font-black uppercase outline-none focus:bg-yellow-50"
                         />
                         {matrixResults.length === 0 && (
-                            <p className="mt-2 text-[10px] font-black uppercase text-amber-700">No item found. Press Ctrl + Enter to register new Material Master record.</p>
+                            <p className="mt-2 text-[10px] font-black uppercase text-amber-700">
+                                {matrixMode === 'lowStock'
+                                    ? 'No low stock items found.'
+                                    : 'No item found. Press Ctrl + Enter to register new Material Master record.'}
+                            </p>
                         )}
                     </div>
                     <div className="flex-1 overflow-auto bg-white">
                         <table className="min-w-full border-collapse text-xs">
                             <thead className="sticky top-0 bg-gray-100 border-b border-gray-400">
                                 <tr className="text-[10px] font-black uppercase text-gray-500">
+                                    {matrixMode === 'lowStock' && (
+                                        <th className="p-2 text-center border-r border-gray-300">
+                                            <input
+                                                type="checkbox"
+                                                aria-label="Select all low stock items"
+                                                checked={matrixResults.length > 0 && selectedMatrixItemIds.length === matrixResults.length}
+                                                onChange={(e) => setSelectedMatrixItemIds(e.target.checked ? matrixResults.map(item => item.id) : [])}
+                                            />
+                                        </th>
+                                    )}
                                     <th className="p-2 text-left border-r border-gray-300">Item Name</th>
                                     <th className="p-2 text-left border-r border-gray-300">Item Code / SKU</th>
                                     <th className="p-2 text-left border-r border-gray-300">Pack</th>
                                     <th className="p-2 text-left border-r border-gray-300">Unit</th>
+                                    <th className="p-2 text-right border-r border-gray-300">Current Stock</th>
+                                    <th className="p-2 text-right border-r border-gray-300">Minimum Stock Limit</th>
+                                    <th className="p-2 text-right border-r border-gray-300">Shortage Qty</th>
                                     <th className="p-2 text-left border-r border-gray-300">Supplier Item</th>
                                     <th className="p-2 text-left border-r border-gray-300">Est. Rate</th>
                                     <th className="p-2 text-left">GST %</th>
@@ -944,17 +1101,47 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     const inv = result.inventoryItem;
                                     const med = result.medicine;
                                     const isSelected = idx === selectedMatrixIndex;
+                                    const currentStock = Number(result.currentStock ?? inv?.stock ?? 0);
+                                    const minStock = Number(result.minStockLimit ?? inv?.minStockLimit ?? 0);
+                                    const shortageQty = Math.max(0, Number(result.shortageQty ?? (minStock - currentStock)));
+                                    const isLowStock = minStock > 0 && currentStock <= minStock;
                                     return (
                                         <tr
                                             key={`${result.id}-${idx}`}
                                             onMouseEnter={() => setSelectedMatrixIndex(idx)}
-                                            onClick={() => activeMatrixRowId && pickCatalogItemForRow(result, activeMatrixRowId)}
+                                            onClick={() => {
+                                                if (matrixMode === 'lowStock') {
+                                                    toggleMatrixSelection(result.id);
+                                                    return;
+                                                }
+                                                if (activeMatrixRowId) pickCatalogItemForRow(result, activeMatrixRowId);
+                                            }}
                                             className={`cursor-pointer border-b border-gray-100 ${isSelected ? 'bg-primary text-white' : 'hover:bg-yellow-50'}`}
                                         >
+                                            {matrixMode === 'lowStock' && (
+                                                <td className="p-2 text-center border-r border-gray-200" onClick={(e) => e.stopPropagation()}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedMatrixItemIds.includes(result.id)}
+                                                        onChange={() => toggleMatrixSelection(result.id)}
+                                                        aria-label={`Select ${result.name}`}
+                                                    />
+                                                </td>
+                                            )}
                                             <td className="p-2 border-r border-gray-200 font-bold uppercase">{result.name}</td>
                                             <td className="p-2 border-r border-gray-200 font-mono">{result.code || result.sku || '-'}</td>
                                             <td className="p-2 border-r border-gray-200 uppercase">{inv?.packType || med?.pack || '-'}</td>
                                             <td className="p-2 border-r border-gray-200 uppercase">{inv?.unitOfMeasurement || inv?.packUnit || 'Unit'}</td>
+                                            <td className={`p-2 border-r border-gray-200 text-right font-bold ${isLowStock && !isSelected ? 'text-red-600' : ''}`}>{currentStock.toFixed(2)}</td>
+                                            <td className="p-2 border-r border-gray-200 text-right">{minStock > 0 ? minStock.toFixed(2) : '-'}</td>
+                                            <td className={`p-2 border-r border-gray-200 text-right font-bold ${shortageQty > 0 && !isSelected ? 'text-orange-600' : ''}`}>
+                                                {shortageQty > 0 ? shortageQty.toFixed(2) : '-'}
+                                                {shortageQty > 0 && (
+                                                    <span className={`ml-2 px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${isSelected ? 'bg-white/20 text-white' : 'bg-red-100 text-red-700'}`}>
+                                                        Low Stock
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td className="p-2 border-r border-gray-200 uppercase">{result.supplierItemName || '-'}</td>
                                             <td className="p-2 border-r border-gray-200 text-right">₹{Number(inv?.purchasePrice || med?.rateA || 0).toFixed(2)}</td>
                                             <td className="p-2 text-right">{Number(inv?.gstPercent || med?.gstRate || 0).toFixed(2)}</td>
@@ -964,6 +1151,28 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                             </tbody>
                         </table>
                     </div>
+                    {matrixMode === 'lowStock' && (
+                        <div className="flex items-center justify-between gap-3 p-3 border-t border-gray-300 bg-[#fff9c4]">
+                            <span className="text-[11px] font-black uppercase text-gray-700">
+                                Selected: {selectedMatrixItemIds.length} item{selectedMatrixItemIds.length === 1 ? '' : 's'}
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setIsMatrixOpen(false)}
+                                    className="px-3 py-2 text-[10px] font-black uppercase border border-gray-400 bg-white text-gray-700"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleAddSelectedMatrixItems}
+                                    disabled={selectedMatrixItemIds.length === 0}
+                                    className="px-4 py-2 text-[10px] font-black uppercase border border-emerald-700 bg-emerald-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Add Selected Items
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </Modal>
         </main>

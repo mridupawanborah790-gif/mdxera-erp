@@ -8,12 +8,13 @@ interface SalesBillImportPreviewModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSave: (data: any[]) => void;
+    isSaving?: boolean;
     data: any[];
     inventory: InventoryItem[];
     customers: Customer[];
 }
 
-const SalesBillImportPreviewModal: React.FC<SalesBillImportPreviewModalProps> = ({ isOpen, onClose, onSave, data, inventory, customers }) => {
+const SalesBillImportPreviewModal: React.FC<SalesBillImportPreviewModalProps> = ({ isOpen, onClose, onSave, isSaving = false, data, inventory, customers }) => {
     const [previewData, setPreviewData] = useState<any[]>([]);
 
     useEffect(() => {
@@ -150,16 +151,17 @@ const SalesBillImportPreviewModal: React.FC<SalesBillImportPreviewModalProps> = 
                 <div className="flex justify-end items-center p-4 bg-gray-50 dark:bg-gray-800/90 border-t border-app-border flex-shrink-0 gap-3 z-30 sticky bottom-0">
                     <button 
                         onClick={onClose} 
+                        disabled={isSaving}
                         className="px-4 py-2 text-sm font-semibold text-app-text-secondary bg-card-bg border border-app-border rounded-lg shadow-sm hover:bg-hover transition-colors"
                     >
                         Cancel Import
                     </button>
                     <button 
                         onClick={handleSave} 
-                        disabled={hasErrors || previewData.length === 0}
+                        disabled={hasErrors || previewData.length === 0 || isSaving}
                         className="px-6 py-2 text-sm font-semibold text-white bg-primary rounded-lg shadow-sm hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Save {previewData.filter(row => row.isValid).length} Sales Bills
+                        {isSaving ? 'Processing…' : `Save ${previewData.filter(row => row.isValid).length} Sales Bills`}
                     </button>
                 </div>
             </div>
