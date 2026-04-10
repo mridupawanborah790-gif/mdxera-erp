@@ -250,32 +250,69 @@ const Inventory: React.FC<InventoryProps> = ({
     };
 
     const handlePrintInventory = () => {
+        type PrintableColumn = {
+            id: string;
+            label: string;
+            type: 'text' | 'number';
+            minChars: number;
+            maxChars?: number;
+            getValue: (item: InventoryItem) => string | number;
+        };
+
         const printableColumns = [
-            isFieldVisible('colName') ? { label: 'Item Name', getValue: (item: InventoryItem) => item.name || '' } : null,
-            isFieldVisible('colCategory') ? { label: 'Category', getValue: (item: InventoryItem) => item.category || '' } : null,
-            isFieldVisible('colHsn') ? { label: 'HSN', getValue: (item: InventoryItem) => getEffectiveFields(item).effectiveHsnCode || '' } : null,
-            isFieldVisible('colBarcode') ? { label: 'Barcode', getValue: (item: InventoryItem) => item.barcode || '' } : null,
-            isFieldVisible('colBatch') ? { label: 'Batch', getValue: (item: InventoryItem) => item.batch || '' } : null,
-            isFieldVisible('colStrips') ? { label: 'Pack Qty', getValue: (item: InventoryItem) => Math.floor(item.stock / getEffectiveFields(item).effectiveUnitsPerPack) } : null,
-            isFieldVisible('colLoose') ? { label: 'Loose Qty', getValue: (item: InventoryItem) => item.stock % getEffectiveFields(item).effectiveUnitsPerPack } : null,
-            isFieldVisible('colStock') ? { label: 'Total Stock', getValue: (item: InventoryItem) => item.stock } : null,
-            isFieldVisible('colBaseUnit') ? { label: 'B.Unit', getValue: (item: InventoryItem) => item.baseUnit || '' } : null,
-            isFieldVisible('colPtr') ? { label: 'PTR', getValue: (item: InventoryItem) => Number(item.ptr || 0).toFixed(2) } : null,
-            isFieldVisible('colMrp') ? { label: 'MRP', getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveMrp || 0).toFixed(2) } : null,
-            isFieldVisible('colRateA') ? { label: 'Rate A', getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateA || 0).toFixed(2) } : null,
-            isFieldVisible('colRateB') ? { label: 'Rate B', getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateB || 0).toFixed(2) } : null,
-            isFieldVisible('colRateC') ? { label: 'Rate C', getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateC || 0).toFixed(2) } : null,
-        ].filter(Boolean) as Array<{ label: string; getValue: (item: InventoryItem) => string | number }>;
+            isFieldVisible('colName') ? { id: 'name', label: 'Item Name', type: 'text', minChars: 24, maxChars: 56, getValue: (item: InventoryItem) => item.name || '' } : null,
+            isFieldVisible('colCategory') ? { id: 'category', label: 'Category', type: 'text', minChars: 10, maxChars: 18, getValue: (item: InventoryItem) => item.category || '' } : null,
+            isFieldVisible('colHsn') ? { id: 'hsn', label: 'HSN', type: 'text', minChars: 8, maxChars: 16, getValue: (item: InventoryItem) => getEffectiveFields(item).effectiveHsnCode || '' } : null,
+            isFieldVisible('colBarcode') ? { id: 'barcode', label: 'Barcode', type: 'text', minChars: 10, maxChars: 18, getValue: (item: InventoryItem) => item.barcode || '' } : null,
+            isFieldVisible('colBatch') ? { id: 'batch', label: 'Batch', type: 'text', minChars: 9, maxChars: 16, getValue: (item: InventoryItem) => item.batch || '' } : null,
+            isFieldVisible('colStrips') ? { id: 'packQty', label: 'Pack Qty', type: 'number', minChars: 6, maxChars: 8, getValue: (item: InventoryItem) => Math.floor(item.stock / getEffectiveFields(item).effectiveUnitsPerPack) } : null,
+            isFieldVisible('colLoose') ? { id: 'looseQty', label: 'Loose Qty', type: 'number', minChars: 6, maxChars: 8, getValue: (item: InventoryItem) => item.stock % getEffectiveFields(item).effectiveUnitsPerPack } : null,
+            isFieldVisible('colStock') ? { id: 'totalStock', label: 'Total Stock', type: 'number', minChars: 8, maxChars: 10, getValue: (item: InventoryItem) => item.stock } : null,
+            isFieldVisible('colBaseUnit') ? { id: 'baseUnit', label: 'B.Unit', type: 'text', minChars: 6, maxChars: 10, getValue: (item: InventoryItem) => item.baseUnit || '' } : null,
+            isFieldVisible('colPtr') ? { id: 'ptr', label: 'PTR', type: 'number', minChars: 7, maxChars: 9, getValue: (item: InventoryItem) => Number(item.ptr || 0).toFixed(2) } : null,
+            isFieldVisible('colMrp') ? { id: 'mrp', label: 'MRP', type: 'number', minChars: 7, maxChars: 9, getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveMrp || 0).toFixed(2) } : null,
+            isFieldVisible('colRateA') ? { id: 'rateA', label: 'Rate A', type: 'number', minChars: 7, maxChars: 9, getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateA || 0).toFixed(2) } : null,
+            isFieldVisible('colRateB') ? { id: 'rateB', label: 'Rate B', type: 'number', minChars: 7, maxChars: 9, getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateB || 0).toFixed(2) } : null,
+            isFieldVisible('colRateC') ? { id: 'rateC', label: 'Rate C', type: 'number', minChars: 7, maxChars: 9, getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateC || 0).toFixed(2) } : null,
+        ].filter(Boolean) as PrintableColumn[];
 
         const printWindow = window.open('', '_blank', 'width=1280,height=860');
         if (!printWindow) return;
 
-        const orientation = printableColumns.length > 10 ? 'landscape' : 'portrait';
+        const estimatedChars = printableColumns.reduce((total, col) => total + col.minChars, 3);
+        const orientation = printableColumns.length > 8 || estimatedChars > 96 ? 'landscape' : 'portrait';
         const generatedOn = new Date().toLocaleString();
+        const measuredColumnWidths = printableColumns.map((col) => {
+            const headerChars = col.label.length + 2;
+            const sampleChars = filteredItems.slice(0, 300).reduce((longest, item) => {
+                const value = String(col.getValue(item) ?? '');
+                return Math.max(longest, value.length);
+            }, 0);
+            const contentChars = Math.max(headerChars, sampleChars + 1, col.minChars);
+            const clampedChars = col.maxChars ? Math.min(contentChars, col.maxChars) : contentChars;
+            return {
+                ...col,
+                widthChars: clampedChars,
+            };
+        });
+
+        const totalChars = measuredColumnWidths.reduce((sum, col) => sum + col.widthChars, 3);
+        const serialWidthPercent = Math.max(3.5, Math.min(5.5, (3 / totalChars) * 100));
+        const columnStyles = measuredColumnWidths.map((col) => {
+            if (col.id === 'name') {
+                return { ...col, width: 'auto' };
+            }
+            const widthPercent = (col.widthChars / totalChars) * 100;
+            const boundedWidth = col.type === 'number'
+                ? Math.max(5.5, Math.min(9.5, widthPercent))
+                : Math.max(7, Math.min(16, widthPercent));
+            return { ...col, width: `${boundedWidth.toFixed(2)}%` };
+        });
+
         const rowsHtml = filteredItems.map((item, idx) => `
             <tr>
                 <td class="text-center">${idx + 1}</td>
-                ${printableColumns.map(col => `<td>${col.getValue(item) ?? ''}</td>`).join('')}
+                ${columnStyles.map(col => `<td class="${col.id === 'name' ? 'text-left wrap-cell' : col.type === 'number' ? 'text-right' : 'text-left'}">${col.getValue(item) ?? ''}</td>`).join('')}
             </tr>
         `).join('');
 
@@ -291,9 +328,14 @@ const Inventory: React.FC<InventoryProps> = ({
                         .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; border-bottom: 2px solid #111827; padding-bottom: 8px; }
                         h1 { margin: 0 0 4px; font-size: 16px; text-transform: uppercase; letter-spacing: 0.05em; }
                         .meta { font-size: 11px; color: #374151; }
-                        table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10px; }
-                        th, td { border: 1px solid #9ca3af; padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                        th { background: #e5e7eb; text-transform: uppercase; font-size: 9px; letter-spacing: 0.04em; }
+                        table { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 9px; }
+                        thead { display: table-header-group; }
+                        tr { page-break-inside: avoid; break-inside: avoid; }
+                        th, td { border: 1px solid #9ca3af; padding: 4px 6px; vertical-align: top; white-space: nowrap; overflow-wrap: break-word; }
+                        th { background: #e5e7eb; text-transform: uppercase; font-size: 8px; letter-spacing: 0.04em; }
+                        .wrap-cell { white-space: normal; word-break: break-word; }
+                        .text-left { text-align: left; }
+                        .text-right { text-align: right; font-variant-numeric: tabular-nums; }
                         .text-center { text-align: center; }
                     </style>
                 </head>
@@ -311,10 +353,14 @@ const Inventory: React.FC<InventoryProps> = ({
                             </div>
                         </div>
                         <table>
+                            <colgroup>
+                                <col style="width: ${serialWidthPercent.toFixed(2)}%">
+                                ${columnStyles.map(col => `<col style="${col.width === 'auto' ? '' : `width: ${col.width}`}">`).join('')}
+                            </colgroup>
                             <thead>
                                 <tr>
                                     <th style="width: 34px">#</th>
-                                    ${printableColumns.map(col => `<th>${col.label}</th>`).join('')}
+                                    ${columnStyles.map(col => `<th class="${col.id === 'name' ? 'text-left wrap-cell' : col.type === 'number' ? 'text-right' : 'text-left'}">${col.label}</th>`).join('')}
                                 </tr>
                             </thead>
                             <tbody>
