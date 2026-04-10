@@ -369,6 +369,8 @@ const App: React.FC = () => {
                         break;
                     case 'delivery_challans': setDeliveryChallans(await storage.getData('delivery_challans', [], user)); break;
                     case 'sales_challans': setSalesChallans(await storage.getData('sales_challans', [], user)); break;
+                    case 'sales_returns': setSalesReturns(await storage.getData('sales_returns', [], user)); break;
+                    case 'purchase_returns': setPurchaseReturns(await storage.getData('purchase_returns', [], user)); break;
                     case 'purchase_orders': setPurchaseOrders(await storage.fetchPurchaseOrders(user)); break;
                     case 'physical_inventory': setPhysicalInventory(await storage.fetchPhysicalInventory(user)); break;
                     case 'categories': setCategories(await storage.getData('categories', [], user)); break;
@@ -464,6 +466,26 @@ const App: React.FC = () => {
             setIsReloading(false);
         }
     }, [addNotification, syncInventoryFromMaterialMaster]);
+
+    const refreshInventoryViews = useCallback(async (
+        user: RegisteredPharmacy,
+        dependentTables: Array<'transactions' | 'purchases' | 'sales_returns' | 'purchase_returns' | 'physical_inventory'> = []
+    ) => {
+        if (!user) return;
+
+        await loadData(user, 'targeted', 'inventory');
+
+        const uniqueTables = Array.from(new Set(dependentTables));
+        if (uniqueTables.length > 0) {
+            await Promise.all(
+                uniqueTables.map((table) => {
+                    if (table === 'sales_returns') return loadData(user, 'targeted', 'sales_returns');
+                    if (table === 'purchase_returns') return loadData(user, 'targeted', 'purchase_returns');
+                    return loadData(user, 'targeted', table);
+                })
+            );
+        }
+    }, [loadData]);
 
     const isDashboardScreen = currentPage === 'dashboard';
 
@@ -925,6 +947,7 @@ const App: React.FC = () => {
             }
 
             // Do not block UI success state on background refresh.
+            await refreshInventoryViews(currentUser, ['transactions']);
             loadData(currentUser, 'background').catch((err) => {
                 console.warn('Background reload after sales save failed:', err);
             });
@@ -963,6 +986,7 @@ const App: React.FC = () => {
             // Immediate local state update
             setPurchases(prev => prev.map(pur => pur.id === savedPurchase.id ? savedPurchase : pur));
 
+            await refreshInventoryViews(currentUser, ['purchases']);
             loadData(currentUser, 'background');
             addNotification("Purchase voucher updated.", "success");
             return savedPurchase;
@@ -979,6 +1003,7 @@ const App: React.FC = () => {
             // Immediate local state update
             setPurchases(prev => [savedPurchase, ...prev]);
 
+            await refreshInventoryViews(currentUser, ['purchases']);
             loadData(currentUser, 'background');
             addNotification("Purchase entry posted.", "success");
             return savedPurchase;
@@ -1047,6 +1072,7 @@ const App: React.FC = () => {
                 }
             }
 
+            await refreshInventoryViews(currentUser, ['purchases']);
             loadData(currentUser, 'background');
             addNotification("Purchase voucher cancelled and stock reversed.", "warning");
         } catch (e) {
@@ -1941,26 +1967,13 @@ const App: React.FC = () => {
                                 console.warn('Unable to sync sales return ledger for', savedSalesReturn.id, error);
                             }
 
-                            for (const item of (savedSalesReturn.items || [])) {
-                                const inv = inventory.find(i => i.id === item.inventoryItemId);
-                                if (!inv) continue;
-                                const policy = getInventoryPolicy(inv, medicines);
-                                if (!policy.inventorised) continue;
-
-                                const returnedQty = Number(item.returnQuantity || 0);
-                                if (returnedQty <= 0) continue;
-
-                                await storage.saveData('inventory', {
-                                    ...inv,
-                                    stock: inv.stock + (returnedQty * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType))
-                                }, currentUser!);
-                            }
-
+                            await refreshInventoryViews(currentUser!, ['sales_returns']);
                             await loadData(currentUser!, 'background');
                             addNotification('Sales return recorded.', 'success');
                         }}
                         onAddPurchaseReturn={async (pr) => {
                             await storage.addPurchaseReturn(pr, currentUser!);
+                            await refreshInventoryViews(currentUser!, ['purchase_returns']);
                             await loadData(currentUser!, 'background');
                             addNotification('Purchase return recorded.', 'success');
                         }}
@@ -2198,7 +2211,11 @@ const App: React.FC = () => {
                                 addNotification(parseNetworkAndApiError(error), 'error');
                             }
                         }} onUpdateCount={(s) => storage.saveData('physical_inventory', s, currentUser)}
-                        onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!).then(() => loadData(currentUser!, 'background'))}
+                        onFinalizeCount={(s) => storage.finalizePhysicalInventorySession(s, currentUser!)
+                            .then(async () => {
+                                await refreshInventoryViews(currentUser!, ['physical_inventory']);
+                                await loadData(currentUser!, 'background');
+                            })}
                         onCancelCount={async (session) => {
                             if (!currentUser) return;
 
