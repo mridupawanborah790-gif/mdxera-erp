@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { InventoryItem } from '../types';
-import { formatExpiryToMMYY } from '../utils/helpers';
+import { formatExpiryToMMYY, normalizeImportDate } from '../utils/helpers';
+import { buildTotalStockFromBreakup, getStockBreakup } from '../utils/stock';
+import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 
 interface InventoryBatchDetailModalProps {
     isOpen: boolean;
@@ -12,7 +14,7 @@ interface InventoryBatchDetailModalProps {
     allowBatchEdit?: boolean;
 }
 
-type EditableBatchFields = Pick<InventoryItem, 'batch' | 'expiry' | 'ptr' | 'mrp' | 'rateA' | 'rateB' | 'rateC'> & {
+type EditableBatchFields = Pick<InventoryItem, 'batch' | 'expiry' | 'purchasePrice' | 'ptr' | 'mrp' | 'rateA' | 'rateB' | 'rateC' | 'minStockLimit'> & {
     packQty: number;
     looseQty: number;
 };
@@ -45,6 +47,7 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
 }) => {
     const [editingRowId, setEditingRowId] = useState<string | null>(null);
     const [draft, setDraft] = useState<EditableBatchFields | null>(null);
+    const [expiryDisplay, setExpiryDisplay] = useState('');
     const [error, setError] = useState<string>('');
     const [savingRowId, setSavingRowId] = useState<string | null>(null);
     const [recentlyUpdatedId, setRecentlyUpdatedId] = useState<string | null>(null);
@@ -53,6 +56,7 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
         if (!isOpen) {
             setEditingRowId(null);
             setDraft(null);
+            setExpiryDisplay('');
             setError('');
             setSavingRowId(null);
             setRecentlyUpdatedId(null);
@@ -65,16 +69,24 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                 if (editingRowId) {
                     setEditingRowId(null);
                     setDraft(null);
+                    setExpiryDisplay('');
                     setError('');
                 } else {
                     onClose();
+                }
+            }
+            if (event.key === 'Enter' && editingRowId) {
+                const row = rows.find(r => r.id === editingRowId);
+                if (row) {
+                    event.preventDefault();
+                    void saveEdit(row);
                 }
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [editingRowId, isOpen, onClose]);
+    }, [editingRowId, isOpen, onClose, rows, draft]);
 
     const sortedRows = useMemo(
         () => [...rows].sort((a, b) => (a.batch || '').localeCompare(b.batch || '')),
@@ -95,26 +107,30 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
     if (!isOpen) return null;
 
     const beginEdit = (row: InventoryItem) => {
-        const unitsPerPack = Math.max(1, toNumber(row.unitsPerPack, 1));
-        const stock = toNumber(row.stock);
+        const unitsPerPack = Math.max(1, resolveUnitsPerStrip(toNumber(row.unitsPerPack, 1), row.packType));
+        const stockBreakup = getStockBreakup(toNumber(row.stock), unitsPerPack, row.packType);
         setEditingRowId(row.id);
         setDraft({
             batch: row.batch || '',
             expiry: row.expiry || '',
-            packQty: Math.floor(stock / unitsPerPack),
-            looseQty: stock % unitsPerPack,
+            packQty: stockBreakup.pack,
+            looseQty: stockBreakup.loose,
+            purchasePrice: toNumber(row.purchasePrice),
+            minStockLimit: toNumber(row.minStockLimit),
             ptr: toNumber(row.ptr),
             mrp: toNumber(row.mrp),
             rateA: toNumber(row.rateA),
             rateB: toNumber(row.rateB),
             rateC: toNumber(row.rateC),
         });
+        setExpiryDisplay(formatExpiryToMMYY(row.expiry));
         setError('');
     };
 
     const cancelEdit = () => {
         setEditingRowId(null);
         setDraft(null);
+        setExpiryDisplay('');
         setError('');
     };
 
@@ -123,20 +139,22 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
 
         const packQty = toNonNegativeInt(draft.packQty);
         const looseQty = toNonNegativeInt(draft.looseQty);
+        const normalizedExpiry = normalizeImportDate(expiryDisplay || draft.expiry || '') || (draft.expiry || '').trim();
 
-        if (!isValidExpiry(draft.expiry || '')) {
+        if (!isValidExpiry(expiryDisplay || normalizedExpiry || '')) {
             setError('Expiry must be in MM/YY or YYYY-MM-DD format.');
             return;
         }
 
-        const numericFields = [draft.ptr, draft.mrp, draft.rateA, draft.rateB, draft.rateC];
+        const numericFields = [draft.purchasePrice, draft.ptr, draft.mrp, draft.rateA, draft.rateB, draft.rateC, draft.minStockLimit];
         if (numericFields.some(value => !Number.isFinite(Number(value)))) {
-            setError('PTR / MRP / Rate A-B-C must be numeric.');
+            setError('All numeric fields must contain valid numbers.');
             return;
         }
 
-        const unitsPerPack = Math.max(1, toNumber(row.unitsPerPack, 1));
-        const nextStock = (packQty * unitsPerPack) + looseQty;
+        const unitsPerPack = Math.max(1, resolveUnitsPerStrip(toNumber(row.unitsPerPack, 1), row.packType));
+        const isLiquidOrWeight = isLiquidOrWeightPack(row.packType);
+        const nextStock = buildTotalStockFromBreakup(packQty, looseQty, unitsPerPack, !isLiquidOrWeight, row.packType);
         if (nextStock < 0) {
             setError('Quantity cannot be negative.');
             return;
@@ -146,8 +164,10 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
         const updatedRow: InventoryItem = {
             ...row,
             batch: allowBatchEdit ? (draft.batch || '').trim() : row.batch,
-            expiry: (draft.expiry || '').trim(),
+            expiry: normalizedExpiry,
             stock: nextStock,
+            purchasePrice: toNumber(draft.purchasePrice),
+            minStockLimit: toNonNegativeInt(draft.minStockLimit),
             ptr: nextPtr,
             mrp: toNumber(draft.mrp),
             rateA: toNumber(draft.rateA),
@@ -172,15 +192,185 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
         }
     };
 
-    const handleDraftKeyDown = async (event: React.KeyboardEvent<HTMLInputElement>, row: InventoryItem) => {
-        if (event.key === 'Enter') {
-            event.preventDefault();
-            await saveEdit(row);
-        }
-        if (event.key === 'Escape') {
-            event.preventDefault();
-            cancelEdit();
-        }
+    const editingRow = editingRowId ? sortedRows.find(row => row.id === editingRowId) || null : null;
+
+    const renderBreakdownTable = () => (
+        <>
+            <div className="flex-1 overflow-hidden">
+                <div className="h-full overflow-x-auto overflow-y-auto">
+                    <table className="w-full border-collapse whitespace-nowrap text-xs sm:text-sm">
+                        <thead className="bg-gray-100 sticky top-0 z-10">
+                            <tr className="font-black uppercase text-gray-700 border-b border-gray-400">
+                                <th className="px-2 py-2 border-r border-gray-300 text-center">#</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-left">Batch</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-center">Expiry</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">Pack Qty</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">Loose Qty</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">Total Stock</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">PTR</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">MRP</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">Rate A</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">Rate B</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">Rate C</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">Stock Value</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-left">Barcode</th>
+                                <th className="px-2 py-2 text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                            {sortedRows.map((row, index) => {
+                                const unitsPerPack = Math.max(1, resolveUnitsPerStrip(Number(row.unitsPerPack) || 1, row.packType));
+                                const rowStock = Number(row.stock) || 0;
+                                const packQty = Math.floor(rowStock / unitsPerPack);
+                                const looseQty = rowStock % unitsPerPack;
+                                const ptr = toNumber(row.ptr);
+                                const mrp = toNumber(row.mrp);
+                                const rateA = toNumber(row.rateA);
+                                const rateB = toNumber(row.rateB);
+                                const rateC = toNumber(row.rateC);
+                                const stockValue = rowStock * ptr;
+
+                                return (
+                                    <tr
+                                        key={row.id}
+                                        className={`${recentlyUpdatedId === row.id ? 'bg-yellow-100' : 'hover:bg-yellow-50'} transition-colors`}
+                                        onDoubleClick={() => beginEdit(row)}
+                                    >
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-center">{index + 1}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 font-mono text-primary">{row.batch || '-'}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-center">{formatExpiryToMMYY(row.expiry) || '-'}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right">{packQty}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right">{looseQty}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right font-semibold">{rowStock}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{ptr.toFixed(2)}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{mrp.toFixed(2)}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{rateA.toFixed(2)}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{rateB.toFixed(2)}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{rateC.toFixed(2)}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right font-semibold">₹{stockValue.toFixed(2)}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200">{row.barcode || '-'}</td>
+                                        <td className="px-2 py-1.5 text-center">
+                                            <button
+                                                onClick={() => beginEdit(row)}
+                                                className="px-2 py-1 border border-primary text-primary text-[10px] font-black uppercase hover:bg-primary hover:text-white"
+                                            >
+                                                Edit
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                        <tfoot className="sticky bottom-0 bg-blue-50 border-t-2 border-primary">
+                            <tr className="text-xs font-black uppercase text-primary">
+                                <td colSpan={5} className="px-2 py-2 border-r border-blue-200 text-right">Total</td>
+                                <td className="px-2 py-2 border-r border-blue-200 text-right">{totals.stock}</td>
+                                <td colSpan={5} className="px-2 py-2 border-r border-blue-200 text-right">Batch Stock Value Total</td>
+                                <td className="px-2 py-2 border-r border-blue-200 text-right">₹{totals.value.toFixed(2)}</td>
+                                <td colSpan={2} className="px-2 py-2 text-center text-[10px]">Double-click or click Edit to alter selected batch</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+            <div className="px-3 py-2 border-t border-gray-300 bg-white flex justify-between items-center shrink-0">
+                <p className="text-[10px] font-bold uppercase text-gray-500 tracking-wide">Enter = Save • Esc = Cancel / Close</p>
+                <button onClick={onClose} className="px-3 py-1 border border-gray-400 text-[10px] font-black uppercase text-gray-700 hover:bg-gray-100">Close</button>
+            </div>
+        </>
+    );
+
+    const renderAlterView = (row: InventoryItem) => {
+        if (!draft) return null;
+        const unitsPerPack = Math.max(1, resolveUnitsPerStrip(toNumber(row.unitsPerPack, 1), row.packType));
+        const isLiquidOrWeight = isLiquidOrWeightPack(row.packType);
+        const looseValue = isLiquidOrWeight ? 0 : draft.looseQty;
+        const totalStock = buildTotalStockFromBreakup(draft.packQty, looseValue, unitsPerPack, !isLiquidOrWeight, row.packType);
+
+        const inputCls = 'w-full border border-gray-300 px-2 py-1.5 font-semibold focus:outline-none focus:border-primary focus:bg-yellow-50';
+
+        return (
+            <>
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    <div className="bg-gray-50 border border-gray-200 p-3">
+                        <p className="text-[10px] font-black uppercase text-gray-500 tracking-widest">Alter Inventory</p>
+                        <h3 className="text-lg font-black uppercase text-primary">{itemName}</h3>
+                        <p className="text-xs font-black text-gray-600 mt-1">Batch: <span className="font-mono text-primary">{row.batch || 'N/A'}</span></p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">Batch Number</label>
+                            <input className={`${inputCls} uppercase`} value={draft.batch} disabled={!allowBatchEdit} onChange={e => setDraft(prev => (prev ? { ...prev, batch: e.target.value } : prev))} />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">Expiry (MM/YY)</label>
+                            <input className={inputCls} value={expiryDisplay} maxLength={5} placeholder="MM/YY" onChange={e => {
+                                const cleaned = e.target.value.replace(/\D/g, '');
+                                let formatted = cleaned;
+                                if (cleaned.length > 2) formatted = `${cleaned.slice(0, 2)}/${cleaned.slice(2, 4)}`;
+                                setExpiryDisplay(formatted.slice(0, 5));
+                                setDraft(prev => (prev ? { ...prev, expiry: formatted } : prev));
+                            }} />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">Minimum Limit</label>
+                            <input type="number" min={0} className={inputCls} value={draft.minStockLimit} onChange={e => setDraft(prev => (prev ? { ...prev, minStockLimit: toNonNegativeInt(e.target.value) } : prev))} />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">Pack Qty</label>
+                            <input type="number" min={0} className={inputCls} value={draft.packQty} onChange={e => setDraft(prev => (prev ? { ...prev, packQty: toNonNegativeInt(e.target.value) } : prev))} />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">Loose Qty</label>
+                            <input type="number" min={0} disabled={isLiquidOrWeight} className={`${inputCls} disabled:opacity-50`} value={looseValue} onChange={e => setDraft(prev => (prev ? { ...prev, looseQty: toNonNegativeInt(e.target.value) } : prev))} />
+                        </div>
+                        <div className="bg-emerald-50 border border-emerald-100 px-3 py-2">
+                            <p className="text-[9px] font-black uppercase text-emerald-700">Total Stock (Units)</p>
+                            <p className="text-xl font-black text-emerald-800">{totalStock}</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">Landed Cost</label>
+                            <input type="number" step="0.01" className={inputCls} value={draft.purchasePrice} onChange={e => setDraft(prev => (prev ? { ...prev, purchasePrice: toNumber(e.target.value) } : prev))} />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">PTR</label>
+                            <input type="number" step="0.01" className={inputCls} value={draft.ptr} onChange={e => setDraft(prev => (prev ? { ...prev, ptr: toNumber(e.target.value) } : prev))} />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">MRP</label>
+                            <input type="number" step="0.01" className={inputCls} value={draft.mrp} onChange={e => setDraft(prev => (prev ? { ...prev, mrp: toNumber(e.target.value) } : prev))} />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">Rate A</label>
+                            <input type="number" step="0.01" className={inputCls} value={draft.rateA} onChange={e => setDraft(prev => (prev ? { ...prev, rateA: toNumber(e.target.value) } : prev))} />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">Rate B</label>
+                            <input type="number" step="0.01" className={inputCls} value={draft.rateB} onChange={e => setDraft(prev => (prev ? { ...prev, rateB: toNumber(e.target.value) } : prev))} />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black uppercase text-gray-500">Rate C</label>
+                            <input type="number" step="0.01" className={inputCls} value={draft.rateC} onChange={e => setDraft(prev => (prev ? { ...prev, rateC: toNumber(e.target.value) } : prev))} />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="px-3 py-2 border-t border-gray-300 bg-white flex justify-between items-center shrink-0 gap-2">
+                    <button onClick={cancelEdit} disabled={savingRowId === row.id} className="px-3 py-1 border border-gray-400 text-[10px] font-black uppercase text-gray-700 hover:bg-gray-100 disabled:opacity-50">Back to Batch Breakdown</button>
+                    <div className="flex items-center gap-2">
+                        <button onClick={cancelEdit} disabled={savingRowId === row.id} className="px-3 py-1 border border-gray-400 text-[10px] font-black uppercase text-gray-700 hover:bg-gray-100 disabled:opacity-50">Cancel</button>
+                        <button onClick={() => void saveEdit(row)} disabled={savingRowId === row.id} className="px-4 py-2 bg-primary text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50">Accept Alteration</button>
+                    </div>
+                </div>
+            </>
+        );
     };
 
     return createPortal(
@@ -191,153 +381,26 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
             >
                 <div className="px-3 py-2 bg-primary text-white flex justify-between items-center shrink-0">
                     <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest">Batch-wise Stock Breakdown</p>
-                        <h2 className="text-lg font-black uppercase">{itemName}</h2>
+                        {!editingRow ? (
+                            <>
+                                <p className="text-[10px] font-black uppercase tracking-widest">Batch-wise Stock Breakdown</p>
+                                <h2 className="text-lg font-black uppercase">{itemName}</h2>
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-[10px] font-black uppercase tracking-widest">ALTER INVENTORY: {itemName}</p>
+                                <h2 className="text-lg font-black uppercase">Batch: {editingRow.batch || '-'}</h2>
+                            </>
+                        )}
                     </div>
-                    <button onClick={onClose} className="px-3 py-1 border border-white text-xs font-black uppercase">Esc / Close</button>
+                    <button onClick={editingRow ? cancelEdit : onClose} className="px-3 py-1 border border-white text-xs font-black uppercase">Esc / {editingRow ? 'Back' : 'Close'}</button>
                 </div>
 
                 {error && (
                     <div className="px-4 py-2 text-xs font-bold uppercase bg-red-50 text-red-700 border-b border-red-200">{error}</div>
                 )}
 
-                <div className="flex-1 overflow-hidden">
-                    <div className="h-full overflow-x-auto overflow-y-auto">
-                        <table className="w-full border-collapse whitespace-nowrap text-xs sm:text-sm">
-                            <thead className="bg-gray-100 sticky top-0 z-10">
-                                <tr className="font-black uppercase text-gray-700 border-b border-gray-400">
-                                    <th className="px-2 py-2 border-r border-gray-300 text-center">#</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-left">Batch</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-center">Expiry</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-right">Pack Qty</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-right">Loose Qty</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-right">Total Stock</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-right">PTR</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-right">MRP</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-right">Rate A</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-right">Rate B</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-right">Rate C</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-right">Stock Value</th>
-                                    <th className="px-2 py-2 border-r border-gray-300 text-left">Barcode</th>
-                                    <th className="px-2 py-2 text-center">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200">
-                                {sortedRows.map((row, index) => {
-                                    const unitsPerPack = Math.max(1, Number(row.unitsPerPack) || 1);
-                                    const rowStock = Number(row.stock) || 0;
-                                    const isEditing = editingRowId === row.id && draft !== null;
-                                    const packQty = isEditing ? toNonNegativeInt(draft.packQty) : Math.floor(rowStock / unitsPerPack);
-                                    const looseQty = isEditing ? toNonNegativeInt(draft.looseQty) : rowStock % unitsPerPack;
-                                    const totalStock = (packQty * unitsPerPack) + looseQty;
-                                    const ptr = isEditing ? toNumber(draft.ptr) : toNumber(row.ptr);
-                                    const mrp = isEditing ? toNumber(draft.mrp) : toNumber(row.mrp);
-                                    const rateA = isEditing ? toNumber(draft.rateA) : toNumber(row.rateA);
-                                    const rateB = isEditing ? toNumber(draft.rateB) : toNumber(row.rateB);
-                                    const rateC = isEditing ? toNumber(draft.rateC) : toNumber(row.rateC);
-                                    const stockValue = totalStock * ptr;
-
-                                    const inputClass = 'w-20 border border-gray-300 px-1 py-0.5 text-right font-semibold focus:outline-none focus:border-primary focus:bg-yellow-50';
-
-                                    return (
-                                        <tr
-                                            key={row.id}
-                                            className={`${recentlyUpdatedId === row.id ? 'bg-yellow-100' : 'hover:bg-yellow-50'} transition-colors`}
-                                            onDoubleClick={() => !isEditing && beginEdit(row)}
-                                        >
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-center">{index + 1}</td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 font-mono text-primary">
-                                                {isEditing ? (
-                                                    <input
-                                                        className="w-28 border border-gray-300 px-1 py-0.5 focus:outline-none focus:border-primary"
-                                                        value={draft.batch}
-                                                        disabled={!allowBatchEdit}
-                                                        onChange={e => setDraft(prev => (prev ? { ...prev, batch: e.target.value } : prev))}
-                                                        onKeyDown={e => void handleDraftKeyDown(e, row)}
-                                                    />
-                                                ) : (row.batch || '-')}
-                                            </td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-center">
-                                                {isEditing ? (
-                                                    <input
-                                                        className="w-24 border border-gray-300 px-1 py-0.5 text-center focus:outline-none focus:border-primary"
-                                                        value={draft.expiry || ''}
-                                                        onChange={e => setDraft(prev => (prev ? { ...prev, expiry: e.target.value } : prev))}
-                                                        onKeyDown={e => void handleDraftKeyDown(e, row)}
-                                                    />
-                                                ) : (formatExpiryToMMYY(row.expiry) || '-')}
-                                            </td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" min={0} className={inputClass} value={draft.packQty} onChange={e => setDraft(prev => (prev ? { ...prev, packQty: toNonNegativeInt(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : packQty}
-                                            </td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" min={0} className={inputClass} value={draft.looseQty} onChange={e => setDraft(prev => (prev ? { ...prev, looseQty: toNonNegativeInt(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : looseQty}
-                                            </td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-right font-semibold">{totalStock}</td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.ptr} onChange={e => setDraft(prev => (prev ? { ...prev, ptr: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${ptr.toFixed(2)}`}
-                                            </td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.mrp} onChange={e => setDraft(prev => (prev ? { ...prev, mrp: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${mrp.toFixed(2)}`}
-                                            </td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.rateA} onChange={e => setDraft(prev => (prev ? { ...prev, rateA: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${rateA.toFixed(2)}`}
-                                            </td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.rateB} onChange={e => setDraft(prev => (prev ? { ...prev, rateB: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${rateB.toFixed(2)}`}
-                                            </td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.rateC} onChange={e => setDraft(prev => (prev ? { ...prev, rateC: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${rateC.toFixed(2)}`}
-                                            </td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200 text-right font-semibold">₹{stockValue.toFixed(2)}</td>
-                                            <td className="px-2 py-1.5 border-r border-gray-200">{row.barcode || '-'}</td>
-                                            <td className="px-2 py-1.5 text-center">
-                                                {!isEditing ? (
-                                                    <button
-                                                        onClick={() => beginEdit(row)}
-                                                        className="px-2 py-1 border border-primary text-primary text-[10px] font-black uppercase hover:bg-primary hover:text-white"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                ) : (
-                                                    <div className="flex justify-center gap-1">
-                                                        <button
-                                                            onClick={() => void saveEdit(row)}
-                                                            disabled={savingRowId === row.id}
-                                                            className="px-2 py-1 border border-emerald-600 text-emerald-700 text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white disabled:opacity-50"
-                                                        >
-                                                            Save
-                                                        </button>
-                                                        <button
-                                                            onClick={cancelEdit}
-                                                            disabled={savingRowId === row.id}
-                                                            className="px-2 py-1 border border-gray-400 text-gray-600 text-[10px] font-black uppercase hover:bg-gray-100 disabled:opacity-50"
-                                                        >
-                                                            Cancel
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                            <tfoot className="sticky bottom-0 bg-blue-50 border-t-2 border-primary">
-                                <tr className="text-xs font-black uppercase text-primary">
-                                    <td colSpan={5} className="px-2 py-2 border-r border-blue-200 text-right">Total</td>
-                                    <td className="px-2 py-2 border-r border-blue-200 text-right">{totals.stock}</td>
-                                    <td colSpan={5} className="px-2 py-2 border-r border-blue-200 text-right">Batch Stock Value Total</td>
-                                    <td className="px-2 py-2 border-r border-blue-200 text-right">₹{totals.value.toFixed(2)}</td>
-                                    <td colSpan={2} className="px-2 py-2 text-center text-[10px]">Double-click a row for inline edit</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                </div>
-                <div className="px-3 py-2 border-t border-gray-300 bg-white flex justify-between items-center shrink-0">
-                    <p className="text-[10px] font-bold uppercase text-gray-500 tracking-wide">Enter = Save • Esc = Cancel / Close</p>
-                    <button onClick={onClose} className="px-3 py-1 border border-gray-400 text-[10px] font-black uppercase text-gray-700 hover:bg-gray-100">Close</button>
-                </div>
+                {!editingRow ? renderBreakdownTable() : renderAlterView(editingRow)}
             </div>
         </div>,
         document.body,
