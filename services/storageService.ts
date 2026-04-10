@@ -20,6 +20,12 @@ import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHand
     // Memory cache to fallback when IndexedDB is disabled
     const memoryCache: Record<string, any[]> = {};
 
+    const clearTableMemoryCache = (tableName: keyof typeof STORES) => {
+        if (memoryCache[tableName]) {
+            delete memoryCache[tableName];
+        }
+    };
+
     const extractTrailingNumber = (value: string): { digits: string; startIndex: number; endIndex: number } | null => {
         const match = value.match(/(\d+)(?!.*\d)/);
         if (!match || match.index === undefined) return null;
@@ -646,9 +652,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 await idb.put(STORES[storeKey], syncedData);
                 
                 // CRITICAL FIX: Clear memory cache for this table to force the next getData/fetch to read from IDB (fresh data)
-                if (memoryCache[storeKey]) {
-                    delete memoryCache[storeKey];
-                }
+                clearTableMemoryCache(storeKey);
 
                 return syncedData;
             } catch (e: any) {
@@ -1072,6 +1076,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
                     if (updatedInventory.length > 0) {
                         await idb.putBulk(STORES.INVENTORY, updatedInventory);
+                        clearTableMemoryCache('INVENTORY');
                         // We don't sync to supabase yet; the deduction logic below will handle it in one batch.
                     }
                 }
@@ -1121,6 +1126,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
             if (updatedInventory.length > 0) {
                 await idb.putBulk(STORES.INVENTORY, updatedInventory);
+                clearTableMemoryCache('INVENTORY');
 
                 if (navigator.onLine) {
                     try {
