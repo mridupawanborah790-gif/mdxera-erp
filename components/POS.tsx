@@ -88,6 +88,10 @@ interface StockValidationIssue {
 
 const uniformTextStyle = "text-sm font-bold tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-base font-bold tracking-tight uppercase leading-tight";
+const NO_BATCH_PLACEHOLDERS = new Set(['', 'N/A', 'NA', 'NEW-STOCK', 'NEW-BATCH', 'UNSET', 'NO BATCH', 'NO-BATCH']);
+
+const normalizeBatchToken = (batchNo?: string | null) => (batchNo || '').trim().toUpperCase();
+const isRealBatch = (batchNo?: string | null) => !NO_BATCH_PLACEHOLDERS.has(normalizeBatchToken(batchNo));
 
 const isGstInclusiveMrp = (taxBasis?: string) => taxBasis === 'I-Incl.MRP';
 
@@ -743,7 +747,29 @@ const POS = forwardRef<any, POSProps>(({
 
             for (const item of cartItems) {
                 const normalizedBatch = (item.batch || '').trim();
-                if (!normalizedBatch) {
+                const normalizedItemName = (item.name || '').trim().toLowerCase();
+                const normalizedItemBrand = (item.brand || '').trim().toLowerCase();
+                const currentInvItem = inventory.find(i => i.id === item.inventoryItemId);
+                const relatedInventoryRows = inventory.filter(i => {
+                    const sameId = item.inventoryItemId && i.id === item.inventoryItemId;
+                    const sameName = (i.name || '').trim().toLowerCase() === normalizedItemName;
+                    const sameBrand = normalizedItemBrand === '' || (i.brand || '').trim().toLowerCase() === normalizedItemBrand;
+                    return sameId || (sameName && sameBrand);
+                });
+                const hasRealBatchStock = relatedInventoryRows.some(i => isRealBatch(i.batch));
+
+                let invItem: InventoryItem | undefined;
+                if (isRealBatch(normalizedBatch)) {
+                    invItem = currentInvItem && isRealBatch(currentInvItem.batch)
+                        ? currentInvItem
+                        : relatedInventoryRows.find(i => isRealBatch(i.batch) && normalizeBatchToken(i.batch) === normalizeBatchToken(normalizedBatch));
+                } else {
+                    invItem = (currentInvItem && !isRealBatch(currentInvItem.batch))
+                        ? currentInvItem
+                        : relatedInventoryRows.find(i => !isRealBatch(i.batch));
+                }
+
+                if (!normalizedBatch && hasRealBatchStock && !invItem) {
                     issues.push({
                         itemId: item.id,
                         itemName: item.name || 'Unknown Item',
@@ -755,15 +781,12 @@ const POS = forwardRef<any, POSProps>(({
                     continue;
                 }
 
-                const invItem = inventory.find(i => i.id === item.inventoryItemId)
-                    || inventory.find(i => (i.name || '').trim().toLowerCase() === (item.name || '').trim().toLowerCase()
-                        && (i.batch || '').trim().toLowerCase() === normalizedBatch.toLowerCase());
-
                 if (!invItem) {
+                    const displayBatch = isRealBatch(normalizedBatch) ? normalizedBatch : 'NO BATCH';
                     issues.push({
                         itemId: item.id,
                         itemName: item.name || 'Unknown Item',
-                        batch: normalizedBatch,
+                        batch: displayBatch,
                         available: 0,
                         required: Math.max(0, Number(item.quantity || 0) + Number(item.looseQuantity || 0)),
                         reason: 'no_stock',
@@ -776,10 +799,11 @@ const POS = forwardRef<any, POSProps>(({
                 const availableUnits = Math.max(0, Number(invItem.stock || 0));
 
                 if (availableUnits <= 0) {
+                    const displayBatch = isRealBatch(normalizedBatch || invItem.batch) ? (normalizedBatch || invItem.batch || 'N/A') : 'NO BATCH';
                     issues.push({
                         itemId: item.id,
                         itemName: item.name || invItem.name || 'Unknown Item',
-                        batch: normalizedBatch || invItem.batch || 'N/A',
+                        batch: displayBatch,
                         available: availableUnits,
                         required: requiredUnits,
                         reason: 'no_stock',
@@ -788,10 +812,11 @@ const POS = forwardRef<any, POSProps>(({
                 }
 
                 if (requiredUnits > availableUnits) {
+                    const displayBatch = isRealBatch(normalizedBatch || invItem.batch) ? (normalizedBatch || invItem.batch || 'N/A') : 'NO BATCH';
                     issues.push({
                         itemId: item.id,
                         itemName: item.name || invItem.name || 'Unknown Item',
-                        batch: normalizedBatch || invItem.batch || 'N/A',
+                        batch: displayBatch,
                         available: availableUnits,
                         required: requiredUnits,
                         reason: 'insufficient',
@@ -1338,13 +1363,8 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const triggerBatchSelection = (productWrapper: { item: InventoryItem; batches: InventoryItem[] }) => {
-        const isValidBatch = (batchNo?: string) => {
-            const normalized = (batchNo || '').trim().toUpperCase();
-            return normalized !== '' && !['NEW-STOCK', 'NEW-BATCH', 'N/A', 'NA'].includes(normalized);
-        };
-
         const candidateBatches = productWrapper.batches
-            .filter(b => isValidBatch(b.batch))
+            .filter(b => isRealBatch(b.batch))
             .sort((a, b) => parseExpiryForSort(a.expiry ? String(a.expiry) : '') - parseExpiryForSort(b.expiry ? String(b.expiry) : ''));
 
         if (candidateBatches.length === 1) {
@@ -1363,7 +1383,7 @@ const POS = forwardRef<any, POSProps>(({
         const itemCode = (productWrapper.item.code || '').toLowerCase().trim();
 
         const fallbackBatches = inventory.filter(inv => {
-            if (!isValidBatch(inv.batch)) return false;
+            if (!isRealBatch(inv.batch)) return false;
 
             const invName = (inv.name || '').toLowerCase().trim();
             const invBrand = (inv.brand || '').toLowerCase().trim();
