@@ -46,7 +46,7 @@ interface InventoryProps {
     onBulkAddInventory: (items: Omit<InventoryItem, 'id'>[]) => void;
     onAddProduct: (item: Omit<InventoryItem, 'id'>) => void;
     onAddProductLocal?: (item: Omit<InventoryItem, 'id'>) => void;
-    onUpdateProduct: (item: InventoryItem) => void;
+    onUpdateProduct: (item: InventoryItem) => Promise<void>;
     mrpChangeLogs?: MrpChangeLogEntry[];
 }
 
@@ -92,7 +92,7 @@ const Inventory: React.FC<InventoryProps> = ({
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [currentPage, setCurrentPage] = useState(1);
     const [isMrpLogOpen, setIsMrpLogOpen] = useState(false);
-    const [detailRow, setDetailRow] = useState<GroupedInventoryRow | null>(null);
+    const [detailRowKey, setDetailRowKey] = useState<string | null>(null);
     const columnSelectorRef = useRef<HTMLDivElement>(null);
     const tableBodyRef = useRef<HTMLTableSectionElement>(null);
 
@@ -208,6 +208,11 @@ const Inventory: React.FC<InventoryProps> = ({
         });
     }, [baseFilteredItems, lowStockFilter, searchTerm]);
 
+    const detailRow = useMemo(
+        () => (detailRowKey ? groupedItems.find(row => row.key === detailRowKey) || null : null),
+        [detailRowKey, groupedItems],
+    );
+
     const totalPages = Math.ceil(groupedItems.length / ITEMS_PER_PAGE);
 
     const paginatedItems = useMemo(() => {
@@ -252,7 +257,7 @@ const Inventory: React.FC<InventoryProps> = ({
                 return;
             }
 
-            const isModalOpen = !!itemToEdit || isAddModalOpen || isExportModalOpen || !!detailRow;
+            const isModalOpen = !!itemToEdit || isAddModalOpen || isExportModalOpen || !!detailRowKey;
             if (isModalOpen || isColumnSelectorOpen) return;
 
             if (e.key === 'ArrowDown') {
@@ -279,13 +284,13 @@ const Inventory: React.FC<InventoryProps> = ({
                 e.preventDefault();
                 const selectedRow = paginatedItems[selectedIndex];
                 if (selectedRow) {
-                    setDetailRow(selectedRow);
+                    setDetailRowKey(selectedRow.key);
                 }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [paginatedItems, selectedIndex, itemToEdit, isAddModalOpen, isExportModalOpen, isColumnSelectorOpen, currentPage, totalPages, detailRow]);
+    }, [paginatedItems, selectedIndex, itemToEdit, isAddModalOpen, isExportModalOpen, isColumnSelectorOpen, currentPage, totalPages, detailRowKey]);
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
 
@@ -793,9 +798,10 @@ const Inventory: React.FC<InventoryProps> = ({
             <MrpChangeLogModal isOpen={isMrpLogOpen} onClose={() => setIsMrpLogOpen(false)} logs={mrpChangeLogs} />
             <InventoryBatchDetailModal
                 isOpen={!!detailRow}
-                onClose={() => setDetailRow(null)}
+                onClose={() => setDetailRowKey(null)}
                 itemName={detailRow?.name || ''}
                 rows={detailRow?.items || []}
+                onSaveRow={onUpdateProduct}
             />
         </main>
     );
