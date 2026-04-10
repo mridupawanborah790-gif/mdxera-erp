@@ -37,6 +37,9 @@ type SearchCatalogItem = {
   inventoryItem?: InventoryItem;
   medicine?: Medicine;
   mappedSupplierIds: string[];
+  currentStock?: number;
+  minStockLimit?: number;
+  shortageQty?: number;
 };
 
 type GridColumnKey =
@@ -156,6 +159,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [poSerialId, setPoSerialId] = useState('NO.NEW');
     const [isSaving, setIsSaving] = useState(false);
     const [isMatrixOpen, setIsMatrixOpen] = useState(false);
+    const [matrixMode, setMatrixMode] = useState<'all' | 'lowStock'>('all');
     const [matrixSearchTerm, setMatrixSearchTerm] = useState('');
     const [selectedMatrixIndex, setSelectedMatrixIndex] = useState(0);
     const [activeMatrixRowId, setActiveMatrixRowId] = useState<string | null>(null);
@@ -271,7 +275,10 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                 sku: inv.code,
                 source: 'inventory',
                 inventoryItem: inv,
-                mappedSupplierIds
+                mappedSupplierIds,
+                currentStock: Number(inv.stock || 0),
+                minStockLimit: Number(inv.minStockLimit || 0),
+                shortageQty: Math.max(0, Number(inv.minStockLimit || 0) - Number(inv.stock || 0))
             });
         }
 
@@ -305,14 +312,22 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
     const matrixResults = useMemo(() => {
         const lower = matrixSearchTerm.trim().toLowerCase();
+        const baseSource = matrixMode === 'lowStock'
+            ? catalog.filter(c => {
+                const min = Number(c.minStockLimit || c.inventoryItem?.minStockLimit || 0);
+                const stock = Number(c.currentStock ?? c.inventoryItem?.stock ?? 0);
+                return min > 0 && stock <= min;
+            })
+            : catalog;
+
         const source = lower
-            ? catalog.filter(c =>
+            ? baseSource.filter(c =>
                 c.name.toLowerCase().includes(lower) ||
                 (c.code || '').toLowerCase().includes(lower) ||
                 (c.sku || '').toLowerCase().includes(lower) ||
                 (c.supplierItemName || '').toLowerCase().includes(lower)
             )
-            : catalog;
+            : baseSource;
 
         return source
             .map(c => ({
@@ -321,7 +336,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             }))
             .sort((a, b) => b.supplierBoost - a.supplierBoost || a.name.localeCompare(b.name))
             .slice(0, 50);
-    }, [catalog, matrixSearchTerm, selectedDistributorId]);
+    }, [catalog, matrixSearchTerm, selectedDistributorId, matrixMode]);
 
     const recalculateLine = (line: PurchaseOrderItem): PurchaseOrderItem => {
         const qty = Number(line.quantity || 0);
@@ -360,7 +375,11 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                     sku: picked.sku || inv?.code || med?.materialCode || line.sku,
                     supplierItemName: picked.supplierItemName || line.supplierItemName,
                     brand: inv?.brand || med?.brand || line.brand || '',
-                    quantity: line.quantity > 0 ? line.quantity : 1,
+                    quantity: line.quantity > 0
+                        ? line.quantity
+                        : (matrixMode === 'lowStock'
+                            ? Math.max(1, Number(picked.shortageQty || 0))
+                            : 1),
                     estimatedRate: Number(inv?.purchasePrice || med?.rateA || line.estimatedRate || line.purchasePrice || 0),
                     purchasePrice: Number(inv?.purchasePrice || med?.rateA || line.purchasePrice || 0),
                     packType: inv?.packType || med?.pack || line.packType || '',
@@ -392,9 +411,10 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         });
     };
 
-    const openMatrixForRow = (rowId: string, initialTerm = '') => {
+    const openMatrixForRow = (rowId: string, initialTerm = '', mode: 'all' | 'lowStock' = 'all') => {
         setActiveMatrixRowId(rowId);
         setMatrixSearchTerm(initialTerm);
+        setMatrixMode(mode);
         setSelectedMatrixIndex(0);
         setIsMatrixOpen(true);
         requestAnimationFrame(() => matrixSearchRef.current?.focus());
@@ -625,6 +645,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
             e.preventDefault();
             if (matrixResults.length === 0 && activeMatrixRowId) {
+                if (matrixMode === 'lowStock') return;
                 const pendingName = matrixSearchTerm.trim();
                 if (pendingName) {
                     handleUpdateItem(activeMatrixRowId, 'name', pendingName);
@@ -714,7 +735,19 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                 />
                             </div>
                             <div className="flex justify-end">
-                                <button onClick={() => handleInsertBlankRow()} className="px-4 py-2 text-[10px] font-black uppercase bg-slate-100 border border-slate-300">+ Add Row</button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const targetRow = items.find(line => isLineItemEmpty(line)) || items[items.length - 1];
+                                            if (!targetRow) return;
+                                            openMatrixForRow(targetRow.id, '', 'lowStock');
+                                        }}
+                                        className="px-4 py-2 text-[10px] font-black uppercase bg-red-50 text-red-700 border border-red-300"
+                                    >
+                                        Low Stock
+                                    </button>
+                                    <button onClick={() => handleInsertBlankRow()} className="px-4 py-2 text-[10px] font-black uppercase bg-slate-100 border border-slate-300">+ Add Row</button>
+                                </div>
                             </div>
                         </Card>
 
@@ -907,7 +940,9 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             >
                 <div className="flex flex-col h-full bg-[#fffde7]" onKeyDown={handleMatrixKeyDown}>
                     <div className="py-1.5 px-4 bg-primary text-white flex justify-between items-center">
-                        <span className="text-xs font-black uppercase tracking-[0.2em]">Material / Inventory Lookup</span>
+                        <span className="text-xs font-black uppercase tracking-[0.2em]">
+                            {matrixMode === 'lowStock' ? 'Material / Inventory Lookup · Low Stock Only' : 'Material / Inventory Lookup'}
+                        </span>
                         <span className="text-[10px] font-bold uppercase opacity-80">↑/↓ Navigate | Enter Select | Ctrl+Enter Register Material</span>
                     </div>
                     <div className="p-2 border-b border-gray-300 bg-white">
@@ -923,7 +958,11 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                             className="w-full border border-gray-400 p-2 text-sm font-black uppercase outline-none focus:bg-yellow-50"
                         />
                         {matrixResults.length === 0 && (
-                            <p className="mt-2 text-[10px] font-black uppercase text-amber-700">No item found. Press Ctrl + Enter to register new Material Master record.</p>
+                            <p className="mt-2 text-[10px] font-black uppercase text-amber-700">
+                                {matrixMode === 'lowStock'
+                                    ? 'No low stock items found.'
+                                    : 'No item found. Press Ctrl + Enter to register new Material Master record.'}
+                            </p>
                         )}
                     </div>
                     <div className="flex-1 overflow-auto bg-white">
@@ -934,6 +973,9 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     <th className="p-2 text-left border-r border-gray-300">Item Code / SKU</th>
                                     <th className="p-2 text-left border-r border-gray-300">Pack</th>
                                     <th className="p-2 text-left border-r border-gray-300">Unit</th>
+                                    <th className="p-2 text-right border-r border-gray-300">Current Stock</th>
+                                    <th className="p-2 text-right border-r border-gray-300">Minimum Stock Limit</th>
+                                    <th className="p-2 text-right border-r border-gray-300">Shortage Qty</th>
                                     <th className="p-2 text-left border-r border-gray-300">Supplier Item</th>
                                     <th className="p-2 text-left border-r border-gray-300">Est. Rate</th>
                                     <th className="p-2 text-left">GST %</th>
@@ -944,6 +986,10 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     const inv = result.inventoryItem;
                                     const med = result.medicine;
                                     const isSelected = idx === selectedMatrixIndex;
+                                    const currentStock = Number(result.currentStock ?? inv?.stock ?? 0);
+                                    const minStock = Number(result.minStockLimit ?? inv?.minStockLimit ?? 0);
+                                    const shortageQty = Math.max(0, Number(result.shortageQty ?? (minStock - currentStock)));
+                                    const isLowStock = minStock > 0 && currentStock <= minStock;
                                     return (
                                         <tr
                                             key={`${result.id}-${idx}`}
@@ -955,6 +1001,16 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                             <td className="p-2 border-r border-gray-200 font-mono">{result.code || result.sku || '-'}</td>
                                             <td className="p-2 border-r border-gray-200 uppercase">{inv?.packType || med?.pack || '-'}</td>
                                             <td className="p-2 border-r border-gray-200 uppercase">{inv?.unitOfMeasurement || inv?.packUnit || 'Unit'}</td>
+                                            <td className={`p-2 border-r border-gray-200 text-right font-bold ${isLowStock && !isSelected ? 'text-red-600' : ''}`}>{currentStock.toFixed(2)}</td>
+                                            <td className="p-2 border-r border-gray-200 text-right">{minStock > 0 ? minStock.toFixed(2) : '-'}</td>
+                                            <td className={`p-2 border-r border-gray-200 text-right font-bold ${shortageQty > 0 && !isSelected ? 'text-orange-600' : ''}`}>
+                                                {shortageQty > 0 ? shortageQty.toFixed(2) : '-'}
+                                                {shortageQty > 0 && (
+                                                    <span className={`ml-2 px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${isSelected ? 'bg-white/20 text-white' : 'bg-red-100 text-red-700'}`}>
+                                                        Low Stock
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td className="p-2 border-r border-gray-200 uppercase">{result.supplierItemName || '-'}</td>
                                             <td className="p-2 border-r border-gray-200 text-right">₹{Number(inv?.purchasePrice || med?.rateA || 0).toFixed(2)}</td>
                                             <td className="p-2 text-right">{Number(inv?.gstPercent || med?.gstRate || 0).toFixed(2)}</td>
