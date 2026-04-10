@@ -1871,7 +1871,12 @@ const App: React.FC = () => {
                         inventory={inventory}
                         configurations={configurations}
                         addNotification={addNotification}
-                        onSaved={() => loadData(currentUser!, 'background')}
+                        onSaved={async () => {
+                            await refreshInventoryViews(currentUser!, ['transactions']);
+                            loadData(currentUser!, 'background').catch((err) => {
+                                console.warn('Background reload after manual sales save failed:', err);
+                            });
+                        }}
                     />;
                 case 'salesChallans':
                     return <SalesChallans
