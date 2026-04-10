@@ -5,6 +5,7 @@ import AddProductModal from '../components/AddProductModal';
 import EditProductModal from '../components/EditProductModal';
 import ExportInventoryModal from '../components/ExportInventoryModal';
 import MrpChangeLogModal from '../components/MrpChangeLogModal';
+import InventoryBatchDetailModal from '../components/InventoryBatchDetailModal';
 import type { InventoryItem, RegisteredPharmacy, ModuleConfig, AppConfigurations, Medicine, MrpChangeLogEntry } from '../types';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY } from '../utils/helpers';
@@ -49,6 +50,25 @@ interface InventoryProps {
     mrpChangeLogs?: MrpChangeLogEntry[];
 }
 
+interface GroupedInventoryRow {
+    key: string;
+    items: InventoryItem[];
+    representative: InventoryItem;
+    name: string;
+    totalPackQty: number;
+    totalLooseQty: number;
+    totalStock: number;
+    totalValue: number;
+    batchLabel: string;
+    mrpLabel: string;
+    rateALabel: string;
+    rateBLabel: string;
+    rateCLabel: string;
+    batchCount: number;
+    hasMixedMrp: boolean;
+    hasMixedRate: boolean;
+}
+
 const Inventory: React.FC<InventoryProps> = ({
     inventory,
     medicines,
@@ -72,6 +92,7 @@ const Inventory: React.FC<InventoryProps> = ({
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [currentPage, setCurrentPage] = useState(1);
     const [isMrpLogOpen, setIsMrpLogOpen] = useState(false);
+    const [detailRow, setDetailRow] = useState<GroupedInventoryRow | null>(null);
     const columnSelectorRef = useRef<HTMLDivElement>(null);
     const tableBodyRef = useRef<HTMLTableSectionElement>(null);
 
@@ -111,38 +132,88 @@ const Inventory: React.FC<InventoryProps> = ({
         };
     }, [medicineByCode]);
 
-    const filteredItems = useMemo(() => {
+    const baseFilteredItems = useMemo(() => {
         let items = Array.isArray(inventory) ? [...inventory] : [];
         items = items.filter(i => getInventoryPolicy(i, medicines).inventorised);
-        
-        if (lowStockFilter) {
-            items = items.filter(i => i.stock <= i.minStockLimit);
-        }
 
-        if (searchTerm) {
-            items = items.filter(item => 
-                fuzzyMatch(item.name, searchTerm) || 
-                fuzzyMatch(item.brand, searchTerm) || 
-                fuzzyMatch(item.batch, searchTerm) ||
-                fuzzyMatch(item.composition, searchTerm) ||
-                fuzzyMatch(item.supplierName, searchTerm) ||
-                fuzzyMatch(item.barcode, searchTerm)
-            );
-        }
-        
         return items.sort((a, b) => {
             const nameA = (a.name || '').toLowerCase();
             const nameB = (b.name || '').toLowerCase();
             return nameA.localeCompare(nameB);
         });
-    }, [inventory, searchTerm, lowStockFilter, medicines]);
+    }, [inventory, medicines]);
 
-    const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
-    
+    const filteredItems = baseFilteredItems;
+
+    const groupedItems = useMemo<GroupedInventoryRow[]>(() => {
+        const map = new Map<string, InventoryItem[]>();
+        const toKey = (item: InventoryItem) => `${(item.code || '').trim().toLowerCase()}|${(item.name || '').trim().toLowerCase()}`;
+
+        baseFilteredItems.forEach(item => {
+            const key = toKey(item);
+            if (!map.has(key)) map.set(key, []);
+            map.get(key)!.push(item);
+        });
+
+        const rows = Array.from(map.entries()).map(([key, items]) => {
+            const representative = items[0];
+            const totalStock = items.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
+            const unitsPerPack = Math.max(1, Number(representative.unitsPerPack) || 1);
+            const totalPackQty = Math.floor(totalStock / unitsPerPack);
+            const totalLooseQty = totalStock % unitsPerPack;
+            const totalValue = items.reduce((sum, item) => {
+                const computedValue = Number(item.value ?? (item.stock * (item.cost || (item.purchasePrice / (item.unitsPerPack || 1)) || 0)));
+                return sum + computedValue;
+            }, 0);
+
+            const uniqueBatches = new Set(items.map(item => (item.batch || '').trim()).filter(Boolean));
+            const uniqueMrps = new Set(items.map(item => Number(item.mrp || 0).toFixed(2)));
+            const uniqueRateA = new Set(items.map(item => Number(item.rateA || 0).toFixed(2)));
+            const uniqueRateB = new Set(items.map(item => Number(item.rateB || 0).toFixed(2)));
+            const uniqueRateC = new Set(items.map(item => Number(item.rateC || 0).toFixed(2)));
+
+            return {
+                key,
+                items,
+                representative,
+                name: representative.name,
+                totalPackQty,
+                totalLooseQty,
+                totalStock,
+                totalValue,
+                batchCount: items.length,
+                batchLabel: uniqueBatches.size <= 1 ? (items[0]?.batch || '-') : `MULTI (${items.length})`,
+                mrpLabel: uniqueMrps.size <= 1 ? `₹${Number(representative.mrp || 0).toFixed(2)}` : 'MIXED',
+                rateALabel: uniqueRateA.size <= 1 ? `₹${Number(representative.rateA || 0).toFixed(2)}` : 'MIXED',
+                rateBLabel: uniqueRateB.size <= 1 ? `₹${Number(representative.rateB || 0).toFixed(2)}` : 'MIXED',
+                rateCLabel: uniqueRateC.size <= 1 ? `₹${Number(representative.rateC || 0).toFixed(2)}` : 'MIXED',
+                hasMixedMrp: uniqueMrps.size > 1,
+                hasMixedRate: uniqueRateA.size > 1 || uniqueRateB.size > 1 || uniqueRateC.size > 1,
+            };
+        });
+
+        return rows.filter(row => {
+            if (lowStockFilter && row.totalStock > row.representative.minStockLimit) {
+                return false;
+            }
+            if (!searchTerm) return true;
+            return row.items.some(item =>
+                fuzzyMatch(item.name, searchTerm) ||
+                fuzzyMatch(item.brand, searchTerm) ||
+                fuzzyMatch(item.batch, searchTerm) ||
+                fuzzyMatch(item.composition, searchTerm) ||
+                fuzzyMatch(item.supplierName, searchTerm) ||
+                fuzzyMatch(item.barcode, searchTerm)
+            );
+        });
+    }, [baseFilteredItems, lowStockFilter, searchTerm]);
+
+    const totalPages = Math.ceil(groupedItems.length / ITEMS_PER_PAGE);
+
     const paginatedItems = useMemo(() => {
         const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-        return filteredItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-    }, [filteredItems, currentPage]);
+        return groupedItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    }, [groupedItems, currentPage]);
 
     useEffect(() => {
         if (initialFilters?.lowStockOnly) {
@@ -181,7 +252,7 @@ const Inventory: React.FC<InventoryProps> = ({
                 return;
             }
 
-            const isModalOpen = !!itemToEdit || isAddModalOpen || isExportModalOpen;
+            const isModalOpen = !!itemToEdit || isAddModalOpen || isExportModalOpen || !!detailRow;
             if (isModalOpen || isColumnSelectorOpen) return;
 
             if (e.key === 'ArrowDown') {
@@ -204,11 +275,17 @@ const Inventory: React.FC<InventoryProps> = ({
             } else if (e.key === 'F3') {
                 e.preventDefault();
                 setIsExportModalOpen(true);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const selectedRow = paginatedItems[selectedIndex];
+                if (selectedRow) {
+                    setDetailRow(selectedRow);
+                }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [paginatedItems, selectedIndex, itemToEdit, isAddModalOpen, isExportModalOpen, isColumnSelectorOpen, currentPage, totalPages]);
+    }, [paginatedItems, selectedIndex, itemToEdit, isAddModalOpen, isExportModalOpen, isColumnSelectorOpen, currentPage, totalPages, detailRow]);
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
 
@@ -221,19 +298,17 @@ const Inventory: React.FC<InventoryProps> = ({
         onUpdateConfig({ ...config, fields: newFields });
     };
 
-    const totalValuation = useMemo(() => 
-        (inventory || []).reduce((sum, i) => sum + (i.stock * (i.cost || (i.purchasePrice / (i.unitsPerPack || 1)) || 0)), 0), 
-    [inventory]);
+    const totalValuation = useMemo(() => groupedItems.reduce((sum, row) => sum + row.totalValue, 0), [groupedItems]);
 
     const handleNextProduct = () => {
         const nextIdxInPage = (selectedIndex + 1);
         if (nextIdxInPage < paginatedItems.length) {
             setSelectedIndex(nextIdxInPage);
-            setItemToEdit(paginatedItems[nextIdxInPage]);
+            setItemToEdit(paginatedItems[nextIdxInPage].representative);
         } else if (currentPage < totalPages) {
             setCurrentPage(p => p + 1);
             setSelectedIndex(0);
-            setItemToEdit(filteredItems[currentPage * ITEMS_PER_PAGE]);
+            setItemToEdit(groupedItems[currentPage * ITEMS_PER_PAGE]?.representative || null);
         }
     };
 
@@ -241,11 +316,11 @@ const Inventory: React.FC<InventoryProps> = ({
         const prevIdxInPage = (selectedIndex - 1);
         if (prevIdxInPage >= 0) {
             setSelectedIndex(prevIdxInPage);
-            setItemToEdit(paginatedItems[prevIdxInPage]);
+            setItemToEdit(paginatedItems[prevIdxInPage].representative);
         } else if (currentPage > 1) {
             setCurrentPage(p => p - 1);
             setSelectedIndex(ITEMS_PER_PAGE - 1);
-            setItemToEdit(filteredItems[(currentPage - 2) * ITEMS_PER_PAGE + (ITEMS_PER_PAGE - 1)]);
+            setItemToEdit(groupedItems[(currentPage - 2) * ITEMS_PER_PAGE + (ITEMS_PER_PAGE - 1)]?.representative || null);
         }
     };
 
@@ -421,7 +496,7 @@ const Inventory: React.FC<InventoryProps> = ({
         <main className="flex-1 page-fade-in bg-app-bg flex flex-col overflow-hidden">
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
                 <span className="text-[10px] font-black uppercase tracking-widest">Stock Summary (Inventory Master)</span>
-                <span className="text-[10px] font-black uppercase text-accent">Total Items: {filteredItems.length}</span>
+                <span className="text-[10px] font-black uppercase text-accent">Total Items: {groupedItems.length}</span>
             </div>
 
             <div className="p-3 flex-1 flex flex-col gap-3 overflow-hidden">
@@ -543,7 +618,8 @@ const Inventory: React.FC<InventoryProps> = ({
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200" ref={tableBodyRef}>
-                                {paginatedItems.map((item, idx) => {
+                                {paginatedItems.map((row, idx) => {
+                                    const item = row.representative;
                                     const { 
                                         effectivePackType, 
                                         effectiveUnitsPerPack, 
@@ -555,12 +631,12 @@ const Inventory: React.FC<InventoryProps> = ({
                                         effectiveRateC
                                     } = getEffectiveFields(item);
                                     const uPP = effectiveUnitsPerPack;
-                                    const totalStrips = Math.floor(item.stock / uPP);
+                                    const totalStrips = row.totalPackQty;
                                     const freeUnits = Math.min(item.stock, Number(item.purchaseFree || 0));
                                     const freeStrips = Math.floor(freeUnits / uPP);
                                     const paidStrips = totalStrips - freeStrips;
-                                    const loose = item.stock % uPP;
-                                    const isLow = item.stock <= item.minStockLimit;
+                                    const loose = row.totalLooseQty;
+                                    const isLow = row.totalStock <= item.minStockLimit;
                                     const isSelected = idx === selectedIndex;
 
                                     return (
@@ -590,21 +666,21 @@ const Inventory: React.FC<InventoryProps> = ({
                                             {isFieldVisible('colManufacturer') && <td className={`py-1 px-2 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.manufacturer}</td>}
                                             {isFieldVisible('colHsn') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{effectiveHsnCode}</td>}
                                             {isFieldVisible('colBarcode') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.barcode}</td>}
-                                            {isFieldVisible('colBatch') && <td className={`py-1 px-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{item.batch}</td>}
+                                            {isFieldVisible('colBatch') && <td className={`py-1 px-2 border-r border-gray-200 text-center font-mono ${uniformTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{row.batchLabel}</td>}
                                             {isFieldVisible('colStrips') && (
                                                 <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>
                                                     {totalStrips}
                                                 </td>
                                             )}
                                             {isFieldVisible('colLoose') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{loose}</td>}
-                                            {isFieldVisible('colStock') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle} ${isSelected ? 'text-white' : (isLow ? 'text-red-700 font-bold group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{item.stock}</td>}
+                                            {isFieldVisible('colStock') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${uniformTextStyle} ${isSelected ? 'text-white' : (isLow ? 'text-red-700 font-bold group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{row.totalStock}</td>}
                                             {isFieldVisible('colBaseUnit') && <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-600'} ${uniformTextStyle}`}>{item.baseUnit}</td>}
                                             {isFieldVisible('colPtr') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.ptr || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colMrp') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(effectiveMrp || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colRateA') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(effectiveRateA || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colRateB') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(effectiveRateB || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colRateC') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(effectiveRateC || 0).toFixed(2)}</td>}
-                                            {isFieldVisible('colValue') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{(item.value || 0).toFixed(2)}</td>}
+                                            {isFieldVisible('colMrp') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : row.hasMixedMrp ? 'group-hover:text-white text-orange-600 font-bold' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>{row.mrpLabel}</td>}
+                                            {isFieldVisible('colRateA') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : row.hasMixedRate ? 'group-hover:text-white text-orange-600 font-bold' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>{row.rateALabel}</td>}
+                                            {isFieldVisible('colRateB') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : row.hasMixedRate ? 'group-hover:text-white text-orange-600 font-bold' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>{row.rateBLabel}</td>}
+                                            {isFieldVisible('colRateC') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : row.hasMixedRate ? 'group-hover:text-white text-orange-600 font-bold' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>{row.rateCLabel}</td>}
+                                            {isFieldVisible('colValue') && <td className={`py-1 px-2 border-r border-gray-200 text-right ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>₹{row.totalValue.toFixed(2)}</td>}
                                             {isFieldVisible('colExpiry') && (
                                                 <td className={`py-1 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'} ${uniformTextStyle}`}>
                                                     {formatExpiryToMMYY(item.expiry)}
@@ -635,7 +711,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                         </tr>
                                     );
                                 })}
-                                {filteredItems.length === 0 && (
+                                {groupedItems.length === 0 && (
                                     <tr>
                                         <td colSpan={25} className="p-20 text-center text-gray-300 font-black uppercase tracking-[0.4em] italic text-sm">
                                             No matching items found
@@ -650,7 +726,7 @@ const Inventory: React.FC<InventoryProps> = ({
                     {totalPages > 1 && (
                         <div className="p-2 bg-gray-100 border-t border-gray-400 flex justify-between items-center flex-shrink-0">
                             <div className="text-[10px] font-black uppercase text-gray-500 tracking-widest ml-2">
-                                Showing {paginatedItems.length} of {filteredItems.length} items
+                                Showing {paginatedItems.length} of {groupedItems.length} items
                             </div>
                             <div className="flex items-center gap-1">
                                 <button 
@@ -683,10 +759,10 @@ const Inventory: React.FC<InventoryProps> = ({
                 <div className="bg-[#e5f0f0] p-4 tally-border flex justify-between items-center text-base font-normal uppercase flex-shrink-0">
                     <div className="flex gap-12">
                         <span>Total Stock Valuation: <span className="text-blue-900">₹{totalValuation.toLocaleString()}</span></span>
-                        <span>Low Stock Alert: <span className="text-red-600">{filteredItems.filter(i => i.stock <= i.minStockLimit).length}</span></span>
+                        <span>Low Stock Alert: <span className="text-red-600">{groupedItems.filter(i => i.totalStock <= i.representative.minStockLimit).length}</span></span>
                     </div>
                     <div className="flex items-center gap-6">
-                        <span className="opacity-40">Navigate with ↑ ↓ and Click Alter to modify</span>
+                        <span className="opacity-40">Navigate with ↑ ↓ and press Enter for batch-wise detail</span>
                         <span className="opacity-40">ERP Engine v1.0.8</span>
                     </div>
                 </div>
@@ -710,11 +786,17 @@ const Inventory: React.FC<InventoryProps> = ({
                 <ExportInventoryModal 
                     isOpen={isExportModalOpen}
                     onClose={() => setIsExportModalOpen(false)}
-                    data={filteredItems}
+                    data={baseFilteredItems}
                     pharmacyName={currentUser?.pharmacy_name || 'MDXERA ERP'}
                 />
             )}
             <MrpChangeLogModal isOpen={isMrpLogOpen} onClose={() => setIsMrpLogOpen(false)} logs={mrpChangeLogs} />
+            <InventoryBatchDetailModal
+                isOpen={!!detailRow}
+                onClose={() => setDetailRow(null)}
+                itemName={detailRow?.name || ''}
+                rows={detailRow?.items || []}
+            />
         </main>
     );
 };
