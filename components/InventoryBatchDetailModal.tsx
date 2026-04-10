@@ -172,13 +172,24 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
         }
     };
 
+    const handleDraftKeyDown = async (event: React.KeyboardEvent<HTMLInputElement>, row: InventoryItem) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            await saveEdit(row);
+        }
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            cancelEdit();
+        }
+    };
+
     return createPortal(
-        <div className="fixed inset-0 z-[220] bg-black/60 flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
+        <div className="fixed inset-0 z-[220] bg-black/60 flex items-center justify-center p-2" onClick={onClose}>
             <div
-                className="w-[92vw] h-[80vh] sm:w-[88vw] lg:w-[85vw] xl:w-[82vw] bg-white border-2 border-primary shadow-2xl flex flex-col overflow-hidden"
+                className="w-[74vw] min-w-[320px] max-w-[1400px] max-h-[70vh] bg-white border-2 border-primary shadow-2xl flex flex-col overflow-hidden"
                 onClick={e => e.stopPropagation()}
             >
-                <div className="px-4 py-3 bg-primary text-white flex justify-between items-center">
+                <div className="px-3 py-2 bg-primary text-white flex justify-between items-center shrink-0">
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-widest">Batch-wise Stock Breakdown</p>
                         <h2 className="text-lg font-black uppercase">{itemName}</h2>
@@ -191,8 +202,8 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                 )}
 
                 <div className="flex-1 overflow-hidden">
-                    <div className="h-full overflow-auto">
-                        <table className="min-w-full border-collapse whitespace-nowrap text-xs sm:text-sm">
+                    <div className="h-full overflow-x-auto overflow-y-auto">
+                        <table className="w-full border-collapse whitespace-nowrap text-xs sm:text-sm">
                             <thead className="bg-gray-100 sticky top-0 z-10">
                                 <tr className="font-black uppercase text-gray-700 border-b border-gray-400">
                                     <th className="px-2 py-2 border-r border-gray-300 text-center">#</th>
@@ -242,10 +253,7 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                                                         value={draft.batch}
                                                         disabled={!allowBatchEdit}
                                                         onChange={e => setDraft(prev => (prev ? { ...prev, batch: e.target.value } : prev))}
-                                                        onKeyDown={async e => {
-                                                            if (e.key === 'Enter') await saveEdit(row);
-                                                            if (e.key === 'Escape') cancelEdit();
-                                                        }}
+                                                        onKeyDown={e => void handleDraftKeyDown(e, row)}
                                                     />
                                                 ) : (row.batch || '-')}
                                             </td>
@@ -255,34 +263,31 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                                                         className="w-24 border border-gray-300 px-1 py-0.5 text-center focus:outline-none focus:border-primary"
                                                         value={draft.expiry || ''}
                                                         onChange={e => setDraft(prev => (prev ? { ...prev, expiry: e.target.value } : prev))}
-                                                        onKeyDown={async e => {
-                                                            if (e.key === 'Enter') await saveEdit(row);
-                                                            if (e.key === 'Escape') cancelEdit();
-                                                        }}
+                                                        onKeyDown={e => void handleDraftKeyDown(e, row)}
                                                     />
                                                 ) : (formatExpiryToMMYY(row.expiry) || '-')}
                                             </td>
                                             <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" min={0} className={inputClass} value={draft.packQty} onChange={e => setDraft(prev => (prev ? { ...prev, packQty: toNonNegativeInt(e.target.value) } : prev))} /> : packQty}
+                                                {isEditing ? <input type="number" min={0} className={inputClass} value={draft.packQty} onChange={e => setDraft(prev => (prev ? { ...prev, packQty: toNonNegativeInt(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : packQty}
                                             </td>
                                             <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" min={0} className={inputClass} value={draft.looseQty} onChange={e => setDraft(prev => (prev ? { ...prev, looseQty: toNonNegativeInt(e.target.value) } : prev))} /> : looseQty}
+                                                {isEditing ? <input type="number" min={0} className={inputClass} value={draft.looseQty} onChange={e => setDraft(prev => (prev ? { ...prev, looseQty: toNonNegativeInt(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : looseQty}
                                             </td>
                                             <td className="px-2 py-1.5 border-r border-gray-200 text-right font-semibold">{totalStock}</td>
                                             <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.ptr} onChange={e => setDraft(prev => (prev ? { ...prev, ptr: toNumber(e.target.value) } : prev))} /> : `₹${ptr.toFixed(2)}`}
+                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.ptr} onChange={e => setDraft(prev => (prev ? { ...prev, ptr: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${ptr.toFixed(2)}`}
                                             </td>
                                             <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.mrp} onChange={e => setDraft(prev => (prev ? { ...prev, mrp: toNumber(e.target.value) } : prev))} /> : `₹${mrp.toFixed(2)}`}
+                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.mrp} onChange={e => setDraft(prev => (prev ? { ...prev, mrp: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${mrp.toFixed(2)}`}
                                             </td>
                                             <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.rateA} onChange={e => setDraft(prev => (prev ? { ...prev, rateA: toNumber(e.target.value) } : prev))} /> : `₹${rateA.toFixed(2)}`}
+                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.rateA} onChange={e => setDraft(prev => (prev ? { ...prev, rateA: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${rateA.toFixed(2)}`}
                                             </td>
                                             <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.rateB} onChange={e => setDraft(prev => (prev ? { ...prev, rateB: toNumber(e.target.value) } : prev))} /> : `₹${rateB.toFixed(2)}`}
+                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.rateB} onChange={e => setDraft(prev => (prev ? { ...prev, rateB: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${rateB.toFixed(2)}`}
                                             </td>
                                             <td className="px-2 py-1.5 border-r border-gray-200 text-right">
-                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.rateC} onChange={e => setDraft(prev => (prev ? { ...prev, rateC: toNumber(e.target.value) } : prev))} /> : `₹${rateC.toFixed(2)}`}
+                                                {isEditing ? <input type="number" step="0.01" className={inputClass} value={draft.rateC} onChange={e => setDraft(prev => (prev ? { ...prev, rateC: toNumber(e.target.value) } : prev))} onKeyDown={e => void handleDraftKeyDown(e, row)} /> : `₹${rateC.toFixed(2)}`}
                                             </td>
                                             <td className="px-2 py-1.5 border-r border-gray-200 text-right font-semibold">₹{stockValue.toFixed(2)}</td>
                                             <td className="px-2 py-1.5 border-r border-gray-200">{row.barcode || '-'}</td>
@@ -328,6 +333,10 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                             </tfoot>
                         </table>
                     </div>
+                </div>
+                <div className="px-3 py-2 border-t border-gray-300 bg-white flex justify-between items-center shrink-0">
+                    <p className="text-[10px] font-bold uppercase text-gray-500 tracking-wide">Enter = Save • Esc = Cancel / Close</p>
+                    <button onClick={onClose} className="px-3 py-1 border border-gray-400 text-[10px] font-black uppercase text-gray-700 hover:bg-gray-100">Close</button>
                 </div>
             </div>
         </div>,
