@@ -25,6 +25,13 @@ const ExportIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
   </svg>
 );
+const PrintIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <polyline points="6 9 6 2 18 2 18 9" />
+    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+    <rect x="6" y="14" width="12" height="8" />
+  </svg>
+);
 
 interface InventoryProps {
     inventory: InventoryItem[];
@@ -242,6 +249,86 @@ const Inventory: React.FC<InventoryProps> = ({
         }
     };
 
+    const handlePrintInventory = () => {
+        const printableColumns = [
+            isFieldVisible('colName') ? { label: 'Item Name', getValue: (item: InventoryItem) => item.name || '' } : null,
+            isFieldVisible('colCategory') ? { label: 'Category', getValue: (item: InventoryItem) => item.category || '' } : null,
+            isFieldVisible('colHsn') ? { label: 'HSN', getValue: (item: InventoryItem) => getEffectiveFields(item).effectiveHsnCode || '' } : null,
+            isFieldVisible('colBarcode') ? { label: 'Barcode', getValue: (item: InventoryItem) => item.barcode || '' } : null,
+            isFieldVisible('colBatch') ? { label: 'Batch', getValue: (item: InventoryItem) => item.batch || '' } : null,
+            isFieldVisible('colStrips') ? { label: 'Pack Qty', getValue: (item: InventoryItem) => Math.floor(item.stock / getEffectiveFields(item).effectiveUnitsPerPack) } : null,
+            isFieldVisible('colLoose') ? { label: 'Loose Qty', getValue: (item: InventoryItem) => item.stock % getEffectiveFields(item).effectiveUnitsPerPack } : null,
+            isFieldVisible('colStock') ? { label: 'Total Stock', getValue: (item: InventoryItem) => item.stock } : null,
+            isFieldVisible('colBaseUnit') ? { label: 'B.Unit', getValue: (item: InventoryItem) => item.baseUnit || '' } : null,
+            isFieldVisible('colPtr') ? { label: 'PTR', getValue: (item: InventoryItem) => Number(item.ptr || 0).toFixed(2) } : null,
+            isFieldVisible('colMrp') ? { label: 'MRP', getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveMrp || 0).toFixed(2) } : null,
+            isFieldVisible('colRateA') ? { label: 'Rate A', getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateA || 0).toFixed(2) } : null,
+            isFieldVisible('colRateB') ? { label: 'Rate B', getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateB || 0).toFixed(2) } : null,
+            isFieldVisible('colRateC') ? { label: 'Rate C', getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateC || 0).toFixed(2) } : null,
+        ].filter(Boolean) as Array<{ label: string; getValue: (item: InventoryItem) => string | number }>;
+
+        const printWindow = window.open('', '_blank', 'width=1280,height=860');
+        if (!printWindow) return;
+
+        const orientation = printableColumns.length > 10 ? 'landscape' : 'portrait';
+        const generatedOn = new Date().toLocaleString();
+        const rowsHtml = filteredItems.map((item, idx) => `
+            <tr>
+                <td class="text-center">${idx + 1}</td>
+                ${printableColumns.map(col => `<td>${col.getValue(item) ?? ''}</td>`).join('')}
+            </tr>
+        `).join('');
+
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>Inventory Print Preview</title>
+                    <style>
+                        @page { size: A4 ${orientation}; margin: 10mm; }
+                        * { box-sizing: border-box; }
+                        body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111827; }
+                        .container { padding: 10px; }
+                        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; border-bottom: 2px solid #111827; padding-bottom: 8px; }
+                        h1 { margin: 0 0 4px; font-size: 16px; text-transform: uppercase; letter-spacing: 0.05em; }
+                        .meta { font-size: 11px; color: #374151; }
+                        table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10px; }
+                        th, td { border: 1px solid #9ca3af; padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                        th { background: #e5e7eb; text-transform: uppercase; font-size: 9px; letter-spacing: 0.04em; }
+                        .text-center { text-align: center; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <div>
+                                <h1>Inventory Stock Summary</h1>
+                                <div class="meta">${currentUser?.pharmacy_name || 'Pharmacy'}</div>
+                                <div class="meta">Filters: ${searchTerm ? `Search "${searchTerm}"` : 'None'}${lowStockFilter ? ' · Low Stock Only' : ''}</div>
+                            </div>
+                            <div class="meta">
+                                <div>Generated: ${generatedOn}</div>
+                                <div>Total Items: ${filteredItems.length}</div>
+                            </div>
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width: 34px">#</th>
+                                    ${printableColumns.map(col => `<th>${col.label}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rowsHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+        printWindow.focus();
+    };
+
     const renderPageNumbers = () => {
         const delta = 2;
         const range = [];
@@ -291,9 +378,9 @@ const Inventory: React.FC<InventoryProps> = ({
                 <span className="text-[10px] font-black uppercase text-accent">Total Items: {filteredItems.length}</span>
             </div>
 
-            <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
+            <div className="p-3 flex-1 flex flex-col gap-3 overflow-hidden">
                 <Card className="flex flex-col flex-1 overflow-hidden p-0 tally-border shadow-md bg-white">
-                    <div className="p-4 border-b border-gray-400 flex items-center bg-gray-50 gap-4 flex-shrink-0">
+                    <div className="px-3 py-2 border-b border-gray-400 flex items-center bg-gray-50 gap-2.5 flex-shrink-0">
                         <div className="relative flex-1 max-w-sm">
                             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                             <input 
@@ -305,17 +392,17 @@ const Inventory: React.FC<InventoryProps> = ({
                                     setSelectedIndex(0);
                                     setCurrentPage(1);
                                 }} 
-                                className="w-full pl-9 pr-4 py-2.5 border border-gray-400 rounded-none bg-white text-base font-normal outline-none focus:bg-yellow-50"
+                                className="w-full pl-9 pr-3 py-1.5 border border-gray-400 rounded-none bg-white text-sm font-normal outline-none focus:bg-yellow-50"
                             />
                         </div>
-                        <div className="flex items-center gap-4 ml-auto">
+                        <div className="flex items-center gap-2 ml-auto">
                             <button
                                 onClick={() => setIsMrpLogOpen(true)}
-                                className="px-4 py-2 border border-primary bg-white text-primary text-[10px] font-black uppercase hover:bg-primary hover:text-white transition-colors"
+                                className="px-3 py-1.5 border border-primary bg-white text-primary text-[10px] font-black uppercase hover:bg-primary hover:text-white transition-colors"
                             >
                                 MRP Log
                             </button>
-                            <label className="flex items-center gap-2 cursor-pointer bg-white px-4 py-2 border border-gray-400">
+                            <label className="flex items-center gap-1.5 cursor-pointer bg-white px-3 py-1.5 border border-gray-400">
                                 <input 
                                     type="checkbox" 
                                     checked={lowStockFilter} 
@@ -326,13 +413,13 @@ const Inventory: React.FC<InventoryProps> = ({
                                     }}
                                     className="w-4 h-4 text-primary"
                                 />
-                                <span className="text-xs font-bold uppercase text-gray-600">Low Stock</span>
+                                <span className="text-[11px] font-bold uppercase text-gray-600">Low Stock</span>
                             </label>
                             
                             <div className="relative" ref={columnSelectorRef}>
                                 <button 
                                     onClick={() => setIsColumnSelectorOpen(!isColumnSelectorOpen)}
-                                    className={`px-6 py-2 border border-gray-400 transition-all flex items-center gap-2 text-sm font-bold uppercase ${isColumnSelectorOpen ? 'bg-primary text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                                    className={`px-4 py-1.5 border border-gray-400 transition-all flex items-center gap-1.5 text-xs font-bold uppercase ${isColumnSelectorOpen ? 'bg-primary text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
                                 >
                                     <ColumnsIcon className={isColumnSelectorOpen ? 'text-white' : 'text-primary'} />
                                     F7: Columns
@@ -366,13 +453,21 @@ const Inventory: React.FC<InventoryProps> = ({
 
                             <button 
                                 onClick={() => setIsExportModalOpen(true)}
-                                className="px-6 py-2 border border-gray-400 bg-white text-primary font-black uppercase text-sm tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
+                                className="px-4 py-1.5 border border-gray-400 bg-white text-primary font-black uppercase text-xs tracking-widest flex items-center gap-1.5 hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
                             >
                                 <ExportIcon />
                                 Export (F3)
                             </button>
 
-                            <button onClick={() => setIsAddModalOpen(true)} className="px-6 py-2 tally-button-accent text-sm font-black uppercase tracking-widest">F2: ADD INVENTORY</button>
+                            <button
+                                onClick={handlePrintInventory}
+                                className="px-4 py-1.5 border border-gray-400 bg-white text-primary font-black uppercase text-xs tracking-widest flex items-center gap-1.5 hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
+                            >
+                                <PrintIcon />
+                                PRINT
+                            </button>
+
+                            <button onClick={() => setIsAddModalOpen(true)} className="px-4 py-1.5 tally-button-accent text-xs font-black uppercase tracking-widest">F2: ADD INVENTORY</button>
                         </div>
                     </div>
 
