@@ -156,7 +156,12 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         if (!selectedCustomer || !Array.isArray(transactions)) return [] as ReceivableInvoiceRow[];
 
         const sales: ReceivableInvoiceRow[] = transactions
-            .filter(t => t && t.status !== 'cancelled' && (t.customerId === selectedCustomer.id || (t.customerName || '').trim().toLowerCase() === (selectedCustomer.name || '').trim().toLowerCase()))
+            .filter(t =>
+                t &&
+                t.status !== 'cancelled' &&
+                String(t.paymentMode || '').trim().toLowerCase() === 'credit' &&
+                (t.customerId === selectedCustomer.id || (t.customerName || '').trim().toLowerCase() === (selectedCustomer.name || '').trim().toLowerCase())
+            )
             .map(t => ({
                 id: t.id,
                 invoiceNumber: t.invoiceNumber,

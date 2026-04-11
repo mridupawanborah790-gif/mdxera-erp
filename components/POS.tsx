@@ -276,7 +276,7 @@ const POS = forwardRef<any, POSProps>(({
     const dateInputRef = useRef<HTMLInputElement>(null);
     const phoneInputRef = useRef<HTMLInputElement>(null);
 
-    const [billCategory, setBillCategory] = useState<'Cash Bill' | 'Credit Bill'>('Cash Bill');
+    const [billCategory, setBillCategory] = useState<'Cash' | 'Credit'>('Cash');
     const [billMode, setBillMode] = useState<'GST' | 'EST'>(billType === 'non-gst' ? 'EST' : 'GST');
     const [referredBy, setReferredBy] = useState('');
     const [doctorId, setDoctorId] = useState<string | null>(null);
@@ -656,11 +656,13 @@ const POS = forwardRef<any, POSProps>(({
             setNarration(transactionToEdit.narration || '');
             setRoundOff(transactionToEdit.roundOff || 0);
             setIsRoundOffManuallyEdited(true);
+            setBillCategory(String(transactionToEdit.paymentMode || '').toLowerCase() === 'credit' ? 'Credit' : 'Cash');
         } else {
             setIsRoundOffManuallyEdited(false);
             setRoundOff(0);
             setAdjustment(0);
             setNarration('');
+            setBillCategory('Cash');
             // Default focus to Date field as requested
             setTimeout(() => dateInputRef.current?.focus(), 150);
         }
@@ -731,7 +733,13 @@ const POS = forwardRef<any, POSProps>(({
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
 
-        if (creditCheck && !creditCheck.canProceed) {
+        if (billCategory === 'Credit' && !selectedCustomer?.id) {
+            addNotification('Customer selection is required for Credit bill.', 'error');
+            customerSearchInputRef.current?.focus();
+            return;
+        }
+
+        if (billCategory === 'Credit' && creditCheck && !creditCheck.canProceed) {
             const formatted = `Credit Limit ₹${creditCheck.details.creditLimit.toFixed(2)} | Outstanding ₹${creditCheck.details.currentOutstanding.toFixed(2)} | Open Challan ₹${creditCheck.details.openChallanExposure.toFixed(2)} | Bill ₹${creditCheck.details.currentTransactionAmount.toFixed(2)} | Projected ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
             if (creditCheck.mode === 'warning_only') {
                 const proceed = window.confirm(`${creditCheck.message}\n\n${formatted}\n\nDo you want to continue?`);
@@ -884,7 +892,7 @@ const POS = forwardRef<any, POSProps>(({
             return;
         }
 
-        const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
+        const finalPaymentMode = billCategory === 'Credit' ? 'Credit' : 'Cash';
 
         const transaction: Transaction = {
             id: generatedId,
@@ -908,6 +916,7 @@ const POS = forwardRef<any, POSProps>(({
             roundOff,
             status: 'completed',
             paymentMode: finalPaymentMode,
+            amountReceived: finalPaymentMode === 'Credit' ? 0 : grandTotal,
             billType: isNonGst ? 'non-gst' : 'regular',
             itemCount: cartItems.length,
             pricingMode: localPricingMode,
@@ -932,6 +941,7 @@ const POS = forwardRef<any, POSProps>(({
             setAdjustment(0);
             setLumpsumDiscount(0);
             setDoctorId(null);
+            setBillCategory('Cash');
             
             // Clear current reservation before getting next
             setReservedVoucherNumber(null);
@@ -964,6 +974,7 @@ const POS = forwardRef<any, POSProps>(({
         setCustomerPhone('');
         setReferredBy('');
         setDoctorId(null);
+        setBillCategory('Cash');
         setLumpsumDiscount(0);
         setAdjustment(0);
         setNarration('');
@@ -1922,7 +1933,7 @@ const POS = forwardRef<any, POSProps>(({
                     )}
                     {isFieldVisible('optBillingCategory') && (
                         <div>
-                            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Billing Category</label>
+                            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Bill Category</label>
                             <select
                                 ref={billCategorySelectRef}
                                 value={billCategory}
@@ -1930,8 +1941,8 @@ const POS = forwardRef<any, POSProps>(({
                                 className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50"
                                 disabled={isReadOnly}
                             >
-                                <option value="Cash Bill">Cash Bill</option>
-                                <option value="Credit Bill">Credit Bill</option>
+                                <option value="Cash">Cash</option>
+                                <option value="Credit">Credit</option>
                             </select>
                         </div>
                     )}
@@ -1966,7 +1977,7 @@ const POS = forwardRef<any, POSProps>(({
                     )}
                 </Card>
 
-                {selectedCustomer && creditCheck && (
+                {selectedCustomer && billCategory === 'Credit' && creditCheck && (
                     <Card className="p-2 bg-amber-50 border border-amber-300 rounded-none flex-shrink-0">
                         <div className="text-[9px] font-black uppercase tracking-widest text-amber-800">Credit Control</div>
                         <div className="text-[10px] font-semibold text-amber-900 mt-0.5">

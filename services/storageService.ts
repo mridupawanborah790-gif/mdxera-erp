@@ -2501,6 +2501,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
         const customer = await findCustomerForTransaction(tx);
         
+        const isCreditSale = String(tx.paymentMode || '').trim().toLowerCase() === 'credit';
+
         if (customer) {
             await upsertAutoLedgerEntry(
                 { type: 'customer', id: customer.id },
@@ -2515,7 +2517,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                     referenceInvoiceId: tx.id,
                     referenceInvoiceNumber: tx.invoiceNumber,
                 },
-                tx.status !== 'cancelled'
+                tx.status !== 'cancelled' && isCreditSale
             );
         }
 
