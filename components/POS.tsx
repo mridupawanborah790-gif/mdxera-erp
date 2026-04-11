@@ -276,7 +276,7 @@ const POS = forwardRef<any, POSProps>(({
     const dateInputRef = useRef<HTMLInputElement>(null);
     const phoneInputRef = useRef<HTMLInputElement>(null);
 
-    const [billCategory, setBillCategory] = useState<'Cash Bill' | 'Credit Bill'>('Cash Bill');
+    const [billCategory, setBillCategory] = useState<'Cash' | 'Credit'>('Cash');
     const [billMode, setBillMode] = useState<'GST' | 'EST'>(billType === 'non-gst' ? 'EST' : 'GST');
     const [referredBy, setReferredBy] = useState('');
     const [doctorId, setDoctorId] = useState<string | null>(null);
@@ -655,12 +655,14 @@ const POS = forwardRef<any, POSProps>(({
             setAdjustment(transactionToEdit.adjustment || 0);
             setNarration(transactionToEdit.narration || '');
             setRoundOff(transactionToEdit.roundOff || 0);
+            setBillCategory(String(transactionToEdit.paymentMode || '').toLowerCase() === 'credit' ? 'Credit' : 'Cash');
             setIsRoundOffManuallyEdited(true);
         } else {
             setIsRoundOffManuallyEdited(false);
             setRoundOff(0);
             setAdjustment(0);
             setNarration('');
+            setBillCategory('Cash');
             // Default focus to Date field as requested
             setTimeout(() => dateInputRef.current?.focus(), 150);
         }
@@ -884,7 +886,13 @@ const POS = forwardRef<any, POSProps>(({
             return;
         }
 
-        const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
+        if (billCategory === 'Credit' && !selectedCustomer?.id) {
+            addNotification('Customer selection is required for Credit bill.', 'error');
+            setIsSaving(false);
+            return;
+        }
+
+        const finalPaymentMode = billCategory === 'Credit' ? 'Credit' : 'Cash';
 
         const transaction: Transaction = {
             id: generatedId,
@@ -929,6 +937,7 @@ const POS = forwardRef<any, POSProps>(({
             setCustomerPhone('');
             setReferredBy('');
             setNarration('');
+            setBillCategory('Cash');
             setAdjustment(0);
             setLumpsumDiscount(0);
             setDoctorId(null);
@@ -1920,21 +1929,19 @@ const POS = forwardRef<any, POSProps>(({
                             />
                         </div>
                     )}
-                    {isFieldVisible('optBillingCategory') && (
-                        <div>
-                            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Billing Category</label>
-                            <select
-                                ref={billCategorySelectRef}
-                                value={billCategory}
-                                onChange={e => setBillCategory(e.target.value as any)}
-                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50"
-                                disabled={isReadOnly}
-                            >
-                                <option value="Cash Bill">Cash Bill</option>
-                                <option value="Credit Bill">Credit Bill</option>
-                            </select>
-                        </div>
-                    )}
+                    <div>
+                        <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Bill Category</label>
+                        <select
+                            ref={billCategorySelectRef}
+                            value={billCategory}
+                            onChange={e => setBillCategory(e.target.value as 'Cash' | 'Credit')}
+                            className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50"
+                            disabled={isReadOnly}
+                        >
+                            <option value="Cash">Cash</option>
+                            <option value="Credit">Credit</option>
+                        </select>
+                    </div>
                     {isFieldVisible('optPrescription') && (
                         <div className="flex gap-1 h-8">
                             <button
