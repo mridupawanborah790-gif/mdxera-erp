@@ -312,6 +312,16 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         const popup = window.open('', '_blank', 'width=900,height=700');
         if (!popup) return;
 
+        const summary = getVoucherAllocationSummary(entry);
+        const voucherType = entry.entryCategory === 'down_payment'
+            ? 'Down Payment Receipt'
+            : entry.entryCategory === 'down_payment_adjustment'
+                ? 'Down Payment Adjustment'
+                : entry.entryCategory === 'invoice_payment_adjustment'
+                    ? 'Invoice Receipt Adjustment'
+                    : entry.entryCategory === 'payment_cancellation' || entry.entryCategory === 'down_payment_cancellation'
+                        ? 'Receipt Cancellation'
+                        : 'Receipt Voucher';
         const voucherNumber = entry.journalEntryNumber || entry.journalEntryId || 'Pending Voucher Number';
         const voucherDate = formatDisplayDate(entry.date);
         const paymentModeText = entry.paymentMode || 'Bank';
@@ -319,6 +329,13 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         const amountReceived = Number(entry.credit || 0);
         const receiptAgainstInvoice = entry.referenceInvoiceNumber || entry.referenceInvoiceId || '-';
         const narration = entry.description || 'Payment Received';
+        const isAutoReceipt = entry.id.startsWith('auto-') || /auto[-\s]?/i.test(narration);
+        const linkedDetails = (entry.referenceInvoiceNumber || entry.referenceInvoiceId)
+            ? `${entry.referenceInvoiceNumber || '-'} (${entry.referenceInvoiceId || '-'})`
+            : '-';
+        const cancellationMark = entry.status === 'cancelled'
+            ? `<div class="cancelled-mark">CANCELLED</div>`
+            : '';
         const companyName = currentUser?.pharmacy_name || 'Pharmacy';
         const companyAddress = [currentUser?.address, currentUser?.address_line2, currentUser?.district, currentUser?.state, currentUser?.pincode].filter(Boolean).join(', ');
         const authorizedSignatory = currentUser?.authorized_signatory || currentUser?.manager_name || currentUser?.full_name || 'Authorized Signatory';
@@ -342,13 +359,15 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                         .signatory { margin-top: 56px; display: flex; justify-content: flex-end; }
                         .signatory-box { text-align: center; min-width: 220px; }
                         .signatory-line { border-top: 1px solid #111827; margin-top: 36px; padding-top: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+                        .cancelled-mark { position: fixed; top: 42%; left: 20%; transform: rotate(-24deg); font-size: 72px; letter-spacing: 5px; font-weight: 900; color: rgba(220, 38, 38, 0.18); pointer-events: none; z-index: 9999; }
                     </style>
                 </head>
                 <body>
+                    ${cancellationMark}
                     <div class="voucher">
                         <div class="header">
                             <div>
-                                <div class="title">Payment Received Voucher</div>
+                                <div class="title">${escapeHtml(voucherType)}</div>
                                 <div style="font-size:12px; margin-top:6px; font-weight:600;">${escapeHtml(companyName)}</div>
                                 <div style="font-size:11px; margin-top:2px; color:#374151;">${escapeHtml(companyAddress || '-')}</div>
                             </div>
@@ -365,6 +384,11 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                             <tr><td class="label-col">Payment Mode</td><td>${escapeHtml(paymentModeText)}</td></tr>
                             <tr><td class="label-col">Bank / Cash Account</td><td>${escapeHtml(bankAccount)}</td></tr>
                             <tr class="amount-row"><td class="label-col">Amount Received</td><td>₹${escapeHtml(amountReceived.toFixed(2))}</td></tr>
+                            <tr><td class="label-col">Adjusted Amount</td><td>₹${escapeHtml(summary.adjustedAmount.toFixed(2))}</td></tr>
+                            <tr><td class="label-col">Unadjusted Amount</td><td>₹${escapeHtml(summary.remainingAmount.toFixed(2))}</td></tr>
+                            <tr><td class="label-col">Status</td><td>${escapeHtml(summary.status)}</td></tr>
+                            <tr><td class="label-col">Linked Invoice / Against Invoice</td><td>${escapeHtml(linkedDetails)}</td></tr>
+                            <tr><td class="label-col">Auto Receipt</td><td>${isAutoReceipt ? 'Yes (System Generated)' : 'No (Manual)'}</td></tr>
                             <tr><td class="label-col">Narration / Remarks</td><td>${escapeHtml(narration)}</td></tr>
                         </table>
                         <div class="amount-words">Amount in words: ${escapeHtml(numberToWords(amountReceived))}</div>
