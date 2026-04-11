@@ -105,6 +105,7 @@ const App: React.FC = () => {
 
     const [showLogoutPrompt, setShowLogoutPrompt] = useState(false);
     const [showEscSavePrompt, setShowEscSavePrompt] = useState(false);
+    const [pendingNavigation, setPendingNavigation] = useState<{ pageId: string; skipPrompt?: boolean; isBack?: boolean } | null>(null);
     const [screenResetNonce, setScreenResetNonce] = useState<Record<string, number>>({});
 
     // Refs to trigger child save methods remotely
@@ -168,6 +169,7 @@ const App: React.FC = () => {
 
     const [activeDashboardMenu, setActiveDashboardMenu] = useState<'left' | 'right'>('right');
     const [mountedPages, setMountedPages] = useState<string[]>(['dashboard']);
+    const [history, setHistory] = useState<string[]>([]);
     const [ewayLoginSetupReturnPage, setEwayLoginSetupReturnPage] = useState<string>('dashboard');
     const pageContainerRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const pageScrollPositionsRef = useRef<Record<string, number>>({});
@@ -551,7 +553,20 @@ const App: React.FC = () => {
                 }
             }
             // Navigate after successful save
-            setCurrentPage('dashboard');
+            if (pendingNavigation) {
+                const target = pendingNavigation.pageId;
+                const isBack = pendingNavigation.isBack;
+                setPendingNavigation(null);
+                
+                if (isBack) {
+                    setHistory(prev => prev.slice(0, -1));
+                    setCurrentPage(target);
+                } else {
+                    handleNavigate(target, true);
+                }
+            } else {
+                setCurrentPage('dashboard');
+            }
         } catch (e) {
             addNotification("Failed to auto-save during exit.", "error");
         }
@@ -561,18 +576,42 @@ const App: React.FC = () => {
         setShowEscSavePrompt(false);
         const wasEditing = !!editingSale || !!editingPurchase;
         
-        if (currentPage === 'pos' || currentPage === 'nonGstPos') {
-            posRef.current?.resetForm?.();
-            setEditingSale(null);
-            handleNavigate(wasEditing ? 'salesHistory' : 'dashboard', true);
-        } else {
-            purchaseFormRef.current?.resetForm?.();
-            if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
+        if (pendingNavigation) {
+            const target = pendingNavigation.pageId;
+            const isBack = pendingNavigation.isBack;
+            setPendingNavigation(null);
+
+            // Reset current screen before leaving
+            if (currentPage === 'pos' || currentPage === 'nonGstPos') {
+                posRef.current?.resetForm?.();
+                setEditingSale(null);
+            } else {
+                purchaseFormRef.current?.resetForm?.();
                 setEditingPurchase(null);
                 setSourceChallansForPurchase(null);
-                handleNavigate(wasEditing ? 'purchaseHistory' : 'dashboard', true);
+                setPurchaseCopyDraft(null);
+            }
+
+            if (isBack) {
+                setHistory(prev => prev.slice(0, -1));
+                setCurrentPage(target);
             } else {
-                handleNavigate('dashboard', true);
+                handleNavigate(target, true);
+            }
+        } else {
+            if (currentPage === 'pos' || currentPage === 'nonGstPos') {
+                posRef.current?.resetForm?.();
+                setEditingSale(null);
+                handleNavigate(wasEditing ? 'salesHistory' : 'dashboard', true);
+            } else {
+                purchaseFormRef.current?.resetForm?.();
+                if (currentPage === 'automatedPurchaseEntry' || currentPage === 'manualPurchaseEntry' || currentPage === 'manualSupplierInvoice') {
+                    setEditingPurchase(null);
+                    setSourceChallansForPurchase(null);
+                    handleNavigate(wasEditing ? 'purchaseHistory' : 'dashboard', true);
+                } else {
+                    handleNavigate('dashboard', true);
+                }
             }
         }
         setScreenResetNonce(prev => ({ ...prev, [currentPage]: (prev[currentPage] ?? 0) + 1 }));
@@ -699,6 +738,7 @@ const App: React.FC = () => {
         }
 
         if (!skipPrompt && shouldPromptBeforeLeaving(currentPage, resolvedPageId)) {
+            setPendingNavigation({ pageId, skipPrompt });
             setShowEscSavePrompt(true);
             return;
         }
@@ -709,6 +749,17 @@ const App: React.FC = () => {
         if (resolvedPageId === 'ewayLoginSetup') {
             setEwayLoginSetupReturnPage(currentPage || 'dashboard');
         }
+
+        // --- HISTORY TRACKING ---
+        if (currentPage !== resolvedPageId) {
+            setHistory(prev => {
+                // Limit history size to 20 to prevent bloat
+                const next = [...prev, currentPage].slice(-20);
+                return next;
+            });
+        }
+        // ------------------------
+
         setCurrentPage(resolvedPageId);
         if (resolvedPageId !== 'manualSupplierInvoice' && resolvedPageId !== 'manualPurchaseEntry' && resolvedPageId !== 'automatedPurchaseEntry') {
             setEditingPurchase(null);
@@ -718,6 +769,26 @@ const App: React.FC = () => {
             setEditingSale(null);
         }
     }, [addNotification, businessRoles, currentPage, currentUser, shouldPromptBeforeLeaving, teamMembers]);
+
+    const handleBack = useCallback(() => {
+        const prevPage = history.length > 0 ? history[history.length - 1] : 'dashboard';
+
+        if (shouldPromptBeforeLeaving(currentPage, prevPage)) {
+            setPendingNavigation({ pageId: prevPage, isBack: true });
+            setShowEscSavePrompt(true);
+            return;
+        }
+
+        if (history.length === 0) {
+            if (currentPage !== 'dashboard') {
+                setCurrentPage('dashboard');
+            }
+            return;
+        }
+
+        setHistory(prev => prev.slice(0, -1));
+        setCurrentPage(prevPage);
+    }, [history, currentPage, shouldPromptBeforeLeaving]);
 
     const closeEwayLoginSetup = useCallback(() => {
         const targetPage = PERSISTABLE_SCREENS.has(ewayLoginSetupReturnPage) ? ewayLoginSetupReturnPage : 'dashboard';
@@ -2542,6 +2613,8 @@ const App: React.FC = () => {
             <Header
                 currentUser={currentUser}
                 onNavigate={handleNavigate}
+                onBack={handleBack}
+                canGoBack={history.length > 0 || currentPage !== 'dashboard'}
                 onLogout={() => setShowLogoutPrompt(true)}
                 onNewBillClick={() => handleNavigate('pos')}
                 isFullScreen={isFullScreen}
@@ -2660,7 +2733,10 @@ const App: React.FC = () => {
                     discardLabel="No"
                     onAccept={handleEscSave}
                     onDiscard={handleEscDiscard}
-                    onCancel={() => setShowEscSavePrompt(false)}
+                    onCancel={() => {
+                        setShowEscSavePrompt(false);
+                        setPendingNavigation(null);
+                    }}
                 />
             )}
         </div>
