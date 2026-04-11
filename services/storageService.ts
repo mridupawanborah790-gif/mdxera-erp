@@ -2085,23 +2085,77 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         }, 0);
     };
 
-    const getCustomerInvoiceTotal = async (customer: Customer, invoiceId: string, user: RegisteredPharmacy): Promise<number> => {
-        const localTxns = await idb.getAll(STORES.SALES_BILL) as Transaction[];
-        const localMatch = localTxns.find((row) => row?.id === invoiceId && row?.status !== 'cancelled' && (row?.customerId === customer.id || String(row?.customerName || '').trim().toLowerCase() === String(customer.name || '').trim().toLowerCase()));
-        if (localMatch) return Number(localMatch.total || 0);
+    const getCustomerInvoiceTotal = async (customer: Customer, invoiceRef: string, user: RegisteredPharmacy): Promise<number> => {
+        const normalizedInvoiceRef = String(invoiceRef || '').trim();
+        if (!normalizedInvoiceRef) throw new Error('Selected invoice is not available for this customer.');
+        const normalizedInvoiceRefLower = normalizedInvoiceRef.toLowerCase();
+        const normalizedCustomerName = String(customer.name || '').trim().toLowerCase();
+        const customerLedger = Array.isArray(customer.ledger) ? customer.ledger : [];
+        const adjustedCategories = new Set([
+            'invoice_payment_adjustment',
+            'down_payment_adjustment',
+            'invoice_payment_adjustment_reversal',
+            'down_payment_adjustment_reversal',
+        ]);
+        const resolveAdjustedAmountFromLedger = (invoiceId: string, invoiceNumber?: string): number => {
+            const normalizedInvoiceNumber = String(invoiceNumber || '').trim().toLowerCase();
+            return customerLedger.reduce((sum, entry) => {
+                if (!entry || entry.status === 'cancelled') return sum;
+                const entryCategory = String(entry.entryCategory || '');
+                if (!adjustedCategories.has(entryCategory)) return sum;
+                const referenceId = String(entry.referenceInvoiceId || '').trim();
+                const referenceNumber = String(entry.referenceInvoiceNumber || '').trim().toLowerCase();
+                const matchesInvoice = referenceId === invoiceId
+                    || (normalizedInvoiceNumber && referenceNumber === normalizedInvoiceNumber)
+                    || referenceId === normalizedInvoiceRef
+                    || referenceNumber === normalizedInvoiceRefLower;
+                if (!matchesInvoice) return sum;
+                const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
+                return sum + (Number(entry.adjustedAmount || 0) * multiplier);
+            }, 0);
+        };
+        const resolveLocalInvoice = async (): Promise<number | null> => {
+            const localTxns = await idb.getAll(STORES.SALES_BILL) as Transaction[];
+            const localMatch = localTxns.find((row) => {
+                if (!row || row.status === 'cancelled') return false;
+                const belongsToCustomer = row.customerId === customer.id || String(row.customerName || '').trim().toLowerCase() === normalizedCustomerName;
+                if (!belongsToCustomer) return false;
+                return row.id === normalizedInvoiceRef || String(row.invoiceNumber || '').trim().toLowerCase() === normalizedInvoiceRefLower;
+            });
+            if (!localMatch) return null;
+            const invoiceTotal = Number(localMatch.total || 0);
+            const adjustedAmount = resolveAdjustedAmountFromLedger(localMatch.id, localMatch.invoiceNumber);
+            const pendingBalance = Number((invoiceTotal - adjustedAmount).toFixed(2));
+            if (pendingBalance <= 0) throw new Error('Invoice is already fully settled and cannot receive duplicate payment.');
+            return invoiceTotal;
+        };
+
+        const localTotal = await resolveLocalInvoice();
+        if (localTotal !== null) return localTotal;
 
         if (navigator.onLine) {
-            const { data } = await supabase
+            const { data: invoices } = await supabase
                 .from('sales_bill')
-                .select('id, customerId, customerName, total, status')
+                .select('id, invoiceNumber, customerId, customerName, total, status')
                 .eq('organization_id', user.organization_id)
-                .eq('id', invoiceId)
-                .maybeSingle();
-            if (data && data.status !== 'cancelled') {
-                const belongsToCustomer = data.customerId === customer.id || String(data.customerName || '').trim().toLowerCase() === String(customer.name || '').trim().toLowerCase();
-                if (belongsToCustomer) return Number(data.total || 0);
+                .or(`id.eq.${normalizedInvoiceRef},invoiceNumber.eq.${normalizedInvoiceRef}`);
+
+            const remoteMatch = (invoices || []).find((row: { id?: string; invoiceNumber?: string; customerId?: string; customerName?: string; total?: number; status?: string; }) => {
+                if (!row || row.status === 'cancelled') return false;
+                const belongsToCustomer = row.customerId === customer.id || String(row.customerName || '').trim().toLowerCase() === normalizedCustomerName;
+                if (!belongsToCustomer) return false;
+                const rowInvoiceNumber = String(row.invoiceNumber || '').trim().toLowerCase();
+                return row.id === normalizedInvoiceRef || rowInvoiceNumber === normalizedInvoiceRefLower;
+            });
+            if (remoteMatch) {
+                const invoiceTotal = Number(remoteMatch.total || 0);
+                const adjustedAmount = resolveAdjustedAmountFromLedger(String(remoteMatch.id || ''), String(remoteMatch.invoiceNumber || ''));
+                const pendingBalance = Number((invoiceTotal - adjustedAmount).toFixed(2));
+                if (pendingBalance <= 0) throw new Error('Invoice is already fully settled and cannot receive duplicate payment.');
+                return invoiceTotal;
             }
         }
+
         throw new Error('Selected invoice is not available for this customer.');
     };
 
