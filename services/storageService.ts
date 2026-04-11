@@ -1644,6 +1644,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             referenceInvoiceId?: string;
             referenceInvoiceNumber?: string;
             entryCategory?: 'invoice_payment' | 'down_payment';
+            ledgerEntryId?: string;
         },
         user: RegisteredPharmacy
     ): Promise<{ journalEntryId?: string; journalEntryNumber?: string; ledgerEntryId: string }> => {
@@ -1807,24 +1808,28 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             if (lineError) throw lineError;
         }
 
-        const ledgerEntryId = generateUUID();
-        await addLedgerEntry({
-            id: ledgerEntryId,
-            date: args.date,
-            type: 'payment',
-            description: args.description,
-            entryCategory: args.entryCategory || 'invoice_payment',
-            debit: 0,
-            credit: Number(args.amount),
-            balance: 0,
-            paymentMode: args.paymentMode,
-            bankAccountId: args.bankAccountId || undefined,
-            bankName: receiptAccountName,
-            referenceInvoiceId: args.referenceInvoiceId,
-            referenceInvoiceNumber: args.referenceInvoiceNumber,
-            journalEntryId,
-            journalEntryNumber,
-        }, { type: 'customer', id: args.customerId }, user);
+        const ledgerEntryId = args.ledgerEntryId || generateUUID();
+        await upsertAutoLedgerEntry(
+            { type: 'customer', id: args.customerId },
+            user,
+            {
+                id: ledgerEntryId,
+                date: args.date,
+                type: 'payment',
+                description: args.description,
+                entryCategory: args.entryCategory || 'invoice_payment',
+                debit: 0,
+                credit: Number(args.amount),
+                paymentMode: args.paymentMode,
+                bankAccountId: args.bankAccountId || undefined,
+                bankName: receiptAccountName,
+                referenceInvoiceId: args.referenceInvoiceId,
+                referenceInvoiceNumber: args.referenceInvoiceNumber,
+                journalEntryId,
+                journalEntryNumber,
+            },
+            true
+        );
 
         return { journalEntryId, journalEntryNumber, ledgerEntryId };
     };
@@ -2483,13 +2488,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
     const findCustomerForTransaction = async (tx: Transaction): Promise<Customer | undefined> => {
         const customers = await idb.getAll(STORES.CUSTOMERS) as Customer[];
-        if (tx.customerId) {
-            const byId = customers.find(c => c.id === tx.customerId);
-            if (byId) return byId;
-        }
-
-        const customerName = (tx.customerName || '').trim().toLowerCase();
-        return customers.find(c => (c.name || '').trim().toLowerCase() === customerName);
+        if (!tx.customerId) return undefined;
+        return customers.find(c => c.id === tx.customerId);
     };
 
     const findSupplierForPurchase = async (purchase: Purchase): Promise<Supplier | undefined> => {
@@ -2502,13 +2502,17 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         const customer = await findCustomerForTransaction(tx);
         const paymentMode = String(tx.paymentMode || '').toLowerCase();
         const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(paymentMode);
+        const hasSelectedCustomer = !!(customer && tx.customerId);
+        const autoSaleLedgerId = `auto-sale-${tx.id}`;
+        const autoPaymentLedgerId = `auto-sale-payment-${tx.id}`;
+        const autoAdjustmentLedgerId = `auto-sale-adjustment-${tx.id}`;
         
-        if (customer && !isImmediatePayment) {
+        if (hasSelectedCustomer) {
             await upsertAutoLedgerEntry(
                 { type: 'customer', id: customer.id },
                 user,
                 {
-                    id: `auto-sale-${tx.id}`,
+                    id: autoSaleLedgerId,
                     date: tx.date,
                     type: 'sale',
                     description: `Sales Voucher ${tx.invoiceNumber || tx.id}`,
@@ -2519,25 +2523,15 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 },
                 tx.status !== 'cancelled'
             );
-        } else if (customer) {
-            await upsertAutoLedgerEntry(
-                { type: 'customer', id: customer.id },
-                user,
-                {
-                    id: `auto-sale-${tx.id}`,
-                    date: tx.date,
-                    type: 'sale',
-                    description: `Sales Voucher ${tx.invoiceNumber || tx.id}`,
-                    debit: Number(tx.total || 0),
-                    credit: 0,
-                    referenceInvoiceId: tx.id,
-                    referenceInvoiceNumber: tx.invoiceNumber,
-                },
-                false
-            );
         }
 
-        if (tx.status === 'cancelled') return;
+        if (tx.status === 'cancelled') {
+            if (hasSelectedCustomer) {
+                await upsertAutoLedgerEntry({ type: 'customer', id: customer.id }, user, { id: autoPaymentLedgerId, date: tx.date, type: 'payment', description: `Auto payment for sales ${tx.invoiceNumber || tx.id}`, debit: 0, credit: 0 }, false);
+                await upsertAutoLedgerEntry({ type: 'customer', id: customer.id }, user, { id: autoAdjustmentLedgerId, date: tx.date, type: 'payment', description: `Auto adjustment for sales ${tx.invoiceNumber || tx.id}`, debit: 0, credit: 0 }, false);
+            }
+            return;
+        }
 
         const postingContext = await ensurePostingContext(tx, user);
         tx.companyCodeId = postingContext.companyCodeId;
@@ -2580,8 +2574,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
         const mappedBankGl = isImmediatePayment ? await resolveLinkedBankGlId(user, tx.companyCodeId) : null;
         const cashOrBankGl = mappedBankGl || glByCode.get('100001');
-        const debitControlGl = isImmediatePayment && cashOrBankGl ? cashOrBankGl : customerControlGl;
-        addLine(String(debitControlGl), Number(tx.total || 0), 0, isImmediatePayment ? 'Cash / bank receipt' : 'Customer control');
+        const debitControlGl = hasSelectedCustomer ? customerControlGl : (isImmediatePayment && cashOrBankGl ? cashOrBankGl : customerControlGl);
+        addLine(String(debitControlGl), Number(tx.total || 0), 0, hasSelectedCustomer ? 'Customer control' : (isImmediatePayment ? 'Cash / bank receipt' : 'Customer control'));
 
         let inferredTaxableValue = 0;
         let cgstTotal = 0;
@@ -2658,6 +2652,57 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             setOfBooksId: tx.setOfBooksId,
             lines,
         });
+
+        if (hasSelectedCustomer && isImmediatePayment) {
+            const existingPayment = Array.isArray(customer.ledger)
+                ? customer.ledger.find((entry) => isAutoLedgerEntry(entry, autoPaymentLedgerId))
+                : undefined;
+
+            let paymentMeta = {
+                journalEntryId: existingPayment?.journalEntryId,
+                journalEntryNumber: existingPayment?.journalEntryNumber,
+            };
+
+            if (!existingPayment) {
+                const paymentResult = await recordCustomerPaymentWithAccounting({
+                    customerId: customer.id,
+                    amount: Number(tx.total || 0),
+                    date: tx.date,
+                    description: `Payment Received Voucher for ${tx.invoiceNumber || tx.id}`,
+                    paymentMode: 'Cash',
+                    bankAccountId: '',
+                    referenceInvoiceId: tx.id,
+                    referenceInvoiceNumber: tx.invoiceNumber,
+                    entryCategory: 'invoice_payment',
+                    ledgerEntryId: autoPaymentLedgerId,
+                }, user);
+                paymentMeta = {
+                    journalEntryId: paymentResult.journalEntryId,
+                    journalEntryNumber: paymentResult.journalEntryNumber,
+                };
+            }
+
+            await upsertAutoLedgerEntry(
+                { type: 'customer', id: customer.id },
+                user,
+                {
+                    id: autoAdjustmentLedgerId,
+                    date: tx.date,
+                    type: 'payment',
+                    entryCategory: 'invoice_payment_adjustment',
+                    description: `Auto-adjustment against invoice ${tx.invoiceNumber || tx.id}`,
+                    debit: 0,
+                    credit: 0,
+                    adjustedAmount: Number(tx.total || 0),
+                    sourcePaymentId: autoPaymentLedgerId,
+                    referenceInvoiceId: tx.id,
+                    referenceInvoiceNumber: tx.invoiceNumber,
+                    journalEntryId: paymentMeta.journalEntryId,
+                    journalEntryNumber: paymentMeta.journalEntryNumber,
+                },
+                true
+            );
+        }
     };
 
     export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPharmacy) => {
