@@ -884,7 +884,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                                             <button type="button" onClick={() => handleCancelEntry(item)} className="px-2 py-1 border border-red-300 text-red-700 font-bold uppercase text-[10px] hover:bg-red-50">Cancel</button>
                                                         )}
                                                         {isAdjustableVoucher && (
-                                                            <button type="button" onClick={() => openVoucherAdjustmentModal(item)} className="px-2 py-1 border border-primary text-primary font-bold uppercase text-[10px] hover:bg-blue-50">Adjust Receipt</button>
+                                                            <button type="button" onClick={() => openVoucherAdjustmentModal(item)} className="px-2 py-1 border border-primary text-primary font-bold uppercase text-[10px] hover:bg-blue-50">Adjust Receipt / Clear Against Invoice</button>
                                                         )}
                                                     </td>
                                                             </>
@@ -960,7 +960,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                                     </div>
                                                     <div className="flex justify-end gap-2">
                                                         <button type="button" onClick={() => setAdjustmentVoucher(null)} className="px-3 py-2 border border-gray-300 text-xs font-black uppercase">Close</button>
-                                                        <button type="button" disabled={isSubmitting} onClick={handleVoucherAdjustmentSubmit} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Adjusting...' : 'Adjust Receipt'}</button>
+                                                        <button type="button" disabled={isSubmitting} onClick={handleVoucherAdjustmentSubmit} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Adjusting...' : 'Adjust Receipt / Clear Against Invoice'}</button>
                                                     </div>
                                                 </>
                                             );
