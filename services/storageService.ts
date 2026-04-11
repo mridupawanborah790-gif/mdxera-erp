@@ -2500,8 +2500,10 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
     export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
         const customer = await findCustomerForTransaction(tx);
+        const paymentMode = String(tx.paymentMode || '').toLowerCase();
+        const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(paymentMode);
         
-        if (customer) {
+        if (customer && !isImmediatePayment) {
             await upsertAutoLedgerEntry(
                 { type: 'customer', id: customer.id },
                 user,
@@ -2516,6 +2518,22 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                     referenceInvoiceNumber: tx.invoiceNumber,
                 },
                 tx.status !== 'cancelled'
+            );
+        } else if (customer) {
+            await upsertAutoLedgerEntry(
+                { type: 'customer', id: customer.id },
+                user,
+                {
+                    id: `auto-sale-${tx.id}`,
+                    date: tx.date,
+                    type: 'sale',
+                    description: `Sales Voucher ${tx.invoiceNumber || tx.id}`,
+                    debit: Number(tx.total || 0),
+                    credit: 0,
+                    referenceInvoiceId: tx.id,
+                    referenceInvoiceNumber: tx.invoiceNumber,
+                },
+                false
             );
         }
 
@@ -2560,8 +2578,6 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             lineAcc.set(glId, cur);
         };
 
-        const paymentMode = String(tx.paymentMode || '').toLowerCase();
-        const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(paymentMode);
         const mappedBankGl = isImmediatePayment ? await resolveLinkedBankGlId(user, tx.companyCodeId) : null;
         const cashOrBankGl = mappedBankGl || glByCode.get('100001');
         const debitControlGl = isImmediatePayment && cashOrBankGl ? cashOrBankGl : customerControlGl;
