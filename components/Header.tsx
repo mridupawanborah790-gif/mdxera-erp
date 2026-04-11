@@ -6,6 +6,8 @@ interface HeaderProps {
   onNewBillClick: () => void;
   currentUser: RegisteredPharmacy | null;
   onNavigate: (pageId: string) => void;
+  onBack: () => void;
+  canGoBack: boolean;
   onLogout: () => void;
   isFullScreen: boolean;
   onToggleFullScreen: () => void;
@@ -16,7 +18,7 @@ interface HeaderProps {
   onToggleSidebar: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate, onLogout, isFullScreen, onToggleFullScreen, brandName, currentPage, onReload, isReloading, onToggleSidebar }) => {
+const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate, onBack, canGoBack, onLogout, isFullScreen, onToggleFullScreen, brandName, currentPage, onReload, isReloading, onToggleSidebar }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -112,6 +114,17 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
             >
                 ☰
             </button>
+            {canGoBack && (
+                <button
+                    onClick={onBack}
+                    className="h-full px-3 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 text-base gap-1"
+                    title="Go Back"
+                    aria-label="Go Back"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    <span className="text-[11px] uppercase font-bold hidden sm:inline">Back</span>
+                </button>
+            )}
             {menuItems.map(item => (
                 <div key={item.id} className="relative h-full">
                     <button 
