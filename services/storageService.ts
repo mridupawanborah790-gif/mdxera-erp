@@ -2500,6 +2500,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
     export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
         const customer = await findCustomerForTransaction(tx);
+        const paymentMode = String(tx.paymentMode || '').toLowerCase();
+        const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(paymentMode);
         
         if (customer) {
             await upsertAutoLedgerEntry(
@@ -2515,7 +2517,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                     referenceInvoiceId: tx.id,
                     referenceInvoiceNumber: tx.invoiceNumber,
                 },
-                tx.status !== 'cancelled'
+                tx.status !== 'cancelled' && !isImmediatePayment
             );
         }
 
@@ -2560,8 +2562,6 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             lineAcc.set(glId, cur);
         };
 
-        const paymentMode = String(tx.paymentMode || '').toLowerCase();
-        const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(paymentMode);
         const mappedBankGl = isImmediatePayment ? await resolveLinkedBankGlId(user, tx.companyCodeId) : null;
         const cashOrBankGl = mappedBankGl || glByCode.get('100001');
         const debitControlGl = isImmediatePayment && cashOrBankGl ? cashOrBankGl : customerControlGl;
