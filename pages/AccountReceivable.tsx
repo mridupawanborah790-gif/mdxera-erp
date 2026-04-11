@@ -26,7 +26,7 @@ interface ReceivableInvoiceRow {
     invoiceAmount: number;
     received: number;
     balance: number;
-    status: 'Open' | 'Partially Received' | 'Fully Received';
+    status: 'Open' | 'Partially Received' | 'Paid';
     paymentDate: string;
     paymentMode: string;
     bankName: string;
@@ -173,22 +173,32 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             }));
 
         const mapByInvoice = new Map(sales.map(s => [s.id, { ...s }]));
+        const mapByInvoiceNumber = new Map(
+            sales
+                .filter((s) => String(s.invoiceNumber || '').trim() !== '')
+                .map((s) => [String(s.invoiceNumber).trim().toLowerCase(), s.id])
+        );
         const ledger = Array.isArray(selectedCustomer.ledger) ? selectedCustomer.ledger : [];
+        const touchedInvoiceIds = new Set<string>();
 
         for (const entry of ledger) {
             if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
-            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(String(entry.entryCategory || ''))) {
+            const entryCategory = String(entry.entryCategory || '');
+            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(entryCategory)) {
                 continue;
             }
-            const invoiceId = entry.referenceInvoiceId || '';
+            const invoiceId = entry.referenceInvoiceId
+                || mapByInvoiceNumber.get(String(entry.referenceInvoiceNumber || '').trim().toLowerCase())
+                || '';
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (target) {
                 const adjustedAmount = Number(entry.adjustedAmount || 0);
-                target.received += adjustedAmount;
+                const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
+                target.received += (adjustedAmount * multiplier);
                 target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
                 if (target.balance <= 0) {
                     target.balance = 0;
-                    target.status = 'Fully Received';
+                    target.status = 'Paid';
                 } else if (target.received > 0) {
                     target.status = 'Partially Received';
                 } else {
@@ -199,7 +209,22 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                 target.bankName = entry.bankName || target.bankName;
                 target.voucherRef = entry.journalEntryNumber || entry.journalEntryId || target.voucherRef;
                 target.latestPaymentEntry = entry;
+                touchedInvoiceIds.add(target.id);
             }
+        }
+
+        for (const sale of sales) {
+            const normalizedMode = String(sale.paymentMode || '').trim().toLowerCase();
+            const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(normalizedMode);
+            if (!isImmediatePayment || touchedInvoiceIds.has(sale.id)) continue;
+
+            const target = mapByInvoice.get(sale.id);
+            if (!target) continue;
+            target.received = Number(target.invoiceAmount || 0);
+            target.balance = 0;
+            target.status = 'Paid';
+            target.paymentDate = target.paymentDate === '-' ? target.date : target.paymentDate;
+            target.voucherRef = target.voucherRef === '-' ? 'AUTO RECEIPT' : target.voucherRef;
         }
 
         return Array.from(mapByInvoice.values()).sort((a, b) => {
