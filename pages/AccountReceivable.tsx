@@ -26,7 +26,7 @@ interface ReceivableInvoiceRow {
     invoiceAmount: number;
     received: number;
     balance: number;
-    status: 'Open' | 'Partially Received' | 'Fully Received';
+    status: 'Open' | 'Partially Received' | 'Paid';
     paymentDate: string;
     paymentMode: string;
     bankName: string;
@@ -173,22 +173,32 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             }));
 
         const mapByInvoice = new Map(sales.map(s => [s.id, { ...s }]));
+        const mapByInvoiceNumber = new Map(
+            sales
+                .filter((s) => String(s.invoiceNumber || '').trim() !== '')
+                .map((s) => [String(s.invoiceNumber).trim().toLowerCase(), s.id])
+        );
         const ledger = Array.isArray(selectedCustomer.ledger) ? selectedCustomer.ledger : [];
+        const touchedInvoiceIds = new Set<string>();
 
         for (const entry of ledger) {
             if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
-            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(String(entry.entryCategory || ''))) {
+            const entryCategory = String(entry.entryCategory || '');
+            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(entryCategory)) {
                 continue;
             }
-            const invoiceId = entry.referenceInvoiceId || '';
+            const invoiceId = entry.referenceInvoiceId
+                || mapByInvoiceNumber.get(String(entry.referenceInvoiceNumber || '').trim().toLowerCase())
+                || '';
             const target = invoiceId && mapByInvoice.get(invoiceId);
             if (target) {
                 const adjustedAmount = Number(entry.adjustedAmount || 0);
-                target.received += adjustedAmount;
+                const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
+                target.received += (adjustedAmount * multiplier);
                 target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
                 if (target.balance <= 0) {
                     target.balance = 0;
-                    target.status = 'Fully Received';
+                    target.status = 'Paid';
                 } else if (target.received > 0) {
                     target.status = 'Partially Received';
                 } else {
@@ -199,7 +209,22 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                 target.bankName = entry.bankName || target.bankName;
                 target.voucherRef = entry.journalEntryNumber || entry.journalEntryId || target.voucherRef;
                 target.latestPaymentEntry = entry;
+                touchedInvoiceIds.add(target.id);
             }
+        }
+
+        for (const sale of sales) {
+            const normalizedMode = String(sale.paymentMode || '').trim().toLowerCase();
+            const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(normalizedMode);
+            if (!isImmediatePayment || touchedInvoiceIds.has(sale.id)) continue;
+
+            const target = mapByInvoice.get(sale.id);
+            if (!target) continue;
+            target.received = Number(target.invoiceAmount || 0);
+            target.balance = 0;
+            target.status = 'Paid';
+            target.paymentDate = target.paymentDate === '-' ? target.date : target.paymentDate;
+            target.voucherRef = target.voucherRef === '-' ? 'AUTO RECEIPT' : target.voucherRef;
         }
 
         return Array.from(mapByInvoice.values()).sort((a, b) => {
@@ -287,6 +312,16 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         const popup = window.open('', '_blank', 'width=900,height=700');
         if (!popup) return;
 
+        const summary = getVoucherAllocationSummary(entry);
+        const voucherType = entry.entryCategory === 'down_payment'
+            ? 'Down Payment Receipt'
+            : entry.entryCategory === 'down_payment_adjustment'
+                ? 'Down Payment Adjustment'
+                : entry.entryCategory === 'invoice_payment_adjustment'
+                    ? 'Invoice Receipt Adjustment'
+                    : entry.entryCategory === 'payment_cancellation' || entry.entryCategory === 'down_payment_cancellation'
+                        ? 'Receipt Cancellation'
+                        : 'Receipt Voucher';
         const voucherNumber = entry.journalEntryNumber || entry.journalEntryId || 'Pending Voucher Number';
         const voucherDate = formatDisplayDate(entry.date);
         const paymentModeText = entry.paymentMode || 'Bank';
@@ -294,6 +329,13 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         const amountReceived = Number(entry.credit || 0);
         const receiptAgainstInvoice = entry.referenceInvoiceNumber || entry.referenceInvoiceId || '-';
         const narration = entry.description || 'Payment Received';
+        const isAutoReceipt = entry.id.startsWith('auto-') || /auto[-\s]?/i.test(narration);
+        const linkedDetails = (entry.referenceInvoiceNumber || entry.referenceInvoiceId)
+            ? `${entry.referenceInvoiceNumber || '-'} (${entry.referenceInvoiceId || '-'})`
+            : '-';
+        const cancellationMark = entry.status === 'cancelled'
+            ? `<div class="cancelled-mark">CANCELLED</div>`
+            : '';
         const companyName = currentUser?.pharmacy_name || 'Pharmacy';
         const companyAddress = [currentUser?.address, currentUser?.address_line2, currentUser?.district, currentUser?.state, currentUser?.pincode].filter(Boolean).join(', ');
         const authorizedSignatory = currentUser?.authorized_signatory || currentUser?.manager_name || currentUser?.full_name || 'Authorized Signatory';
@@ -317,13 +359,15 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                         .signatory { margin-top: 56px; display: flex; justify-content: flex-end; }
                         .signatory-box { text-align: center; min-width: 220px; }
                         .signatory-line { border-top: 1px solid #111827; margin-top: 36px; padding-top: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+                        .cancelled-mark { position: fixed; top: 42%; left: 20%; transform: rotate(-24deg); font-size: 72px; letter-spacing: 5px; font-weight: 900; color: rgba(220, 38, 38, 0.18); pointer-events: none; z-index: 9999; }
                     </style>
                 </head>
                 <body>
+                    ${cancellationMark}
                     <div class="voucher">
                         <div class="header">
                             <div>
-                                <div class="title">Payment Received Voucher</div>
+                                <div class="title">${escapeHtml(voucherType)}</div>
                                 <div style="font-size:12px; margin-top:6px; font-weight:600;">${escapeHtml(companyName)}</div>
                                 <div style="font-size:11px; margin-top:2px; color:#374151;">${escapeHtml(companyAddress || '-')}</div>
                             </div>
@@ -340,6 +384,11 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                             <tr><td class="label-col">Payment Mode</td><td>${escapeHtml(paymentModeText)}</td></tr>
                             <tr><td class="label-col">Bank / Cash Account</td><td>${escapeHtml(bankAccount)}</td></tr>
                             <tr class="amount-row"><td class="label-col">Amount Received</td><td>₹${escapeHtml(amountReceived.toFixed(2))}</td></tr>
+                            <tr><td class="label-col">Adjusted Amount</td><td>₹${escapeHtml(summary.adjustedAmount.toFixed(2))}</td></tr>
+                            <tr><td class="label-col">Unadjusted Amount</td><td>₹${escapeHtml(summary.remainingAmount.toFixed(2))}</td></tr>
+                            <tr><td class="label-col">Status</td><td>${escapeHtml(summary.status)}</td></tr>
+                            <tr><td class="label-col">Linked Invoice / Against Invoice</td><td>${escapeHtml(linkedDetails)}</td></tr>
+                            <tr><td class="label-col">Auto Receipt</td><td>${isAutoReceipt ? 'Yes (System Generated)' : 'No (Manual)'}</td></tr>
                             <tr><td class="label-col">Narration / Remarks</td><td>${escapeHtml(narration)}</td></tr>
                         </table>
                         <div class="amount-words">Amount in words: ${escapeHtml(numberToWords(amountReceived))}</div>
@@ -835,7 +884,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                                             <button type="button" onClick={() => handleCancelEntry(item)} className="px-2 py-1 border border-red-300 text-red-700 font-bold uppercase text-[10px] hover:bg-red-50">Cancel</button>
                                                         )}
                                                         {isAdjustableVoucher && (
-                                                            <button type="button" onClick={() => openVoucherAdjustmentModal(item)} className="px-2 py-1 border border-primary text-primary font-bold uppercase text-[10px] hover:bg-blue-50">Adjust Receipt</button>
+                                                            <button type="button" onClick={() => openVoucherAdjustmentModal(item)} className="px-2 py-1 border border-primary text-primary font-bold uppercase text-[10px] hover:bg-blue-50">Adjust Receipt / Clear Against Invoice</button>
                                                         )}
                                                     </td>
                                                             </>
@@ -911,7 +960,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                                     </div>
                                                     <div className="flex justify-end gap-2">
                                                         <button type="button" onClick={() => setAdjustmentVoucher(null)} className="px-3 py-2 border border-gray-300 text-xs font-black uppercase">Close</button>
-                                                        <button type="button" disabled={isSubmitting} onClick={handleVoucherAdjustmentSubmit} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Adjusting...' : 'Adjust Receipt'}</button>
+                                                        <button type="button" disabled={isSubmitting} onClick={handleVoucherAdjustmentSubmit} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Adjusting...' : 'Adjust Receipt / Clear Against Invoice'}</button>
                                                     </div>
                                                 </>
                                             );

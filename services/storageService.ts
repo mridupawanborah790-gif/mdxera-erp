@@ -1644,6 +1644,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             referenceInvoiceId?: string;
             referenceInvoiceNumber?: string;
             entryCategory?: 'invoice_payment' | 'down_payment';
+            ledgerEntryId?: string;
         },
         user: RegisteredPharmacy
     ): Promise<{ journalEntryId?: string; journalEntryNumber?: string; ledgerEntryId: string }> => {
@@ -1807,24 +1808,28 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             if (lineError) throw lineError;
         }
 
-        const ledgerEntryId = generateUUID();
-        await addLedgerEntry({
-            id: ledgerEntryId,
-            date: args.date,
-            type: 'payment',
-            description: args.description,
-            entryCategory: args.entryCategory || 'invoice_payment',
-            debit: 0,
-            credit: Number(args.amount),
-            balance: 0,
-            paymentMode: args.paymentMode,
-            bankAccountId: args.bankAccountId || undefined,
-            bankName: receiptAccountName,
-            referenceInvoiceId: args.referenceInvoiceId,
-            referenceInvoiceNumber: args.referenceInvoiceNumber,
-            journalEntryId,
-            journalEntryNumber,
-        }, { type: 'customer', id: args.customerId }, user);
+        const ledgerEntryId = args.ledgerEntryId || generateUUID();
+        await upsertAutoLedgerEntry(
+            { type: 'customer', id: args.customerId },
+            user,
+            {
+                id: ledgerEntryId,
+                date: args.date,
+                type: 'payment',
+                description: args.description,
+                entryCategory: args.entryCategory || 'invoice_payment',
+                debit: 0,
+                credit: Number(args.amount),
+                paymentMode: args.paymentMode,
+                bankAccountId: args.bankAccountId || undefined,
+                bankName: receiptAccountName,
+                referenceInvoiceId: args.referenceInvoiceId,
+                referenceInvoiceNumber: args.referenceInvoiceNumber,
+                journalEntryId,
+                journalEntryNumber,
+            },
+            true
+        );
 
         return { journalEntryId, journalEntryNumber, ledgerEntryId };
     };
@@ -2080,23 +2085,77 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         }, 0);
     };
 
-    const getCustomerInvoiceTotal = async (customer: Customer, invoiceId: string, user: RegisteredPharmacy): Promise<number> => {
-        const localTxns = await idb.getAll(STORES.SALES_BILL) as Transaction[];
-        const localMatch = localTxns.find((row) => row?.id === invoiceId && row?.status !== 'cancelled' && (row?.customerId === customer.id || String(row?.customerName || '').trim().toLowerCase() === String(customer.name || '').trim().toLowerCase()));
-        if (localMatch) return Number(localMatch.total || 0);
+    const getCustomerInvoiceTotal = async (customer: Customer, invoiceRef: string, user: RegisteredPharmacy): Promise<number> => {
+        const normalizedInvoiceRef = String(invoiceRef || '').trim();
+        if (!normalizedInvoiceRef) throw new Error('Selected invoice is not available for this customer.');
+        const normalizedInvoiceRefLower = normalizedInvoiceRef.toLowerCase();
+        const normalizedCustomerName = String(customer.name || '').trim().toLowerCase();
+        const customerLedger = Array.isArray(customer.ledger) ? customer.ledger : [];
+        const adjustedCategories = new Set([
+            'invoice_payment_adjustment',
+            'down_payment_adjustment',
+            'invoice_payment_adjustment_reversal',
+            'down_payment_adjustment_reversal',
+        ]);
+        const resolveAdjustedAmountFromLedger = (invoiceId: string, invoiceNumber?: string): number => {
+            const normalizedInvoiceNumber = String(invoiceNumber || '').trim().toLowerCase();
+            return customerLedger.reduce((sum, entry) => {
+                if (!entry || entry.status === 'cancelled') return sum;
+                const entryCategory = String(entry.entryCategory || '');
+                if (!adjustedCategories.has(entryCategory)) return sum;
+                const referenceId = String(entry.referenceInvoiceId || '').trim();
+                const referenceNumber = String(entry.referenceInvoiceNumber || '').trim().toLowerCase();
+                const matchesInvoice = referenceId === invoiceId
+                    || (normalizedInvoiceNumber && referenceNumber === normalizedInvoiceNumber)
+                    || referenceId === normalizedInvoiceRef
+                    || referenceNumber === normalizedInvoiceRefLower;
+                if (!matchesInvoice) return sum;
+                const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
+                return sum + (Number(entry.adjustedAmount || 0) * multiplier);
+            }, 0);
+        };
+        const resolveLocalInvoice = async (): Promise<number | null> => {
+            const localTxns = await idb.getAll(STORES.SALES_BILL) as Transaction[];
+            const localMatch = localTxns.find((row) => {
+                if (!row || row.status === 'cancelled') return false;
+                const belongsToCustomer = row.customerId === customer.id || String(row.customerName || '').trim().toLowerCase() === normalizedCustomerName;
+                if (!belongsToCustomer) return false;
+                return row.id === normalizedInvoiceRef || String(row.invoiceNumber || '').trim().toLowerCase() === normalizedInvoiceRefLower;
+            });
+            if (!localMatch) return null;
+            const invoiceTotal = Number(localMatch.total || 0);
+            const adjustedAmount = resolveAdjustedAmountFromLedger(localMatch.id, localMatch.invoiceNumber);
+            const pendingBalance = Number((invoiceTotal - adjustedAmount).toFixed(2));
+            if (pendingBalance <= 0) throw new Error('Invoice is already fully settled and cannot receive duplicate payment.');
+            return invoiceTotal;
+        };
+
+        const localTotal = await resolveLocalInvoice();
+        if (localTotal !== null) return localTotal;
 
         if (navigator.onLine) {
-            const { data } = await supabase
+            const { data: invoices } = await supabase
                 .from('sales_bill')
-                .select('id, customerId, customerName, total, status')
+                .select('id, invoiceNumber, customerId, customerName, total, status')
                 .eq('organization_id', user.organization_id)
-                .eq('id', invoiceId)
-                .maybeSingle();
-            if (data && data.status !== 'cancelled') {
-                const belongsToCustomer = data.customerId === customer.id || String(data.customerName || '').trim().toLowerCase() === String(customer.name || '').trim().toLowerCase();
-                if (belongsToCustomer) return Number(data.total || 0);
+                .or(`id.eq.${normalizedInvoiceRef},invoiceNumber.eq.${normalizedInvoiceRef}`);
+
+            const remoteMatch = (invoices || []).find((row: { id?: string; invoiceNumber?: string; customerId?: string; customerName?: string; total?: number; status?: string; }) => {
+                if (!row || row.status === 'cancelled') return false;
+                const belongsToCustomer = row.customerId === customer.id || String(row.customerName || '').trim().toLowerCase() === normalizedCustomerName;
+                if (!belongsToCustomer) return false;
+                const rowInvoiceNumber = String(row.invoiceNumber || '').trim().toLowerCase();
+                return row.id === normalizedInvoiceRef || rowInvoiceNumber === normalizedInvoiceRefLower;
+            });
+            if (remoteMatch) {
+                const invoiceTotal = Number(remoteMatch.total || 0);
+                const adjustedAmount = resolveAdjustedAmountFromLedger(String(remoteMatch.id || ''), String(remoteMatch.invoiceNumber || ''));
+                const pendingBalance = Number((invoiceTotal - adjustedAmount).toFixed(2));
+                if (pendingBalance <= 0) throw new Error('Invoice is already fully settled and cannot receive duplicate payment.');
+                return invoiceTotal;
             }
         }
+
         throw new Error('Selected invoice is not available for this customer.');
     };
 
@@ -2483,13 +2542,8 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
     const findCustomerForTransaction = async (tx: Transaction): Promise<Customer | undefined> => {
         const customers = await idb.getAll(STORES.CUSTOMERS) as Customer[];
-        if (tx.customerId) {
-            const byId = customers.find(c => c.id === tx.customerId);
-            if (byId) return byId;
-        }
-
-        const customerName = (tx.customerName || '').trim().toLowerCase();
-        return customers.find(c => (c.name || '').trim().toLowerCase() === customerName);
+        if (!tx.customerId) return undefined;
+        return customers.find(c => c.id === tx.customerId);
     };
 
     const findSupplierForPurchase = async (purchase: Purchase): Promise<Supplier | undefined> => {
@@ -2500,13 +2554,19 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
     export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
         const customer = await findCustomerForTransaction(tx);
+        const paymentMode = String(tx.paymentMode || '').toLowerCase();
+        const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(paymentMode);
+        const hasSelectedCustomer = !!(customer && tx.customerId);
+        const autoSaleLedgerId = `auto-sale-${tx.id}`;
+        const autoPaymentLedgerId = `auto-sale-payment-${tx.id}`;
+        const autoAdjustmentLedgerId = `auto-sale-adjustment-${tx.id}`;
         
-        if (customer) {
+        if (hasSelectedCustomer) {
             await upsertAutoLedgerEntry(
                 { type: 'customer', id: customer.id },
                 user,
                 {
-                    id: `auto-sale-${tx.id}`,
+                    id: autoSaleLedgerId,
                     date: tx.date,
                     type: 'sale',
                     description: `Sales Voucher ${tx.invoiceNumber || tx.id}`,
@@ -2519,7 +2579,13 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             );
         }
 
-        if (tx.status === 'cancelled') return;
+        if (tx.status === 'cancelled') {
+            if (hasSelectedCustomer) {
+                await upsertAutoLedgerEntry({ type: 'customer', id: customer.id }, user, { id: autoPaymentLedgerId, date: tx.date, type: 'payment', description: `Auto payment for sales ${tx.invoiceNumber || tx.id}`, debit: 0, credit: 0 }, false);
+                await upsertAutoLedgerEntry({ type: 'customer', id: customer.id }, user, { id: autoAdjustmentLedgerId, date: tx.date, type: 'payment', description: `Auto adjustment for sales ${tx.invoiceNumber || tx.id}`, debit: 0, credit: 0 }, false);
+            }
+            return;
+        }
 
         const postingContext = await ensurePostingContext(tx, user);
         tx.companyCodeId = postingContext.companyCodeId;
@@ -2560,12 +2626,10 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             lineAcc.set(glId, cur);
         };
 
-        const paymentMode = String(tx.paymentMode || '').toLowerCase();
-        const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(paymentMode);
         const mappedBankGl = isImmediatePayment ? await resolveLinkedBankGlId(user, tx.companyCodeId) : null;
         const cashOrBankGl = mappedBankGl || glByCode.get('100001');
-        const debitControlGl = isImmediatePayment && cashOrBankGl ? cashOrBankGl : customerControlGl;
-        addLine(String(debitControlGl), Number(tx.total || 0), 0, isImmediatePayment ? 'Cash / bank receipt' : 'Customer control');
+        const debitControlGl = hasSelectedCustomer ? customerControlGl : (isImmediatePayment && cashOrBankGl ? cashOrBankGl : customerControlGl);
+        addLine(String(debitControlGl), Number(tx.total || 0), 0, hasSelectedCustomer ? 'Customer control' : (isImmediatePayment ? 'Cash / bank receipt' : 'Customer control'));
 
         let inferredTaxableValue = 0;
         let cgstTotal = 0;
@@ -2642,6 +2706,57 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
             setOfBooksId: tx.setOfBooksId,
             lines,
         });
+
+        if (hasSelectedCustomer && isImmediatePayment) {
+            const existingPayment = Array.isArray(customer.ledger)
+                ? customer.ledger.find((entry) => isAutoLedgerEntry(entry, autoPaymentLedgerId))
+                : undefined;
+
+            let paymentMeta = {
+                journalEntryId: existingPayment?.journalEntryId,
+                journalEntryNumber: existingPayment?.journalEntryNumber,
+            };
+
+            if (!existingPayment) {
+                const paymentResult = await recordCustomerPaymentWithAccounting({
+                    customerId: customer.id,
+                    amount: Number(tx.total || 0),
+                    date: tx.date,
+                    description: `Payment Received Voucher for ${tx.invoiceNumber || tx.id}`,
+                    paymentMode: 'Cash',
+                    bankAccountId: '',
+                    referenceInvoiceId: tx.id,
+                    referenceInvoiceNumber: tx.invoiceNumber,
+                    entryCategory: 'invoice_payment',
+                    ledgerEntryId: autoPaymentLedgerId,
+                }, user);
+                paymentMeta = {
+                    journalEntryId: paymentResult.journalEntryId,
+                    journalEntryNumber: paymentResult.journalEntryNumber,
+                };
+            }
+
+            await upsertAutoLedgerEntry(
+                { type: 'customer', id: customer.id },
+                user,
+                {
+                    id: autoAdjustmentLedgerId,
+                    date: tx.date,
+                    type: 'payment',
+                    entryCategory: 'invoice_payment_adjustment',
+                    description: `Auto-adjustment against invoice ${tx.invoiceNumber || tx.id}`,
+                    debit: 0,
+                    credit: 0,
+                    adjustedAmount: Number(tx.total || 0),
+                    sourcePaymentId: autoPaymentLedgerId,
+                    referenceInvoiceId: tx.id,
+                    referenceInvoiceNumber: tx.invoiceNumber,
+                    journalEntryId: paymentMeta.journalEntryId,
+                    journalEntryNumber: paymentMeta.journalEntryNumber,
+                },
+                true
+            );
+        }
     };
 
     export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPharmacy) => {

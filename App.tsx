@@ -925,7 +925,7 @@ const App: React.FC = () => {
 
         const selectedCustomer = tx.customerId
             ? customers.find(c => c.id === tx.customerId)
-            : customers.find(c => (c.name || '').trim().toLowerCase() === (tx.customerName || '').trim().toLowerCase());
+            : undefined;
 
         // Check for linked payments if it's an update
         if (isUpdate && selectedCustomer && Array.isArray(selectedCustomer.ledger)) {
