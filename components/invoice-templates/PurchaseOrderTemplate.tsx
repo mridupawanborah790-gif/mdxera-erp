@@ -13,6 +13,7 @@ interface TemplateProps {
 const ITEMS_PER_PAGE = 15;
 
 const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmacy }) => {
+  const displayUppercase = (value?: string | null) => value?.toUpperCase() || '';
   const subtotal = purchaseOrder.totalAmount || 0;
   const totalGst = purchaseOrder.items.reduce((acc, item) => {
     const itemTotal = (Number(item.purchasePrice || 0)) * (item.quantity || 0);
@@ -79,6 +80,9 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
             page-break-inside: avoid;
           }
         }
+        .uppercase-text {
+          text-transform: uppercase;
+        }
       `}</style>
       
       {itemChunks.map((chunk, pageIndex) => (
@@ -90,12 +94,12 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
                 {pharmacy.pharmacy_logo_url && (
                   <img src={pharmacy.pharmacy_logo_url} alt="Logo" className="h-16 w-auto max-h-16 object-contain mb-2" />
                 )}
-                <h1 className="text-2xl font-bold text-blue-700 leading-tight">{pharmacy.pharmacy_name}</h1>
+                <h1 className="text-2xl font-bold text-blue-700 leading-tight uppercase-text">{displayUppercase(pharmacy.pharmacy_name)}</h1>
                 <div className="text-xs text-gray-600 space-y-0.5 mt-1">
                   <p>Ph: <span className="font-semibold text-gray-800">{pharmacy.mobile}</span></p>
                   {pharmacy.email && <p>Email: {pharmacy.email}</p>}
                   {/* Fix: Changed retailer_gstin to gstin */}
-                  <p>GSTIN: <span className="font-semibold text-gray-800">{pharmacy.gstin}</span></p>
+                  <p>GSTIN: <span className="font-semibold text-gray-800 uppercase-text">{displayUppercase(pharmacy.gstin)}</span></p>
                 </div>
               </div>
               <div className="text-right">
@@ -111,15 +115,15 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
             <div className="grid grid-cols-2 gap-4 mt-6 mb-4 text-sm">
               <div className="border border-blue-200 bg-blue-50/50 p-3 rounded-lg">
                 <h3 className="text-[10px] font-bold text-blue-800 uppercase tracking-widest mb-1">Vendor / Supplier</h3>
-                <p className="font-bold text-gray-900 text-base">{purchaseOrder.distributorName}</p>
+                <p className="font-bold text-gray-900 text-base uppercase-text">{displayUppercase(purchaseOrder.distributorName)}</p>
                 {purchaseOrder.distributor.address && <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{purchaseOrder.distributor.address}</p>}
                 {/* Fix: Rename purchaseOrder.distributor.gstNumber to purchaseOrder.distributor.gst_number */}
-                {purchaseOrder.distributor.gst_number && <p className="text-xs font-medium text-gray-700 mt-1">GSTIN: {purchaseOrder.distributor.gst_number}</p>}
+                {purchaseOrder.distributor.gst_number && <p className="text-xs font-medium text-gray-700 mt-1 uppercase-text">GSTIN: {displayUppercase(purchaseOrder.distributor.gst_number)}</p>}
               </div>
               <div className="border border-green-200 bg-green-50/50 p-3 rounded-lg">
                 <h3 className="text-[10px] font-bold text-green-800 uppercase tracking-widest mb-1">Ship To / Deliver To</h3>
-                <p className="font-bold text-gray-900 text-base">{pharmacy.pharmacy_name}</p>
-                <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{pharmacy.address}</p>
+                <p className="font-bold text-gray-900 text-base uppercase-text">{displayUppercase(pharmacy.pharmacy_name)}</p>
+                <p className="text-xs text-gray-600 mt-0.5 line-clamp-2 uppercase-text">{displayUppercase(pharmacy.address)}</p>
               </div>
             </div>
           </header>
