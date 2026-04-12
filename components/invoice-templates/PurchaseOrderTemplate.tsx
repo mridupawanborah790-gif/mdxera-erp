@@ -47,11 +47,12 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
       <style>{`
         @media print {
           @page {
-            margin: 5mm !important;
+            size: A4 portrait;
+            margin: 0 !important;
           }
           .po-page {
             page-break-after: always;
-            min-height: 98vh;
+            min-height: 297mm;
             padding: 5mm !important;
             box-sizing: border-box;
           }
@@ -61,6 +62,19 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
           #print-area {
             padding: 0 !important;
             margin: 0 !important;
+          }
+          .po-items-table {
+            table-layout: fixed;
+            width: 100%;
+          }
+          .po-items-table thead {
+            display: table-header-group;
+          }
+          .po-items-table tr,
+          .po-items-table td,
+          .po-items-table th {
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
         }
       `}</style>
@@ -109,7 +123,7 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
           </header>
 
           {/* --- ITEMS TABLE --- */}
-          <table className="w-full text-xs border-collapse mt-2">
+          <table className="po-items-table w-full text-xs border-collapse mt-2">
             <thead className="bg-gray-800 text-white">
               <tr>
                 <th className="py-2 px-2 text-left font-bold w-8 border border-gray-700">#</th>
