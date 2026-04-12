@@ -62,6 +62,8 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, onCloseBlocked, disableC
         } ${heightClass || (widthClass ? 'h-auto max-h-[95vh]' : 'h-full')}`}
         onClick={e => e.stopPropagation()}
         tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
       >
         <div className="flex justify-between items-center px-4 py-2 bg-[var(--modal-header-bg-light)] dark:bg-[var(--modal-header-bg-dark)] text-[var(--modal-header-text-light)] border-b border-[var(--modal-header-border-light)] dark:border-[var(--modal-header-border-dark)] flex-shrink-0">
           <h3 className="text-xs font-normal uppercase tracking-widest">{title}</h3>

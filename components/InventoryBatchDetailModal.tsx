@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { InventoryItem } from '../types';
 import { formatExpiryToMMYY, normalizeImportDate } from '../utils/helpers';
@@ -51,6 +51,7 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
     const [error, setError] = useState<string>('');
     const [savingRowId, setSavingRowId] = useState<string | null>(null);
     const [recentlyUpdatedId, setRecentlyUpdatedId] = useState<string | null>(null);
+    const modalRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!isOpen) {
@@ -66,6 +67,7 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
                 event.preventDefault();
+                event.stopPropagation();
                 if (editingRowId) {
                     setEditingRowId(null);
                     setDraft(null);
@@ -103,6 +105,16 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
             { stock: 0, value: 0 },
         );
     }, [sortedRows]);
+
+    useEffect(() => {
+        if (isOpen) {
+            // Short delay to ensure DOM is ready
+            const timer = setTimeout(() => {
+                modalRef.current?.focus();
+            }, 50);
+            return () => clearTimeout(timer);
+        }
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -376,8 +388,12 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
     return createPortal(
         <div className="fixed inset-0 z-[220] bg-black/60 flex items-center justify-center p-2" onClick={onClose}>
             <div
-                className="w-[74vw] min-w-[320px] max-w-[1400px] max-h-[70vh] bg-white border-2 border-primary shadow-2xl flex flex-col overflow-hidden"
+                ref={modalRef}
+                className="w-[74vw] min-w-[320px] max-w-[1400px] max-h-[70vh] bg-white border-2 border-primary shadow-2xl flex flex-col overflow-hidden outline-none"
                 onClick={e => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                tabIndex={-1}
             >
                 <div className="px-3 py-2 bg-primary text-white flex justify-between items-center shrink-0">
                     <div>
