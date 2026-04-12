@@ -51,12 +51,14 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
             margin: 0 !important;
           }
           .po-page {
+            break-after: page;
             page-break-after: always;
-            min-height: 297mm;
-            padding: 5mm !important;
+            min-height: auto;
+            padding: 5mm 5mm 0 !important;
             box-sizing: border-box;
           }
-          .po-page:last-child {
+          .po-page:last-of-type {
+            break-after: auto;
             page-break-after: auto;
           }
           #print-area {
