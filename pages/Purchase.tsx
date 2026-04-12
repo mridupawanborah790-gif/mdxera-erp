@@ -406,6 +406,24 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         if (isSubmitting) return;
         if (!supplier.trim()) { setSupplierNameError("Supplier name is required."); return; }
         if (!invoiceNumber.trim()) { setInvoiceNumberError("Invoice number is required."); return; }
+        
+        // Check for duplicate supplier invoice
+        const normalizedSupplier = supplier.toLowerCase().trim();
+        const normalizedInvoice = invoiceNumber.toLowerCase().trim();
+        const isDuplicate = purchases.some(p => {
+            if (purchaseToEdit?.id && p.id === purchaseToEdit.id) return false;
+            if ((p.organization_id || '').trim() !== (organizationId || '').trim()) return false;
+            return (p.supplier || '').toLowerCase().trim() === normalizedSupplier && 
+                   (p.invoiceNumber || '').toLowerCase().trim() === normalizedInvoice;
+        });
+
+        if (isDuplicate) {
+            const msg = "Duplicate Supplier Invoice # already recorded. Please verify Purchase History.";
+            setInvoiceNumberError(msg);
+            addNotification(msg, "error");
+            return;
+        }
+
         const activeItems = items.filter(p => (p.name || '').trim() !== '');
         if (activeItems.length === 0) { addNotification("At least one item is required.", "error"); return; }
 
