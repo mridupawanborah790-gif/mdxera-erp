@@ -28,7 +28,7 @@ const PrintPurchaseOrderModal: React.FC<PrintPurchaseOrderModalProps> = ({ isOpe
         </div>
 
         <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
-          <div id="print-area" className="w-[210mm] min-h-[297mm] mx-auto bg-white text-black shadow-lg print:shadow-none print:mx-0 print:w-[210mm] print:min-h-[297mm]">
+          <div id="print-area" className="w-[210mm] mx-auto bg-white text-black shadow-lg print:shadow-none print:mx-0 print:w-[210mm]">
             <PurchaseOrderTemplate purchaseOrder={purchaseOrder} pharmacy={pharmacy} />
           </div>
         </div>
@@ -91,7 +91,7 @@ const PrintPurchaseOrderModal: React.FC<PrintPurchaseOrderModalProps> = ({ isOpe
 
           #print-area {
             width: 210mm !important;
-            min-height: 297mm !important;
+            min-height: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
             box-shadow: none !important;
