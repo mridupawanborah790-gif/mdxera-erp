@@ -34,12 +34,14 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
 
   // Helper to chunk items for pagination
   const itemChunks = useMemo(() => {
-    const chunks = [];
+    const chunks: typeof purchaseOrder.items[] = [];
     for (let i = 0; i < purchaseOrder.items.length; i += ITEMS_PER_PAGE) {
-      chunks.push(purchaseOrder.items.slice(i, i + ITEMS_PER_PAGE));
+      const pageRows = purchaseOrder.items.slice(i, i + ITEMS_PER_PAGE);
+      if (pageRows.length > 0) {
+        chunks.push(pageRows);
+      }
     }
-    // Ensure at least one page if no items
-    return chunks.length > 0 ? chunks : [[]];
+    return chunks;
   }, [purchaseOrder.items]);
 
   return (
@@ -56,6 +58,8 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
             min-height: auto;
             padding: 5mm 5mm 0 !important;
             box-sizing: border-box;
+            break-inside: avoid-page;
+            page-break-inside: avoid;
           }
           .po-page:last-of-type {
             break-after: auto;
@@ -68,9 +72,13 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
           .po-items-table {
             table-layout: fixed;
             width: 100%;
+            break-inside: avoid-page;
+            page-break-inside: avoid;
           }
           .po-items-table thead {
             display: table-header-group;
+            break-after: avoid-page;
+            page-break-after: avoid;
           }
           .po-items-table tr,
           .po-items-table td,
@@ -125,53 +133,55 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
           </header>
 
           {/* --- ITEMS TABLE --- */}
-          <table className="po-items-table w-full text-xs border-collapse mt-2">
-            <thead className="bg-gray-800 text-white">
-              <tr>
-                <th className="py-2 px-2 text-left font-bold w-8 border border-gray-700">#</th>
-                <th className="py-2 px-2 text-left font-bold border border-gray-700">Item Description</th>
-                <th className="py-2 px-2 text-center font-bold w-20 border border-gray-700">Pack</th>
-                <th className="py-2 px-2 text-center font-bold w-12 border border-gray-700">Qty</th>
-                <th className="py-2 px-2 text-center font-bold w-12 border border-gray-700">Free</th>
-                <th className="py-2 px-2 text-right font-bold w-20 border border-gray-700">Rate</th>
-                <th className="py-2 px-2 text-right font-bold w-20 border border-gray-700">MRP</th>
-                <th className="py-2 px-2 text-right font-bold w-12 border border-gray-700">GST%</th>
-                <th className="py-2 px-2 text-right font-bold w-24 border border-gray-700">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {chunk.map((item, index) => {
-                const itemTotal = (Number(item.purchasePrice || 0)) * (item.quantity || 0);
-                const actualIndex = (pageIndex * ITEMS_PER_PAGE) + index + 1;
-                return (
-                  <tr key={item.id} className="border-b border-gray-300">
-                    <td className="py-2 px-2 border-x border-gray-300 text-center">{actualIndex}</td>
-                    <td className="py-2 px-2 border-r border-gray-300">
-                      <p className="font-bold text-gray-900 text-sm">{item.name}</p>
-                      <p className="text-[10px] text-gray-500 uppercase font-medium">
-                        {item.manufacturer || item.brand}
-                        {item.hsnCode && ` | HSN: ${item.hsnCode}`}
-                      </p>
-                    </td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-center">{item.packType || item.unitOfMeasurement || '—'}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-center font-bold">{item.quantity}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-center">{item.freeQuantity || 0}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right font-medium">₹{Number(item.purchasePrice || 0).toFixed(2)}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right">₹{Number(item.mrp || 0).toFixed(2)}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right">{Number(item.gstPercent || 0)}%</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right font-bold text-gray-900">₹{Number(itemTotal || 0).toFixed(2)}</td>
-                  </tr>
-                );
-              })}
-              {pageIndex < itemChunks.length - 1 && (
+          {chunk.length > 0 && (
+            <table className="po-items-table w-full text-xs border-collapse mt-2">
+              <thead className="bg-gray-800 text-white">
                 <tr>
-                    <td colSpan={9} className="py-4 text-center italic text-gray-400 text-[10px]">
-                        Items continued on next page...
-                    </td>
+                  <th className="py-2 px-2 text-left font-bold w-8 border border-gray-700">#</th>
+                  <th className="py-2 px-2 text-left font-bold border border-gray-700">Item Description</th>
+                  <th className="py-2 px-2 text-center font-bold w-20 border border-gray-700">Pack</th>
+                  <th className="py-2 px-2 text-center font-bold w-12 border border-gray-700">Qty</th>
+                  <th className="py-2 px-2 text-center font-bold w-12 border border-gray-700">Free</th>
+                  <th className="py-2 px-2 text-right font-bold w-20 border border-gray-700">Rate</th>
+                  <th className="py-2 px-2 text-right font-bold w-20 border border-gray-700">MRP</th>
+                  <th className="py-2 px-2 text-right font-bold w-12 border border-gray-700">GST%</th>
+                  <th className="py-2 px-2 text-right font-bold w-24 border border-gray-700">Amount</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {chunk.map((item, index) => {
+                  const itemTotal = (Number(item.purchasePrice || 0)) * (item.quantity || 0);
+                  const actualIndex = (pageIndex * ITEMS_PER_PAGE) + index + 1;
+                  return (
+                    <tr key={item.id} className="border-b border-gray-300">
+                      <td className="py-2 px-2 border-x border-gray-300 text-center">{actualIndex}</td>
+                      <td className="py-2 px-2 border-r border-gray-300">
+                        <p className="font-bold text-gray-900 text-sm">{item.name}</p>
+                        <p className="text-[10px] text-gray-500 uppercase font-medium">
+                          {item.manufacturer || item.brand}
+                          {item.hsnCode && ` | HSN: ${item.hsnCode}`}
+                        </p>
+                      </td>
+                      <td className="py-2 px-2 border-r border-gray-300 text-center">{item.packType || item.unitOfMeasurement || '—'}</td>
+                      <td className="py-2 px-2 border-r border-gray-300 text-center font-bold">{item.quantity}</td>
+                      <td className="py-2 px-2 border-r border-gray-300 text-center">{item.freeQuantity || 0}</td>
+                      <td className="py-2 px-2 border-r border-gray-300 text-right font-medium">₹{Number(item.purchasePrice || 0).toFixed(2)}</td>
+                      <td className="py-2 px-2 border-r border-gray-300 text-right">₹{Number(item.mrp || 0).toFixed(2)}</td>
+                      <td className="py-2 px-2 border-r border-gray-300 text-right">{Number(item.gstPercent || 0)}%</td>
+                      <td className="py-2 px-2 border-r border-gray-300 text-right font-bold text-gray-900">₹{Number(itemTotal || 0).toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
+                {pageIndex < itemChunks.length - 1 && (
+                  <tr>
+                      <td colSpan={9} className="py-4 text-center italic text-gray-400 text-[10px]">
+                          Items continued on next page...
+                      </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
 
           {/* --- FOOTER --- */}
           {pageIndex === itemChunks.length - 1 && (
