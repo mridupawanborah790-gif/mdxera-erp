@@ -10,7 +10,7 @@ interface TemplateProps {
   pharmacy: RegisteredPharmacy;
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 20;
 
 const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmacy }) => {
   const displayUppercase = (value?: string | null) => value?.toUpperCase() || '';
@@ -52,13 +52,13 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
         @media print {
           @page {
             size: A4 portrait;
-            margin: 0 !important;
+            margin: 4mm !important;
           }
           .po-page {
             break-after: page;
             page-break-after: always;
             min-height: auto;
-            padding: 5mm 5mm 0 !important;
+            padding: 2mm 2mm 0 !important;
             box-sizing: border-box;
             break-inside: avoid;
             page-break-inside: avoid;
@@ -81,6 +81,9 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
             break-inside: avoid;
             page-break-inside: avoid;
           }
+          .po-items-table thead {
+            display: table-header-group;
+          }
         }
         .uppercase-text {
           text-transform: uppercase;
@@ -88,61 +91,62 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
       `}</style>
       
       {itemChunks.map((chunk, pageIndex) => (
-        <div key={pageIndex} className="po-page mb-10 print:mb-0">
+        <div key={pageIndex} className="po-page mb-6 print:mb-0">
           {/* --- HEADER --- */}
-          <header className="mb-6 pt-2">
-            <div className="flex justify-between items-start">
-              <div>
+          <header className="mb-3 pt-1">
+            <div className="grid grid-cols-2 gap-3 items-stretch">
+              <div className="flex flex-col justify-between min-h-[98px] border border-gray-200 rounded-md p-2.5">
                 {pharmacy.pharmacy_logo_url && (
-                  <img src={pharmacy.pharmacy_logo_url} alt="Logo" className="h-16 w-auto max-h-16 object-contain mb-2" />
+                  <img src={pharmacy.pharmacy_logo_url} alt="Logo" className="h-10 w-auto max-h-10 object-contain mb-1" />
                 )}
-                <h1 className="text-2xl font-bold text-blue-700 leading-tight uppercase-text">{displayUppercase(pharmacy.pharmacy_name)}</h1>
-                <div className="text-xs text-gray-600 space-y-0.5 mt-1">
+                <h1 className="text-lg font-bold text-blue-700 leading-tight uppercase-text">{displayUppercase(pharmacy.pharmacy_name)}</h1>
+                <div className="text-[11px] text-gray-600 space-y-0 mt-1">
                   <p>Ph: <span className="font-semibold text-gray-800">{pharmacy.mobile}</span></p>
                   {pharmacy.email && <p>Email: {pharmacy.email}</p>}
-                  {/* Fix: Changed retailer_gstin to gstin */}
                   <p>GSTIN: <span className="font-semibold text-gray-800 uppercase-text">{displayUppercase(pharmacy.gstin)}</span></p>
                 </div>
               </div>
-              <div className="text-right">
-                <h2 className="text-3xl font-black tracking-tighter text-gray-900 mb-1">PURCHASE ORDER</h2>
-                <div className="text-[10px] text-gray-400 mb-2">Page {pageIndex + 1} of {itemChunks.length}</div>
-                <div className="text-sm bg-gray-100 p-2 rounded-lg border border-gray-200 inline-block text-left min-w-[200px]">
+              <div className="border border-gray-200 rounded-md p-2.5 min-h-[98px] flex flex-col justify-between">
+                <div className="flex items-start justify-between gap-2">
+                  <h2 className="text-2xl font-black tracking-tight text-gray-900 leading-none">PURCHASE ORDER</h2>
+                  <div className="text-[10px] text-gray-500 whitespace-nowrap pt-0.5">Page {pageIndex + 1} of {itemChunks.length}</div>
+                </div>
+                <div className="text-xs bg-gray-50 p-2 rounded-md border border-gray-200 text-left">
                   <p className="flex justify-between"><strong>PO Number:</strong> <span className="font-mono ml-4">{purchaseOrder.serialId}</span></p>
                   <p className="flex justify-between"><strong>Date:</strong> <span className="ml-4">{new Date(purchaseOrder.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span></p>
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-6 mb-4 text-sm">
-              <div className="border border-blue-200 bg-blue-50/50 p-3 rounded-lg">
-                <h3 className="text-[10px] font-bold text-blue-800 uppercase tracking-widest mb-1">Vendor / Supplier</h3>
-                <p className="font-bold text-gray-900 text-base uppercase-text">{displayUppercase(purchaseOrder.distributorName)}</p>
-                {purchaseOrder.distributor.address && <p className="text-xs text-gray-600 mt-0.5 line-clamp-2 uppercase-text">{displayUppercase(purchaseOrder.distributor.address)}</p>}
-                {/* Fix: Rename purchaseOrder.distributor.gstNumber to purchaseOrder.distributor.gst_number */}
-                {purchaseOrder.distributor.gst_number && <p className="text-xs font-medium text-gray-700 mt-1 uppercase-text">GSTIN: {displayUppercase(purchaseOrder.distributor.gst_number)}</p>}
+            <div className="grid grid-cols-2 gap-3 mt-2 mb-2 text-xs items-stretch">
+              <div className="border border-blue-200 bg-blue-50/50 p-2.5 rounded-md min-h-[92px]">
+                <h3 className="text-[10px] font-bold text-blue-800 uppercase tracking-widest mb-0.5">Vendor / Supplier</h3>
+                <p className="font-bold text-gray-900 text-sm uppercase-text leading-tight">{displayUppercase(purchaseOrder.distributorName)}</p>
+                {purchaseOrder.distributor.address && <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2 uppercase-text leading-snug">{displayUppercase(purchaseOrder.distributor.address)}</p>}
+                {purchaseOrder.distributor.gst_number && <p className="text-[11px] font-medium text-gray-700 mt-0.5 uppercase-text">GSTIN: {displayUppercase(purchaseOrder.distributor.gst_number)}</p>}
               </div>
-              <div className="border border-green-200 bg-green-50/50 p-3 rounded-lg">
-                <h3 className="text-[10px] font-bold text-green-800 uppercase tracking-widest mb-1">Ship To / Deliver To</h3>
-                <p className="font-bold text-gray-900 text-base uppercase-text">{displayUppercase(pharmacy.pharmacy_name)}</p>
-                <p className="text-xs text-gray-600 mt-0.5 line-clamp-2 uppercase-text">{displayUppercase(pharmacy.address)}</p>
+              <div className="border border-green-200 bg-green-50/50 p-2.5 rounded-md min-h-[92px]">
+                <h3 className="text-[10px] font-bold text-green-800 uppercase tracking-widest mb-0.5">Ship To / Deliver To</h3>
+                <p className="font-bold text-gray-900 text-sm uppercase-text leading-tight">{displayUppercase(pharmacy.pharmacy_name)}</p>
+                <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2 uppercase-text leading-snug">{displayUppercase(pharmacy.address)}</p>
               </div>
             </div>
           </header>
 
           {/* --- ITEMS TABLE --- */}
-          <table className="po-items-table w-full text-xs border-collapse mt-2">
+          <table className="po-items-table w-full text-[11px] border-collapse mt-1">
             <thead className="bg-gray-800 text-white">
               <tr>
-                <th className="py-2 px-2 text-left font-bold w-8 border border-gray-700">#</th>
-                <th className="py-2 px-2 text-left font-bold border border-gray-700">Item Description</th>
-                <th className="py-2 px-2 text-center font-bold w-20 border border-gray-700">Pack</th>
-                <th className="py-2 px-2 text-center font-bold w-12 border border-gray-700">Qty</th>
-                <th className="py-2 px-2 text-center font-bold w-12 border border-gray-700">Free</th>
-                <th className="py-2 px-2 text-right font-bold w-20 border border-gray-700">Rate</th>
-                <th className="py-2 px-2 text-right font-bold w-20 border border-gray-700">MRP</th>
-                <th className="py-2 px-2 text-right font-bold w-12 border border-gray-700">GST%</th>
-                <th className="py-2 px-2 text-right font-bold w-24 border border-gray-700">Amount</th>
+                <th className="py-1.5 px-1.5 text-center font-bold w-7 border border-gray-700">#</th>
+                <th className="py-1.5 px-2 text-left font-bold border border-gray-700">Item Description</th>
+                <th className="py-1.5 px-1.5 text-center font-bold w-14 border border-gray-700">HSN</th>
+                <th className="py-1.5 px-1.5 text-center font-bold w-12 border border-gray-700">Pack</th>
+                <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">Qty</th>
+                <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">Free</th>
+                <th className="py-1.5 px-1.5 text-right font-bold w-16 border border-gray-700">Rate</th>
+                <th className="py-1.5 px-1.5 text-right font-bold w-16 border border-gray-700">MRP</th>
+                <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">GST%</th>
+                <th className="py-1.5 px-1.5 text-right font-bold w-20 border border-gray-700">Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -151,21 +155,18 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
                 const actualIndex = (pageIndex * ITEMS_PER_PAGE) + index + 1;
                 return (
                   <tr key={item.id} className="border-b border-gray-300">
-                    <td className="py-2 px-2 border-x border-gray-300 text-center">{actualIndex}</td>
-                    <td className="py-2 px-2 border-r border-gray-300">
-                      <p className="font-bold text-gray-900 text-sm">{item.name}</p>
-                      <p className="text-[10px] text-gray-500 uppercase font-medium">
-                        {item.manufacturer || item.brand}
-                        {item.hsnCode && ` | HSN: ${item.hsnCode}`}
-                      </p>
+                    <td className="py-1 px-1.5 border-x border-gray-300 text-center align-middle">{actualIndex}</td>
+                    <td className="py-1 px-2 border-r border-gray-300 align-middle">
+                      <p className="font-semibold text-gray-900 leading-tight">{item.name}</p>
                     </td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-center">{item.packType || item.unitOfMeasurement || '—'}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-center font-bold">{item.quantity}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-center">{item.freeQuantity || 0}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right font-medium">₹{Number(item.purchasePrice || 0).toFixed(2)}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right">₹{Number(item.mrp || 0).toFixed(2)}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right">{Number(item.gstPercent || 0)}%</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right font-bold text-gray-900">₹{Number(itemTotal || 0).toFixed(2)}</td>
+                    <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{item.hsnCode || '-'}</td>
+                    <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{item.packType || item.unitOfMeasurement || '—'}</td>
+                    <td className="py-1 px-1.5 border-r border-gray-300 text-center font-semibold align-middle">{item.quantity}</td>
+                    <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{item.freeQuantity || 0}</td>
+                    <td className="py-1 px-1.5 border-r border-gray-300 text-right align-middle">₹{Number(item.purchasePrice || 0).toFixed(2)}</td>
+                    <td className="py-1 px-1.5 border-r border-gray-300 text-right align-middle">₹{Number(item.mrp || 0).toFixed(2)}</td>
+                    <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{Number(item.gstPercent || 0)}%</td>
+                    <td className="py-1 px-1.5 border-r border-gray-300 text-right font-bold text-gray-900 align-middle">₹{Number(itemTotal || 0).toFixed(2)}</td>
                   </tr>
                 );
               })}

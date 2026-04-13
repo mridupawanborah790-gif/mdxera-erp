@@ -47,7 +47,7 @@ const PrintPurchaseOrderModal: React.FC<PrintPurchaseOrderModalProps> = ({ isOpe
         @media print {
           @page {
             size: A4 portrait;
-            margin: 0;
+            margin: 4mm;
           }
 
           html, body {
