@@ -103,7 +103,8 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
       `}</style>
 
       {itemChunks.map((chunk, pageIndex) => {
-        const fillerRows = Math.max(0, ITEMS_PER_PAGE - chunk.length);
+        const isLastPage = pageIndex === itemChunks.length - 1;
+        const fillerRows = isLastPage ? 0 : Math.max(0, ITEMS_PER_PAGE - chunk.length);
         return (
           <div key={pageIndex} className="po-page mb-6 print:mb-0">
             <header className="mb-3 pt-1">
@@ -205,8 +206,8 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
               </table>
             </div>
 
-            {pageIndex === itemChunks.length - 1 && (
-              <div className="po-last-page-footer mt-6 pt-4 border-t-2 border-gray-200">
+            {isLastPage && (
+              <div className="po-last-page-footer mt-3 pt-3 border-t-2 border-gray-200">
                 <div className="flex justify-between items-start">
                   <div className="w-7/12">
                     {isReceived && purchaseOrder.remarks && (
