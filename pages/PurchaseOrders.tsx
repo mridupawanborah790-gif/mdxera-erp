@@ -157,6 +157,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [items, setItems] = useState<PurchaseOrderItem[]>([]);
     const [remarks, setRemarks] = useState('');
     const [poSerialId, setPoSerialId] = useState('NO.NEW');
+    const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isMatrixOpen, setIsMatrixOpen] = useState(false);
     const [matrixMode, setMatrixMode] = useState<'all' | 'lowStock'>('all');
@@ -201,6 +202,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         setItems([createEmptyLineItem()]);
         setRemarks('');
         setPoSerialId('NO.NEW');
+        setEditingPO(null);
         onClearDraft();
     };
 
@@ -643,7 +645,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const handleSavePO = async () => {
         setIsSaving(true);
         try {
-            const reservedSerialId = await ensurePONumber();
+            const resolvedSerialId = editingPO?.serialId || await ensurePONumber();
             const distributor = distributors.find(d => d.id === selectedDistributorId);
             if (!distributor) {
                 throw new Error('Invalid supplier/distributor id: selected supplier was not found.');
@@ -654,9 +656,9 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                 .map(recalculateLine)
                 .filter(item => isLineItemComplete(item));
 
-            const validationError = validateBeforeSave(reservedSerialId, cleanItems);
+            const validationError = validateBeforeSave(resolvedSerialId, cleanItems);
             if (validationError) {
-                console.warn('PO validation failed.', { validationError, selectedDistributorId, orderDate, poSerialId: reservedSerialId, cleanItems });
+                console.warn('PO validation failed.', { validationError, selectedDistributorId, orderDate, poSerialId: resolvedSerialId, cleanItems });
                 alert(validationError);
                 return;
             }
@@ -673,7 +675,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             const computedTax = normalizedItems.reduce((sum, item) => sum + Number(item.gstAmount || 0), 0);
             const computedTotalAmount = normalizedItems.reduce((sum, item) => sum + Number(item.estimatedAmount || 0), 0);
 
-            const newPO: Omit<PurchaseOrder, 'id' | 'serialId'> = {
+            const poPayload: Omit<PurchaseOrder, 'id' | 'serialId'> = {
                 organization_id: currentUserOrgId || '',
                 date: new Date(orderDate).toISOString(),
                 distributorId: distributor.id,
@@ -687,8 +689,8 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             };
 
             console.info('PO save payload prepared.', {
-                serialId: reservedSerialId,
-                payload: { ...newPO, serialId: reservedSerialId },
+                serialId: resolvedSerialId,
+                payload: { ...poPayload, serialId: resolvedSerialId },
                 totals: {
                     subtotal: computedSubtotal,
                     discount: computedDiscount,
@@ -698,8 +700,17 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                 }
             });
 
-            await onAddPurchaseOrder(newPO, reservedSerialId);
-            console.info('PO save completed successfully.', { serialId: reservedSerialId });
+            if (editingPO) {
+                await onUpdatePurchaseOrder({
+                    ...editingPO,
+                    ...poPayload,
+                    serialId: editingPO.serialId,
+                    status: editingPO.status
+                });
+            } else {
+                await onAddPurchaseOrder(poPayload, resolvedSerialId);
+            }
+            console.info('PO save completed successfully.', { serialId: resolvedSerialId, mode: editingPO ? 'update' : 'create' });
             setIsDirty(false);
             resetCreateForm();
             setView('list');
@@ -945,7 +956,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     disabled={isSaving}
                                     className="w-full py-6 tally-button-primary shadow-2xl active:translate-y-1 uppercase tracking-[0.3em] text-[12px] flex items-center justify-center gap-2"
                                 >
-                                    {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Accept Order'}
+                                    {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : (editingPO ? 'Update Order' : 'Accept Order')}
                                 </button>
                             </div>
                         </div>
@@ -999,6 +1010,32 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                                 <td className="p-3 text-right">
                                                     <div className="flex justify-end gap-2">
                                                         <button onClick={(e) => { e.stopPropagation(); onPrintPurchaseOrder(po); }} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-gray-500 group-hover:text-white'}`}>Print</button>
+                                                        {po.status === PurchaseOrderStatus.ORDERED && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setEditingPO(po);
+                                                                    setPoSerialId(po.serialId);
+                                                                    setSelectedDistributorId(po.distributorId);
+                                                                    setOrderDate(po.date ? new Date(po.date).toISOString().split('T')[0] : getDefaultOrderDate());
+                                                                    setItems(normalizeLineItems(
+                                                                        (po.items || []).map(item => ({
+                                                                            ...createEmptyLineItem(),
+                                                                            ...item,
+                                                                            id: item.id || crypto.randomUUID(),
+                                                                            expectedDeliveryDate: item.expectedDeliveryDate
+                                                                                ? new Date(item.expectedDeliveryDate).toISOString().split('T')[0]
+                                                                                : ''
+                                                                        }))
+                                                                    ));
+                                                                    setRemarks(po.remarks || '');
+                                                                    setView('create');
+                                                                }}
+                                                                className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-blue-700 group-hover:text-white'}`}
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                        )}
                                                         {po.status === PurchaseOrderStatus.ORDERED && (
                                                             <>
                                                                 <button onClick={(e) => { e.stopPropagation(); onCreatePurchaseEntry(po); }} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-emerald-700 group-hover:text-white'}`}>Receive</button>
