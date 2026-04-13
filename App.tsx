@@ -2079,7 +2079,7 @@ const App: React.FC = () => {
                             return reserved.documentNumber;
                         }}
                         onUpdatePurchaseOrder={async (po) => {
-                            await storage.saveData('purchase_orders', po, currentUser!);
+                            await storage.saveData('purchase_orders', po, currentUser!, true);
                             await loadData(currentUser!, 'background');
                         }}
                         onCreatePurchaseEntry={(po) => {
@@ -2128,7 +2128,7 @@ const App: React.FC = () => {
                         onCancelPurchaseOrder={async (id) => {
                             const po = purchaseOrders.find(p => p.id === id);
                             if (po) {
-                                await storage.saveData('purchase_orders', { ...po, status: PurchaseOrderStatus.CANCELLED }, currentUser!);
+                                await storage.saveData('purchase_orders', { ...po, status: PurchaseOrderStatus.CANCELLED }, currentUser!, true);
                                 await storage.markVoucherCancelled('purchase-order', currentUser!, po.serialId, po.id);
                                 await loadData(currentUser!, 'background');
                             }
