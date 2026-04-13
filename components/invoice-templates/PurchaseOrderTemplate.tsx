@@ -10,7 +10,7 @@ interface TemplateProps {
   pharmacy: RegisteredPharmacy;
 }
 
-const ITEMS_PER_PAGE = 15;
+const ITEMS_PER_PAGE = 10;
 
 const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmacy }) => {
   const displayUppercase = (value?: string | null) => value?.toUpperCase() || '';
@@ -35,11 +35,14 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
 
   // Helper to chunk items for pagination
   const itemChunks = useMemo(() => {
-    const chunks = [];
+    const chunks: Array<typeof purchaseOrder.items> = [];
     for (let i = 0; i < purchaseOrder.items.length; i += ITEMS_PER_PAGE) {
-      chunks.push(purchaseOrder.items.slice(i, i + ITEMS_PER_PAGE));
+      const nextChunk = purchaseOrder.items.slice(i, i + ITEMS_PER_PAGE);
+      if (nextChunk.length > 0) {
+        chunks.push(nextChunk);
+      }
     }
-    // Ensure at least one page if no items
+    // Keep one page so final summary can still render even with no rows.
     return chunks.length > 0 ? chunks : [[]];
   }, [purchaseOrder.items]);
 
@@ -57,6 +60,8 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
             min-height: auto;
             padding: 5mm 5mm 0 !important;
             box-sizing: border-box;
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
           .po-page:last-of-type {
             break-after: auto;
@@ -69,9 +74,6 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
           .po-items-table {
             table-layout: fixed;
             width: 100%;
-          }
-          .po-items-table thead {
-            display: table-header-group;
           }
           .po-items-table tr,
           .po-items-table td,
@@ -116,7 +118,7 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
               <div className="border border-blue-200 bg-blue-50/50 p-3 rounded-lg">
                 <h3 className="text-[10px] font-bold text-blue-800 uppercase tracking-widest mb-1">Vendor / Supplier</h3>
                 <p className="font-bold text-gray-900 text-base uppercase-text">{displayUppercase(purchaseOrder.distributorName)}</p>
-                {purchaseOrder.distributor.address && <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{purchaseOrder.distributor.address}</p>}
+                {purchaseOrder.distributor.address && <p className="text-xs text-gray-600 mt-0.5 line-clamp-2 uppercase-text">{displayUppercase(purchaseOrder.distributor.address)}</p>}
                 {/* Fix: Rename purchaseOrder.distributor.gstNumber to purchaseOrder.distributor.gst_number */}
                 {purchaseOrder.distributor.gst_number && <p className="text-xs font-medium text-gray-700 mt-1 uppercase-text">GSTIN: {displayUppercase(purchaseOrder.distributor.gst_number)}</p>}
               </div>
@@ -167,15 +169,13 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
                   </tr>
                 );
               })}
-              {pageIndex < itemChunks.length - 1 && (
-                <tr>
-                    <td colSpan={9} className="py-4 text-center italic text-gray-400 text-[10px]">
-                        Items continued on next page...
-                    </td>
-                </tr>
-              )}
             </tbody>
           </table>
+          {chunk.length > 0 && pageIndex < itemChunks.length - 1 && (
+            <p className="py-4 text-center italic text-gray-400 text-[10px]">
+              Items continued on next page...
+            </p>
+          )}
 
           {/* --- FOOTER --- */}
           {pageIndex === itemChunks.length - 1 && (
