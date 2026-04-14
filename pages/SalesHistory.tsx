@@ -49,6 +49,14 @@ const POSIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 const ITEMS_PER_PAGE = 15;
 
+const getInvoiceSequenceNumber = (transaction: Transaction): number => {
+    const invoiceRef = String(transaction.invoiceNumber || transaction.id || '');
+    const firstNumericChunk = invoiceRef.match(/\d+/)?.[0];
+    if (!firstNumericChunk) return Number.MIN_SAFE_INTEGER;
+    const parsed = Number.parseInt(firstNumericChunk, 10);
+    return Number.isFinite(parsed) ? parsed : Number.MIN_SAFE_INTEGER;
+};
+
 const SalesHistory: React.FC<SalesHistoryProps> = ({ 
     transactions, inventory, customers, onViewDetails, onPrintBill, onCancelTransaction, initialFilters, 
     onFiltersChange, currentUser, onRefresh, onViewSale, onEditSale, onCreateReturn, salesReturns, 
@@ -96,9 +104,15 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
         }
 
         return filtered.sort((a, b) => {
-            const aVal = new Date(a.date).getTime();
-            const bVal = new Date(b.date).getTime();
-            return sortConfig.direction === 'descending' ? bVal - aVal : aVal - bVal;
+            // Always keep latest/highest bill number first for Sales Register / Sales History.
+            const sequenceDelta = getInvoiceSequenceNumber(b) - getInvoiceSequenceNumber(a);
+            if (sequenceDelta !== 0) return sequenceDelta;
+
+            // Fallbacks for invoices where sequence can't be derived reliably.
+            const dateDelta = new Date(b.date).getTime() - new Date(a.date).getTime();
+            if (dateDelta !== 0) return dateDelta;
+
+            return String(b.invoiceNumber || b.id || '').localeCompare(String(a.invoiceNumber || a.id || ''));
         });
     }, [transactions, searchTerm, startDate, endDate, rmpFilter, paymentModeFilter, statusFilter, sortConfig]);
 
