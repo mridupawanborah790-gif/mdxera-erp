@@ -1092,6 +1092,28 @@ const App: React.FC = () => {
             throw new Error('This purchase bill is already linked to the selected Purchase Order.');
         }
 
+        if (mode === PurchaseOrderReceiveMode.ADJUST_RECEIVED_ENTRY) {
+            return {
+                ...po,
+                sourcePurchaseBillIds: [...(po.sourcePurchaseBillIds || []), purchaseBill.id],
+                receiveLinks: [
+                    ...(po.receiveLinks || []),
+                    {
+                        id: storage.generateUUID(),
+                        purchaseOrderId: po.id,
+                        poNumber: po.serialId,
+                        purchaseBillId: purchaseBill.id,
+                        purchaseSystemId: purchaseBill.purchaseSerialId,
+                        receiveMode: mode,
+                        receivedQty: 0,
+                        adjustedQty: 0,
+                        adjustedAt: new Date().toISOString(),
+                        adjustedBy: currentUser?.id
+                    }
+                ]
+            };
+        }
+
         const receivedByItem = new Map<string, number>();
         (purchaseBill.items || []).forEach(item => {
             const key = resolvePurchaseItemKey(item);
