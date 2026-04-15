@@ -55,7 +55,7 @@ import {
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
     Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
     PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
-    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, BusinessRole, DoctorMaster
+    PurchaseOrderStatus, PurchaseOrderReceiveMode, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, BusinessRole, DoctorMaster
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
@@ -1067,6 +1067,87 @@ const App: React.FC = () => {
         }
     };
 
+    const normalizeEntityKey = (value?: string | null) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const resolvePurchaseItemKey = (item: PurchaseItem) => {
+        const byCode = normalizeEntityKey((item as any).materialCode || (item as any).itemCode || '');
+        if (byCode) return `code:${byCode}`;
+        return `name:${normalizeEntityKey(item.name)}`;
+    };
+
+    const resolvePoItemKey = (item: any) => {
+        const byCode = normalizeEntityKey(item.itemCode || item.sku || item.materialCode || '');
+        if (byCode) return `code:${byCode}`;
+        return `name:${normalizeEntityKey(item.name)}`;
+    };
+
+    const createPOReceivePatchFromPurchase = (po: PurchaseOrder, purchaseBill: Purchase, mode: PurchaseOrderReceiveMode) => {
+        const poSupplierKey = normalizeEntityKey(po.distributorName);
+        const billSupplierKey = normalizeEntityKey(purchaseBill.supplier);
+        if (poSupplierKey && billSupplierKey && poSupplierKey !== billSupplierKey) {
+            throw new Error('Supplier mismatch between Purchase Order and Purchase Bill.');
+        }
+
+        if ((po.sourcePurchaseBillIds || []).includes(purchaseBill.id)) {
+            throw new Error('This purchase bill is already linked to the selected Purchase Order.');
+        }
+
+        const receivedByItem = new Map<string, number>();
+        (purchaseBill.items || []).forEach(item => {
+            const key = resolvePurchaseItemKey(item);
+            const qty = Math.max(0, Number(item.quantity || 0));
+            receivedByItem.set(key, (receivedByItem.get(key) || 0) + qty);
+        });
+
+        const nextItems = (po.items || []).map(item => {
+            const itemKey = resolvePoItemKey(item);
+            const incomingQty = Number(receivedByItem.get(itemKey) || 0);
+            const prevReceived = Number(item.receivedQuantity || 0);
+            const orderedQty = Number(item.quantity || 0);
+            const nextReceived = prevReceived + incomingQty;
+            if (nextReceived > orderedQty) {
+                throw new Error(`Over-adjustment detected for item "${item.name}". Ordered: ${orderedQty}, trying to receive: ${nextReceived}.`);
+            }
+            return {
+                ...item,
+                receivedQuantity: Number(nextReceived.toFixed(2)),
+                pendingQuantity: Number(Math.max(0, orderedQty - nextReceived).toFixed(2)),
+            };
+        });
+
+        const totalOrdered = nextItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+        const totalReceived = nextItems.reduce((sum, item) => sum + Number(item.receivedQuantity || 0), 0);
+        const resolvedStatus = totalReceived <= 0
+            ? PurchaseOrderStatus.ORDERED
+            : totalReceived < totalOrdered
+                ? PurchaseOrderStatus.PARTIALLY_RECEIVED
+                : PurchaseOrderStatus.RECEIVED;
+
+        const adjustedQty = (purchaseBill.items || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)), 0);
+
+        return {
+            ...po,
+            items: nextItems,
+            status: resolvedStatus,
+            sourcePurchaseBillIds: [...(po.sourcePurchaseBillIds || []), purchaseBill.id],
+            receiveLinks: [
+                ...(po.receiveLinks || []),
+                {
+                    id: storage.generateUUID(),
+                    purchaseOrderId: po.id,
+                    poNumber: po.serialId,
+                    purchaseBillId: purchaseBill.id,
+                    purchaseSystemId: purchaseBill.purchaseSerialId,
+                    receiveMode: mode,
+                    receivedQty: adjustedQty,
+                    adjustedQty,
+                    adjustedAt: new Date().toISOString(),
+                    adjustedBy: currentUser?.id
+                }
+            ]
+        };
+    };
+
     const handleAddPurchase = async (p: any, supplierGst: string, nextCounter?: number) => {
         if (!currentUser) return;
         try {
@@ -1075,6 +1156,14 @@ const App: React.FC = () => {
             setPurchases(prev => [savedPurchase, ...prev]);
 
             await refreshInventoryViews(currentUser, ['purchases']);
+            if (savedPurchase?.sourcePurchaseOrderId) {
+                const linkedPO = purchaseOrders.find(po => po.id === savedPurchase.sourcePurchaseOrderId);
+                if (linkedPO) {
+                    const poPatch = createPOReceivePatchFromPurchase(linkedPO, savedPurchase, PurchaseOrderReceiveMode.POST_RECEIVED_ENTRY);
+                    await storage.saveData('purchase_orders', poPatch, currentUser, true);
+                    setPurchaseOrders(prev => prev.map(po => po.id === poPatch.id ? poPatch : po));
+                }
+            }
             loadData(currentUser, 'background');
             addNotification("Purchase entry posted.", "success");
             return savedPurchase;
@@ -2082,7 +2171,7 @@ const App: React.FC = () => {
                             await storage.saveData('purchase_orders', po, currentUser!, true);
                             await loadData(currentUser!, 'background');
                         }}
-                        onCreatePurchaseEntry={(po) => {
+                        onPostReceivedEntry={(po) => {
                             const items: PurchaseItem[] = po.items.map(item => ({
                                 id: storage.generateUUID(),
                                 name: item.name,
@@ -2103,8 +2192,20 @@ const App: React.FC = () => {
                                 hsnCode: item.hsnCode || '',
                                 schemeDiscountAmount: 0
                             }));
-                            setSourceChallansForPurchase({ items, supplier: po.distributorId, ids: [po.id] });
-                            handleNavigate('manualSupplierInvoice');
+                            setPurchaseCopyDraft({
+                                sourceId: `poid:${po.id}|po:${po.serialId}`,
+                                items,
+                                supplier: po.distributorName || '',
+                                invoiceNumber: '',
+                                date: new Date().toISOString().slice(0, 10),
+                            });
+                            handleNavigate('manualPurchaseEntry');
+                        }}
+                        onAdjustReceivedEntry={async (po, purchaseBill) => {
+                            const updatedPO = createPOReceivePatchFromPurchase(po, purchaseBill, PurchaseOrderReceiveMode.ADJUST_RECEIVED_ENTRY);
+                            await storage.saveData('purchase_orders', updatedPO, currentUser!, true);
+                            setPurchaseOrders(prev => prev.map(order => order.id === updatedPO.id ? updatedPO : order));
+                            await loadData(currentUser!, 'background');
                         }}
                         onPrintPurchaseOrder={(po) => {
                             const distributor = suppliers.find(d => d.id === po.distributorId);
@@ -2133,6 +2234,8 @@ const App: React.FC = () => {
                                 await loadData(currentUser!, 'background');
                             }
                         }}
+                        purchases={purchases}
+                        addNotification={addNotification}
                         draftItems={null}
                         onClearDraft={() => {}}
                         setIsDirty={() => {}}
