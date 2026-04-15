@@ -20,8 +20,6 @@ import ConfirmModal from '../components/ConfirmModal';
 import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
-type SortableKeys = 'purchaseSerialId' | 'date' | 'totalAmount';
-
 interface PurchaseHistoryProps {
     purchases: Purchase[];
     distributors: Distributor[];
@@ -52,6 +50,20 @@ const RefreshIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 const ITEMS_PER_PAGE = 15;
 
+
+const extractSystemIdSequence = (systemId?: string | null): number => {
+    if (!systemId) return Number.NEGATIVE_INFINITY;
+
+    const firstSegment = systemId.split('-')[0] || '';
+    const segmentMatch = firstSegment.match(/(\d+)(?!.*\d)/);
+    if (segmentMatch) return Number.parseInt(segmentMatch[1], 10);
+
+    const fallbackMatch = systemId.match(/(\d+)(?!.*\d)/);
+    if (fallbackMatch) return Number.parseInt(fallbackMatch[1], 10);
+
+    return Number.NEGATIVE_INFINITY;
+};
+
 const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     purchases,
     distributors,
@@ -78,7 +90,6 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const [endDate, setEndDate] = useState('');
     const [distributorFilter, setDistributorFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('completed');
-    const [sortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' }>({ key: 'date', direction: 'descending' });
     const [currentPage, setCurrentPage] = useState(1);
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [purchaseToCancel, setPurchaseToCancel] = useState<string | null>(null);
@@ -112,11 +123,18 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         }
 
         return filtered.sort((a, b) => {
-            const aVal = new Date(a.date).getTime();
-            const bVal = new Date(b.date).getTime();
-            return sortConfig.direction === 'descending' ? bVal - aVal : aVal - bVal;
+            const bSystemIdSequence = extractSystemIdSequence(b.purchaseSerialId);
+            const aSystemIdSequence = extractSystemIdSequence(a.purchaseSerialId);
+            if (bSystemIdSequence !== aSystemIdSequence) {
+                return bSystemIdSequence - aSystemIdSequence;
+            }
+
+            return (b.purchaseSerialId || '').localeCompare(a.purchaseSerialId || '', undefined, {
+                numeric: true,
+                sensitivity: 'base',
+            });
         });
-    }, [purchases, searchTerm, startDate, endDate, distributorFilter, statusFilter, sortConfig]);
+    }, [purchases, searchTerm, startDate, endDate, distributorFilter, statusFilter]);
 
     const totalPages = Math.ceil(filteredAndSortedPurchases.length / ITEMS_PER_PAGE);
 

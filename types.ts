@@ -449,6 +449,8 @@ export interface Purchase {
     eWayBillNo?: string;
     eWayBillDate?: string;
     linkedChallans?: string[];
+    sourcePurchaseOrderId?: string;
+    sourceReceiveMode?: PurchaseOrderReceiveMode | 'POST_RECEIVED_ENTRY' | 'ADJUST_RECEIVED_ENTRY';
     companyCodeId?: string;
     setOfBooksId?: string;
 }
@@ -501,8 +503,27 @@ export interface SalesChallan {
 
 export enum PurchaseOrderStatus {
     ORDERED = 'ordered',
+    PARTIALLY_RECEIVED = 'partially_received',
     RECEIVED = 'received',
     CANCELLED = 'cancelled'
+}
+
+export enum PurchaseOrderReceiveMode {
+    POST_RECEIVED_ENTRY = 'POST_RECEIVED_ENTRY',
+    ADJUST_RECEIVED_ENTRY = 'ADJUST_RECEIVED_ENTRY'
+}
+
+export interface PurchaseOrderReceiveLink {
+    id: string;
+    purchaseOrderId: string;
+    poNumber: string;
+    purchaseBillId: string;
+    purchaseSystemId: string;
+    receiveMode: PurchaseOrderReceiveMode;
+    receivedQty: number;
+    adjustedQty: number;
+    adjustedAt: string;
+    adjustedBy?: string;
 }
 
 export interface PurchaseOrderItem {
@@ -532,6 +553,8 @@ export interface PurchaseOrderItem {
     expectedDeliveryDate?: string;
     notes?: string;
     expiry?: string;
+    receivedQuantity?: number;
+    pendingQuantity?: number;
 }
 
 export interface PurchaseOrder {
@@ -549,6 +572,8 @@ export interface PurchaseOrder {
     totalItems: number;
     totalAmount: number;
     remarks?: string;
+    receiveLinks?: PurchaseOrderReceiveLink[];
+    sourcePurchaseBillIds?: string[];
 }
 
 export interface TransactionLedgerItem {

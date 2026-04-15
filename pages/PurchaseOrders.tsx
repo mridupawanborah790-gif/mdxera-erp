@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
-import type { Distributor, InventoryItem, PurchaseOrderItem, PurchaseOrder, Medicine, SupplierProductMap } from '../types';
+import type { Distributor, InventoryItem, PurchaseOrderItem, PurchaseOrder, Medicine, SupplierProductMap, Purchase } from '../types';
 import { PurchaseOrderStatus } from '../types';
 import SharePurchaseOrderModal from '../components/SharePurchaseOrderModal';
 import { parseNetworkAndApiError } from '../utils/error';
@@ -15,9 +15,12 @@ interface PurchaseOrdersProps {
   onAddPurchaseOrder: (po: Omit<PurchaseOrder, 'id' | 'serialId'>, serialId: string) => void;
   onReservePONumber: () => Promise<string>;
   onUpdatePurchaseOrder: (po: PurchaseOrder) => void;
-  onCreatePurchaseEntry: (po: PurchaseOrder) => void;
+  onPostReceivedEntry: (po: PurchaseOrder) => void;
+  onAdjustReceivedEntry: (po: PurchaseOrder, purchaseBill: Purchase) => Promise<void>;
   onPrintPurchaseOrder: (po: PurchaseOrder) => void;
   onCancelPurchaseOrder: (poId: string) => void;
+  purchases: Purchase[];
+  addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
   draftItems: PurchaseOrderItem[] | null;
   onClearDraft: () => void;
   initialStatusFilter?: PurchaseOrderStatus | 'all';
@@ -135,9 +138,12 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     onAddPurchaseOrder, 
     onReservePONumber,
     onUpdatePurchaseOrder, 
-    onCreatePurchaseEntry, 
+    onPostReceivedEntry,
+    onAdjustReceivedEntry,
     onPrintPurchaseOrder, 
     onCancelPurchaseOrder, 
+    purchases,
+    addNotification,
     draftItems, 
     onClearDraft, 
     initialStatusFilter = 'all', 
@@ -151,12 +157,19 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatus | 'all'>(initialStatusFilter);
     const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
     const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+    const [receiveFlowPO, setReceiveFlowPO] = useState<PurchaseOrder | null>(null);
+    const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+    const [adjustSearchSystemId, setAdjustSearchSystemId] = useState('');
+    const [adjustSearchSupplierBillId, setAdjustSearchSupplierBillId] = useState('');
+    const [selectedAdjustBillId, setSelectedAdjustBillId] = useState<string | null>(null);
+    const [isAdjusting, setIsAdjusting] = useState(false);
 
     const [selectedDistributorId, setSelectedDistributorId] = useState('');
     const [orderDate, setOrderDate] = useState(getDefaultOrderDate());
     const [items, setItems] = useState<PurchaseOrderItem[]>([]);
     const [remarks, setRemarks] = useState('');
     const [poSerialId, setPoSerialId] = useState('NO.NEW');
+    const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isMatrixOpen, setIsMatrixOpen] = useState(false);
     const [matrixMode, setMatrixMode] = useState<'all' | 'lowStock'>('all');
@@ -201,6 +214,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         setItems([createEmptyLineItem()]);
         setRemarks('');
         setPoSerialId('NO.NEW');
+        setEditingPO(null);
         onClearDraft();
     };
 
@@ -219,6 +233,20 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         }
         return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [purchaseOrders, statusFilter]);
+
+    const adjustCandidates = useMemo(() => {
+        const systemTerm = adjustSearchSystemId.trim().toLowerCase();
+        const supplierBillTerm = adjustSearchSupplierBillId.trim().toLowerCase();
+        return [...purchases]
+            .filter(p => p.status !== 'cancelled')
+            .filter(p => {
+                const systemIdMatch = !systemTerm || (p.purchaseSerialId || '').toLowerCase().includes(systemTerm);
+                const supplierBillMatch = !supplierBillTerm || (p.invoiceNumber || '').toLowerCase().includes(supplierBillTerm);
+                return systemIdMatch && supplierBillMatch;
+            })
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            .slice(0, 30);
+    }, [purchases, adjustSearchSystemId, adjustSearchSupplierBillId]);
 
     useEffect(() => {
         if (draftItems && draftItems.length > 0) {
@@ -643,7 +671,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const handleSavePO = async () => {
         setIsSaving(true);
         try {
-            const reservedSerialId = await ensurePONumber();
+            const resolvedSerialId = editingPO?.serialId || await ensurePONumber();
             const distributor = distributors.find(d => d.id === selectedDistributorId);
             if (!distributor) {
                 throw new Error('Invalid supplier/distributor id: selected supplier was not found.');
@@ -654,9 +682,9 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                 .map(recalculateLine)
                 .filter(item => isLineItemComplete(item));
 
-            const validationError = validateBeforeSave(reservedSerialId, cleanItems);
+            const validationError = validateBeforeSave(resolvedSerialId, cleanItems);
             if (validationError) {
-                console.warn('PO validation failed.', { validationError, selectedDistributorId, orderDate, poSerialId: reservedSerialId, cleanItems });
+                console.warn('PO validation failed.', { validationError, selectedDistributorId, orderDate, poSerialId: resolvedSerialId, cleanItems });
                 alert(validationError);
                 return;
             }
@@ -673,7 +701,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             const computedTax = normalizedItems.reduce((sum, item) => sum + Number(item.gstAmount || 0), 0);
             const computedTotalAmount = normalizedItems.reduce((sum, item) => sum + Number(item.estimatedAmount || 0), 0);
 
-            const newPO: Omit<PurchaseOrder, 'id' | 'serialId'> = {
+            const poPayload: Omit<PurchaseOrder, 'id' | 'serialId'> = {
                 organization_id: currentUserOrgId || '',
                 date: new Date(orderDate).toISOString(),
                 distributorId: distributor.id,
@@ -687,8 +715,8 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             };
 
             console.info('PO save payload prepared.', {
-                serialId: reservedSerialId,
-                payload: { ...newPO, serialId: reservedSerialId },
+                serialId: resolvedSerialId,
+                payload: { ...poPayload, serialId: resolvedSerialId },
                 totals: {
                     subtotal: computedSubtotal,
                     discount: computedDiscount,
@@ -698,8 +726,17 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                 }
             });
 
-            await onAddPurchaseOrder(newPO, reservedSerialId);
-            console.info('PO save completed successfully.', { serialId: reservedSerialId });
+            if (editingPO) {
+                await onUpdatePurchaseOrder({
+                    ...editingPO,
+                    ...poPayload,
+                    serialId: editingPO.serialId,
+                    status: editingPO.status
+                });
+            } else {
+                await onAddPurchaseOrder(poPayload, resolvedSerialId);
+            }
+            console.info('PO save completed successfully.', { serialId: resolvedSerialId, mode: editingPO ? 'update' : 'create' });
             setIsDirty(false);
             resetCreateForm();
             setView('list');
@@ -776,10 +813,66 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const getStatusClass = (status: PurchaseOrderStatus) => {
         switch (status) {
             case PurchaseOrderStatus.ORDERED: return 'bg-blue-100 text-blue-800 border-blue-200';
+            case PurchaseOrderStatus.PARTIALLY_RECEIVED: return 'bg-amber-100 text-amber-800 border-amber-200';
             case PurchaseOrderStatus.RECEIVED: return 'bg-green-100 text-green-800 border-green-200';
             case PurchaseOrderStatus.CANCELLED: return 'bg-red-100 text-red-800 border-red-200';
             default: return 'bg-gray-100 text-gray-800';
         }
+    };
+
+    const openReceiveFlow = (po: PurchaseOrder) => {
+        setReceiveFlowPO(po);
+        setIsAdjustModalOpen(false);
+        setAdjustSearchSystemId('');
+        setAdjustSearchSupplierBillId('');
+        setSelectedAdjustBillId(null);
+    };
+
+    const closeReceiveFlow = () => {
+        setIsAdjustModalOpen(false);
+        setReceiveFlowPO(null);
+        setSelectedAdjustBillId(null);
+    };
+
+    const handleAdjustSelection = (purchaseBill: Purchase) => {
+        setSelectedAdjustBillId(purchaseBill.id);
+    };
+
+    const handleSaveAdjustReference = async () => {
+        if (!receiveFlowPO || isAdjusting) return;
+        const purchaseBill = adjustCandidates.find(bill => bill.id === selectedAdjustBillId);
+        if (!purchaseBill) {
+            addNotification('Please select an Invoice ID to link.', 'warning');
+            return;
+        }
+
+        const supplierMatches = (receiveFlowPO.distributorName || '').trim().toLowerCase() === (purchaseBill.supplier || '').trim().toLowerCase();
+        if (!supplierMatches) {
+            const shouldContinue = window.confirm('Supplier mismatch detected between PO and selected invoice. Do you still want to save this reference?');
+            if (!shouldContinue) return;
+        }
+        setIsAdjusting(true);
+        try {
+            await onAdjustReceivedEntry(receiveFlowPO, purchaseBill);
+            addNotification('Invoice reference linked successfully', 'success');
+            closeReceiveFlow();
+        } catch (error) {
+            addNotification(parseNetworkAndApiError(error), 'error');
+        } finally {
+            setIsAdjusting(false);
+        }
+    };
+
+    const resolveLinkedInvoiceIds = (po: PurchaseOrder): string[] => {
+        const linkedByReceiveLog = (po.receiveLinks || [])
+            .map(link => link.purchaseSystemId)
+            .filter((value): value is string => Boolean(value));
+
+        const linkedBySourceId = (po.sourcePurchaseBillIds || [])
+            .map(purchaseId => purchases.find(purchase => purchase.id === purchaseId)?.purchaseSerialId)
+            .filter((value): value is string => Boolean(value));
+
+        return Array.from(new Set([...linkedByReceiveLog, ...linkedBySourceId]));
     };
 
     return (
@@ -945,7 +1038,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                     disabled={isSaving}
                                     className="w-full py-6 tally-button-primary shadow-2xl active:translate-y-1 uppercase tracking-[0.3em] text-[12px] flex items-center justify-center gap-2"
                                 >
-                                    {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Accept Order'}
+                                    {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : (editingPO ? 'Update Order' : 'Accept Order')}
                                 </button>
                             </div>
                         </div>
@@ -954,7 +1047,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                     <Card className="flex-1 p-0 border-app-border overflow-hidden shadow-md bg-white">
                         <div className="p-4 border-b border-gray-400 bg-slate-50 flex justify-between items-center">
                             <div className="flex bg-white p-1 tally-border !rounded-none">
-                                {['all', PurchaseOrderStatus.ORDERED, PurchaseOrderStatus.RECEIVED, PurchaseOrderStatus.CANCELLED].map(status => (
+                                {['all', PurchaseOrderStatus.ORDERED, PurchaseOrderStatus.PARTIALLY_RECEIVED, PurchaseOrderStatus.RECEIVED, PurchaseOrderStatus.CANCELLED].map(status => (
                                     <button
                                         key={status}
                                         onClick={() => setStatusFilter(status as any)}
@@ -973,6 +1066,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                         <th className="p-3 text-left text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">PO Number</th>
                                         <th className="p-3 text-left text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Date</th>
                                         <th className="p-3 text-left text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Distributor</th>
+                                        <th className="p-3 text-left text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Received Invoice ID</th>
                                         <th className="p-3 text-center text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Status</th>
                                         <th className="p-3 text-right text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Amount</th>
                                         <th className="p-3 text-right text-[10px] font-black text-gray-600 uppercase">Action</th>
@@ -981,6 +1075,8 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                 <tbody className="divide-y divide-gray-200 text-xs font-bold">
                                     {filteredPOList.map(po => {
                                         const isSelected = selectedPO?.id === po.id;
+                                        const linkedInvoiceIds = resolveLinkedInvoiceIds(po);
+                                        const linkedInvoiceDisplay = linkedInvoiceIds.length > 0 ? linkedInvoiceIds.join(', ') : '--';
                                         return (
                                             <tr
                                                 key={po.id}
@@ -990,6 +1086,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                                 <td className={`p-3 border-r border-gray-200 font-mono font-black uppercase ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{po.serialId}</td>
                                                 <td className={`p-3 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{new Date(po.date).toLocaleDateString('en-GB')}</td>
                                                 <td className={`p-3 border-r border-gray-200 font-black uppercase ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'}`}>{po.distributorName}</td>
+                                                <td className={`p-3 border-r border-gray-200 font-mono ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-700'}`} title={linkedInvoiceDisplay}>{linkedInvoiceDisplay}</td>
                                                 <td className="p-3 border-r border-gray-200 text-center">
                                                     <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${isSelected ? 'bg-white/20 text-white border-white/30' : getStatusClass(po.status)}`}>
                                                         {po.status}
@@ -1000,8 +1097,34 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                                     <div className="flex justify-end gap-2">
                                                         <button onClick={(e) => { e.stopPropagation(); onPrintPurchaseOrder(po); }} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-gray-500 group-hover:text-white'}`}>Print</button>
                                                         {po.status === PurchaseOrderStatus.ORDERED && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setEditingPO(po);
+                                                                    setPoSerialId(po.serialId);
+                                                                    setSelectedDistributorId(po.distributorId);
+                                                                    setOrderDate(po.date ? new Date(po.date).toISOString().split('T')[0] : getDefaultOrderDate());
+                                                                    setItems(normalizeLineItems(
+                                                                        (po.items || []).map(item => ({
+                                                                            ...createEmptyLineItem(),
+                                                                            ...item,
+                                                                            id: item.id || crypto.randomUUID(),
+                                                                            expectedDeliveryDate: item.expectedDeliveryDate
+                                                                                ? new Date(item.expectedDeliveryDate).toISOString().split('T')[0]
+                                                                                : ''
+                                                                        }))
+                                                                    ));
+                                                                    setRemarks(po.remarks || '');
+                                                                    setView('create');
+                                                                }}
+                                                                className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-blue-700 group-hover:text-white'}`}
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                        )}
+                                                        {(po.status === PurchaseOrderStatus.ORDERED || po.status === PurchaseOrderStatus.PARTIALLY_RECEIVED) && (
                                                             <>
-                                                                <button onClick={(e) => { e.stopPropagation(); onCreatePurchaseEntry(po); }} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-emerald-700 group-hover:text-white'}`}>Receive</button>
+                                                                <button onClick={(e) => { e.stopPropagation(); openReceiveFlow(po); }} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-emerald-700 group-hover:text-white'}`}>Receive</button>
                                                                 <button onClick={(e) => { e.stopPropagation(); onCancelPurchaseOrder(po.id); }} className={`font-black uppercase text-[10px] hover:underline ${isSelected ? 'text-white' : 'text-red-600 group-hover:text-white'}`}>Cancel</button>
                                                             </>
                                                         )}
@@ -1028,6 +1151,116 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                     senderOrgId={currentUserOrgId}
                 />
             )}
+
+            <Modal
+                isOpen={!!receiveFlowPO}
+                onClose={closeReceiveFlow}
+                title="Receive Purchase Order"
+                widthClass="max-w-lg"
+            >
+                <div className="p-5 flex flex-col gap-3">
+                    <div className="text-[11px] font-black uppercase tracking-widest text-gray-600">
+                        {receiveFlowPO ? `${receiveFlowPO.serialId} · ${receiveFlowPO.distributorName}` : ''}
+                    </div>
+                    <button
+                        onClick={() => receiveFlowPO && onPostReceivedEntry(receiveFlowPO)}
+                        className="w-full text-left px-4 py-3 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-black uppercase tracking-wider"
+                    >
+                        1. Post Received Entry
+                    </button>
+                    <button
+                        onClick={() => setIsAdjustModalOpen(true)}
+                        className="w-full text-left px-4 py-3 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-black uppercase tracking-wider"
+                    >
+                        2. Adjust Received Entry
+                    </button>
+                    <button
+                        onClick={closeReceiveFlow}
+                        className="w-full text-left px-4 py-3 border border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-black uppercase tracking-wider"
+                    >
+                        3. Cancel / Close
+                    </button>
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={!!receiveFlowPO && isAdjustModalOpen}
+                onClose={() => setIsAdjustModalOpen(false)}
+                title="Adjust Received Entry (Reference Only)"
+                widthClass="max-w-4xl"
+            >
+                <div className="p-4 flex flex-col h-full min-h-[420px]">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                        <input
+                            value={adjustSearchSystemId}
+                            onChange={(e) => setAdjustSearchSystemId(e.target.value)}
+                            placeholder="Search by System ID"
+                            className="border border-gray-400 px-3 py-2 text-xs font-black uppercase outline-none focus:bg-yellow-50"
+                        />
+                        <input
+                            value={adjustSearchSupplierBillId}
+                            onChange={(e) => setAdjustSearchSupplierBillId(e.target.value)}
+                            placeholder="Search by Supplier Bill ID"
+                            className="border border-gray-400 px-3 py-2 text-xs font-black uppercase outline-none focus:bg-yellow-50"
+                        />
+                    </div>
+                    <div className="flex-1 overflow-auto border border-gray-300">
+                        <table className="min-w-full border-collapse">
+                            <thead className="bg-gray-100">
+                                <tr>
+                                    <th className="p-2 text-left text-[10px] font-black uppercase border-b border-gray-300">System ID</th>
+                                    <th className="p-2 text-left text-[10px] font-black uppercase border-b border-gray-300">Supplier Bill ID</th>
+                                    <th className="p-2 text-left text-[10px] font-black uppercase border-b border-gray-300">Date</th>
+                                    <th className="p-2 text-left text-[10px] font-black uppercase border-b border-gray-300">Supplier</th>
+                                    <th className="p-2 text-right text-[10px] font-black uppercase border-b border-gray-300">Amount</th>
+                                    <th className="p-2 text-center text-[10px] font-black uppercase border-b border-gray-300">Status</th>
+                                    <th className="p-2 text-right text-[10px] font-black uppercase border-b border-gray-300">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {adjustCandidates.map((bill) => (
+                                    <tr key={bill.id} className="border-b border-gray-200 text-xs font-bold">
+                                        <td className="p-2">{bill.purchaseSerialId}</td>
+                                        <td className="p-2">{bill.invoiceNumber}</td>
+                                        <td className="p-2">{new Date(bill.date).toLocaleDateString('en-GB')}</td>
+                                        <td className="p-2 uppercase">{bill.supplier}</td>
+                                        <td className="p-2 text-right">₹{Number(bill.totalAmount || 0).toFixed(2)}</td>
+                                        <td className="p-2 text-center">{bill.status}</td>
+                                        <td className="p-2 text-right">
+                                            <button
+                                                disabled={isAdjusting}
+                                                onClick={() => handleAdjustSelection(bill)}
+                                                className={`px-2 py-1 text-[10px] font-black uppercase disabled:opacity-50 ${
+                                                    selectedAdjustBillId === bill.id
+                                                        ? 'bg-emerald-700 text-white'
+                                                        : 'bg-primary text-white'
+                                                }`}
+                                            >
+                                                {selectedAdjustBillId === bill.id ? 'Selected' : 'Select'}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {adjustCandidates.length === 0 && (
+                                    <tr>
+                                        <td colSpan={7} className="p-6 text-center text-xs font-bold text-gray-500 uppercase">No purchase bills found for current filters.</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="pt-3 flex justify-end gap-2">
+                        <button
+                            onClick={handleSaveAdjustReference}
+                            disabled={isAdjusting || !selectedAdjustBillId}
+                            className="px-4 py-2 bg-primary text-white text-xs font-black uppercase disabled:opacity-50"
+                        >
+                            {isAdjusting ? 'Saving...' : 'Save Invoice Reference'}
+                        </button>
+                        <button onClick={() => setIsAdjustModalOpen(false)} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Cancel</button>
+                    </div>
+                </div>
+            </Modal>
 
             <Modal
                 isOpen={isMatrixOpen}

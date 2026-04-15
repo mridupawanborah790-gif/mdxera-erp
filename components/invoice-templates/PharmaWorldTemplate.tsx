@@ -143,7 +143,7 @@ const PharmaWorldTemplate: React.FC<TemplateProps> = ({ bill }) => {
         <tbody>
           {(calculations.items || []).map(item => (
             <tr key={item.id} className="border-b">
-              <td className="p-0.5">{formatPackLooseQuantity((item.quantity || 0) + (item.freeQuantity || 0), item.looseQuantity)}</td>
+              <td className="p-0.5">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>
               <td className="p-0.5">{item.packType || 'N/A'}</td>
               <td className="p-0.5">{item.name}</td>
               <td className="p-0.5">{item.manufacturer}</td>

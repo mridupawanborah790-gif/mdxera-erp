@@ -111,7 +111,7 @@ const ProfessionalTemplate: React.FC<TemplateProps> = ({ bill }) => {
                 <td className="py-0.5 text-[10px]">{item.batch}</td>
                 <td className="py-0.5 text-center text-[10px]">{item.expiry}</td>
                 <td className="py-0.5 text-center">
-                    {formatPackLooseQuantity((item.quantity || 0) + (item.freeQuantity || 0), item.looseQuantity)}
+                    {formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}
                 </td>
                 <td className="py-0.5 text-right">{(item.mrp || 0).toFixed(2)}</td>
                 <td className="py-0.5 text-right">{(item.discountPercent || 0)}%</td>

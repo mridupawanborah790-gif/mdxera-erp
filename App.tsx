@@ -55,7 +55,7 @@ import {
     Customer, Medicine, SupplierProductMap, EWayBill, AppConfigurations,
     Notification, PhysicalInventorySession, DeliveryChallan, SalesChallan,
     PurchaseOrder, DetailedBill, PhysicalInventoryStatus, SalesReturn, PurchaseReturn, DeliveryChallanStatus, SalesChallanStatus,
-    PurchaseOrderStatus, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, BusinessRole, DoctorMaster
+    PurchaseOrderStatus, PurchaseOrderReceiveMode, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, BusinessRole, DoctorMaster
 } from './types';
 import { navigation } from './constants';
 import { getInventoryPolicy } from './utils/materialType';
@@ -96,6 +96,7 @@ const App: React.FC = () => {
     const [currentDailyReportId, setCurrentDailyReportId] = useState('dispatchSummary');
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isAppLoading, setIsAppLoading] = useState(true);
+    const [appLoadError, setAppLoadError] = useState<string | null>(null);
     const [isReloading, setIsReloading] = useState(false);
     const [isMigrationLocked, setIsMigrationLocked] = useState(false);
     const [migrationUiState, setMigrationUiState] = useState<{ active: boolean; minimized: boolean; module: string; progressPercent: number; status: 'Processing…' | 'Completed' | 'Cancelled' }>({ active: false, minimized: false, module: '', progressPercent: 0, status: 'Processing…' });
@@ -329,7 +330,10 @@ const App: React.FC = () => {
     const loadData = useCallback(async (user: RegisteredPharmacy, mode: 'initial' | 'sync' | 'background' | 'targeted' = 'sync', specificTable?: string) => {
         if (!user) return;
 
-        if (mode === 'initial') setIsAppLoading(true);
+        if (mode === 'initial') {
+            setIsAppLoading(true);
+            setAppLoadError(null);
+        }
         else if (mode === 'sync') setIsReloading(true);
 
         const orgId = user.organization_id;
@@ -394,34 +398,80 @@ const App: React.FC = () => {
                 return;
             }
 
-            const [
-                freshProfile, inv, med, tx, pur, supp, cust, doctorsData, ewb, mapData, phy, dc, sc, po,
-                sr, pr, cert, sub, promo, team, roleData, configData, mrpLogs
-            ] = await Promise.all([
-                storage.fetchProfile(user.user_id),
-                storage.fetchInventory(user),
-                storage.fetchMedicineMaster(user),
-                storage.fetchTransactions(user),
-                storage.fetchPurchases(user),
-                storage.fetchSuppliers(user),
-                storage.fetchCustomers(user),
-                storage.fetchDoctors(user),
-                storage.fetchEWayBills(user),
-                storage.fetchSupplierProductMaps(user),
-                storage.fetchPhysicalInventory(user),
-                storage.getData('delivery_challans', [], user),
-                storage.getData('sales_challans', [], user),
-                storage.fetchPurchaseOrders(user),
-                storage.getData('sales_returns', [], user),
-                storage.getData('purchase_returns', [], user),
-                storage.getData('categories', [], user),
-                storage.getData('sub_categories', [], user),
-                storage.getData('promotions', [], user),
-                storage.fetchTeamMembers(user),
-                storage.getData('business_roles', [], user),
-                storage.getData('configurations', [{ organization_id: orgId }], user),
-                storage.getData('mrp_change_log', [], user)
-            ]);
+            const withTimeout = async <T,>(label: string, task: Promise<T>, timeoutMs = 12000): Promise<T> => {
+                return await Promise.race([
+                    task,
+                    new Promise<T>((_, reject) => {
+                        setTimeout(() => reject(new Error(`${label} request timed out after ${timeoutMs}ms`)), timeoutMs);
+                    })
+                ]);
+            };
+
+            const loadJobs: Array<[string, Promise<any>]> = [
+                ['profile', withTimeout('Profile', storage.fetchProfile(user.user_id))],
+                ['inventory', withTimeout('Inventory', storage.fetchInventory(user))],
+                ['material master', withTimeout('Material Master', storage.fetchMedicineMaster(user))],
+                ['transactions', withTimeout('Transactions', storage.fetchTransactions(user))],
+                ['purchases', withTimeout('Purchases', storage.fetchPurchases(user))],
+                ['suppliers', withTimeout('Suppliers', storage.fetchSuppliers(user))],
+                ['customers', withTimeout('Customers', storage.fetchCustomers(user))],
+                ['doctors', withTimeout('Doctors', storage.fetchDoctors(user))],
+                ['eway bills', withTimeout('E-Way Bills', storage.fetchEWayBills(user))],
+                ['supplier product maps', withTimeout('Supplier Product Maps', storage.fetchSupplierProductMaps(user))],
+                ['physical inventory', withTimeout('Physical Inventory', storage.fetchPhysicalInventory(user))],
+                ['delivery challans', withTimeout('Delivery Challans', storage.getData('delivery_challans', [], user))],
+                ['sales challans', withTimeout('Sales Challans', storage.getData('sales_challans', [], user))],
+                ['purchase orders', withTimeout('Purchase Orders', storage.fetchPurchaseOrders(user))],
+                ['sales returns', withTimeout('Sales Returns', storage.getData('sales_returns', [], user))],
+                ['purchase returns', withTimeout('Purchase Returns', storage.getData('purchase_returns', [], user))],
+                ['categories', withTimeout('Categories', storage.getData('categories', [], user))],
+                ['sub categories', withTimeout('Sub Categories', storage.getData('sub_categories', [], user))],
+                ['promotions', withTimeout('Promotions', storage.getData('promotions', [], user))],
+                ['team members', withTimeout('Team Members', storage.fetchTeamMembers(user))],
+                ['business roles', withTimeout('Business Roles', storage.getData('business_roles', [], user))],
+                ['configurations', withTimeout('Configurations', storage.getData('configurations', [{ organization_id: orgId }], user))],
+                ['mrp logs', withTimeout('MRP Logs', storage.getData('mrp_change_log', [], user))]
+            ];
+
+            const settled = await Promise.allSettled(loadJobs.map(([, promise]) => promise));
+            const readSettled = <T,>(index: number, fallback: T): T =>
+                settled[index].status === 'fulfilled' ? (settled[index] as PromiseFulfilledResult<T>).value : fallback;
+
+            const freshProfile = readSettled<RegisteredPharmacy | null>(0, null);
+            const inv = readSettled<InventoryItem[]>(1, []);
+            const med = readSettled<Medicine[]>(2, []);
+            const tx = readSettled<Transaction[]>(3, []);
+            const pur = readSettled<Purchase[]>(4, []);
+            const supp = readSettled<Supplier[]>(5, []);
+            const cust = readSettled<Customer[]>(6, []);
+            const doctorsData = readSettled<DoctorMaster[]>(7, []);
+            const ewb = readSettled<EWayBill[]>(8, []);
+            const mapData = readSettled<SupplierProductMap[]>(9, []);
+            const phy = readSettled<PhysicalInventorySession[]>(10, []);
+            const dc = readSettled<DeliveryChallan[]>(11, []);
+            const sc = readSettled<SalesChallan[]>(12, []);
+            const po = readSettled<PurchaseOrder[]>(13, []);
+            const sr = readSettled<SalesReturn[]>(14, []);
+            const pr = readSettled<PurchaseReturn[]>(15, []);
+            const cert = readSettled<Category[]>(16, []);
+            const sub = readSettled<SubCategory[]>(17, []);
+            const promo = readSettled<Promotion[]>(18, []);
+            const team = readSettled<OrganizationMember[]>(19, []);
+            const roleData = readSettled<BusinessRole[]>(20, []);
+            const configData = readSettled<AppConfigurations[]>(21, [{ organization_id: orgId } as AppConfigurations]);
+            const mrpLogs = readSettled<MrpChangeLogEntry[]>(22, []);
+
+            const failedLoads = settled
+                .map((result, index) => ({ result, label: loadJobs[index][0] }))
+                .filter(entry => entry.result.status === 'rejected');
+            if (failedLoads.length > 0) {
+                const labels = failedLoads.map(entry => entry.label).join(', ');
+                const message = `Partial sync completed. Some modules failed to refresh (${labels}).`;
+                addNotification(message, 'warning');
+                if (mode === 'initial') setAppLoadError(message);
+            } else if (mode === 'initial') {
+                setAppLoadError(null);
+            }
 
             if (freshProfile) setCurrentUser(freshProfile);
             setInventory(syncInventoryFromMaterialMaster(inv || [], med || []));
@@ -462,7 +512,9 @@ const App: React.FC = () => {
             setLastRefreshed(new Date());
             if (mode === 'sync') addNotification("ERP synchronized with cloud master.", "success");
         } catch (error) {
-            addNotification(parseNetworkAndApiError(error), 'error');
+            const parsedError = parseNetworkAndApiError(error);
+            addNotification(parsedError, 'error');
+            if (mode === 'initial') setAppLoadError(parsedError);
         } finally {
             setIsAppLoading(false);
             setIsReloading(false);
@@ -869,6 +921,7 @@ const App: React.FC = () => {
 
     const handleLogin = (user: RegisteredPharmacy) => {
         setCurrentPage('dashboard');
+        setAppLoadError(null);
         setConfigurations(prev => ({
             ...prev,
             sidebar: {
@@ -884,6 +937,7 @@ const App: React.FC = () => {
     const handleLogout = useCallback(async () => {
         setShowLogoutPrompt(false);
         setIsAppLoading(true);
+        setAppLoadError(null);
         const persistedStateKey = currentUser ? getScreenStateStorageKey(currentUser) : null;
         try {
             await storage.clearCurrentUser();
@@ -1067,6 +1121,109 @@ const App: React.FC = () => {
         }
     };
 
+    const normalizeEntityKey = (value?: string | null) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const resolvePurchaseItemKey = (item: PurchaseItem) => {
+        const byCode = normalizeEntityKey((item as any).materialCode || (item as any).itemCode || '');
+        if (byCode) return `code:${byCode}`;
+        return `name:${normalizeEntityKey(item.name)}`;
+    };
+
+    const resolvePoItemKey = (item: any) => {
+        const byCode = normalizeEntityKey(item.itemCode || item.sku || item.materialCode || '');
+        if (byCode) return `code:${byCode}`;
+        return `name:${normalizeEntityKey(item.name)}`;
+    };
+
+    const createPOReceivePatchFromPurchase = (po: PurchaseOrder, purchaseBill: Purchase, mode: PurchaseOrderReceiveMode) => {
+        const poSupplierKey = normalizeEntityKey(po.distributorName);
+        const billSupplierKey = normalizeEntityKey(purchaseBill.supplier);
+        if (poSupplierKey && billSupplierKey && poSupplierKey !== billSupplierKey) {
+            throw new Error('Supplier mismatch between Purchase Order and Purchase Bill.');
+        }
+
+        if ((po.sourcePurchaseBillIds || []).includes(purchaseBill.id)) {
+            throw new Error('This purchase bill is already linked to the selected Purchase Order.');
+        }
+
+        if (mode === PurchaseOrderReceiveMode.ADJUST_RECEIVED_ENTRY) {
+            return {
+                ...po,
+                sourcePurchaseBillIds: [...(po.sourcePurchaseBillIds || []), purchaseBill.id],
+                receiveLinks: [
+                    ...(po.receiveLinks || []),
+                    {
+                        id: storage.generateUUID(),
+                        purchaseOrderId: po.id,
+                        poNumber: po.serialId,
+                        purchaseBillId: purchaseBill.id,
+                        purchaseSystemId: purchaseBill.purchaseSerialId,
+                        receiveMode: mode,
+                        receivedQty: 0,
+                        adjustedQty: 0,
+                        adjustedAt: new Date().toISOString(),
+                        adjustedBy: currentUser?.id
+                    }
+                ]
+            };
+        }
+
+        const receivedByItem = new Map<string, number>();
+        (purchaseBill.items || []).forEach(item => {
+            const key = resolvePurchaseItemKey(item);
+            const qty = Math.max(0, Number(item.quantity || 0));
+            receivedByItem.set(key, (receivedByItem.get(key) || 0) + qty);
+        });
+
+        const nextItems = (po.items || []).map(item => {
+            const itemKey = resolvePoItemKey(item);
+            const incomingQty = Number(receivedByItem.get(itemKey) || 0);
+            const prevReceived = Number(item.receivedQuantity || 0);
+            const orderedQty = Number(item.quantity || 0);
+            const nextReceived = prevReceived + incomingQty;
+            if (nextReceived > orderedQty) {
+                throw new Error(`Over-adjustment detected for item "${item.name}". Ordered: ${orderedQty}, trying to receive: ${nextReceived}.`);
+            }
+            return {
+                ...item,
+                receivedQuantity: Number(nextReceived.toFixed(2)),
+                pendingQuantity: Number(Math.max(0, orderedQty - nextReceived).toFixed(2)),
+            };
+        });
+
+        const totalOrdered = nextItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+        const totalReceived = nextItems.reduce((sum, item) => sum + Number(item.receivedQuantity || 0), 0);
+        const resolvedStatus = totalReceived <= 0
+            ? PurchaseOrderStatus.ORDERED
+            : totalReceived < totalOrdered
+                ? PurchaseOrderStatus.PARTIALLY_RECEIVED
+                : PurchaseOrderStatus.RECEIVED;
+
+        const adjustedQty = (purchaseBill.items || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)), 0);
+
+        return {
+            ...po,
+            items: nextItems,
+            status: resolvedStatus,
+            sourcePurchaseBillIds: [...(po.sourcePurchaseBillIds || []), purchaseBill.id],
+            receiveLinks: [
+                ...(po.receiveLinks || []),
+                {
+                    id: storage.generateUUID(),
+                    purchaseOrderId: po.id,
+                    poNumber: po.serialId,
+                    purchaseBillId: purchaseBill.id,
+                    purchaseSystemId: purchaseBill.purchaseSerialId,
+                    receiveMode: mode,
+                    receivedQty: adjustedQty,
+                    adjustedQty,
+                    adjustedAt: new Date().toISOString(),
+                    adjustedBy: currentUser?.id
+                }
+            ]
+        };
+    };
+
     const handleAddPurchase = async (p: any, supplierGst: string, nextCounter?: number) => {
         if (!currentUser) return;
         try {
@@ -1075,6 +1232,14 @@ const App: React.FC = () => {
             setPurchases(prev => [savedPurchase, ...prev]);
 
             await refreshInventoryViews(currentUser, ['purchases']);
+            if (savedPurchase?.sourcePurchaseOrderId) {
+                const linkedPO = purchaseOrders.find(po => po.id === savedPurchase.sourcePurchaseOrderId);
+                if (linkedPO) {
+                    const poPatch = createPOReceivePatchFromPurchase(linkedPO, savedPurchase, PurchaseOrderReceiveMode.POST_RECEIVED_ENTRY);
+                    await storage.saveData('purchase_orders', poPatch, currentUser, true);
+                    setPurchaseOrders(prev => prev.map(po => po.id === poPatch.id ? poPatch : po));
+                }
+            }
             loadData(currentUser, 'background');
             addNotification("Purchase entry posted.", "success");
             return savedPurchase;
@@ -2079,10 +2244,10 @@ const App: React.FC = () => {
                             return reserved.documentNumber;
                         }}
                         onUpdatePurchaseOrder={async (po) => {
-                            await storage.saveData('purchase_orders', po, currentUser!);
+                            await storage.saveData('purchase_orders', po, currentUser!, true);
                             await loadData(currentUser!, 'background');
                         }}
-                        onCreatePurchaseEntry={(po) => {
+                        onPostReceivedEntry={(po) => {
                             const items: PurchaseItem[] = po.items.map(item => ({
                                 id: storage.generateUUID(),
                                 name: item.name,
@@ -2103,8 +2268,20 @@ const App: React.FC = () => {
                                 hsnCode: item.hsnCode || '',
                                 schemeDiscountAmount: 0
                             }));
-                            setSourceChallansForPurchase({ items, supplier: po.distributorId, ids: [po.id] });
-                            handleNavigate('manualSupplierInvoice');
+                            setPurchaseCopyDraft({
+                                sourceId: `poid:${po.id}|po:${po.serialId}`,
+                                items,
+                                supplier: po.distributorName || '',
+                                invoiceNumber: '',
+                                date: new Date().toISOString().slice(0, 10),
+                            });
+                            handleNavigate('manualPurchaseEntry');
+                        }}
+                        onAdjustReceivedEntry={async (po, purchaseBill) => {
+                            const updatedPO = createPOReceivePatchFromPurchase(po, purchaseBill, PurchaseOrderReceiveMode.ADJUST_RECEIVED_ENTRY);
+                            await storage.saveData('purchase_orders', updatedPO, currentUser!, true);
+                            setPurchaseOrders(prev => prev.map(order => order.id === updatedPO.id ? updatedPO : order));
+                            await loadData(currentUser!, 'background');
                         }}
                         onPrintPurchaseOrder={(po) => {
                             const distributor = suppliers.find(d => d.id === po.distributorId);
@@ -2128,11 +2305,13 @@ const App: React.FC = () => {
                         onCancelPurchaseOrder={async (id) => {
                             const po = purchaseOrders.find(p => p.id === id);
                             if (po) {
-                                await storage.saveData('purchase_orders', { ...po, status: PurchaseOrderStatus.CANCELLED }, currentUser!);
+                                await storage.saveData('purchase_orders', { ...po, status: PurchaseOrderStatus.CANCELLED }, currentUser!, true);
                                 await storage.markVoucherCancelled('purchase-order', currentUser!, po.serialId, po.id);
                                 await loadData(currentUser!, 'background');
                             }
                         }}
+                        purchases={purchases}
+                        addNotification={addNotification}
                         draftItems={null}
                         onClearDraft={() => {}}
                         setIsDirty={() => {}}
@@ -2603,6 +2782,36 @@ const App: React.FC = () => {
                 <div className="flex flex-col items-center gap-4">
                     <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                     <p className="text-xs font-black uppercase text-primary tracking-widest animate-pulse">Initializing ERP Modules...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (appLoadError && currentUser) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center bg-app-bg px-4">
+                <div className="w-full max-w-xl bg-white border border-red-200 shadow-lg p-6">
+                    <h2 className="text-lg font-black uppercase tracking-wide text-red-700 mb-3">Module initialization failed</h2>
+                    <p className="text-sm text-gray-700 mb-4">
+                        Purchase Order and related modules could not be initialized cleanly. The loader has been stopped to avoid an infinite wait.
+                    </p>
+                    <div className="text-xs font-mono bg-red-50 border border-red-200 p-3 text-red-700 mb-4 break-words">
+                        {appLoadError}
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => loadData(currentUser, 'initial')}
+                            className="px-4 py-2 bg-primary text-white text-xs font-black uppercase"
+                        >
+                            Retry initialization
+                        </button>
+                        <button
+                            onClick={() => setAppLoadError(null)}
+                            className="px-4 py-2 border border-gray-300 text-xs font-black uppercase"
+                        >
+                            Continue with partial data
+                        </button>
+                    </div>
                 </div>
             </div>
         );

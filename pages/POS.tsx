@@ -172,27 +172,41 @@ const POS = forwardRef<any, POSProps>(({
     const fetchStats = useCallback(async () => {
         if (!currentUser) return;
         try {
-            const today = new Date().toISOString().slice(0, 10);
+            const now = new Date();
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const tomorrowStart = new Date(todayStart);
+            tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+            const todayStartIso = todayStart.toISOString();
+            const tomorrowStartIso = tomorrowStart.toISOString();
             const startOfMonth = new Date();
             startOfMonth.setDate(1);
             const startOfMonthStr = startOfMonth.toISOString().slice(0, 10);
 
-            const { data: monthData } = await supabase
+            const monthQuery = supabase
                 .from('sales_bill')
                 .select('total, date')
                 .eq('organization_id', currentUser.organization_id)
-                .eq('status', 'completed')
+                .in('status', ['completed', 'Completed'])
                 .gte('date', startOfMonthStr);
 
-            if (monthData) {
-                const monthTotal = monthData.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
-                const todayTotal = monthData
-                    .filter(s => s.date === today)
-                    .reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+            const todayQuery = supabase
+                .from('sales_bill')
+                .select('total')
+                .eq('organization_id', currentUser.organization_id)
+                .in('status', ['completed', 'Completed'])
+                .gte('date', todayStartIso)
+                .lt('date', tomorrowStartIso);
+
+            const [{ data: todayData }, { data: monthData }] = await Promise.all([todayQuery, monthQuery]);
+            const safeMonthData = monthData || [];
+
+            if (safeMonthData.length || (todayData || []).length) {
+                const monthTotal = safeMonthData.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+                const todayTotal = (todayData || []).reduce((sum, s) => sum + (Number(s.total) || 0), 0);
                 setStats({
                     monthTotal,
                     todayTotal,
-                    monthCount: monthData.length
+                    monthCount: safeMonthData.length
                 });
             }
 
@@ -200,7 +214,7 @@ const POS = forwardRef<any, POSProps>(({
                 .from('sales_bill')
                 .select('*')
                 .eq('organization_id', currentUser.organization_id)
-                .eq('status', 'completed')
+                .in('status', ['completed', 'Completed'])
                 .order('created_at', { ascending: false })
                 .limit(20);
             if (recent) setSalesHistory(recent.map(r => storage.toCamel(r)));

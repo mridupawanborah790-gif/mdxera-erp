@@ -122,7 +122,7 @@ const ModernTemplate: React.FC<TemplateProps> = ({ bill }) => {
                         </div>
                     </div>
                     <div className="w-12 text-center text-xs">
-                        {formatPackLooseQuantity((item.quantity || 0) + (item.freeQuantity || 0), item.looseQuantity)}
+                        {formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}
                     </div>
                     <div className="w-16 text-right text-xs">
                         {(item.mrp || 0).toFixed(1)}

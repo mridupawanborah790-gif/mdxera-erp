@@ -10,7 +10,8 @@ interface TemplateProps {
   pharmacy: RegisteredPharmacy;
 }
 
-const ITEMS_PER_PAGE = 15;
+const ITEMS_PER_PAGE = 25;
+const ROW_HEIGHT_PX = 32;
 
 const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmacy }) => {
   const displayUppercase = (value?: string | null) => value?.toUpperCase() || '';
@@ -24,7 +25,7 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
 
   const isReceived = purchaseOrder.status === PurchaseOrderStatus.RECEIVED;
 
-  const customTerms = pharmacy.purchase_order_terms 
+  const customTerms = pharmacy.purchase_order_terms
     ? pharmacy.purchase_order_terms.split('\n').filter(t => t.trim() !== '')
     : [
         'Please supply the items as per the quantities and rates specified.',
@@ -33,13 +34,12 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
         'Goods should be accompanied by a proper Tax Invoice.'
       ];
 
-  // Helper to chunk items for pagination
   const itemChunks = useMemo(() => {
-    const chunks = [];
+    const chunks: Array<typeof purchaseOrder.items> = [];
     for (let i = 0; i < purchaseOrder.items.length; i += ITEMS_PER_PAGE) {
-      chunks.push(purchaseOrder.items.slice(i, i + ITEMS_PER_PAGE));
+      const nextChunk = purchaseOrder.items.slice(i, i + ITEMS_PER_PAGE);
+      chunks.push(nextChunk);
     }
-    // Ensure at least one page if no items
     return chunks.length > 0 ? chunks : [[]];
   }, [purchaseOrder.items]);
 
@@ -49,195 +49,223 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
         @media print {
           @page {
             size: A4 portrait;
-            margin: 0 !important;
+            margin: 4mm !important;
           }
           .po-page {
+            height: 289mm;
+            box-sizing: border-box;
+            padding: 2mm;
+            display: flex;
+            flex-direction: column;
             break-after: page;
             page-break-after: always;
-            min-height: auto;
-            padding: 5mm 5mm 0 !important;
-            box-sizing: border-box;
           }
           .po-page:last-of-type {
             break-after: auto;
             page-break-after: auto;
           }
-          #print-area {
-            padding: 0 !important;
-            margin: 0 !important;
+          .po-page table,
+          .po-page tr,
+          .po-page td,
+          .po-page th {
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
           .po-items-table {
             table-layout: fixed;
             width: 100%;
+            border-collapse: collapse;
           }
           .po-items-table thead {
             display: table-header-group;
           }
-          .po-items-table tr,
-          .po-items-table td,
-          .po-items-table th {
-            break-inside: avoid;
-            page-break-inside: avoid;
+          .po-row {
+            height: ${ROW_HEIGHT_PX}px;
+            min-height: ${ROW_HEIGHT_PX}px;
+            max-height: ${ROW_HEIGHT_PX}px;
+          }
+          .po-items-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+          }
+          .po-last-page-footer {
+            margin-top: 8px;
+          }
+          #print-area {
+            padding: 0 !important;
+            margin: 0 !important;
           }
         }
         .uppercase-text {
           text-transform: uppercase;
         }
       `}</style>
-      
-      {itemChunks.map((chunk, pageIndex) => (
-        <div key={pageIndex} className="po-page mb-10 print:mb-0">
-          {/* --- HEADER --- */}
-          <header className="mb-6 pt-2">
-            <div className="flex justify-between items-start">
-              <div>
-                {pharmacy.pharmacy_logo_url && (
-                  <img src={pharmacy.pharmacy_logo_url} alt="Logo" className="h-16 w-auto max-h-16 object-contain mb-2" />
-                )}
-                <h1 className="text-2xl font-bold text-blue-700 leading-tight uppercase-text">{displayUppercase(pharmacy.pharmacy_name)}</h1>
-                <div className="text-xs text-gray-600 space-y-0.5 mt-1">
-                  <p>Ph: <span className="font-semibold text-gray-800">{pharmacy.mobile}</span></p>
-                  {pharmacy.email && <p>Email: {pharmacy.email}</p>}
-                  {/* Fix: Changed retailer_gstin to gstin */}
-                  <p>GSTIN: <span className="font-semibold text-gray-800 uppercase-text">{displayUppercase(pharmacy.gstin)}</span></p>
-                </div>
-              </div>
-              <div className="text-right">
-                <h2 className="text-3xl font-black tracking-tighter text-gray-900 mb-1">PURCHASE ORDER</h2>
-                <div className="text-[10px] text-gray-400 mb-2">Page {pageIndex + 1} of {itemChunks.length}</div>
-                <div className="text-sm bg-gray-100 p-2 rounded-lg border border-gray-200 inline-block text-left min-w-[200px]">
-                  <p className="flex justify-between"><strong>PO Number:</strong> <span className="font-mono ml-4">{purchaseOrder.serialId}</span></p>
-                  <p className="flex justify-between"><strong>Date:</strong> <span className="ml-4">{new Date(purchaseOrder.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span></p>
-                </div>
-              </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-6 mb-4 text-sm">
-              <div className="border border-blue-200 bg-blue-50/50 p-3 rounded-lg">
-                <h3 className="text-[10px] font-bold text-blue-800 uppercase tracking-widest mb-1">Vendor / Supplier</h3>
-                <p className="font-bold text-gray-900 text-base uppercase-text">{displayUppercase(purchaseOrder.distributorName)}</p>
-                {purchaseOrder.distributor.address && <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{purchaseOrder.distributor.address}</p>}
-                {/* Fix: Rename purchaseOrder.distributor.gstNumber to purchaseOrder.distributor.gst_number */}
-                {purchaseOrder.distributor.gst_number && <p className="text-xs font-medium text-gray-700 mt-1 uppercase-text">GSTIN: {displayUppercase(purchaseOrder.distributor.gst_number)}</p>}
-              </div>
-              <div className="border border-green-200 bg-green-50/50 p-3 rounded-lg">
-                <h3 className="text-[10px] font-bold text-green-800 uppercase tracking-widest mb-1">Ship To / Deliver To</h3>
-                <p className="font-bold text-gray-900 text-base uppercase-text">{displayUppercase(pharmacy.pharmacy_name)}</p>
-                <p className="text-xs text-gray-600 mt-0.5 line-clamp-2 uppercase-text">{displayUppercase(pharmacy.address)}</p>
-              </div>
-            </div>
-          </header>
-
-          {/* --- ITEMS TABLE --- */}
-          <table className="po-items-table w-full text-xs border-collapse mt-2">
-            <thead className="bg-gray-800 text-white">
-              <tr>
-                <th className="py-2 px-2 text-left font-bold w-8 border border-gray-700">#</th>
-                <th className="py-2 px-2 text-left font-bold border border-gray-700">Item Description</th>
-                <th className="py-2 px-2 text-center font-bold w-20 border border-gray-700">Pack</th>
-                <th className="py-2 px-2 text-center font-bold w-12 border border-gray-700">Qty</th>
-                <th className="py-2 px-2 text-center font-bold w-12 border border-gray-700">Free</th>
-                <th className="py-2 px-2 text-right font-bold w-20 border border-gray-700">Rate</th>
-                <th className="py-2 px-2 text-right font-bold w-20 border border-gray-700">MRP</th>
-                <th className="py-2 px-2 text-right font-bold w-12 border border-gray-700">GST%</th>
-                <th className="py-2 px-2 text-right font-bold w-24 border border-gray-700">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {chunk.map((item, index) => {
-                const itemTotal = (Number(item.purchasePrice || 0)) * (item.quantity || 0);
-                const actualIndex = (pageIndex * ITEMS_PER_PAGE) + index + 1;
-                return (
-                  <tr key={item.id} className="border-b border-gray-300">
-                    <td className="py-2 px-2 border-x border-gray-300 text-center">{actualIndex}</td>
-                    <td className="py-2 px-2 border-r border-gray-300">
-                      <p className="font-bold text-gray-900 text-sm">{item.name}</p>
-                      <p className="text-[10px] text-gray-500 uppercase font-medium">
-                        {item.manufacturer || item.brand}
-                        {item.hsnCode && ` | HSN: ${item.hsnCode}`}
-                      </p>
-                    </td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-center">{item.packType || item.unitOfMeasurement || '—'}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-center font-bold">{item.quantity}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-center">{item.freeQuantity || 0}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right font-medium">₹{Number(item.purchasePrice || 0).toFixed(2)}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right">₹{Number(item.mrp || 0).toFixed(2)}</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right">{Number(item.gstPercent || 0)}%</td>
-                    <td className="py-2 px-2 border-r border-gray-300 text-right font-bold text-gray-900">₹{Number(itemTotal || 0).toFixed(2)}</td>
-                  </tr>
-                );
-              })}
-              {pageIndex < itemChunks.length - 1 && (
-                <tr>
-                    <td colSpan={9} className="py-4 text-center italic text-gray-400 text-[10px]">
-                        Items continued on next page...
-                    </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-
-          {/* --- FOOTER --- */}
-          {pageIndex === itemChunks.length - 1 && (
-            <div className="mt-8 pt-4 border-t-2 border-gray-200">
-              <div className="flex justify-between items-start">
-                <div className="w-7/12">
-                  {/* Closure Remarks Section */}
-                  {isReceived && purchaseOrder.remarks && (
-                    <div className="mb-6 p-3 bg-green-50 border-l-4 border-green-500 rounded-r-lg">
-                        <p className="text-[10px] font-black text-green-800 uppercase tracking-widest mb-1">Receipt / Closure Remarks</p>
-                        <p className="text-sm font-medium text-gray-800 leading-snug">{purchaseOrder.remarks}</p>
-                    </div>
+      {itemChunks.map((chunk, pageIndex) => {
+        const isLastPage = pageIndex === itemChunks.length - 1;
+        const fillerRows = isLastPage ? 0 : Math.max(0, ITEMS_PER_PAGE - chunk.length);
+        return (
+          <div key={pageIndex} className="po-page mb-6 print:mb-0">
+            <header className="mb-3 pt-1">
+              <div className="grid grid-cols-2 gap-3 items-stretch">
+                <div className="flex flex-col justify-between min-h-[98px] border border-gray-200 rounded-md p-2.5">
+                  {pharmacy.pharmacy_logo_url && (
+                    <img src={pharmacy.pharmacy_logo_url} alt="Logo" className="h-10 w-auto max-h-10 object-contain mb-1" />
                   )}
-
-                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <p className="text-[10px] font-bold text-gray-500 uppercase mb-1">Total Amount in Words</p>
-                    <p className="text-sm font-bold text-gray-800 italic leading-snug">{numberToWords(grandTotal || 0)}</p>
-                  </div>
-                  
-                  <div className="mt-6">
-                    <h3 className="text-xs font-bold text-gray-700 uppercase mb-1 underline">Terms & Instructions</h3>
-                    <ul className="text-[10px] text-gray-600 list-disc list-inside space-y-1">
-                      {customTerms.map((term, i) => (
-                        <li key={i}>{term}</li>
-                      ))}
-                    </ul>
+                  <h1 className="text-lg font-bold text-blue-700 leading-tight uppercase-text">{displayUppercase(pharmacy.pharmacy_name)}</h1>
+                  <div className="text-[11px] text-gray-600 space-y-0 mt-1">
+                    <p>Ph: <span className="font-semibold text-gray-800">{pharmacy.mobile}</span></p>
+                    {pharmacy.email && <p>Email: {pharmacy.email}</p>}
+                    <p>GSTIN: <span className="font-semibold text-gray-800 uppercase-text">{displayUppercase(pharmacy.gstin)}</span></p>
                   </div>
                 </div>
-
-                <div className="w-4/12">
-                  <div className="bg-blue-50/30 p-4 rounded-xl border-2 border-blue-100 space-y-2.5">
-                    <div className="flex justify-between text-xs font-medium text-gray-600">
-                      <span>Subtotal</span>
-                      <span>₹{Number(subtotal || 0).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-xs font-medium text-gray-600 pb-2 border-b border-blue-100">
-                      <span>GST (Estimated)</span>
-                      <span>₹{Number(totalGst || 0).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-lg font-black text-blue-900 pt-1">
-                      <span>TOTAL</span>
-                      <span>₹{Number(grandTotal || 0).toFixed(2)}</span>
-                    </div>
+                <div className="border border-gray-200 rounded-md p-2.5 min-h-[98px] flex flex-col justify-between">
+                  <div className="flex items-start justify-between gap-2">
+                    <h2 className="text-2xl font-black tracking-tight text-gray-900 leading-none">PURCHASE ORDER</h2>
+                    <div className="text-[10px] text-gray-500 whitespace-nowrap pt-0.5">Page {pageIndex + 1} of {itemChunks.length}</div>
                   </div>
-
-                  <div className="mt-12 text-center">
-                    <div className="h-16 flex items-end justify-center">
-                       <div className="border-b-2 border-gray-400 w-3/4 mx-auto"></div>
-                    </div>
-                    <p className="mt-2 text-xs font-bold text-gray-900 uppercase">{pharmacy.full_name}</p>
-                    <p className="text-[10px] text-gray-500 font-medium">Authorized Signatory</p>
+                  <div className="text-xs bg-gray-50 p-2 rounded-md border border-gray-200 text-left">
+                    <p className="flex justify-between"><strong>PO Number:</strong> <span className="font-mono ml-4">{purchaseOrder.serialId}</span></p>
+                    <p className="flex justify-between"><strong>Date:</strong> <span className="ml-4">{new Date(purchaseOrder.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span></p>
                   </div>
                 </div>
               </div>
-              
-              <div className="mt-12 text-center text-[9px] text-gray-400 border-t border-gray-100 pt-4">
-                <p>This is a computer generated Purchase Order from <strong>MDXERA Retail ERP</strong>. E.&O.E.</p>
+
+              <div className="grid grid-cols-2 gap-3 mt-2 mb-2 text-xs items-stretch">
+                <div className="border border-blue-200 bg-blue-50/50 p-2.5 rounded-md min-h-[92px]">
+                  <h3 className="text-[10px] font-bold text-blue-800 uppercase tracking-widest mb-0.5">Vendor / Supplier</h3>
+                  <p className="font-bold text-gray-900 text-sm uppercase-text leading-tight">{displayUppercase(purchaseOrder.distributorName)}</p>
+                  {purchaseOrder.distributor.address && <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2 uppercase-text leading-snug">{displayUppercase(purchaseOrder.distributor.address)}</p>}
+                  {purchaseOrder.distributor.gst_number && <p className="text-[11px] font-medium text-gray-700 mt-0.5 uppercase-text">GSTIN: {displayUppercase(purchaseOrder.distributor.gst_number)}</p>}
+                </div>
+                <div className="border border-green-200 bg-green-50/50 p-2.5 rounded-md min-h-[92px]">
+                  <h3 className="text-[10px] font-bold text-green-800 uppercase tracking-widest mb-0.5">Ship To / Deliver To</h3>
+                  <p className="font-bold text-gray-900 text-sm uppercase-text leading-tight">{displayUppercase(pharmacy.pharmacy_name)}</p>
+                  <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2 uppercase-text leading-snug">{displayUppercase(pharmacy.address)}</p>
+                </div>
               </div>
+            </header>
+
+            <div className="po-items-wrapper">
+              <table className="po-items-table w-full text-[11px] border-collapse mt-1">
+                <thead className="bg-gray-800 text-white">
+                  <tr>
+                    <th className="py-1.5 px-1.5 text-center font-bold w-7 border border-gray-700">#</th>
+                    <th className="py-1.5 px-2 text-left font-bold border border-gray-700">Item Description</th>
+                    <th className="py-1.5 px-1.5 text-center font-bold w-14 border border-gray-700">HSN</th>
+                    <th className="py-1.5 px-1.5 text-center font-bold w-12 border border-gray-700">Pack</th>
+                    <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">Qty</th>
+                    <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">Free</th>
+                    <th className="py-1.5 px-1.5 text-right font-bold w-16 border border-gray-700">Rate</th>
+                    <th className="py-1.5 px-1.5 text-right font-bold w-16 border border-gray-700">MRP</th>
+                    <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">GST%</th>
+                    <th className="py-1.5 px-1.5 text-right font-bold w-20 border border-gray-700">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {chunk.map((item, index) => {
+                    const itemTotal = (Number(item.purchasePrice || 0)) * (item.quantity || 0);
+                    const actualIndex = (pageIndex * ITEMS_PER_PAGE) + index + 1;
+                    return (
+                      <tr key={item.id} className="po-row border-b border-gray-300">
+                        <td className="py-1 px-1.5 border-x border-gray-300 text-center align-middle">{actualIndex}</td>
+                        <td className="py-1 px-2 border-r border-gray-300 align-middle">
+                          <p className="font-semibold text-gray-900 leading-tight">{item.name}</p>
+                        </td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{item.hsnCode || '-'}</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{item.packType || item.unitOfMeasurement || '—'}</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-center font-semibold align-middle">{item.quantity}</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{item.freeQuantity || 0}</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-right align-middle">₹{Number(item.purchasePrice || 0).toFixed(2)}</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-right align-middle">₹{Number(item.mrp || 0).toFixed(2)}</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{Number(item.gstPercent || 0)}%</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-right font-bold text-gray-900 align-middle">₹{Number(itemTotal || 0).toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
+
+                  {Array.from({ length: fillerRows }).map((_, fillerIndex) => {
+                    const serial = (pageIndex * ITEMS_PER_PAGE) + chunk.length + fillerIndex + 1;
+                    return (
+                      <tr key={`filler-${pageIndex}-${fillerIndex}`} className="po-row border-b border-gray-300">
+                        <td className="py-1 px-1.5 border-x border-gray-300 text-center align-middle text-gray-300">{serial}</td>
+                        <td className="py-1 px-2 border-r border-gray-300 align-middle">&nbsp;</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
-      ))}
+
+            {isLastPage && (
+              <div className="po-last-page-footer mt-3 pt-3 border-t-2 border-gray-200">
+                <div className="flex justify-between items-start">
+                  <div className="w-7/12">
+                    {isReceived && purchaseOrder.remarks && (
+                      <div className="mb-6 p-3 bg-green-50 border-l-4 border-green-500 rounded-r-lg">
+                          <p className="text-[10px] font-black text-green-800 uppercase tracking-widest mb-1">Receipt / Closure Remarks</p>
+                          <p className="text-sm font-medium text-gray-800 leading-snug">{purchaseOrder.remarks}</p>
+                      </div>
+                    )}
+
+                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase mb-1">Total Amount in Words</p>
+                      <p className="text-sm font-bold text-gray-800 italic leading-snug">{numberToWords(grandTotal || 0)}</p>
+                    </div>
+
+                    <div className="mt-6">
+                      <h3 className="text-xs font-bold text-gray-700 uppercase mb-1 underline">Terms & Instructions</h3>
+                      <ul className="text-[10px] text-gray-600 list-disc list-inside space-y-1">
+                        {customTerms.map((term, i) => (
+                          <li key={i}>{term}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="w-4/12">
+                    <div className="bg-blue-50/30 p-4 rounded-xl border-2 border-blue-100 space-y-2.5">
+                      <div className="flex justify-between text-xs font-medium text-gray-600">
+                        <span>Subtotal</span>
+                        <span>₹{Number(subtotal || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs font-medium text-gray-600 pb-2 border-b border-blue-100">
+                        <span>GST (Estimated)</span>
+                        <span>₹{Number(totalGst || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-lg font-black text-blue-900 pt-1">
+                        <span>TOTAL</span>
+                        <span>₹{Number(grandTotal || 0).toFixed(2)}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-12 text-center">
+                      <div className="h-16 flex items-end justify-center">
+                        <div className="border-b-2 border-gray-400 w-3/4 mx-auto"></div>
+                      </div>
+                      <p className="mt-2 text-xs font-bold text-gray-900 uppercase">{pharmacy.full_name}</p>
+                      <p className="text-[10px] text-gray-500 font-medium">Authorized Signatory</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-12 text-center text-[9px] text-gray-400 border-t border-gray-100 pt-4">
+                  <p>This is a computer generated Purchase Order from <strong>MDXERA Retail ERP</strong>. E.&O.E.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };
