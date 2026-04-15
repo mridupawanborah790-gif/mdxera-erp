@@ -19,10 +19,14 @@ import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHand
 
     // Memory cache to fallback when IndexedDB is disabled
     const memoryCache: Record<string, any[]> = {};
+    const memoryCacheOrgScope: Record<string, string> = {};
 
     const clearTableMemoryCache = (tableName: keyof typeof STORES) => {
         if (memoryCache[tableName]) {
             delete memoryCache[tableName];
+        }
+        if (memoryCacheOrgScope[tableName]) {
+            delete memoryCacheOrgScope[tableName];
         }
     };
 
@@ -519,6 +523,11 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             // Populate from IDB first if we have data there, so we don't lose existing items from the view
             const existingItems = await idb.getAll(STORES[storeKey as keyof typeof STORES]);
             memoryCache[storeKey] = Array.isArray(existingItems) ? [...existingItems] : [];
+            memoryCacheOrgScope[storeKey] = user.organization_id;
+        }
+        if (memoryCacheOrgScope[storeKey] !== user.organization_id) {
+            memoryCache[storeKey] = [];
+            memoryCacheOrgScope[storeKey] = user.organization_id;
         }
         
         const index = memoryCache[storeKey].findIndex(item => item.id === dbPayload.id);
@@ -886,7 +895,11 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         const storeKey = tableName.toUpperCase() as keyof typeof STORES;
         
         // Priority 1: Check Memory Cache (for when IDB is disabled or during same session)
-        if (memoryCache[storeKey] && memoryCache[storeKey].length > 0) {
+        if (
+            memoryCacheOrgScope[storeKey] === user.organization_id &&
+            memoryCache[storeKey] &&
+            memoryCache[storeKey].length > 0
+        ) {
             return memoryCache[storeKey];
         }
 
@@ -896,6 +909,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         // If we found data in IDB, populate memory cache to keep them in sync
         if (cached && cached.length > 0) {
             memoryCache[storeKey] = [...cached];
+            memoryCacheOrgScope[storeKey] = user.organization_id;
         }
 
         // Priority 2: Fetch updates in background if online
@@ -908,6 +922,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                         
                         // Always update memory cache so the session stays consistent
                         memoryCache[storeKey] = [...normalized];
+                        memoryCacheOrgScope[storeKey] = user.organization_id;
                         
                         await idb.putBulk(STORES[storeKey], normalized);
                         return normalized;
@@ -924,6 +939,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                             
                             // Always update memory cache so the session stays consistent
                             memoryCache[storeKey] = [...normalized];
+                            memoryCacheOrgScope[storeKey] = user.organization_id;
                             
                             await idb.putBulk(STORES[storeKey], normalized);
                         }

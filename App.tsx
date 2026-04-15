@@ -96,6 +96,7 @@ const App: React.FC = () => {
     const [currentDailyReportId, setCurrentDailyReportId] = useState('dispatchSummary');
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isAppLoading, setIsAppLoading] = useState(true);
+    const [appLoadError, setAppLoadError] = useState<string | null>(null);
     const [isReloading, setIsReloading] = useState(false);
     const [isMigrationLocked, setIsMigrationLocked] = useState(false);
     const [migrationUiState, setMigrationUiState] = useState<{ active: boolean; minimized: boolean; module: string; progressPercent: number; status: 'Processing…' | 'Completed' | 'Cancelled' }>({ active: false, minimized: false, module: '', progressPercent: 0, status: 'Processing…' });
@@ -329,7 +330,10 @@ const App: React.FC = () => {
     const loadData = useCallback(async (user: RegisteredPharmacy, mode: 'initial' | 'sync' | 'background' | 'targeted' = 'sync', specificTable?: string) => {
         if (!user) return;
 
-        if (mode === 'initial') setIsAppLoading(true);
+        if (mode === 'initial') {
+            setIsAppLoading(true);
+            setAppLoadError(null);
+        }
         else if (mode === 'sync') setIsReloading(true);
 
         const orgId = user.organization_id;
@@ -394,34 +398,80 @@ const App: React.FC = () => {
                 return;
             }
 
-            const [
-                freshProfile, inv, med, tx, pur, supp, cust, doctorsData, ewb, mapData, phy, dc, sc, po,
-                sr, pr, cert, sub, promo, team, roleData, configData, mrpLogs
-            ] = await Promise.all([
-                storage.fetchProfile(user.user_id),
-                storage.fetchInventory(user),
-                storage.fetchMedicineMaster(user),
-                storage.fetchTransactions(user),
-                storage.fetchPurchases(user),
-                storage.fetchSuppliers(user),
-                storage.fetchCustomers(user),
-                storage.fetchDoctors(user),
-                storage.fetchEWayBills(user),
-                storage.fetchSupplierProductMaps(user),
-                storage.fetchPhysicalInventory(user),
-                storage.getData('delivery_challans', [], user),
-                storage.getData('sales_challans', [], user),
-                storage.fetchPurchaseOrders(user),
-                storage.getData('sales_returns', [], user),
-                storage.getData('purchase_returns', [], user),
-                storage.getData('categories', [], user),
-                storage.getData('sub_categories', [], user),
-                storage.getData('promotions', [], user),
-                storage.fetchTeamMembers(user),
-                storage.getData('business_roles', [], user),
-                storage.getData('configurations', [{ organization_id: orgId }], user),
-                storage.getData('mrp_change_log', [], user)
-            ]);
+            const withTimeout = async <T,>(label: string, task: Promise<T>, timeoutMs = 12000): Promise<T> => {
+                return await Promise.race([
+                    task,
+                    new Promise<T>((_, reject) => {
+                        setTimeout(() => reject(new Error(`${label} request timed out after ${timeoutMs}ms`)), timeoutMs);
+                    })
+                ]);
+            };
+
+            const loadJobs: Array<[string, Promise<any>]> = [
+                ['profile', withTimeout('Profile', storage.fetchProfile(user.user_id))],
+                ['inventory', withTimeout('Inventory', storage.fetchInventory(user))],
+                ['material master', withTimeout('Material Master', storage.fetchMedicineMaster(user))],
+                ['transactions', withTimeout('Transactions', storage.fetchTransactions(user))],
+                ['purchases', withTimeout('Purchases', storage.fetchPurchases(user))],
+                ['suppliers', withTimeout('Suppliers', storage.fetchSuppliers(user))],
+                ['customers', withTimeout('Customers', storage.fetchCustomers(user))],
+                ['doctors', withTimeout('Doctors', storage.fetchDoctors(user))],
+                ['eway bills', withTimeout('E-Way Bills', storage.fetchEWayBills(user))],
+                ['supplier product maps', withTimeout('Supplier Product Maps', storage.fetchSupplierProductMaps(user))],
+                ['physical inventory', withTimeout('Physical Inventory', storage.fetchPhysicalInventory(user))],
+                ['delivery challans', withTimeout('Delivery Challans', storage.getData('delivery_challans', [], user))],
+                ['sales challans', withTimeout('Sales Challans', storage.getData('sales_challans', [], user))],
+                ['purchase orders', withTimeout('Purchase Orders', storage.fetchPurchaseOrders(user))],
+                ['sales returns', withTimeout('Sales Returns', storage.getData('sales_returns', [], user))],
+                ['purchase returns', withTimeout('Purchase Returns', storage.getData('purchase_returns', [], user))],
+                ['categories', withTimeout('Categories', storage.getData('categories', [], user))],
+                ['sub categories', withTimeout('Sub Categories', storage.getData('sub_categories', [], user))],
+                ['promotions', withTimeout('Promotions', storage.getData('promotions', [], user))],
+                ['team members', withTimeout('Team Members', storage.fetchTeamMembers(user))],
+                ['business roles', withTimeout('Business Roles', storage.getData('business_roles', [], user))],
+                ['configurations', withTimeout('Configurations', storage.getData('configurations', [{ organization_id: orgId }], user))],
+                ['mrp logs', withTimeout('MRP Logs', storage.getData('mrp_change_log', [], user))]
+            ];
+
+            const settled = await Promise.allSettled(loadJobs.map(([, promise]) => promise));
+            const readSettled = <T,>(index: number, fallback: T): T =>
+                settled[index].status === 'fulfilled' ? (settled[index] as PromiseFulfilledResult<T>).value : fallback;
+
+            const freshProfile = readSettled<RegisteredPharmacy | null>(0, null);
+            const inv = readSettled<InventoryItem[]>(1, []);
+            const med = readSettled<Medicine[]>(2, []);
+            const tx = readSettled<Transaction[]>(3, []);
+            const pur = readSettled<Purchase[]>(4, []);
+            const supp = readSettled<Supplier[]>(5, []);
+            const cust = readSettled<Customer[]>(6, []);
+            const doctorsData = readSettled<DoctorMaster[]>(7, []);
+            const ewb = readSettled<EWayBill[]>(8, []);
+            const mapData = readSettled<SupplierProductMap[]>(9, []);
+            const phy = readSettled<PhysicalInventorySession[]>(10, []);
+            const dc = readSettled<DeliveryChallan[]>(11, []);
+            const sc = readSettled<SalesChallan[]>(12, []);
+            const po = readSettled<PurchaseOrder[]>(13, []);
+            const sr = readSettled<SalesReturn[]>(14, []);
+            const pr = readSettled<PurchaseReturn[]>(15, []);
+            const cert = readSettled<Category[]>(16, []);
+            const sub = readSettled<SubCategory[]>(17, []);
+            const promo = readSettled<Promotion[]>(18, []);
+            const team = readSettled<OrganizationMember[]>(19, []);
+            const roleData = readSettled<BusinessRole[]>(20, []);
+            const configData = readSettled<AppConfigurations[]>(21, [{ organization_id: orgId } as AppConfigurations]);
+            const mrpLogs = readSettled<MrpChangeLogEntry[]>(22, []);
+
+            const failedLoads = settled
+                .map((result, index) => ({ result, label: loadJobs[index][0] }))
+                .filter(entry => entry.result.status === 'rejected');
+            if (failedLoads.length > 0) {
+                const labels = failedLoads.map(entry => entry.label).join(', ');
+                const message = `Partial sync completed. Some modules failed to refresh (${labels}).`;
+                addNotification(message, 'warning');
+                if (mode === 'initial') setAppLoadError(message);
+            } else if (mode === 'initial') {
+                setAppLoadError(null);
+            }
 
             if (freshProfile) setCurrentUser(freshProfile);
             setInventory(syncInventoryFromMaterialMaster(inv || [], med || []));
@@ -462,7 +512,9 @@ const App: React.FC = () => {
             setLastRefreshed(new Date());
             if (mode === 'sync') addNotification("ERP synchronized with cloud master.", "success");
         } catch (error) {
-            addNotification(parseNetworkAndApiError(error), 'error');
+            const parsedError = parseNetworkAndApiError(error);
+            addNotification(parsedError, 'error');
+            if (mode === 'initial') setAppLoadError(parsedError);
         } finally {
             setIsAppLoading(false);
             setIsReloading(false);
@@ -869,6 +921,7 @@ const App: React.FC = () => {
 
     const handleLogin = (user: RegisteredPharmacy) => {
         setCurrentPage('dashboard');
+        setAppLoadError(null);
         setConfigurations(prev => ({
             ...prev,
             sidebar: {
@@ -884,6 +937,7 @@ const App: React.FC = () => {
     const handleLogout = useCallback(async () => {
         setShowLogoutPrompt(false);
         setIsAppLoading(true);
+        setAppLoadError(null);
         const persistedStateKey = currentUser ? getScreenStateStorageKey(currentUser) : null;
         try {
             await storage.clearCurrentUser();
@@ -2728,6 +2782,36 @@ const App: React.FC = () => {
                 <div className="flex flex-col items-center gap-4">
                     <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                     <p className="text-xs font-black uppercase text-primary tracking-widest animate-pulse">Initializing ERP Modules...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (appLoadError && currentUser) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center bg-app-bg px-4">
+                <div className="w-full max-w-xl bg-white border border-red-200 shadow-lg p-6">
+                    <h2 className="text-lg font-black uppercase tracking-wide text-red-700 mb-3">Module initialization failed</h2>
+                    <p className="text-sm text-gray-700 mb-4">
+                        Purchase Order and related modules could not be initialized cleanly. The loader has been stopped to avoid an infinite wait.
+                    </p>
+                    <div className="text-xs font-mono bg-red-50 border border-red-200 p-3 text-red-700 mb-4 break-words">
+                        {appLoadError}
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => loadData(currentUser, 'initial')}
+                            className="px-4 py-2 bg-primary text-white text-xs font-black uppercase"
+                        >
+                            Retry initialization
+                        </button>
+                        <button
+                            onClick={() => setAppLoadError(null)}
+                            className="px-4 py-2 border border-gray-300 text-xs font-black uppercase"
+                        >
+                            Continue with partial data
+                        </button>
+                    </div>
                 </div>
             </div>
         );
