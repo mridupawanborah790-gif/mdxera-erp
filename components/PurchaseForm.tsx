@@ -928,6 +928,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 purchaseSerialId = reserved.documentNumber;
             }
 
+            const poSourceParts = (draftSourceId || '').split('|').map(part => part.trim());
+            const poSourceNumber = poSourceParts.find(part => part.startsWith('po:'))?.replace(/^po:/, '');
+            const poSourceId = poSourceParts.find(part => part.startsWith('poid:'))?.replace(/^poid:/, '');
+
             const payload = {
                 purchaseSerialId: purchaseSerialId!,
                 supplier: supplier,
@@ -945,7 +949,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 status: 'completed' as const,
                 organization_id: organizationId,
                 roundOff: calculatedTotals.roundOff,
-                schemeDiscount: 0
+                schemeDiscount: 0,
+                referenceDocNumber: poSourceNumber || undefined,
+                sourcePurchaseOrderId: poSourceId || undefined,
+                sourceReceiveMode: poSourceNumber || poSourceId ? 'POST_RECEIVED_ENTRY' : undefined
             };
 
             let saved: any;
