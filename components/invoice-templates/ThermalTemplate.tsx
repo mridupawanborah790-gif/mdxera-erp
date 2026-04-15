@@ -123,7 +123,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   {item.expiry && <span>Exp {item.expiry}</span>}
                 </div>
               </td>
-              <td className="py-0.5 text-center">{formatPackLooseQuantity((item.quantity || 0) + (item.freeQuantity || 0), item.looseQuantity)}</td>
+              <td className="py-0.5 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>
               {showRateColumn && <td className="py-0.5 text-right">{(item.billedRate || 0).toFixed(2)}</td>}
               <td className="py-0.5 text-right font-semibold">{item.finalPrice.toFixed(2)}</td>
             </tr>

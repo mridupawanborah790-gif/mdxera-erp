@@ -118,7 +118,7 @@ const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   <p className="font-bold">{item.name}</p>
                   <p className="text-[8pt] text-gray-400">Pack: {item.unit}</p>
                 </td>
-                <td className="p-2 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
+                <td className="p-2 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>
                 <td className="p-2 text-right">{(item.billedRate || 0).toFixed(2)}</td>
                 <td className="p-2 text-right">{item.discountPercent || 0}</td>
                 <td className="p-2 text-right font-bold">{(item.amount || 0).toFixed(2)}</td>
