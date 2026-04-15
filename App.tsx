@@ -72,6 +72,7 @@ const DATA_ENTRY_SCREENS = [
 ];
 
 const APP_SCREEN_STATE_STORAGE_PREFIX = 'mdxera:screen-state:v1';
+const MODULE_INIT_TIMEOUT_MS = 20000;
 const PERSISTABLE_SCREENS = new Set([
     'dashboard', 'pos', 'nonGstPos', 'salesHistory', 'manualSalesEntry', 'salesChallans',
     'deliveryChallans', 'salesReturns', 'purchaseReturn', 'purchaseOrders', 'automatedPurchaseEntry',
@@ -96,6 +97,7 @@ const App: React.FC = () => {
     const [currentDailyReportId, setCurrentDailyReportId] = useState('dispatchSummary');
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isAppLoading, setIsAppLoading] = useState(true);
+    const [appInitError, setAppInitError] = useState<string | null>(null);
     const [isReloading, setIsReloading] = useState(false);
     const [isMigrationLocked, setIsMigrationLocked] = useState(false);
     const [migrationUiState, setMigrationUiState] = useState<{ active: boolean; minimized: boolean; module: string; progressPercent: number; status: 'Processing…' | 'Completed' | 'Cancelled' }>({ active: false, minimized: false, module: '', progressPercent: 0, status: 'Processing…' });
@@ -331,6 +333,7 @@ const App: React.FC = () => {
 
         if (mode === 'initial') setIsAppLoading(true);
         else if (mode === 'sync') setIsReloading(true);
+        if (mode === 'initial') setAppInitError(null);
 
         const orgId = user.organization_id;
 
@@ -394,10 +397,25 @@ const App: React.FC = () => {
                 return;
             }
 
+            const withTimeout = <T,>(promise: Promise<T>, timeoutMessage: string): Promise<T> => {
+                return new Promise((resolve, reject) => {
+                    const timer = window.setTimeout(() => reject(new Error(timeoutMessage)), MODULE_INIT_TIMEOUT_MS);
+                    promise
+                        .then((result) => {
+                            window.clearTimeout(timer);
+                            resolve(result);
+                        })
+                        .catch((err) => {
+                            window.clearTimeout(timer);
+                            reject(err);
+                        });
+                });
+            };
+
             const [
                 freshProfile, inv, med, tx, pur, supp, cust, doctorsData, ewb, mapData, phy, dc, sc, po,
                 sr, pr, cert, sub, promo, team, roleData, configData, mrpLogs
-            ] = await Promise.all([
+            ] = await withTimeout(Promise.all([
                 storage.fetchProfile(user.user_id),
                 storage.fetchInventory(user),
                 storage.fetchMedicineMaster(user),
@@ -421,7 +439,7 @@ const App: React.FC = () => {
                 storage.getData('business_roles', [], user),
                 storage.getData('configurations', [{ organization_id: orgId }], user),
                 storage.getData('mrp_change_log', [], user)
-            ]);
+            ]), 'Module initialization timed out while loading ERP data.');
 
             if (freshProfile) setCurrentUser(freshProfile);
             setInventory(syncInventoryFromMaterialMaster(inv || [], med || []));
@@ -462,6 +480,9 @@ const App: React.FC = () => {
             setLastRefreshed(new Date());
             if (mode === 'sync') addNotification("ERP synchronized with cloud master.", "success");
         } catch (error) {
+            if (mode === 'initial') {
+                setAppInitError('Unable to load Purchase Order module. Please refresh or try again.');
+            }
             addNotification(parseNetworkAndApiError(error), 'error');
         } finally {
             setIsAppLoading(false);
@@ -745,6 +766,9 @@ const App: React.FC = () => {
 
         if (isDailyReportLink) {
             setCurrentDailyReportId(pageId.replace('dailyReports:', ''));
+        }
+        if (resolvedPageId === 'purchaseOrders') {
+            setScreenResetNonce(prev => ({ ...prev, purchaseOrders: (prev.purchaseOrders ?? 0) + 1 }));
         }
         if (resolvedPageId === 'ewayLoginSetup') {
             setEwayLoginSetupReturnPage(currentPage || 'dashboard');
@@ -2728,6 +2752,40 @@ const App: React.FC = () => {
                 <div className="flex flex-col items-center gap-4">
                     <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                     <p className="text-xs font-black uppercase text-primary tracking-widest animate-pulse">Initializing ERP Modules...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (appInitError) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center bg-app-bg p-6">
+                <div className="w-full max-w-xl bg-white border-2 border-red-200 shadow-xl p-8">
+                    <h2 className="text-lg font-black text-red-700 uppercase tracking-wide">Module Initialization Failed</h2>
+                    <p className="mt-3 text-sm font-semibold text-gray-700">{appInitError}</p>
+                    <p className="mt-2 text-xs text-gray-500">
+                        This can happen due to expired session data, stale cache, or network/API timeout.
+                    </p>
+                    <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                            onClick={() => {
+                                if (currentUser) {
+                                    loadData(currentUser, 'initial');
+                                } else {
+                                    window.location.reload();
+                                }
+                            }}
+                            className="py-3 bg-primary text-white font-black uppercase text-xs tracking-widest hover:opacity-90"
+                        >
+                            Retry Initialization
+                        </button>
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="py-3 border-2 border-primary text-primary font-black uppercase text-xs tracking-widest hover:bg-blue-50"
+                        >
+                            Refresh Page
+                        </button>
+                    </div>
                 </div>
             </div>
         );
