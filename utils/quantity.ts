@@ -5,19 +5,23 @@ const formatQtyValue = (value: number): string => {
 
 export const formatPackLooseQuantity = (
   packQty?: number | null,
-  looseQty?: number | null
+  looseQty?: number | null,
+  freeQty?: number | null
 ): string => {
   const packs = Number(packQty || 0);
   const loose = Number(looseQty || 0);
+  const free = Number(freeQty || 0);
+  const parts: string[] = [];
 
-  if (packs > 0 && loose > 0) {
-    return `${formatQtyValue(packs)}(P) + ${formatQtyValue(loose)}(L)`;
-  }
   if (packs > 0) {
-    return `${formatQtyValue(packs)}(P)`;
+    parts.push(`${formatQtyValue(packs)}(P)`);
   }
   if (loose > 0) {
-    return `${formatQtyValue(loose)}(L)`;
+    parts.push(`${formatQtyValue(loose)}(L)`);
   }
-  return '0';
+  if (free > 0) {
+    parts.push(`${formatQtyValue(free)}(F)`);
+  }
+
+  return parts.length > 0 ? parts.join(' + ') : '0';
 };

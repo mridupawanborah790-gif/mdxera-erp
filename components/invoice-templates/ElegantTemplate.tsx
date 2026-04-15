@@ -131,7 +131,7 @@ const ElegantTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   <td className="px-1 font-semibold">{item.name}</td>
                   <td className="px-1 font-mono text-[10px]">{item.batch}</td>
                   <td className="px-1 text-center text-[10px]">{item.expiry}</td>
-                  <td className="px-1 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
+                  <td className="px-1 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>
                   <td className="px-1 text-right">{(item.mrp || 0).toFixed(2)}</td>
                   <td className="px-1 text-right">{item.discountPercent || 0}</td>
                   <td className="px-1 text-right font-semibold">{(item.amount || 0).toFixed(2)}</td>

@@ -186,7 +186,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
                       <td className="font-bold truncate">{item.displayName}</td>
                       <td className="text-center">{item.hsn}</td>
                       <td className="text-center">{item.gstRate}%</td>
-                      <td className="text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity)}</td>
+                      <td className="text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>
                       {showRateColumn && <td className="text-center">{(item.billedRate ?? 0).toFixed(2)}</td>}
                       <td className="text-center">{item.unitLabel}</td>
                       <td className="text-right font-bold">{item.lineTotal.toFixed(2)}</td>
