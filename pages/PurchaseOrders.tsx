@@ -161,6 +161,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
     const [adjustSearchSystemId, setAdjustSearchSystemId] = useState('');
     const [adjustSearchSupplierBillId, setAdjustSearchSupplierBillId] = useState('');
+    const [selectedAdjustBillId, setSelectedAdjustBillId] = useState<string | null>(null);
     const [isAdjusting, setIsAdjusting] = useState(false);
 
     const [selectedDistributorId, setSelectedDistributorId] = useState('');
@@ -824,30 +825,54 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
         setIsAdjustModalOpen(false);
         setAdjustSearchSystemId('');
         setAdjustSearchSupplierBillId('');
+        setSelectedAdjustBillId(null);
     };
 
     const closeReceiveFlow = () => {
         setIsAdjustModalOpen(false);
         setReceiveFlowPO(null);
+        setSelectedAdjustBillId(null);
     };
 
-    const handleAdjustSelection = async (purchaseBill: Purchase) => {
+    const handleAdjustSelection = (purchaseBill: Purchase) => {
+        setSelectedAdjustBillId(purchaseBill.id);
+    };
+
+    const handleSaveAdjustReference = async () => {
         if (!receiveFlowPO || isAdjusting) return;
+        const purchaseBill = adjustCandidates.find(bill => bill.id === selectedAdjustBillId);
+        if (!purchaseBill) {
+            addNotification('Please select an Invoice ID to link.', 'warning');
+            return;
+        }
+
         const supplierMatches = (receiveFlowPO.distributorName || '').trim().toLowerCase() === (purchaseBill.supplier || '').trim().toLowerCase();
         if (!supplierMatches) {
-            const shouldContinue = window.confirm('Supplier mismatch detected between PO and Purchase Bill. Do you still want to adjust this bill?');
+            const shouldContinue = window.confirm('Supplier mismatch detected between PO and selected invoice. Do you still want to save this reference?');
             if (!shouldContinue) return;
         }
         setIsAdjusting(true);
         try {
             await onAdjustReceivedEntry(receiveFlowPO, purchaseBill);
-            addNotification(`Purchase Order adjusted successfully against Purchase Bill ${purchaseBill.purchaseSerialId}`, 'success');
+            addNotification('Invoice reference linked successfully', 'success');
             closeReceiveFlow();
         } catch (error) {
             addNotification(parseNetworkAndApiError(error), 'error');
         } finally {
             setIsAdjusting(false);
         }
+    };
+
+    const resolveLinkedInvoiceIds = (po: PurchaseOrder): string[] => {
+        const linkedByReceiveLog = (po.receiveLinks || [])
+            .map(link => link.purchaseSystemId)
+            .filter((value): value is string => Boolean(value));
+
+        const linkedBySourceId = (po.sourcePurchaseBillIds || [])
+            .map(purchaseId => purchases.find(purchase => purchase.id === purchaseId)?.purchaseSerialId)
+            .filter((value): value is string => Boolean(value));
+
+        return Array.from(new Set([...linkedByReceiveLog, ...linkedBySourceId]));
     };
 
     return (
@@ -1041,6 +1066,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                         <th className="p-3 text-left text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">PO Number</th>
                                         <th className="p-3 text-left text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Date</th>
                                         <th className="p-3 text-left text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Distributor</th>
+                                        <th className="p-3 text-left text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Received Invoice ID</th>
                                         <th className="p-3 text-center text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Status</th>
                                         <th className="p-3 text-right text-[10px] font-black text-gray-600 uppercase border-r border-gray-400">Amount</th>
                                         <th className="p-3 text-right text-[10px] font-black text-gray-600 uppercase">Action</th>
@@ -1049,6 +1075,8 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                 <tbody className="divide-y divide-gray-200 text-xs font-bold">
                                     {filteredPOList.map(po => {
                                         const isSelected = selectedPO?.id === po.id;
+                                        const linkedInvoiceIds = resolveLinkedInvoiceIds(po);
+                                        const linkedInvoiceDisplay = linkedInvoiceIds.length > 0 ? linkedInvoiceIds.join(', ') : '--';
                                         return (
                                             <tr
                                                 key={po.id}
@@ -1058,6 +1086,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                                 <td className={`p-3 border-r border-gray-200 font-mono font-black uppercase ${isSelected ? 'text-white' : 'group-hover:text-white text-primary'}`}>{po.serialId}</td>
                                                 <td className={`p-3 border-r border-gray-200 ${isSelected ? 'text-white' : 'group-hover:text-white'}`}>{new Date(po.date).toLocaleDateString('en-GB')}</td>
                                                 <td className={`p-3 border-r border-gray-200 font-black uppercase ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'}`}>{po.distributorName}</td>
+                                                <td className={`p-3 border-r border-gray-200 font-mono ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-700'}`} title={linkedInvoiceDisplay}>{linkedInvoiceDisplay}</td>
                                                 <td className="p-3 border-r border-gray-200 text-center">
                                                     <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${isSelected ? 'bg-white/20 text-white border-white/30' : getStatusClass(po.status)}`}>
                                                         {po.status}
@@ -1157,7 +1186,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             <Modal
                 isOpen={!!receiveFlowPO && isAdjustModalOpen}
                 onClose={() => setIsAdjustModalOpen(false)}
-                title="Adjust Received Entry"
+                title="Adjust Received Entry (Reference Only)"
                 widthClass="max-w-4xl"
             >
                 <div className="p-4 flex flex-col h-full min-h-[420px]">
@@ -1201,9 +1230,13 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                             <button
                                                 disabled={isAdjusting}
                                                 onClick={() => handleAdjustSelection(bill)}
-                                                className="px-2 py-1 bg-primary text-white text-[10px] font-black uppercase disabled:opacity-50"
+                                                className={`px-2 py-1 text-[10px] font-black uppercase disabled:opacity-50 ${
+                                                    selectedAdjustBillId === bill.id
+                                                        ? 'bg-emerald-700 text-white'
+                                                        : 'bg-primary text-white'
+                                                }`}
                                             >
-                                                Select / Adjust
+                                                {selectedAdjustBillId === bill.id ? 'Selected' : 'Select'}
                                             </button>
                                         </td>
                                     </tr>
@@ -1216,7 +1249,14 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                             </tbody>
                         </table>
                     </div>
-                    <div className="pt-3 flex justify-end">
+                    <div className="pt-3 flex justify-end gap-2">
+                        <button
+                            onClick={handleSaveAdjustReference}
+                            disabled={isAdjusting || !selectedAdjustBillId}
+                            className="px-4 py-2 bg-primary text-white text-xs font-black uppercase disabled:opacity-50"
+                        >
+                            {isAdjusting ? 'Saving...' : 'Save Invoice Reference'}
+                        </button>
                         <button onClick={() => setIsAdjustModalOpen(false)} className="px-4 py-2 border border-gray-400 text-xs font-black uppercase">Cancel</button>
                     </div>
                 </div>
