@@ -10,12 +10,21 @@ if (typeof (window as any).process === 'undefined') {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
+    const hadActiveController = Boolean(navigator.serviceWorker.controller);
+    const reloadFlag = 'sw-cleanup-reload-done';
+
     // Disable Service Worker to prevent stale shell/cache loops on production deployments.
     navigator.serviceWorker.getRegistrations()
       .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
       .then(() => {
         if ('caches' in window) {
           return caches.keys().then(cacheNames => Promise.all(cacheNames.map(cacheName => caches.delete(cacheName))));
+        }
+      })
+      .then(() => {
+        if (hadActiveController && !sessionStorage.getItem(reloadFlag)) {
+          sessionStorage.setItem(reloadFlag, 'true');
+          window.location.reload();
         }
       })
       .catch((error) => {
