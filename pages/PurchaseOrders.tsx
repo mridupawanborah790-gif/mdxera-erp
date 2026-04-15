@@ -72,10 +72,17 @@ const GRID_COLUMN_ORDER: GridColumnKey[] = [
     'notes'
 ];
 
+const generateSafeUUID = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
+
 const getDefaultOrderDate = () => new Date().toISOString().split('T')[0];
 
 const createEmptyLineItem = (): PurchaseOrderItem => ({
-  id: crypto.randomUUID(),
+  id: generateSafeUUID(),
   name: '',
   brand: '',
   quantity: 0,
@@ -227,39 +234,54 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     };
 
     const filteredPOList = useMemo(() => {
-        let list = [...purchaseOrders];
-        if (statusFilter !== 'all') {
-            list = list.filter(po => po.status === statusFilter);
-        }
-        return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const list = Array.isArray(purchaseOrders) ? [...purchaseOrders] : [];
+        const filtered = statusFilter === 'all' 
+            ? list 
+            : list.filter(po => po && po.status === statusFilter);
+
+        return filtered.sort((a, b) => {
+            const dateA = a?.date ? new Date(a.date).getTime() : 0;
+            const dateB = b?.date ? new Date(b.date).getTime() : 0;
+            if (isNaN(dateA)) return 1;
+            if (isNaN(dateB)) return -1;
+            return dateB - dateA;
+        });
     }, [purchaseOrders, statusFilter]);
 
     const adjustCandidates = useMemo(() => {
-        const systemTerm = adjustSearchSystemId.trim().toLowerCase();
-        const supplierBillTerm = adjustSearchSupplierBillId.trim().toLowerCase();
-        return [...purchases]
-            .filter(p => p.status !== 'cancelled')
+        const systemTerm = (adjustSearchSystemId || '').trim().toLowerCase();
+        const supplierBillTerm = (adjustSearchSupplierBillId || '').trim().toLowerCase();
+        const list = Array.isArray(purchases) ? purchases : [];
+
+        return list
+            .filter(p => p && p.status !== 'cancelled')
             .filter(p => {
                 const systemIdMatch = !systemTerm || (p.purchaseSerialId || '').toLowerCase().includes(systemTerm);
                 const supplierBillMatch = !supplierBillTerm || (p.invoiceNumber || '').toLowerCase().includes(supplierBillTerm);
                 return systemIdMatch && supplierBillMatch;
             })
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            .sort((a, b) => {
+                const dateA = a?.date ? new Date(a.date).getTime() : 0;
+                const dateB = b?.date ? new Date(b.date).getTime() : 0;
+                if (isNaN(dateA)) return 1;
+                if (isNaN(dateB)) return -1;
+                return dateB - dateA;
+            })
             .slice(0, 30);
     }, [purchases, adjustSearchSystemId, adjustSearchSupplierBillId]);
 
     useEffect(() => {
-        if (draftItems && draftItems.length > 0) {
-            setItems(normalizeLineItems(draftItems.map(item => ({ ...createEmptyLineItem(), ...item, id: item.id || crypto.randomUUID() }))));
+        if (Array.isArray(draftItems) && draftItems.length > 0) {
+            setItems(normalizeLineItems(draftItems.map(item => ({ ...createEmptyLineItem(), ...item, id: item.id || generateSafeUUID() }))));
             setView('create');
         }
     }, [draftItems]);
 
     useEffect(() => {
-        if (view === 'create' && items.length === 0) {
+        if (view === 'create' && (!items || items.length === 0)) {
             setItems([createEmptyLineItem()]);
         }
-    }, [view, items.length]);
+    }, [view, items]);
 
     useEffect(() => {
         if (view !== 'create') return;
@@ -278,17 +300,25 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     const catalog = useMemo(() => {
         const byKey = new Map<string, SearchCatalogItem>();
         const mappedByMedicine = new Map<string, SupplierProductMap[]>();
+        
+        const safeMappings = Array.isArray(mappings) ? mappings : [];
+        const safeInventory = Array.isArray(inventory) ? inventory : [];
+        const safeMedicines = Array.isArray(medicines) ? medicines : [];
 
-        for (const map of mappings) {
+        for (const map of safeMappings) {
+            if (!map?.master_medicine_id) continue;
             if (!mappedByMedicine.has(map.master_medicine_id)) mappedByMedicine.set(map.master_medicine_id, []);
             mappedByMedicine.get(map.master_medicine_id)!.push(map);
         }
 
-        for (const inv of inventory) {
-            const key = (inv.code || inv.name).trim().toUpperCase();
+        for (const inv of safeInventory) {
+            if (!inv) continue;
+            const key = (inv.code || inv.name || '').trim().toUpperCase();
+            if (!key) continue;
+            
             const existing = byKey.get(key);
-            const mappedSupplierIds = mappings
-              .filter(m => (m.supplier_product_name || '').trim().toUpperCase() === inv.name.trim().toUpperCase())
+            const mappedSupplierIds = safeMappings
+              .filter(m => m && (m.supplier_product_name || '').trim().toUpperCase() === (inv.name || '').trim().toUpperCase())
               .map(m => m.supplier_id);
 
             if (existing) {
@@ -299,7 +329,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
             byKey.set(key, {
                 id: key,
-                name: inv.name,
+                name: inv.name || 'Unnamed Item',
                 code: inv.code,
                 sku: inv.code,
                 source: 'inventory',
@@ -311,8 +341,11 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
             });
         }
 
-        for (const med of medicines) {
-            const key = (med.materialCode || med.name).trim().toUpperCase();
+        for (const med of safeMedicines) {
+            if (!med) continue;
+            const key = (med.materialCode || med.name || '').trim().toUpperCase();
+            if (!key) continue;
+
             const medMappings = mappedByMedicine.get(med.id) || [];
             const mappedSupplierIds = medMappings.map(m => m.supplier_id);
             const supplierItemName = medMappings[0]?.supplier_product_name;
@@ -326,7 +359,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
             byKey.set(key, {
                 id: key,
-                name: med.name,
+                name: med.name || 'Unnamed Material',
                 code: med.materialCode,
                 sku: med.materialCode,
                 supplierItemName,
@@ -864,12 +897,17 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
     };
 
     const resolveLinkedInvoiceIds = (po: PurchaseOrder): string[] => {
-        const linkedByReceiveLog = (po.receiveLinks || [])
-            .map(link => link.purchaseSystemId)
+        if (!po) return [];
+        const receiveLinks = Array.isArray(po.receiveLinks) ? po.receiveLinks : [];
+        const sourcePurchaseBillIds = Array.isArray(po.sourcePurchaseBillIds) ? po.sourcePurchaseBillIds : [];
+        const safePurchases = Array.isArray(purchases) ? purchases : [];
+
+        const linkedByReceiveLog = receiveLinks
+            .map(link => link?.purchaseSystemId)
             .filter((value): value is string => Boolean(value));
 
-        const linkedBySourceId = (po.sourcePurchaseBillIds || [])
-            .map(purchaseId => purchases.find(purchase => purchase.id === purchaseId)?.purchaseSerialId)
+        const linkedBySourceId = sourcePurchaseBillIds
+            .map(purchaseId => safePurchases.find(purchase => purchase?.id === purchaseId)?.purchaseSerialId)
             .filter((value): value is string => Boolean(value));
 
         return Array.from(new Set([...linkedByReceiveLog, ...linkedBySourceId]));
