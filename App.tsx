@@ -1146,28 +1146,6 @@ const App: React.FC = () => {
             throw new Error('This purchase bill is already linked to the selected Purchase Order.');
         }
 
-        if (mode === PurchaseOrderReceiveMode.ADJUST_RECEIVED_ENTRY) {
-            return {
-                ...po,
-                sourcePurchaseBillIds: [...(po.sourcePurchaseBillIds || []), purchaseBill.id],
-                receiveLinks: [
-                    ...(po.receiveLinks || []),
-                    {
-                        id: storage.generateUUID(),
-                        purchaseOrderId: po.id,
-                        poNumber: po.serialId,
-                        purchaseBillId: purchaseBill.id,
-                        purchaseSystemId: purchaseBill.purchaseSerialId,
-                        receiveMode: mode,
-                        receivedQty: 0,
-                        adjustedQty: 0,
-                        adjustedAt: new Date().toISOString(),
-                        adjustedBy: currentUser?.id
-                    }
-                ]
-            };
-        }
-
         const receivedByItem = new Map<string, number>();
         (purchaseBill.items || []).forEach(item => {
             const key = resolvePurchaseItemKey(item);
@@ -1181,9 +1159,9 @@ const App: React.FC = () => {
             const prevReceived = Number(item.receivedQuantity || 0);
             const orderedQty = Number(item.quantity || 0);
             const nextReceived = prevReceived + incomingQty;
-            if (nextReceived > orderedQty) {
-                throw new Error(`Over-adjustment detected for item "${item.name}". Ordered: ${orderedQty}, trying to receive: ${nextReceived}.`);
-            }
+            
+            // For manual adjustments, we only update quantities if there's a match.
+            // If the bill contains items NOT in the PO, they are simply ignored in the PO context.
             return {
                 ...item,
                 receivedQuantity: Number(nextReceived.toFixed(2)),
