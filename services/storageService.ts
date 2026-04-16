@@ -280,6 +280,17 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             }
         }
 
+        // Mapping for linked Purchase Order in purchases table
+        if (tableName === 'purchases') {
+            if (payload.sourcePurchaseOrderId) {
+                // sourcePurchaseOrderId is the app's field, reference_doc_number is the DB's field
+                sanitized.reference_doc_number = payload.sourcePurchaseOrderId;
+                delete sanitized.sourcePurchaseOrderId;
+            }
+            // Strip frontend-only field used for tracking the receive flow mode
+            delete sanitized.sourceReceiveMode;
+        }
+
         // 3. Apply Ownership Tracking Mappings
         if (OWNER_TRACKING_TABLES.includes(tableName)) {
             // Map the app's 'user_id' (Auth User UUID) to 'created_by_id' in DB
@@ -414,6 +425,21 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
     export const fromSupabase = (tableName: string, payload: Record<string, any>): any => {
         if (!payload) return payload;
         let normalized = toCamel(payload);
+
+        // Map linked Purchase Order back to sourcePurchaseOrderId for app logic
+        if (tableName === 'purchases' && payload.reference_doc_number) {
+            normalized.sourcePurchaseOrderId = payload.reference_doc_number;
+        }
+
+        // Handle stringified JSON/Array columns for Purchase Orders (common if columns are 'text' in DB)
+        if (tableName === 'purchase_orders') {
+            if (typeof normalized.receiveLinks === 'string' && normalized.receiveLinks.trim().startsWith('[')) {
+                try { normalized.receiveLinks = JSON.parse(normalized.receiveLinks); } catch (e) { normalized.receiveLinks = []; }
+            }
+            if (typeof normalized.sourcePurchaseBillIds === 'string' && normalized.sourcePurchaseBillIds.trim().startsWith('[')) {
+                try { normalized.sourcePurchaseBillIds = JSON.parse(normalized.sourcePurchaseBillIds); } catch (e) { normalized.sourcePurchaseBillIds = []; }
+            }
+        }
 
         // Map db primary key back to app.id
         if (tableName === 'physical_inventory' && payload.voucher_no) {
