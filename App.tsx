@@ -103,6 +103,7 @@ const App: React.FC = () => {
     const [migrationPopupToken, setMigrationPopupToken] = useState(0);
     const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
     const [isRealtimeActive, setIsRealtimeActive] = useState(false);
+    const [isOperationLoading, setIsOperationLoading] = useState(false);
 
     const [showLogoutPrompt, setShowLogoutPrompt] = useState(false);
     const [showEscSavePrompt, setShowEscSavePrompt] = useState(false);
@@ -977,69 +978,70 @@ const App: React.FC = () => {
             throw new Error("Unauthorized: please log in again.");
         }
 
-        const selectedCustomer = tx.customerId
-            ? customers.find(c => c.id === tx.customerId)
-            : undefined;
+        setIsOperationLoading(true);
+        try {
+            const selectedCustomer = tx.customerId
+                ? customers.find(c => c.id === tx.customerId)
+                : undefined;
 
-        // Check for linked payments if it's an update
-        if (isUpdate && selectedCustomer && Array.isArray(selectedCustomer.ledger)) {
-            const hasPayments = selectedCustomer.ledger.some(entry => 
-                entry.type === 'payment' && 
-                entry.status !== 'cancelled' &&
-                (entry.referenceInvoiceId === tx.id || (entry.referenceInvoiceNumber === tx.invoiceNumber && tx.invoiceNumber)) &&
-                ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
-                ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
-            );
-
-            if (hasPayments) {
-                throw new Error("Cannot edit bill: A payment has been received against this invoice. Cancel the payment voucher first.");
-            }
-        }
-
-        const openChallanExposure = getCustomerOpenChallanExposure(salesChallans, selectedCustomer?.id);
-        const creditCheck = evaluateCustomerCredit({
-            customer: selectedCustomer || null,
-            currentTransactionAmount: Number(tx.total || 0),
-            openChallanExposure,
-            moduleName: 'POS'
-        });
-
-        if (creditCheck && !creditCheck.canProceed) {
-            const detail = `Credit limit ₹${creditCheck.details.creditLimit.toFixed(2)}, projected exposure ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
-            if (creditCheck.mode === 'warning_only') {
-                addNotification(`${creditCheck.message} ${detail} (Saved due to warning-only mode).`, 'warning');
-            } else {
-                throw new Error(`${creditCheck.message} ${detail}`);
-            }
-        }
-
-        const stockHandling = resolveStockHandlingConfig(configurations);
-        const shouldPreventNegativeStock = stockHandling.mode === 'strict';
-
-        if (shouldPreventNegativeStock) {
-            const requiredUnitsByInventoryId = new Map<string, number>();
-            for (const item of tx.items || []) {
-                if (!item.inventoryItemId) continue;
-                const requiredUnits = ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0);
-                requiredUnitsByInventoryId.set(
-                    item.inventoryItemId,
-                    (requiredUnitsByInventoryId.get(item.inventoryItemId) || 0) + requiredUnits
+            // Check for linked payments if it's an update
+            if (isUpdate && selectedCustomer && Array.isArray(selectedCustomer.ledger)) {
+                const hasPayments = selectedCustomer.ledger.some(entry => 
+                    entry.type === 'payment' && 
+                    entry.status !== 'cancelled' &&
+                    (entry.referenceInvoiceId === tx.id || (entry.referenceInvoiceNumber === tx.invoiceNumber && tx.invoiceNumber)) &&
+                    ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                    ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
                 );
-            }
 
-            for (const [inventoryItemId, requiredUnits] of requiredUnitsByInventoryId.entries()) {
-                const invItem = inventory.find(i => i.id === inventoryItemId);
-                if (!invItem) continue;
-                const policy = getInventoryPolicy(invItem, medicines);
-                if (!policy.inventorised) continue;
-                if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
-                    logStockMovement({ transactionType: 'sales-outward-validation', item: invItem.name, batch: invItem.batch || 'UNSET', qty: requiredUnits, stockBefore: Number(invItem.stock || 0), stockAfter: Number(invItem.stock || 0), validationResult: 'blocked', mode: stockHandling.mode });
-                    throw new Error('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
+                if (hasPayments) {
+                    throw new Error("Cannot edit bill: A payment has been received against this invoice. Cancel the payment voucher first.");
                 }
             }
-        }
 
-        try {
+            const openChallanExposure = getCustomerOpenChallanExposure(salesChallans, selectedCustomer?.id);
+            const creditCheck = evaluateCustomerCredit({
+                customer: selectedCustomer || null,
+                currentTransactionAmount: Number(tx.total || 0),
+                openChallanExposure,
+                moduleName: 'POS'
+            });
+
+            if (creditCheck && !creditCheck.canProceed) {
+                const detail = `Credit limit ₹${creditCheck.details.creditLimit.toFixed(2)}, projected exposure ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
+                if (creditCheck.mode === 'warning_only') {
+                    addNotification(`${creditCheck.message} ${detail} (Saved due to warning-only mode).`, 'warning');
+                } else {
+                    throw new Error(`${creditCheck.message} ${detail}`);
+                }
+            }
+
+            const stockHandling = resolveStockHandlingConfig(configurations);
+            const shouldPreventNegativeStock = stockHandling.mode === 'strict';
+
+            if (shouldPreventNegativeStock) {
+                const requiredUnitsByInventoryId = new Map<string, number>();
+                for (const item of tx.items || []) {
+                    if (!item.inventoryItemId) continue;
+                    const requiredUnits = ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0);
+                    requiredUnitsByInventoryId.set(
+                        item.inventoryItemId,
+                        (requiredUnitsByInventoryId.get(item.inventoryItemId) || 0) + requiredUnits
+                    );
+                }
+
+                for (const [inventoryItemId, requiredUnits] of requiredUnitsByInventoryId.entries()) {
+                    const invItem = inventory.find(i => i.id === inventoryItemId);
+                    if (!invItem) continue;
+                    const policy = getInventoryPolicy(invItem, medicines);
+                    if (!policy.inventorised) continue;
+                    if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
+                        logStockMovement({ transactionType: 'sales-outward-validation', item: invItem.name, batch: invItem.batch || 'UNSET', qty: requiredUnits, stockBefore: Number(invItem.stock || 0), stockAfter: Number(invItem.stock || 0), validationResult: 'blocked', mode: stockHandling.mode });
+                        throw new Error('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
+                    }
+                }
+            }
+
             const savedTx = await storage.addTransaction(tx, currentUser, isUpdate);
 
             // Synchronize the local configuration state with the next expected number.
@@ -1080,33 +1082,36 @@ const App: React.FC = () => {
             addNotification(isUpdate ? 'Bill updated successfully.' : 'Bill saved successfully.', 'success');
         } catch (e) {
             throw new Error(parseNetworkAndApiError(e));
+        } finally {
+            setIsOperationLoading(false);
         }
     };
 
     const handleUpdatePurchase = async (p: Purchase, supplierGst?: string) => {
         if (!currentUser) return;
 
-        // Check for linked payments
-        const distributor = suppliers.find(d => 
-            (d.name || '').trim().toLowerCase() === (p.supplier || '').trim().toLowerCase()
-        );
-        
-        if (distributor && Array.isArray(distributor.ledger)) {
-            const hasPayments = distributor.ledger.some(entry => 
-                entry.type === 'payment' && 
-                entry.status !== 'cancelled' &&
-                (entry.referenceInvoiceId === p.id || entry.referenceInvoiceNumber === p.invoiceNumber) &&
-                ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
-                ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
-            );
-
-            if (hasPayments) {
-                addNotification("Cannot edit bill: A payment has been made against this purchase bill. Cancel the payment voucher first.", "error");
-                return;
-            }
-        }
-
+        setIsOperationLoading(true);
         try {
+            // Check for linked payments
+            const distributor = suppliers.find(d => 
+                (d.name || '').trim().toLowerCase() === (p.supplier || '').trim().toLowerCase()
+            );
+            
+            if (distributor && Array.isArray(distributor.ledger)) {
+                const hasPayments = distributor.ledger.some(entry => 
+                    entry.type === 'payment' && 
+                    entry.status !== 'cancelled' &&
+                    (entry.referenceInvoiceId === p.id || entry.referenceInvoiceNumber === p.invoiceNumber) &&
+                    ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                    ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
+                );
+
+                if (hasPayments) {
+                    addNotification("Cannot edit bill: A payment has been made against this purchase bill. Cancel the payment voucher first.", "error");
+                    return;
+                }
+            }
+
             const savedPurchase = await storage.updatePurchase(p, currentUser);
             // Immediate local state update
             setPurchases(prev => prev.map(pur => pur.id === savedPurchase.id ? savedPurchase : pur));
@@ -1118,6 +1123,8 @@ const App: React.FC = () => {
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
             throw e;
+        } finally {
+            setIsOperationLoading(false);
         }
     };
 
@@ -1204,6 +1211,7 @@ const App: React.FC = () => {
 
     const handleAddPurchase = async (p: any, supplierGst: string, nextCounter?: number) => {
         if (!currentUser) return;
+        setIsOperationLoading(true);
         try {
             const savedPurchase = await storage.addPurchase(p, currentUser);
             // Immediate local state update
@@ -1224,39 +1232,42 @@ const App: React.FC = () => {
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
             throw e;
+        } finally {
+            setIsOperationLoading(false);
         }
     };
 
     const handleCancelPurchase = async (purchaseId: string) => {
         if (!currentUser) return;
-        const purchase = purchases.find(p => p.id === purchaseId);
-        if (!purchase) return;
-        if (purchase.status === 'cancelled') {
-            addNotification('This purchase bill is already cancelled.', 'warning');
-            return;
-        }
-
-        // Check for linked payments
-        const distributor = suppliers.find(d => 
-            (d.name || '').trim().toLowerCase() === (purchase.supplier || '').trim().toLowerCase()
-        );
-        
-        if (distributor && Array.isArray(distributor.ledger)) {
-            const hasPayments = distributor.ledger.some(entry => 
-                entry.type === 'payment' && 
-                entry.status !== 'cancelled' &&
-                (entry.referenceInvoiceId === purchase.id || entry.referenceInvoiceNumber === purchase.invoiceNumber) &&
-                ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
-                ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
-            );
-
-            if (hasPayments) {
-                addNotification("Cannot cancel bill: A payment has been made against this purchase bill. Cancel the payment voucher first.", "error");
+        setIsOperationLoading(true);
+        try {
+            const purchase = purchases.find(p => p.id === purchaseId);
+            if (!purchase) return;
+            if (purchase.status === 'cancelled') {
+                addNotification('This purchase bill is already cancelled.', 'warning');
                 return;
             }
-        }
 
-        try {
+            // Check for linked payments
+            const distributor = suppliers.find(d => 
+                (d.name || '').trim().toLowerCase() === (purchase.supplier || '').trim().toLowerCase()
+            );
+            
+            if (distributor && Array.isArray(distributor.ledger)) {
+                const hasPayments = distributor.ledger.some(entry => 
+                    entry.type === 'payment' && 
+                    entry.status !== 'cancelled' &&
+                    (entry.referenceInvoiceId === purchase.id || entry.referenceInvoiceNumber === purchase.invoiceNumber) &&
+                    ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
+                    ((entry.adjustedAmount || 0) > 0 || (entry.credit || 0) > 0)
+                );
+
+                if (hasPayments) {
+                    addNotification("Cannot cancel bill: A payment has been made against this purchase bill. Cancel the payment voucher first.", "error");
+                    return;
+                }
+            }
+
             // 1. Mark status as cancelled
             const cancelledPurchase = { ...purchase, status: 'cancelled' as const };
             await storage.saveData('purchases', cancelledPurchase, currentUser, true);
@@ -1291,6 +1302,8 @@ const App: React.FC = () => {
             addNotification("Purchase voucher cancelled and stock reversed.", "warning");
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
+        } finally {
+            setIsOperationLoading(false);
         }
     };
 
@@ -1303,67 +1316,71 @@ const App: React.FC = () => {
 
     const handleUpdateInventoryItem = useCallback(async (updatedItem: InventoryItem) => {
         if (!currentUser) throw new Error("Unauthorized");
-
-        const existingItem = inventory.find(i => i.id === updatedItem.id);
-        const oldMrp = parseMrpNumber(existingItem?.mrp);
-        const newMrp = parseMrpNumber(updatedItem.mrp);
-        const normalizedCode = normalizeCode(updatedItem.code);
-        
-        // Find linked Master Record by Code (The Single Source of Truth)
-        const linkedMedicine = normalizedCode
-            ? medicines.find(m => normalizeCode(m.materialCode) === normalizedCode)
-            : undefined;
-        
-        let syncedInventoryItem = updatedItem;
-
-        if (normalizedCode && linkedMedicine) {
-            const nextPack = (updatedItem.packType || '').trim() || (linkedMedicine.pack || '').trim();
-            const nextGstRate = Number(updatedItem.gstPercent ?? linkedMedicine.gstRate ?? 0);
-            const nextHsnCode = (updatedItem.hsnCode || linkedMedicine.hsnCode || '').trim();
+        setIsOperationLoading(true);
+        try {
+            const existingItem = inventory.find(i => i.id === updatedItem.id);
+            const oldMrp = parseMrpNumber(existingItem?.mrp);
+            const newMrp = parseMrpNumber(updatedItem.mrp);
+            const normalizedCode = normalizeCode(updatedItem.code);
             
-            const nextMaterialMaster: Medicine = {
-                ...linkedMedicine,
-                pack: nextPack,
-                gstRate: nextGstRate,
-                hsnCode: nextHsnCode,
-                // MRP and Rates are strictly batch-dependent and NOT synced back to Master
-            };
+            // Find linked Master Record by Code (The Single Source of Truth)
+            const linkedMedicine = normalizedCode
+                ? medicines.find(m => normalizeCode(m.materialCode) === normalizedCode)
+                : undefined;
+            
+            let syncedInventoryItem = updatedItem;
 
-            const today = new Date().toISOString().slice(0, 10);
-            const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
-                if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
-                return {
-                    ...record,
-                    // Identity sync only, price propagation removed
-                    lastUpdatedBy: currentUser.full_name || currentUser.email,
-                    lastUpdatedOn: new Date().toISOString(),
+            if (normalizedCode && linkedMedicine) {
+                const nextPack = (updatedItem.packType || '').trim() || (linkedMedicine.pack || '').trim();
+                const nextGstRate = Number(updatedItem.gstPercent ?? linkedMedicine.gstRate ?? 0);
+                const nextHsnCode = (updatedItem.hsnCode || linkedMedicine.hsnCode || '').trim();
+                
+                const nextMaterialMaster: Medicine = {
+                    ...linkedMedicine,
+                    pack: nextPack,
+                    gstRate: nextGstRate,
+                    hsnCode: nextHsnCode,
+                    // MRP and Rates are strictly batch-dependent and NOT synced back to Master
                 };
-            });
 
-            const finalMaterialMaster: Medicine = {
-                ...nextMaterialMaster,
-                masterPriceMaintains: nextPriceRecords
-            };
+                const today = new Date().toISOString().slice(0, 10);
+                const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
+                    if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
+                    return {
+                        ...record,
+                        // Identity sync only, price propagation removed
+                        lastUpdatedBy: currentUser.full_name || currentUser.email,
+                        lastUpdatedOn: new Date().toISOString(),
+                    };
+                });
 
-            // 1. Save Master Record
-            await storage.saveData('material_master', finalMaterialMaster, currentUser, true);
-            
-            // 2. Update local state immediately
-            setMedicines(prev => prev.map(m => m.id === finalMaterialMaster.id ? finalMaterialMaster : m));
+                const finalMaterialMaster: Medicine = {
+                    ...nextMaterialMaster,
+                    masterPriceMaintains: nextPriceRecords
+                };
 
-            if (Math.abs(oldMrp - newMrp) >= 0.0001) {
-                await createMrpChangeLog(
-                    'Inventory',
-                    normalizedCode,
-                    updatedItem.name || linkedMedicine.name,
-                    oldMrp,
-                    newMrp
-                );
+                // 1. Save Master Record
+                await storage.saveData('material_master', finalMaterialMaster, currentUser, true);
+                
+                // 2. Update local state immediately
+                setMedicines(prev => prev.map(m => m.id === finalMaterialMaster.id ? finalMaterialMaster : m));
+
+                if (Math.abs(oldMrp - newMrp) >= 0.0001) {
+                    await createMrpChangeLog(
+                        'Inventory',
+                        normalizedCode,
+                        updatedItem.name || linkedMedicine.name,
+                        oldMrp,
+                        newMrp
+                    );
+                }
             }
-        }
 
-        await storage.saveData('inventory', syncedInventoryItem, currentUser, true);
-        await loadData(currentUser, 'background');
+            await storage.saveData('inventory', syncedInventoryItem, currentUser, true);
+            await loadData(currentUser, 'background');
+        } finally {
+            setIsOperationLoading(false);
+        }
     }, [currentUser, inventory, medicines, normalizeCode, parseMrpNumber, syncInventoryItemWithMaterialMaster, createMrpChangeLog, loadData]);
 
     const handleAddMedicineMaster = async (med: Omit<Medicine, 'id'>) => {
@@ -1375,78 +1392,83 @@ const App: React.FC = () => {
 
     const handleUpdateMedicineMaster = useCallback(async (updatedMedicine: Medicine) => {
         if (!currentUser) throw new Error("Unauthorized");
-        const updatedPack = (updatedMedicine.pack || '').trim();
-        const inferredUnitsPerPack = resolveUnitsPerStrip(extractPackMultiplier(updatedPack) ?? 1, updatedPack);
-        
-        const previousMedicine = medicines.find(m => m.id === updatedMedicine.id);
-        const normalizedOldCode = normalizeCode(previousMedicine?.materialCode);
-        const normalizedNewCode = normalizeCode(updatedMedicine.materialCode);
+        setIsOperationLoading(true);
+        try {
+            const updatedPack = (updatedMedicine.pack || '').trim();
+            const inferredUnitsPerPack = resolveUnitsPerStrip(extractPackMultiplier(updatedPack) ?? 1, updatedPack);
+            
+            const previousMedicine = medicines.find(m => m.id === updatedMedicine.id);
+            const normalizedOldCode = normalizeCode(previousMedicine?.materialCode);
+            const normalizedNewCode = normalizeCode(updatedMedicine.materialCode);
 
-        const isLinkedInventoryItem = (item: InventoryItem) => {
-            const itemCode = normalizeCode(item.code);
-            return Boolean(itemCode && (
-                (normalizedOldCode && itemCode === normalizedOldCode) ||
-                (normalizedNewCode && itemCode === normalizedNewCode)
-            ));
-        };
+            const isLinkedInventoryItem = (item: InventoryItem) => {
+                const itemCode = normalizeCode(item.code);
+                return Boolean(itemCode && (
+                    (normalizedOldCode && itemCode === normalizedOldCode) ||
+                    (normalizedNewCode && itemCode === normalizedNewCode)
+                ));
+            };
 
-        const oldMrp = parseMrpNumber(previousMedicine?.mrp);
-        const newMrp = parseMrpNumber(updatedMedicine.mrp);
+            const oldMrp = parseMrpNumber(previousMedicine?.mrp);
+            const newMrp = parseMrpNumber(updatedMedicine.mrp);
 
-        await storage.saveData('material_master', updatedMedicine, currentUser, true);
+            await storage.saveData('material_master', updatedMedicine, currentUser, true);
 
-        const linkedInventoryItems = inventory.filter(isLinkedInventoryItem);
-        if (linkedInventoryItems.length > 0) {
-            await Promise.all(
-                linkedInventoryItems.map(item =>
-                    storage.saveData('inventory', {
-                        ...item,
-                        name: updatedMedicine.name,
-                        brand: updatedMedicine.brand || '',
-                        manufacturer: updatedMedicine.manufacturer || '',
-                        code: updatedMedicine.materialCode,
-                        barcode: updatedMedicine.barcode || item.barcode,
-                        composition: updatedMedicine.composition || '',
-                        hsnCode: updatedMedicine.hsnCode || '',
-                        description: updatedMedicine.description || '',
-                        gstPercent: Number(updatedMedicine.gstRate ?? 0),
-                        // Batch-specific pricing remains untouched
-                        packType: updatedPack,
-                        unitsPerPack: inferredUnitsPerPack,
-                    }, currentUser, true)
-                )
+            const linkedInventoryItems = inventory.filter(isLinkedInventoryItem);
+            if (linkedInventoryItems.length > 0) {
+                await Promise.all(
+                    linkedInventoryItems.map(item =>
+                        storage.saveData('inventory', {
+                            ...item,
+                            name: updatedMedicine.name,
+                            brand: updatedMedicine.brand || '',
+                            manufacturer: updatedMedicine.manufacturer || '',
+                            code: updatedMedicine.materialCode,
+                            barcode: updatedMedicine.barcode || item.barcode,
+                            composition: updatedMedicine.composition || '',
+                            hsnCode: updatedMedicine.hsnCode || '',
+                            description: updatedMedicine.description || '',
+                            gstPercent: Number(updatedMedicine.gstRate ?? 0),
+                            // Batch-specific pricing remains untouched
+                            packType: updatedPack,
+                            unitsPerPack: inferredUnitsPerPack,
+                        }, currentUser, true)
+                    )
+                );
+
+                setInventory(prev => prev.map(item =>
+                    isLinkedInventoryItem(item)
+                        ? {
+                            ...item,
+                            name: updatedMedicine.name,
+                            brand: updatedMedicine.brand || '',
+                            manufacturer: updatedMedicine.manufacturer || '',
+                            code: updatedMedicine.materialCode,
+                            barcode: updatedMedicine.barcode || item.barcode,
+                            composition: updatedMedicine.composition || '',
+                            hsnCode: updatedMedicine.hsnCode || '',
+                            description: updatedMedicine.description || '',
+                            gstPercent: Number(updatedMedicine.gstRate ?? 0),
+                            packType: updatedPack,
+                            unitsPerPack: inferredUnitsPerPack,
+                        }
+                        : item
+                ));
+            }
+
+            await createMrpChangeLog(
+                'Material Master',
+                updatedMedicine.materialCode,
+                updatedMedicine.name,
+                oldMrp,
+                newMrp
             );
 
-            setInventory(prev => prev.map(item =>
-                isLinkedInventoryItem(item)
-                    ? {
-                        ...item,
-                        name: updatedMedicine.name,
-                        brand: updatedMedicine.brand || '',
-                        manufacturer: updatedMedicine.manufacturer || '',
-                        code: updatedMedicine.materialCode,
-                        barcode: updatedMedicine.barcode || item.barcode,
-                        composition: updatedMedicine.composition || '',
-                        hsnCode: updatedMedicine.hsnCode || '',
-                        description: updatedMedicine.description || '',
-                        gstPercent: Number(updatedMedicine.gstRate ?? 0),
-                        packType: updatedPack,
-                        unitsPerPack: inferredUnitsPerPack,
-                    }
-                    : item
-            ));
+            setMedicines(prev => prev.map(m => (m.id === updatedMedicine.id ? updatedMedicine : m)));
+            await loadData(currentUser, 'background');
+        } finally {
+            setIsOperationLoading(false);
         }
-
-        await createMrpChangeLog(
-            'Material Master',
-            updatedMedicine.materialCode,
-            updatedMedicine.name,
-            oldMrp,
-            newMrp
-        );
-
-        setMedicines(prev => prev.map(m => (m.id === updatedMedicine.id ? updatedMedicine : m)));
-        await loadData(currentUser, 'background');
     }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber]);
 
     const resolveControlGlByCode = useCallback(async (organizationId: string, glCode: string): Promise<string | undefined> => {
@@ -1539,7 +1561,7 @@ const App: React.FC = () => {
 
     const handleAddDistributor = async (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string): Promise<SupplierQuickResult> => {
         if (!currentUser) throw new Error("Unauthorized");
-        addNotification('Saving…', 'warning');
+        setIsOperationLoading(true);
         try {
             const supplierGroup = data.supplier_group || 'Sundry Creditors';
             const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'supplier', supplierGroup, '210000');
@@ -1580,11 +1602,14 @@ const App: React.FC = () => {
             const message = formatSupplierApiError(e);
             addNotification(message, 'error');
             throw new Error(message);
+        } finally {
+            setIsOperationLoading(false);
         }
     };
 
     const handleAddCustomer = async (data: Omit<Customer, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => {
         if (!currentUser) return;
+        setIsOperationLoading(true);
         try {
             const customerGroup = data.customerGroup || 'Sundry Debtors';
             const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'customer', customerGroup, '120000');
@@ -1607,6 +1632,8 @@ const App: React.FC = () => {
             return newCust;
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
+        } finally {
+            setIsOperationLoading(false);
         }
     };
 
@@ -1618,43 +1645,47 @@ const App: React.FC = () => {
         customerGroup?: string;
     }): Promise<{ customer: Customer; isDuplicate: boolean }> => {
         if (!currentUser) throw new Error('Unauthorized');
+        setIsOperationLoading(true);
+        try {
+            const trimmedName = (data.name || '').trim();
+            if (!trimmedName) throw new Error('Customer Name is required.');
 
-        const trimmedName = (data.name || '').trim();
-        if (!trimmedName) throw new Error('Customer Name is required.');
+            const existingCustomer = customers.find(c => (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase());
+            if (existingCustomer) {
+                return { customer: existingCustomer, isDuplicate: true };
+            }
 
-        const existingCustomer = customers.find(c => (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase());
-        if (existingCustomer) {
-            return { customer: existingCustomer, isDuplicate: true };
+            const customerGroup = (data.customerGroup || 'Walk-in / Retail').trim();
+            const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'customer', customerGroup, '120000');
+            if (!mappedControlGlId) throw new Error('Customer Control GL not found for selected Customer Group in active Set of Books.');
+
+            const customerPayload: Omit<Customer, 'id' | 'ledger' | 'organization_id'> = {
+                name: trimmedName,
+                phone: data.phone?.trim() || '',
+                address: data.address?.trim() || '',
+                gstNumber: data.gstNumber?.trim() || '',
+                customerGroup,
+                controlGlId: mappedControlGlId,
+                is_active: true,
+                customerType: 'retail',
+                defaultRateTier: 'none',
+                defaultDiscount: 0,
+            };
+
+            const createdCustomer = await storage.saveData('customers', customerPayload, currentUser);
+            setCustomers(prev => [createdCustomer, ...prev]);
+            loadData(currentUser, 'background');
+            return { customer: createdCustomer, isDuplicate: false };
+        } finally {
+            setIsOperationLoading(false);
         }
-
-        const customerGroup = (data.customerGroup || 'Walk-in / Retail').trim();
-        const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'customer', customerGroup, '120000');
-        if (!mappedControlGlId) throw new Error('Customer Control GL not found for selected Customer Group in active Set of Books.');
-
-        const customerPayload: Omit<Customer, 'id' | 'ledger' | 'organization_id'> = {
-            name: trimmedName,
-            phone: data.phone?.trim() || '',
-            address: data.address?.trim() || '',
-            gstNumber: data.gstNumber?.trim() || '',
-            customerGroup,
-            controlGlId: mappedControlGlId,
-            is_active: true,
-            customerType: 'retail',
-            defaultRateTier: 'none',
-            defaultDiscount: 0,
-        };
-
-        const createdCustomer = await storage.saveData('customers', customerPayload, currentUser);
-        setCustomers(prev => [createdCustomer, ...prev]);
-        loadData(currentUser, 'background');
-        return { customer: createdCustomer, isDuplicate: false };
     };
 
 
 
     const handleUpdateSupplier = async (supplier: Supplier) => {
         if (!currentUser) return;
-        addNotification('Saving…', 'warning');
+        setIsOperationLoading(true);
         try {
             const supplierGroup = supplier.supplier_group || 'Sundry Creditors';
             const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'supplier', supplierGroup, '210000');
@@ -1683,11 +1714,14 @@ const App: React.FC = () => {
             const message = formatSupplierApiError(e);
             addNotification(message, 'error');
             throw new Error(message);
+        } finally {
+            setIsOperationLoading(false);
         }
     };
 
     const handleUpdateCustomer = async (customer: Customer) => {
         if (!currentUser) return;
+        setIsOperationLoading(true);
         try {
             const customerGroup = customer.customerGroup || 'Sundry Debtors';
             const mappedControlGlId = await resolvePartyControlGlByGroup(currentUser.organization_id, 'customer', customerGroup, '120000');
@@ -1702,6 +1736,8 @@ const App: React.FC = () => {
             addNotification(`Customer ${customer.name} updated successfully.`, "success");
         } catch (e) {
             addNotification(parseNetworkAndApiError(e), "error");
+        } finally {
+            setIsOperationLoading(false);
         }
     };
 
@@ -2925,6 +2961,15 @@ const App: React.FC = () => {
                         setPendingNavigation(null);
                     }}
                 />
+            )}
+
+            {isOperationLoading && (
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
+                    <div className="flex flex-col items-center gap-4">
+                        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin shadow-lg"></div>
+                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-primary drop-shadow-md">Processing Transaction...</p>
+                    </div>
+                </div>
             )}
         </div>
     );
