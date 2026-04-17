@@ -267,6 +267,22 @@ export const navigation: NavItem[] = [
     roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'],
     children: [
       { id: 'doctorsMaster', name: 'Doctor’s Master', href: '#', icon: StethoscopeIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
+      {
+        id: 'mbcCardParent',
+        name: 'MBC Card',
+        href: '#',
+        icon: FileTextIcon,
+        roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'],
+        children: [
+          { id: 'mbcCardDashboard', name: 'MBC Card Dashboard', href: '#', icon: DashboardIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
+          { id: 'mbcCardList', name: 'MBC Card List', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
+          { id: 'mbcGenerateCard', name: 'Generate MBC Card', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
+          { id: 'mbcCardTypeMaster', name: 'MBC Card Type Master', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
+          { id: 'mbcCardTemplateMaster', name: 'MBC Card Template Master', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
+          { id: 'mbcCardPrintPreview', name: 'Print / Preview MBC Card', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
+          { id: 'mbcCardRenewalHistory', name: 'MBC Card Renewal / Upgrade History', href: '#', icon: FileTextIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk'] },
+        ]
+      },
     ]
   },
   { id: 'substituteFinder', name: 'Substitute Finder', href: '#', icon: SubstituteIcon, roles: ['owner', 'admin', 'manager', 'purchase', 'clerk', 'viewer'] },
@@ -318,6 +334,13 @@ export const MASTER_SHORTCUT_OPTIONS = [
     { id: 'vendorNomenclature', label: 'Vendor Nomenclature', group: 'Masters', color: 'text-fuchsia-700', icon: <SuppliersIcon /> },
     { id: 'bulkUtility', label: 'Bulk Utility', group: 'Masters', color: 'text-slate-700', icon: <UploadIcon_Internal /> },
     { id: 'doctorsMaster', label: 'Doctor’s Master', group: 'Masters', color: 'text-emerald-700', icon: <StethoscopeIcon /> },
+    { id: 'mbcCardDashboard', label: 'MBC Card Dashboard', group: 'Masters', color: 'text-indigo-700', icon: <DashboardIcon /> },
+    { id: 'mbcCardList', label: 'MBC Card List', group: 'Masters', color: 'text-indigo-700', icon: <FileTextIcon /> },
+    { id: 'mbcGenerateCard', label: 'Generate MBC Card', group: 'Masters', color: 'text-indigo-700', icon: <FileTextIcon /> },
+    { id: 'mbcCardTypeMaster', label: 'MBC Card Type Master', group: 'Masters', color: 'text-indigo-700', icon: <FileTextIcon /> },
+    { id: 'mbcCardTemplateMaster', label: 'MBC Card Template Master', group: 'Masters', color: 'text-indigo-700', icon: <FileTextIcon /> },
+    { id: 'mbcCardPrintPreview', label: 'Print / Preview MBC Card', group: 'Masters', color: 'text-indigo-700', icon: <FileTextIcon /> },
+    { id: 'mbcCardRenewalHistory', label: 'MBC Card Renewal / Upgrade History', group: 'Masters', color: 'text-indigo-700', icon: <FileTextIcon /> },
 
     { id: 'substituteFinder', label: 'Substitute Finder', group: 'Utilities', color: 'text-rose-500', icon: <SubstituteIcon /> },
     { id: 'promotions', label: 'Promotions', group: 'Utilities', color: 'text-pink-600', icon: <PromotionIcon /> },

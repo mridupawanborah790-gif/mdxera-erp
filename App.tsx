@@ -14,6 +14,7 @@ import PhysicalInventory from './pages/PhysicalInventory';
 import Suppliers from './pages/Suppliers';
 import Customers from './pages/Customers';
 import DoctorsMaster from './pages/DoctorsMaster';
+import MbcCardManagement from './pages/MbcCardManagement';
 import MaterialMaster from './components/MaterialMaster';
 import SubstituteFinder from './pages/SubstituteFinder';
 import Promotions from './pages/Promotions';
@@ -80,7 +81,8 @@ const PERSISTABLE_SCREENS = new Set([
     'doctorsMaster',
     'substituteFinder', 'promotions', 'reports', 'dailyReports', 'balanceCarryforward', 'gst', 'eway', 'ewayLoginSetup',
     'businessUsers', 'businessRoles', 'companyConfiguration', 'configuration', 'settings',
-    'classification', 'accountReceivable', 'accountPayable', 'newJournalEntryVoucher'
+    'classification', 'accountReceivable', 'accountPayable', 'newJournalEntryVoucher',
+    'mbcCardDashboard', 'mbcCardList', 'mbcGenerateCard', 'mbcCardTypeMaster', 'mbcCardTemplateMaster', 'mbcCardPrintPreview', 'mbcCardRenewalHistory'
 ]);
 
 type PersistedScreenState = {
@@ -2572,6 +2574,14 @@ const App: React.FC = () => {
                             await loadData(currentUser!, 'targeted', 'doctor_master');
                         }}
                     />;
+                case 'mbcCardDashboard':
+                case 'mbcCardList':
+                case 'mbcGenerateCard':
+                case 'mbcCardTypeMaster':
+                case 'mbcCardTemplateMaster':
+                case 'mbcCardPrintPreview':
+                case 'mbcCardRenewalHistory':
+                    return <MbcCardManagement currentUser={currentUser!} activeScreen={pageId as any} onNavigate={handleNavigate as any} />;
                 case 'medicineMasterList':
                 case 'masterPriceMaintain':
                 case 'vendorNomenclature':
