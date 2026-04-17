@@ -250,6 +250,21 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
             });
     }, [customers, searchTerm, customerInvoiceOutstandingMap]);
 
+    useEffect(() => {
+        if (!selectedCustomer) return;
+        const latestCustomerSnapshot = customers.find((customer) => customer.id === selectedCustomer.id);
+        if (!latestCustomerSnapshot) {
+            setSelectedCustomer(null);
+            setShowPaymentForm(false);
+            setShowDownPaymentForm(false);
+            setAdjustmentVoucher(null);
+            return;
+        }
+        if (latestCustomerSnapshot !== selectedCustomer) {
+            setSelectedCustomer(latestCustomerSnapshot);
+        }
+    }, [customers, selectedCustomer]);
+
     const invoiceRows = useMemo(() => {
         return getReceivableInvoiceRowsForCustomer(selectedCustomer, transactions);
     }, [selectedCustomer, transactions]);
