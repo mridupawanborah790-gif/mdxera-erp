@@ -158,6 +158,20 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
     }, [distributors, searchTerm]);
 
     useEffect(() => {
+        if (!selectedDistributor?.id) return;
+        const latestDistributor = distributors.find((distributor) => distributor.id === selectedDistributor.id) || null;
+        if (!latestDistributor) {
+            setSelectedDistributor(null);
+            setShowPaymentForm(false);
+            setShowDownPaymentForm(false);
+            return;
+        }
+        if (latestDistributor !== selectedDistributor) {
+            setSelectedDistributor(latestDistributor);
+        }
+    }, [distributors, selectedDistributor?.id]);
+
+    useEffect(() => {
         let isMounted = true;
 
         const hydrateLedgerVoucherDetails = async () => {
