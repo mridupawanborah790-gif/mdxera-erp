@@ -63,10 +63,9 @@ const EMPTY_CARD: Partial<MbcCard> = {
   phone_number: '',
   alternate_phone: '',
   email: '',
-  issue_date: new Date().toISOString().slice(0, 10),
-  validity_from: new Date().toISOString().slice(0, 10),
+  validity_from: '',
   validity_to: '',
-  validity_period_text: '1 year',
+  validity_period_text: '',
   card_value: 0,
   remarks: '',
   status: 'active',
@@ -81,6 +80,13 @@ const addByUnit = (date: Date, value: number, unit: ValidityUnit) => {
 };
 
 const toDateInput = (date: Date) => date.toISOString().slice(0, 10);
+const getValidityPeriodText = (fromDate: string, toDate: string) => {
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const dayDiff = Math.ceil((to.getTime() - from.getTime()) / msPerDay);
+  return dayDiff > 0 ? `${dayDiff} day${dayDiff === 1 ? '' : 's'}` : '';
+};
 
 const getCardStatus = (card: MbcCard) => {
   if (card.status === 'inactive') return 'inactive';
@@ -168,15 +174,11 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
   const applyDefaultsFromType = (typeId: string) => {
     const cardType = cardTypeMap.get(typeId);
     if (!cardType) return;
-    const from = cardForm.validity_from ? new Date(cardForm.validity_from) : new Date();
-    const to = addByUnit(from, Number(cardType.default_validity_value || 1), (cardType.default_validity_unit || 'years') as ValidityUnit);
     setCardForm(prev => ({
       ...prev,
       card_type_id: typeId,
       template_id: cardType.template_id || prev.template_id,
       card_value: cardType.default_card_value || 0,
-      validity_to: toDateInput(to),
-      validity_period_text: `${cardType.default_validity_value} ${cardType.default_validity_unit}`,
       card_number: cardType.auto_numbering ? generateCardNumber(cardType) : prev.card_number,
     }));
   };
@@ -220,16 +222,21 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
 
   const saveCard = async () => {
     const phone = String(cardForm.phone_number || '').trim();
-    if (!cardForm.customer_name?.trim() || !phone || !cardForm.card_type_id || !cardForm.validity_from || !cardForm.validity_to) {
-      alert('Customer, phone, card type and validity are required');
+    if (!cardForm.customer_name?.trim() || !phone || !cardForm.card_type_id || !cardForm.date_of_birth || !cardForm.validity_from || !cardForm.validity_to) {
+      alert('Customer, phone, card type, DOB and validity dates are required');
       return;
     }
     if (!/^\d{10}$/.test(phone)) {
       alert('Phone number should contain exactly 10 digits');
       return;
     }
-    if ((cardForm.validity_to || '') < (cardForm.validity_from || '')) {
-      alert('Validity To cannot be earlier than Validity From');
+    const todayDate = toDateInput(new Date());
+    if ((cardForm.date_of_birth || '') >= todayDate) {
+      alert('DOB must be earlier than today');
+      return;
+    }
+    if ((cardForm.validity_to || '') <= (cardForm.validity_from || '')) {
+      alert('Validity To must be greater than Validity From');
       return;
     }
     const cardNumber = String(cardForm.card_number || '').trim();
@@ -253,9 +260,11 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       ...cardForm,
       organization_id: currentUser.organization_id,
       phone_number: phone,
+      issue_date: cardForm.validity_from,
       qr_value: cardForm.qr_value || `${window.location.origin}/mbc/${cardNumber}`,
       created_by: currentUser.full_name,
       status,
+      validity_period_text: getValidityPeriodText(String(cardForm.validity_from), String(cardForm.validity_to)),
       updated_at: now,
       created_at: cardForm.created_at || now,
     };
@@ -535,7 +544,6 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
               <input className="border p-2" placeholder="Customer Name" value={cardForm.customer_name || ''} onChange={e => setCardForm(prev => ({ ...prev, customer_name: e.target.value }))} />
               <input className="border p-2" placeholder="Guardian Name" value={cardForm.guardian_name || ''} onChange={e => setCardForm(prev => ({ ...prev, guardian_name: e.target.value }))} />
-              <input className="border p-2" type="date" placeholder="DOB" value={cardForm.date_of_birth || ''} onChange={e => setCardForm(prev => ({ ...prev, date_of_birth: e.target.value }))} />
               <input className="border p-2" placeholder="Gender" value={cardForm.gender || ''} onChange={e => setCardForm(prev => ({ ...prev, gender: e.target.value }))} />
               <input className="border p-2" placeholder="Address Line 1" value={cardForm.address_line_1 || ''} onChange={e => setCardForm(prev => ({ ...prev, address_line_1: e.target.value }))} />
               <input className="border p-2" placeholder="Address Line 2" value={cardForm.address_line_2 || ''} onChange={e => setCardForm(prev => ({ ...prev, address_line_2: e.target.value }))} />
@@ -552,9 +560,6 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
               </select>
               <input className="border p-2" placeholder="Card Number" value={cardForm.card_number || ''} onChange={e => setCardForm(prev => ({ ...prev, card_number: e.target.value }))} />
               <input type="number" className="border p-2" placeholder="Card Value" value={Number(cardForm.card_value || 0)} onChange={e => setCardForm(prev => ({ ...prev, card_value: Number(e.target.value || 0) }))} disabled={!cardTypeMap.get(cardForm.card_type_id || '')?.allow_manual_value_edit} />
-              <input className="border p-2" type="date" placeholder="Issue Date" value={cardForm.issue_date || ''} onChange={e => setCardForm(prev => ({ ...prev, issue_date: e.target.value }))} />
-              <input className="border p-2" type="date" placeholder="Validity From" value={cardForm.validity_from || ''} onChange={e => setCardForm(prev => ({ ...prev, validity_from: e.target.value }))} />
-              <input className="border p-2" type="date" placeholder="Validity To" value={cardForm.validity_to || ''} onChange={e => setCardForm(prev => ({ ...prev, validity_to: e.target.value }))} />
               <select className="border p-2" value={cardForm.template_id || ''} onChange={e => setCardForm(prev => ({ ...prev, template_id: e.target.value }))}>
                 <option value="">Card Template</option>
                 {templates.filter(t => !cardForm.card_type_id || t.card_type_id === cardForm.card_type_id).map(t => <option key={t.id} value={t.id}>{t.template_name}</option>)}
@@ -563,6 +568,36 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
               <input className="border p-2" placeholder="WhatsApp Number" value={cardForm.whatsapp_number || ''} onChange={e => setCardForm(prev => ({ ...prev, whatsapp_number: e.target.value }))} />
               <input className="border p-2" placeholder="Website link" value={cardForm.website_link || ''} onChange={e => setCardForm(prev => ({ ...prev, website_link: e.target.value }))} />
               <input className="border p-2" placeholder="Office Location Text" value={cardForm.office_location_text || ''} onChange={e => setCardForm(prev => ({ ...prev, office_location_text: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+              <label className="flex flex-col gap-1">
+                <span className="font-bold uppercase">Date of Birth (dd-mm-yyyy) *</span>
+                <input
+                  className="border p-2"
+                  type="date"
+                  value={cardForm.date_of_birth || ''}
+                  max={toDateInput(new Date())}
+                  onChange={e => setCardForm(prev => ({ ...prev, date_of_birth: e.target.value }))}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-bold uppercase">Validity From (dd-mm-yyyy) *</span>
+                <input
+                  className="border p-2"
+                  type="date"
+                  value={cardForm.validity_from || ''}
+                  onChange={e => setCardForm(prev => ({ ...prev, validity_from: e.target.value }))}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-bold uppercase">Validity To (dd-mm-yyyy) *</span>
+                <input
+                  className="border p-2"
+                  type="date"
+                  value={cardForm.validity_to || ''}
+                  onChange={e => setCardForm(prev => ({ ...prev, validity_to: e.target.value }))}
+                />
+              </label>
             </div>
             <textarea className="border p-2 w-full text-xs" placeholder="Remarks / Notes" value={cardForm.remarks || ''} onChange={e => setCardForm(prev => ({ ...prev, remarks: e.target.value }))} />
 
@@ -592,7 +627,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
             <div className="overflow-auto">
               <table className="w-full text-xs border-collapse">
                 <thead className="bg-gray-100 sticky top-0"><tr>
-                  {['Card Number', 'Customer Name', 'Date of Birth', 'Address', 'Phone Number', 'Card Type', 'Card Value', 'Issue Date', 'Validity From', 'Validity To', 'Validity Period', 'Status', 'Created By', 'Created Date', 'Actions'].map(h => (
+                  {['Card Number', 'Customer Name', 'Date of Birth', 'Address', 'Phone Number', 'Card Type', 'Card Value', 'Validity From', 'Validity To', 'Validity Period', 'Status', 'Created By', 'Created Date', 'Actions'].map(h => (
                     <th key={h} className="p-2 text-left border-r">{h}</th>
                   ))}
                 </tr></thead>
@@ -608,7 +643,6 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                         <td className="p-2">{card.phone_number}</td>
                         <td className="p-2">{cardTypeMap.get(card.card_type_id)?.type_name || '-'}</td>
                         <td className="p-2">{card.card_value}</td>
-                        <td className="p-2">{card.issue_date}</td>
                         <td className="p-2">{card.validity_from}</td>
                         <td className="p-2">{card.validity_to}</td>
                         <td className="p-2">{card.validity_period_text}</td>
