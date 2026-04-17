@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
 import { Customer, RegisteredPharmacy, Transaction, TransactionLedgerItem } from '../types';
-import { calculateCustomerReceivableBreakdown, getOutstandingBalance } from '../utils/helpers';
+import { calculateCustomerReceivableBreakdown } from '../utils/helpers';
 import { fuzzyMatch } from '../utils/search';
 import { handleEnterToNextField } from '../utils/navigation';
 import { numberToWords } from '../utils/numberToWords';
@@ -97,6 +97,91 @@ const formatDisplayDate = (value?: string): string => {
     return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
+const getReceivableInvoiceRowsForCustomer = (
+    customer: Customer | null,
+    transactions: Transaction[]
+): ReceivableInvoiceRow[] => {
+    if (!customer || !Array.isArray(transactions)) return [];
+
+    const sales: ReceivableInvoiceRow[] = transactions
+        .filter(t => t && t.status !== 'cancelled' && (t.customerId === customer.id || (t.customerName || '').trim().toLowerCase() === (customer.name || '').trim().toLowerCase()))
+        .map(t => ({
+            id: t.id,
+            invoiceNumber: t.invoiceNumber,
+            date: t.date,
+            invoiceAmount: Number(t.total || 0),
+            received: 0,
+            balance: Number(t.total || 0),
+            status: 'Open',
+            paymentDate: '-',
+            paymentMode: String(t.paymentMode || 'Credit'),
+            bankName: '-',
+            voucherRef: '-',
+            latestPaymentEntry: undefined,
+        }));
+
+    const mapByInvoice = new Map(sales.map(s => [s.id, { ...s }]));
+    const mapByInvoiceNumber = new Map(
+        sales
+            .filter((s) => String(s.invoiceNumber || '').trim() !== '')
+            .map((s) => [String(s.invoiceNumber).trim().toLowerCase(), s.id])
+    );
+    const ledger = Array.isArray(customer.ledger) ? customer.ledger : [];
+    const touchedInvoiceIds = new Set<string>();
+
+    for (const entry of ledger) {
+        if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
+        const entryCategory = String(entry.entryCategory || '');
+        if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(entryCategory)) {
+            continue;
+        }
+        const invoiceId = entry.referenceInvoiceId
+            || mapByInvoiceNumber.get(String(entry.referenceInvoiceNumber || '').trim().toLowerCase())
+            || '';
+        const target = invoiceId && mapByInvoice.get(invoiceId);
+        if (target) {
+            const adjustedAmount = Number(entry.adjustedAmount || 0);
+            const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
+            target.received += (adjustedAmount * multiplier);
+            target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
+            if (target.balance <= 0) {
+                target.balance = 0;
+                target.status = 'Paid';
+            } else if (target.received > 0) {
+                target.status = 'Partially Received';
+            } else {
+                target.status = 'Open';
+            }
+            target.paymentDate = entry.date || target.paymentDate;
+            target.paymentMode = entry.paymentMode || target.paymentMode;
+            target.bankName = entry.bankName || target.bankName;
+            target.voucherRef = entry.journalEntryNumber || entry.journalEntryId || target.voucherRef;
+            target.latestPaymentEntry = entry;
+            touchedInvoiceIds.add(target.id);
+        }
+    }
+
+    for (const sale of sales) {
+        const normalizedMode = String(sale.paymentMode || '').trim().toLowerCase();
+        const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(normalizedMode);
+        if (!isImmediatePayment || touchedInvoiceIds.has(sale.id)) continue;
+
+        const target = mapByInvoice.get(sale.id);
+        if (!target) continue;
+        target.received = Number(target.invoiceAmount || 0);
+        target.balance = 0;
+        target.status = 'Paid';
+        target.paymentDate = target.paymentDate === '-' ? target.date : target.paymentDate;
+        target.voucherRef = target.voucherRef === '-' ? 'AUTO RECEIPT' : target.voucherRef;
+    }
+
+    return Array.from(mapByInvoice.values()).sort((a, b) => {
+        const timeA = new Date(a.date).getTime();
+        const timeB = new Date(b.date).getTime();
+        return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA);
+    });
+};
+
 const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transactions, bankOptions, onRecordPayment, onRecordDownPaymentAdjustment, onRecordInvoicePaymentAdjustment, onCancelPaymentEntry, currentUser }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -144,94 +229,29 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
     const defaultBank = useMemo(() => bankOnlyOptions.find(b => b.isDefault) || bankOnlyOptions[0] || null, [bankOnlyOptions]);
     const defaultCash = useMemo(() => cashOnlyOptions.find(b => b.isDefault) || cashOnlyOptions[0] || null, [cashOnlyOptions]);
 
+    const customerInvoiceOutstandingMap = useMemo(() => {
+        if (!Array.isArray(customers) || !Array.isArray(transactions)) return {} as Record<string, number>;
+        return customers.reduce<Record<string, number>>((acc, customer) => {
+            const rows = getReceivableInvoiceRowsForCustomer(customer, transactions);
+            acc[customer.id] = Number(rows.reduce((sum, row) => sum + Number(row.balance || 0), 0).toFixed(2));
+            return acc;
+        }, {});
+    }, [customers, transactions]);
+
     const filteredCustomers = useMemo(() => {
         if (!Array.isArray(customers)) return [];
         return customers
             .filter(c => c && c.is_blocked !== true)
             .filter(c => fuzzyMatch(c.name || '', searchTerm) || fuzzyMatch(c.phone || '', searchTerm))
-            .sort((a, b) => getOutstandingBalance(b) - getOutstandingBalance(a));
-    }, [customers, searchTerm]);
+            .sort((a, b) => {
+                const left = calculateCustomerReceivableBreakdown(a, customerInvoiceOutstandingMap[a.id] || 0).netOutstanding;
+                const right = calculateCustomerReceivableBreakdown(b, customerInvoiceOutstandingMap[b.id] || 0).netOutstanding;
+                return right - left;
+            });
+    }, [customers, searchTerm, customerInvoiceOutstandingMap]);
 
     const invoiceRows = useMemo(() => {
-        if (!selectedCustomer || !Array.isArray(transactions)) return [] as ReceivableInvoiceRow[];
-
-        const sales: ReceivableInvoiceRow[] = transactions
-            .filter(t => t && t.status !== 'cancelled' && (t.customerId === selectedCustomer.id || (t.customerName || '').trim().toLowerCase() === (selectedCustomer.name || '').trim().toLowerCase()))
-            .map(t => ({
-                id: t.id,
-                invoiceNumber: t.invoiceNumber,
-                date: t.date,
-                invoiceAmount: Number(t.total || 0),
-                received: 0,
-                balance: Number(t.total || 0),
-                status: 'Open',
-                paymentDate: '-',
-                paymentMode: String(t.paymentMode || 'Credit'),
-                bankName: '-',
-                voucherRef: '-',
-                latestPaymentEntry: undefined,
-            }));
-
-        const mapByInvoice = new Map(sales.map(s => [s.id, { ...s }]));
-        const mapByInvoiceNumber = new Map(
-            sales
-                .filter((s) => String(s.invoiceNumber || '').trim() !== '')
-                .map((s) => [String(s.invoiceNumber).trim().toLowerCase(), s.id])
-        );
-        const ledger = Array.isArray(selectedCustomer.ledger) ? selectedCustomer.ledger : [];
-        const touchedInvoiceIds = new Set<string>();
-
-        for (const entry of ledger) {
-            if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
-            const entryCategory = String(entry.entryCategory || '');
-            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(entryCategory)) {
-                continue;
-            }
-            const invoiceId = entry.referenceInvoiceId
-                || mapByInvoiceNumber.get(String(entry.referenceInvoiceNumber || '').trim().toLowerCase())
-                || '';
-            const target = invoiceId && mapByInvoice.get(invoiceId);
-            if (target) {
-                const adjustedAmount = Number(entry.adjustedAmount || 0);
-                const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
-                target.received += (adjustedAmount * multiplier);
-                target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
-                if (target.balance <= 0) {
-                    target.balance = 0;
-                    target.status = 'Paid';
-                } else if (target.received > 0) {
-                    target.status = 'Partially Received';
-                } else {
-                    target.status = 'Open';
-                }
-                target.paymentDate = entry.date || target.paymentDate;
-                target.paymentMode = entry.paymentMode || target.paymentMode;
-                target.bankName = entry.bankName || target.bankName;
-                target.voucherRef = entry.journalEntryNumber || entry.journalEntryId || target.voucherRef;
-                target.latestPaymentEntry = entry;
-                touchedInvoiceIds.add(target.id);
-            }
-        }
-
-        for (const sale of sales) {
-            const normalizedMode = String(sale.paymentMode || '').trim().toLowerCase();
-            const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(normalizedMode);
-            if (!isImmediatePayment || touchedInvoiceIds.has(sale.id)) continue;
-
-            const target = mapByInvoice.get(sale.id);
-            if (!target) continue;
-            target.received = Number(target.invoiceAmount || 0);
-            target.balance = 0;
-            target.status = 'Paid';
-            target.paymentDate = target.paymentDate === '-' ? target.date : target.paymentDate;
-            target.voucherRef = target.voucherRef === '-' ? 'AUTO RECEIPT' : target.voucherRef;
-        }
-
-        return Array.from(mapByInvoice.values()).sort((a, b) => {
-            const timeA = new Date(a.date).getTime();
-            const timeB = new Date(b.date).getTime();
-            return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA);
-        });
+        return getReceivableInvoiceRowsForCustomer(selectedCustomer, transactions);
     }, [selectedCustomer, transactions]);
 
     const openReceivableInvoiceRows = useMemo(
@@ -659,7 +679,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                     </div>
                     <div className="flex-1 overflow-y-auto divide-y divide-gray-200">
                         {filteredCustomers.map(c => {
-                            const balance = getOutstandingBalance(c);
+                            const balance = calculateCustomerReceivableBreakdown(c, customerInvoiceOutstandingMap[c.id] || 0).netOutstanding;
                             const isSelected = selectedCustomer?.id === c.id;
                             return (
                                 <button 
