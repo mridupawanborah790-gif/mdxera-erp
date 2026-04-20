@@ -1134,3 +1134,96 @@ export interface FileInput {
     mimeType: string;
     data: string;
 }
+
+export interface MbcCardType {
+    id: string;
+    organization_id: string;
+    type_name: string;
+    type_code: string;
+    description?: string;
+    default_validity_value: number;
+    default_validity_unit: 'days' | 'months' | 'years';
+    default_card_value: number;
+    template_id?: string;
+    color_theme?: string;
+    prefix: string;
+    auto_numbering: boolean;
+    allow_manual_value_edit: boolean;
+    allow_renewal: boolean;
+    allow_upgrade: boolean;
+    benefits?: string;
+    terms_conditions?: string;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface MbcCardTemplate {
+    id: string;
+    organization_id: string;
+    template_name: string;
+    template_code: string;
+    card_type_id?: string;
+    width: number;
+    height: number;
+    orientation: string;
+    background_image?: string;
+    logo_image?: string;
+    template_json?: any;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface MbcCard {
+    id: string;
+    organization_id: string;
+    card_number: string;
+    customer_name: string;
+    guardian_name?: string;
+    date_of_birth?: string;
+    gender?: string;
+    address_line_1?: string;
+    address_line_2?: string;
+    city?: string;
+    district?: string;
+    state?: string;
+    pin_code?: string;
+    phone_number: string;
+    alternate_phone?: string;
+    email?: string;
+    card_type_id: string;
+    template_id?: string;
+    issue_date: string;
+    validity_from: string;
+    validity_to: string;
+    validity_period_text?: string;
+    card_value: number;
+    qr_value?: string;
+    barcode_value?: string;
+    remarks?: string;
+    status: 'active' | 'inactive' | 'expired' | 'upcoming';
+    photo_url?: string;
+    whatsapp_number?: string;
+    website_link?: string;
+    office_location_text?: string;
+    created_by?: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface MbcCardHistory {
+    id: string;
+    organization_id: string;
+    mbc_card_id: string;
+    action_type: 'create' | 'update' | 'renew' | 'upgrade' | 'deactivate';
+    old_card_type_id?: string;
+    new_card_type_id?: string;
+    old_validity_to?: string;
+    new_validity_to?: string;
+    old_card_value?: number;
+    new_card_value?: number;
+    remarks?: string;
+    action_by?: string;
+    action_date?: string;
+}
