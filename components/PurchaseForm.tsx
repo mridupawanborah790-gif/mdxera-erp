@@ -1886,7 +1886,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setMobileSyncError(null);
 
         try {
-            const pendingServerBills = await fetchPendingMobileBills({
+            const pendingServerBills: any[] = await fetchPendingMobileBills({
                 organizationId,
                 userId: currentUser.user_id || mobileSyncSessionId,
                 deviceId: mobileSyncDeviceId,

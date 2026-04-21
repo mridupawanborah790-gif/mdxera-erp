@@ -10,7 +10,7 @@ import JournalEntryViewerModal from '../components/JournalEntryViewerModal';
 import ProductInsightsPanel from '../components/ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
-import { supabase } from '../services/supabaseClient';
+import { db } from '../services/databaseService';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
@@ -182,41 +182,38 @@ const POS = forwardRef<any, POSProps>(({
             startOfMonth.setDate(1);
             const startOfMonthStr = startOfMonth.toISOString().slice(0, 10);
 
-            const monthQuery = supabase
-                .from('sales_bill')
-                .select('total, date')
-                .eq('organization_id', currentUser.organization_id)
-                .in('status', ['completed', 'Completed'])
-                .gte('date', startOfMonthStr);
+            const monthData = await db.sql`
+                SELECT total, date 
+                FROM sales_bill 
+                WHERE organization_id = ${currentUser.organization_id} 
+                AND status IN ('completed', 'Completed') 
+                AND date >= ${startOfMonthStr}
+            `;
 
-            const todayQuery = supabase
-                .from('sales_bill')
-                .select('total')
-                .eq('organization_id', currentUser.organization_id)
-                .in('status', ['completed', 'Completed'])
-                .gte('date', todayStartIso)
-                .lt('date', tomorrowStartIso);
+            const todayData = await db.sql`
+                SELECT total 
+                FROM sales_bill 
+                WHERE organization_id = ${currentUser.organization_id} 
+                AND status IN ('completed', 'Completed') 
+                AND date >= ${todayStartIso} 
+                AND date < ${tomorrowStartIso}
+            `;
 
-            const [{ data: todayData }, { data: monthData }] = await Promise.all([todayQuery, monthQuery]);
-            const safeMonthData = monthData || [];
+            const monthTotal = (monthData || []).reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+            const todayTotal = (todayData || []).reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+            setStats({
+                monthTotal,
+                todayTotal,
+                monthCount: (monthData || []).length
+            });
 
-            if (safeMonthData.length || (todayData || []).length) {
-                const monthTotal = safeMonthData.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
-                const todayTotal = (todayData || []).reduce((sum, s) => sum + (Number(s.total) || 0), 0);
-                setStats({
-                    monthTotal,
-                    todayTotal,
-                    monthCount: safeMonthData.length
-                });
-            }
-
-            const { data: recent } = await supabase
-                .from('sales_bill')
-                .select('*')
-                .eq('organization_id', currentUser.organization_id)
-                .in('status', ['completed', 'Completed'])
-                .order('created_at', { ascending: false })
-                .limit(20);
+            const recent = await db.sql`
+                SELECT * FROM sales_bill 
+                WHERE organization_id = ${currentUser.organization_id} 
+                AND status IN ('completed', 'Completed') 
+                ORDER BY created_at DESC 
+                LIMIT 20
+            `;
             if (recent) setSalesHistory(recent.map(r => storage.toCamel(r)));
         } catch (e) {
             console.error('Error fetching stats:', e);

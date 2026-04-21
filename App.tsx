@@ -48,7 +48,6 @@ import PrintableReportModal from './components/PrintableReportModal';
 import MobileCaptureView from './components/MobileCaptureView';
 import TallyPrompt from './components/TallyPrompt';
 import * as storage from './services/storageService';
-import { supabase } from './services/supabaseClient';
 import { parseNetworkAndApiError } from './utils/error';
 import { evaluateCustomerCredit, getCustomerOpenChallanExposure } from './utils/creditControl';
 import {
@@ -91,6 +90,9 @@ type PersistedScreenState = {
     activeDashboardMenu?: 'left' | 'right';
 };
 
+
+import { db } from './services/databaseService';
+import { authService } from './services/authService';
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
@@ -524,6 +526,31 @@ const App: React.FC = () => {
         }
     }, [addNotification, syncInventoryFromMaterialMaster]);
 
+    // Initialize DB on mount
+    useEffect(() => {
+        console.log('App: Starting initialization...');
+        db.init().then(() => {
+            console.log('App: DB initialized, fetching current user...');
+            authService.getCurrentUser().then(user => {
+                console.log('App: Current user check complete:', user ? 'User found' : 'No user');
+                if (user) {
+                    setCurrentUser(user);
+                    loadData(user, 'initial');
+                } else {
+                    setIsAppLoading(false);
+                }
+            }).catch(userErr => {
+                console.error('App: Failed to get current user:', userErr);
+                setAppLoadError('Failed to verify user session.');
+                setIsAppLoading(false);
+            });
+        }).catch(err => {
+            console.error('App: Database initialization failed:', err);
+            setAppLoadError('Failed to initialize local database.');
+            setIsAppLoading(false);
+        });
+    }, [loadData]);
+
     const refreshInventoryViews = useCallback(async (
         user: RegisteredPharmacy,
         dependentTables: Array<'transactions' | 'purchases' | 'sales_returns' | 'purchase_returns' | 'physical_inventory'> = []
@@ -672,112 +699,36 @@ const App: React.FC = () => {
         setScreenResetNonce(prev => ({ ...prev, [currentPage]: (prev[currentPage] ?? 0) + 1 }));
     };
 
-    // Handle Supabase Auth Session Changes
+    // Offline mode: Auth listener not needed
     useEffect(() => {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (event === 'SIGNED_OUT') {
-                // Robust Logout Detection:
-                // 1. Check if this is an explicit manual logout initiated by the user
-                const isManualLogout = window.localStorage.getItem('MDXERA_MANUAL_LOGOUT') === 'true';
-                
-                if (isManualLogout) {
-                    window.localStorage.removeItem('MDXERA_MANUAL_LOGOUT');
-                    setCurrentUser(null);
-                    setInventory([]);
-                    setMedicines([]);
-                    setTransactions([]);
-                    setPurchases([]);
-                    setMrpChangeLogs([]);
-                    setIsAppLoading(false);
-                    setAuthView('auth');
-                    return;
-                }
+        if (!currentUser && !isAppLoading) {
+            setAuthView('auth');
+        }
+    }, [currentUser, isAppLoading]);
 
-                // 2. If not manual, it might be a refresh token failure or network glitch.
-                // We verify by checking the current session one last time.
-                const { data: { session: verifiedSession } } = await supabase.auth.getSession();
-                if (!verifiedSession) {
-                    // Truly gone
-                    setCurrentUser(null);
-                    setInventory([]);
-                    setMedicines([]);
-                    setTransactions([]);
-                    setPurchases([]);
-                    setMrpChangeLogs([]);
-                    setIsAppLoading(false);
-                    setAuthView('auth');
-                } else {
-                    console.warn('Recovered from transient SIGNED_OUT event.');
-                }
-            } else if (event === 'PASSWORD_RECOVERY') {
-                setAuthView('reset');
-            } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-                if (session?.user) {
-                    storage.getCurrentUser().then(async user => {
-                        if (user) {
-                            setCurrentUser(user);
-                            loadData(user, 'background');
-                        } else {
-                            const profile = await storage.fetchProfile(session.user.id);
-                            if (profile) {
-                                setCurrentUser(profile);
-                                loadData(profile, 'sync'); // Use sync mode to show progress
-                            }
-                        }
-                    });
-                }
-            }
-        });
-
-        return () => subscription.unsubscribe();
-    }, [loadData]);
-
+    // Realtime logic disabled for local mode
     useEffect(() => {
         if (!currentUser) return;
-        const orgId = currentUser.organization_id;
-
-        const channel = supabase
-            .channel(`public_changes_${orgId}`)
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public' },
-                (payload) => {
-                    const table = payload.table;
-                    const record = payload.new as any;
-
-                    if (record && record.organization_id && record.organization_id !== orgId) {
-                        return;
-                    }
-                    loadData(currentUser, 'targeted', table);
-                }
-            )
-            .subscribe((status) => {
-                setIsRealtimeActive(status === 'SUBSCRIBED');
-            });
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
-    }, [currentUser, loadData]);
+        setIsRealtimeActive(true);
+        return () => {};
+    }, [currentUser]);
 
     useEffect(() => {
-        storage.getCurrentUser().then(async user => {
-            if (user) {
-                // Set whatever we have (fresh or cached but verified by session)
-                setCurrentUser(user);
-                
-                // If we are online, try one more time to get the absolute latest from DB
-                // to ensure organization_id hasn't changed in the background.
-                if (navigator.onLine) {
-                    const fresh = await storage.fetchProfile(user.user_id);
-                    if (fresh) setCurrentUser(fresh);
+        db.init().then(() => {
+            authService.getCurrentUser().then(user => {
+                if (user) {
+                    setCurrentUser(user);
+                    loadData(user, 'initial');
+                } else {
+                    setIsAppLoading(false);
                 }
-                
-                loadData(user, 'initial');
-            }
-            else setIsAppLoading(false);
+            });
+        }).catch(err => {
+            console.error('Database initialization failed:', err);
+            setAppLoadError('Failed to initialize local database.');
+            setIsAppLoading(false);
         });
-    }, []);
+    }, [loadData]);
 
     const handleReload = useCallback(async () => {
         if (currentUser) await loadData(currentUser, 'sync');
@@ -1474,28 +1425,24 @@ const App: React.FC = () => {
     }, [createMrpChangeLog, currentUser, inventory, loadData, medicines, normalizeCode, parseMrpNumber]);
 
     const resolveControlGlByCode = useCallback(async (organizationId: string, glCode: string): Promise<string | undefined> => {
-        const { data: bookRows, error: bookErr } = await supabase
-            .from('set_of_books')
-            .select('id')
-            .eq('organization_id', organizationId)
-            .eq('active_status', 'Active')
-            .order('created_at', { ascending: true })
-            .limit(1);
+        const bookRows = await db.sql`
+            SELECT id FROM set_of_books 
+            WHERE organization_id = ${organizationId} AND active_status = 'Active' 
+            ORDER BY created_at ASC LIMIT 1
+        `;
 
-        if (bookErr) throw bookErr;
         const activeBookId = bookRows?.[0]?.id;
         if (!activeBookId) return undefined;
 
-        const { data: glRows, error: glErr } = await supabase
-            .from('gl_master')
-            .select('id')
-            .eq('organization_id', organizationId)
-            .eq('set_of_books_id', activeBookId)
-            .eq('gl_code', glCode)
-            .eq('active_status', 'Active')
-            .limit(1);
+        const glRows = await db.sql`
+            SELECT id FROM gl_master 
+            WHERE organization_id = ${organizationId} 
+              AND set_of_books_id = ${activeBookId} 
+              AND gl_code = ${glCode} 
+              AND is_active = 1
+            LIMIT 1
+        `;
 
-        if (glErr) throw glErr;
         return glRows?.[0]?.id;
     }, []);
 
@@ -1510,32 +1457,28 @@ const App: React.FC = () => {
             throw new Error('Default GL not assigned for this Customer/Supplier Group. Please configure GL Assignment.');
         }
 
-        const { data: bookRows, error: bookErr } = await supabase
-            .from('set_of_books')
-            .select('id')
-            .eq('organization_id', organizationId)
-            .eq('active_status', 'Active')
-            .order('created_at', { ascending: true })
-            .limit(1);
+        const bookRows = await db.sql`
+            SELECT id FROM set_of_books 
+            WHERE organization_id = ${organizationId} AND active_status = 'Active' 
+            ORDER BY created_at ASC LIMIT 1
+        `;
 
-        if (bookErr) throw bookErr;
         const activeBookId = bookRows?.[0]?.id;
         if (!activeBookId) {
             return resolveControlGlByCode(organizationId, fallbackGlCode);
         }
 
-        const { data: assignmentRows, error: assignmentErr } = await supabase
-            .from('gl_assignments')
-            .select('control_gl_id')
-            .eq('organization_id', organizationId)
-            .eq('set_of_books_id', activeBookId)
-            .eq('assignment_scope', 'PARTY_GROUP')
-            .eq('party_type', partyType === 'customer' ? 'Customer' : 'Supplier')
-            .eq('party_group', trimmedGroup)
-            .eq('active_status', 'Active')
-            .limit(1);
+        const assignmentRows = await db.sql`
+            SELECT control_gl_id FROM gl_assignments 
+            WHERE organization_id = ${organizationId} 
+              AND set_of_books_id = ${activeBookId} 
+              AND assignment_scope = 'PARTY_GROUP' 
+              AND party_type = ${partyType === 'customer' ? 'Customer' : 'Supplier'} 
+              AND party_group = ${trimmedGroup} 
+              AND active_status = 'Active'
+            LIMIT 1
+        `;
 
-        if (assignmentErr) throw assignmentErr;
         const mappedGlId = assignmentRows?.[0]?.control_gl_id as string | undefined;
         if (mappedGlId) return mappedGlId;
 
@@ -2497,7 +2440,7 @@ const App: React.FC = () => {
                             if (isNewEmptySession) {
                                 // 1. Remove from local IndexedDB if it was ever saved there
                                 await storage.deleteData('physical_inventory', session.id);
-                                // 2. Attempt to revert the counter in Supabase
+                                // 2. Attempt to revert the counter locally
                                 await storage.markVoucherCancelled('physical-inventory', currentUser, session.voucher_no || session.id, session.id);
                                 // 3. Refresh local state
                                 await loadData(currentUser, 'background');

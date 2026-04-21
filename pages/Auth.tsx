@@ -206,7 +206,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { RegisteredPharmacy } from '../types';
-import { login, signup, requestPasswordReset, updatePassword, verifyRecoveryToken } from '../services/storageService';
+import { authService } from '../services/authService';
+import { requestPasswordReset, updatePassword, verifyRecoveryToken } from '../services/storageService';
 
 const initialFormData = {
     email: '',
@@ -256,10 +257,10 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin, initialView = 'auth' }) =>
                         setLoading(false);
                         return;
                     }
-                    const user = await signup(formData.email, formData.password, formData.fullName, formData.pharmacyName);
+                    const user = await authService.register(formData.email, formData.password, formData.fullName, formData.pharmacyName);
                     onLogin(user);
                 } else {
-                    const user = await login(formData.email, formData.password);
+                    const user = await authService.login(formData.email, formData.password);
                     onLogin(user);
                 }
             } else if (view === 'forgot') {

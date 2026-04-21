@@ -1,22 +1,6 @@
-import { supabase } from './supabaseClient';
+import { db } from './databaseService';
 
 export const DEFAULT_CONFIG_MISSING_MESSAGE = 'Default Company / Default Set of Books not configured. Please update Company Configuration.';
-
-type CompanyCodeRow = {
-  id: string;
-  code: string;
-  status?: string | null;
-  organization_id?: string;
-  is_default?: boolean | null;
-  default_set_of_books_id?: string | null;
-};
-
-type SetOfBooksRow = {
-  id: string;
-  company_code_id: string;
-  organization_id?: string;
-  active_status?: string | null;
-};
 
 export interface DefaultPostingContext {
   companyCodeId: string;
@@ -24,109 +8,49 @@ export interface DefaultPostingContext {
   setOfBooksId: string;
 }
 
-const isUuid = (value: string): boolean => (
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-);
-
-
-const isMissingDefaultColumnsError = (error: any): boolean => {
-  const message = String(error?.message || '').toLowerCase();
-  return message.includes('is_default') || message.includes('default_set_of_books_id');
-};
-
-const loadLegacyFallbackPostingContext = async (organizationId: string): Promise<DefaultPostingContext> => {
-  const { data: companies, error: companyError } = await supabase
-    .from('company_codes')
-    .select('id, code, status')
-    .eq('organization_id', organizationId)
-    .eq('status', 'Active')
-    .order('created_at', { ascending: true })
-    .limit(1);
-
-  if (companyError) throw companyError;
-
-  const company = (companies || [])[0] as { id: string; code: string } | undefined;
-  if (!company?.id) throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
-
-  let booksQuery = supabase
-    .from('set_of_books')
-    .select('id, company_code_id, active_status')
-    .eq('organization_id', organizationId)
-    .eq('active_status', 'Active')
-    .order('created_at', { ascending: true });
-
-  // Some legacy deployments store company references as text values.
-  // Adding a UUID-only filter there throws "operator does not exist: uuid = text".
-  if (isUuid(company.id)) {
-    booksQuery = booksQuery.eq('company_code_id', company.id);
-  }
-
-  const { data: books, error: booksError } = await booksQuery.limit(1);
-
-  if (booksError) throw booksError;
-
-  const book = (books || [])[0] as SetOfBooksRow | undefined;
-  if (!book?.id) throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
-
-  return {
-    companyCodeId: company.id,
-    companyCode: company.code,
-    setOfBooksId: book.id,
-  };
-};
-
 export const loadDefaultPostingContext = async (organizationId: string): Promise<DefaultPostingContext> => {
-  const { data: companies, error: companyError } = await supabase
-    .from('company_codes')
-    .select('id, code, status, organization_id, is_default, default_set_of_books_id')
-    .eq('organization_id', organizationId)
-    .eq('is_default', true)
-    .eq('status', 'Active')
-    .limit(1);
+  const companies = await db.sql`
+    SELECT id, code, status, organization_id, is_default, default_set_of_books_id 
+    FROM company_codes 
+    WHERE organization_id = ${organizationId} AND is_default = 1 AND status = 'Active' 
+    LIMIT 1
+  `;
 
-  if (companyError) {
-    if (isMissingDefaultColumnsError(companyError)) {
-      return loadLegacyFallbackPostingContext(organizationId);
-    }
-    throw companyError;
-  }
-
-  const defaultCompany = (companies || [])[0] as CompanyCodeRow | undefined;
+  const defaultCompany = companies[0];
   if (!defaultCompany?.id || !defaultCompany.default_set_of_books_id) {
-    throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
+    // Fallback: take the first active company if no default is set
+    const allCompanies = await db.sql`
+      SELECT id, code, status FROM company_codes 
+      WHERE organization_id = ${organizationId} AND status = 'Active' 
+      ORDER BY created_at ASC LIMIT 1
+    `;
+    const fallbackCompany = allCompanies[0];
+    if (!fallbackCompany) throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
+    
+    const books = await db.sql`
+      SELECT id FROM set_of_books 
+      WHERE organization_id = ${organizationId} AND company_code_id = ${fallbackCompany.id} AND active_status = 'Active' 
+      LIMIT 1
+    `;
+    const fallbackBook = books[0];
+    if (!fallbackBook) throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
+
+    return {
+      companyCodeId: fallbackCompany.id,
+      companyCode: fallbackCompany.code,
+      setOfBooksId: fallbackBook.id,
+    };
   }
 
-  const defaultSetOfBooksRef = String(defaultCompany.default_set_of_books_id);
-  const baseBooksQuery = supabase
-    .from('set_of_books')
-    .select('id, company_code_id, organization_id, active_status, set_of_books_id')
-    .eq('organization_id', organizationId)
-    .eq('active_status', 'Active');
+  const books = await db.sql`
+    SELECT id FROM set_of_books 
+    WHERE organization_id = ${organizationId} AND id = ${defaultCompany.default_set_of_books_id} AND active_status = 'Active' 
+    LIMIT 1
+  `;
 
-  const booksQuery = isUuid(defaultSetOfBooksRef)
-    ? baseBooksQuery.eq('id', defaultSetOfBooksRef)
-    : (isUuid(defaultCompany.id)
-      // Mixed-schema tenants may keep set_of_books.set_of_books_id as UUID while
-      // company_codes.default_set_of_books_id is stored as text label/code.
-      // Filtering with `.eq('set_of_books_id', text)` in that case can throw
-      // "operator does not exist: uuid = text". Prefer company linkage only.
-      ? baseBooksQuery.eq('company_code_id', defaultCompany.id)
-      : baseBooksQuery.eq('set_of_books_id', defaultSetOfBooksRef));
-
-  const { data: books, error: booksError } = await booksQuery.limit(1);
-
-  if (booksError) throw booksError;
-
-  const defaultBook = (books || [])[0] as SetOfBooksRow | undefined;
-  if (
-    !defaultBook
-    || defaultCompany.status !== 'Active'
-    || defaultCompany.organization_id !== organizationId
-    || defaultBook.active_status !== 'Active'
-    || defaultBook.organization_id !== organizationId
-    || defaultBook.company_code_id !== defaultCompany.id
-  ) {
-    throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
+  const defaultBook = books[0];
+  if (!defaultBook) {
+     throw new Error(DEFAULT_CONFIG_MISSING_MESSAGE);
   }
 
   return {

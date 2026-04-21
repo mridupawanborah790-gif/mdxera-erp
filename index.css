@@ -1,11 +1,38 @@
+@import "tailwindcss";
 
-/* MDXERA ERP Base Styles */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@theme {
+  --color-primary: #004242;
+  --color-primary-dark: #003333;
+  --color-accent: #ffcc00;
+  --color-app-bg: #fdfdf5;
+  --color-card-bg: #ffffff;
+  --color-sidebar-bg: #0F4C5C;
+  --color-sidebar-bg-dark: #0A3B49;
+  --color-app-text-primary: #000000;
+  --color-app-text-secondary: #333333;
+  --color-app-border: #999999;
+  
+  --radius-tally: 0px;
+}
 
 @layer base {
-  html {
+  :root {
+    background-color: #fdfdf5;
+    color: #000000;
+    
+    /* Explicit Modal Variables (used in Modal.tsx) */
+    --modal-bg-light: #fdfdf5;
+    --modal-content-bg-light: #ffffff;
+    --modal-header-bg-light: #004242;
+    --modal-header-text-light: #ffffff;
+    --modal-header-border-light: #003333;
+    --modal-border-color-light: #004242;
+  }
+
+  /* Force light colors even if system is dark */
+  html, body {
+    background-color: #fdfdf5 !important;
+    color: #000000 !important;
     -webkit-tap-highlight-color: transparent;
   }
   

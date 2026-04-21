@@ -1,7 +1,6 @@
-import { supabase } from './supabaseClient';
-import { idb, STORES } from './indexedDbService';
+
 import type { Supplier, RegisteredPharmacy } from '../types';
-import { generateUUID, toSnake, toCamel } from './storageService';
+import { generateUUID, saveData } from './storageService';
 
 export type SupplierSaveStatus = 'created' | 'updated' | 'duplicate';
 
@@ -12,15 +11,7 @@ export interface SupplierQuickResult {
 }
 
 export const formatSupplierApiError = (error: any): string => {
-    if (!error) return 'Unknown supplier API error';
-    if (typeof error === 'string') return error;
-
-    const parts = [error.message, error.details, error.hint]
-        .filter((part) => typeof part === 'string' && part.trim().length > 0)
-        .map((part) => part.trim());
-
-    if (parts.length > 0) return parts.join(' | ');
-    return String(error);
+    return String(error?.message || error || 'Unknown supplier error');
 };
 
 type SupplierPayload = Partial<Supplier> & { id?: string; name: string };
@@ -34,7 +25,7 @@ export const findDuplicateSupplier = (suppliers: Supplier[], payload: SupplierPa
     const phone = normalize(payload.phone || payload.mobile);
     const currentId = payload.id || '';
 
-    return suppliers.find((candidate) => {
+    return (suppliers || []).find((candidate) => {
         if (!candidate || candidate.id === currentId) return false;
         const sameName = !!name && normalize(candidate.name) === name;
         const sameGst = !!gst && normalizeAlphaNum(candidate.gst_number) === gst;
@@ -62,36 +53,19 @@ export const createSupplierQuick = async (
         return { status: 'duplicate', supplier: duplicate, message: 'Supplier already exists' };
     }
 
-    const now = new Date().toISOString();
     const payload: any = {
         ...supplierPayload,
-        id: supplierPayload.id || generateUUID(),
-        organization_id: organizationId,
-        user_id: context.currentUser.user_id || context.currentUser.id,
         name,
         supplier_group: supplierPayload.supplier_group || 'Sundry Creditors',
         control_gl_id: supplierPayload.control_gl_id || context.defaultControlGlId || '',
-        updated_at: now,
     };
 
-    if (!supplierPayload.id) payload.created_at = now;
-
-    const { data, error } = await supabase
-        .from('suppliers')
-        .upsert(toSnake(payload))
-        .select('*')
-        .single();
-
-    if (error) throw new Error(formatSupplierApiError(error));
-
-    const saved = toCamel(data) as Supplier;
-    
-    // Sync with local IndexedDB immediately to prevent stale data reverts during background reload
-    await idb.put(STORES.SUPPLIERS, saved);
+    const isUpdate = !!supplierPayload.id;
+    const saved = await saveData('suppliers', payload, context.currentUser, isUpdate);
 
     return {
-        status: supplierPayload.id ? 'updated' : 'created',
+        status: isUpdate ? 'updated' : 'created',
         supplier: saved,
-        message: supplierPayload.id ? 'Updated Successfully' : 'Saved Successfully',
+        message: isUpdate ? 'Updated Successfully' : 'Saved Successfully',
     };
 };

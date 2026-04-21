@@ -61,7 +61,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser, addNotific
 
     const handleRoleChange = async (userId: string, newRole: UserRole) => {
         try {
-            await updateMemberRole(userId, newRole);
+            await updateMemberRole(userId, newRole, currentUser);
             addNotification("Role updated successfully.", "success");
             loadMembers();
         } catch (err) {

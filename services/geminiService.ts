@@ -29,7 +29,8 @@ const SUPABASE_ANON_KEY = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
 
 const callGeminiOcr = async (request: string | GeminiOcrRequest): Promise<any> => {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        throw new Error("Supabase configuration is missing in .env");
+        console.warn("Supabase configuration is missing. AI features will be disabled.");
+        return { success: false, error: "AI features are unavailable in offline mode without configuration." };
     }
 
     const model = getPreferredGeminiModel();

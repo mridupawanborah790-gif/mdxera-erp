@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Card from '../components/Card';
 import { RegisteredPharmacy } from '../types';
-import { supabase } from '../services/supabaseClient';
+import { db } from '../services/databaseService';
+import * as storage from '../services/storageService';
 
 interface NewJournalEntryVoucherProps {
   currentUser: RegisteredPharmacy | null;
@@ -101,12 +102,11 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
   const loadMasters = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const [{ data: companyRows, error: companyErr }, { data: bookRows, error: booksErr }] = await Promise.all([
-        supabase.from('company_codes').select('id, company_name').eq('organization_id', currentUser.organization_id).eq('active_status', 'Active').order('created_at', { ascending: true }),
-        supabase.from('set_of_books').select('id, book_name, company_code_id').eq('organization_id', currentUser.organization_id).eq('active_status', 'Active').order('created_at', { ascending: true }),
+      const [companyRows, bookRows] = await Promise.all([
+        db.sql`SELECT id, name as company_name FROM company_codes WHERE organization_id = ${currentUser.organization_id} AND status = 'Active' ORDER BY created_at ASC`,
+        db.sql`SELECT id, name as book_name, company_code_id FROM set_of_books WHERE organization_id = ${currentUser.organization_id} AND active_status = 'Active' ORDER BY created_at ASC`,
       ]);
-      if (companyErr) throw companyErr;
-      if (booksErr) throw booksErr;
+
       setCompanies((companyRows || []) as any);
       setSetOfBooks((bookRows || []) as any);
 
@@ -115,16 +115,15 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
       setCompanyId((prev) => prev || defaultCompanyId);
       setSetOfBooksId((prev) => prev || defaultBookId);
 
-      const { data: glRows, error: glErr } = await supabase
-        .from('gl_master')
-        .select('id, gl_code, gl_name, posting_allowed, active_status, blocked_for_posting, set_of_books_id')
-        .eq('organization_id', currentUser.organization_id)
-        .eq('active_status', 'Active')
-        .order('gl_code', { ascending: true });
-      if (glErr) throw glErr;
+      const glRows = await db.sql`
+        SELECT id, gl_code, gl_name, set_of_books_id 
+        FROM gl_master 
+        WHERE organization_id = ${currentUser.organization_id} 
+        AND is_active = 1 
+        ORDER BY gl_code ASC
+      `;
+      
       const allowed = (glRows || [])
-        .filter((g: any) => g.posting_allowed !== false)
-        .filter((g: any) => g.blocked_for_posting !== true)
         .filter((g: any) => !setOfBooksId || g.set_of_books_id === setOfBooksId)
         .map((g: any) => ({ id: String(g.id), code: String(g.gl_code || ''), name: String(g.gl_name || '') }));
       setGlOptions(allowed);
@@ -135,18 +134,19 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
 
   const loadRecent = useCallback(async () => {
     if (!currentUser) return;
-    const { data, error } = await supabase
-      .from('journal_entry_header')
-      .select('id, journal_entry_number, posting_date, status, narration, reference_id, created_at, created_by, document_type')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('document_type', 'MANUAL_JV')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (error) {
+    try {
+      const data = await db.sql`
+        SELECT id, journal_entry_number, posting_date, status, narration, reference_id, created_at, created_by, document_type 
+        FROM journal_entry_header 
+        WHERE organization_id = ${currentUser.organization_id} 
+        AND document_type = 'MANUAL_JV' 
+        ORDER BY created_at DESC 
+        LIMIT 20
+      `;
+      setRecentVouchers((data || []) as VoucherHeader[]);
+    } catch (error: any) {
       addNotification(error.message, 'error');
-      return;
     }
-    setRecentVouchers((data || []) as VoucherHeader[]);
   }, [addNotification, currentUser]);
 
   useEffect(() => {
@@ -156,38 +156,33 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
 
   useEffect(() => {
     if (!currentUser || !setOfBooksId) return;
-    supabase
-      .from('gl_master')
-      .select('id, gl_code, gl_name, posting_allowed, active_status, blocked_for_posting, set_of_books_id')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('active_status', 'Active')
-      .eq('set_of_books_id', setOfBooksId)
-      .order('gl_code', { ascending: true })
-      .then(({ data, error }) => {
-        if (error) {
-          addNotification(error.message, 'error');
-          return;
-        }
-        const allowed = (data || [])
-          .filter((g: any) => g.posting_allowed !== false)
-          .filter((g: any) => g.blocked_for_posting !== true)
-          .map((g: any) => ({ id: String(g.id), code: String(g.gl_code || ''), name: String(g.gl_name || '') }));
-        setGlOptions(allowed);
-      });
+    db.sql`
+      SELECT id, gl_code, gl_name, set_of_books_id 
+      FROM gl_master 
+      WHERE organization_id = ${currentUser.organization_id} 
+      AND is_active = 1 
+      AND set_of_books_id = ${setOfBooksId} 
+      ORDER BY gl_code ASC
+    `.then((data) => {
+      const allowed = (data || [])
+        .map((g: any) => ({ id: String(g.id), code: String(g.gl_code || ''), name: String(g.gl_name || '') }));
+      setGlOptions(allowed);
+    }).catch(error => {
+      addNotification(error.message, 'error');
+    });
   }, [addNotification, currentUser, setOfBooksId]);
 
   const generateVoucherNumber = useCallback(async (inputDate: string) => {
     if (!currentUser) throw new Error('User context missing');
     const fy = getFinancialYearLabel(inputDate);
-    const { data, error } = await supabase
-      .from('journal_entry_header')
-      .select('journal_entry_number')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('document_type', 'MANUAL_JV')
-      .ilike('journal_entry_number', `JV%-${fy}`)
-      .limit(5000);
-
-    if (error) throw error;
+    const data = await db.sql`
+      SELECT journal_entry_number 
+      FROM journal_entry_header 
+      WHERE organization_id = ${currentUser.organization_id} 
+      AND document_type = 'MANUAL_JV' 
+      AND journal_entry_number LIKE ${`JV%-${fy}`}
+      LIMIT 5000
+    `;
 
     let maxSeq = 0;
     for (const row of data || []) {
@@ -264,6 +259,7 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
     setVoucherNo(resolvedVoucherNo);
 
     const baseHeader: any = {
+      id: currentVoucherId || storage.generateUUID(),
       organization_id: currentUser.organization_id,
       journal_entry_number: resolvedVoucherNo,
       posting_date: date,
@@ -283,28 +279,20 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
       created_by: currentUser.user_id,
     };
 
-    let headerId = currentVoucherId;
+    const headerId = baseHeader.id;
 
-    if (headerId) {
-      const { error } = await supabase.from('journal_entry_header').update(baseHeader).eq('id', headerId);
-      if (error) throw error;
-      const { error: delErr } = await supabase.from('journal_entry_lines').delete().eq('organization_id', currentUser.organization_id).eq('journal_entry_id', headerId);
-      if (delErr) throw delErr;
+    if (currentVoucherId) {
+      await storage.saveData('journal_entry_header', baseHeader, currentUser, true);
+      await db.sql`DELETE FROM journal_entry_lines WHERE organization_id = ${currentUser.organization_id} AND journal_entry_id = ${headerId}`;
     } else {
-      const { data, error } = await supabase.from('journal_entry_header').insert(baseHeader).select('id, created_at, created_by').single();
-      if (error) {
-        if (String(error.message || '').toLowerCase().includes('duplicate')) {
-          setVoucherNo('AUTO');
-        }
-        throw error;
-      }
-      headerId = String(data.id);
+      await storage.saveData('journal_entry_header', baseHeader, currentUser, false);
       setCurrentVoucherId(headerId);
-      setCreatedAt(String(data.created_at || ''));
+      setCreatedAt(new Date().toISOString());
       setCreatedByName(currentUser.full_name || currentUser.email || '');
     }
 
     const payloadLines = cleanLines.map((line) => ({
+      id: storage.generateUUID(),
       organization_id: currentUser.organization_id,
       journal_entry_id: headerId,
       reference_document_id: headerId,
@@ -312,15 +300,14 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
       line_number: line.line_number,
       gl_code: line.glCode,
       gl_name: line.glName,
-      account_code: line.glCode,
-      account_name: line.glName,
       debit: line.debit_value,
       credit: line.credit_value,
       line_memo: [line.remarks, line.costCenter && `CC:${line.costCenter}`, line.projectTask && `PRJ:${line.projectTask}`, line.reference && `REF:${line.reference}`].filter(Boolean).join(' | ') || null,
     }));
 
-    const { error: lineErr } = await supabase.from('journal_entry_lines').insert(payloadLines as any);
-    if (lineErr) throw lineErr;
+    for (const l of payloadLines) {
+      await storage.saveData('journal_entry_lines', l, currentUser, false);
+    }
 
     setStatus(nextStatus);
     await loadRecent();
@@ -364,27 +351,18 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
 
   const loadVoucher = async (voucherId: string) => {
     if (!currentUser) return;
-    const { data: header, error: hErr } = await supabase
-      .from('journal_entry_header')
-      .select('*')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('id', voucherId)
-      .single();
-    if (hErr) {
-      addNotification(hErr.message, 'error');
+    const header = await storage.getDataById('journal_entry_header', voucherId, currentUser);
+    if (!header) {
+      addNotification('Voucher not found.', 'error');
       return;
     }
 
-    const { data: lineRows, error: lErr } = await supabase
-      .from('journal_entry_lines')
-      .select('*')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('journal_entry_id', voucherId)
-      .order('line_number', { ascending: true });
-    if (lErr) {
-      addNotification(lErr.message, 'error');
-      return;
-    }
+    const lineRows = await db.sql`
+      SELECT * FROM journal_entry_lines 
+      WHERE organization_id = ${currentUser.organization_id} 
+      AND journal_entry_id = ${voucherId} 
+      ORDER BY line_number ASC
+    `;
 
     setCurrentVoucherId(String(header.id));
     setDate(String(header.posting_date || '').slice(0, 10));
