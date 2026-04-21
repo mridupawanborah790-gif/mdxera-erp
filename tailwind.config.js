@@ -17,6 +17,7 @@ export default {
         accent: '#ffcc00',
         'app-bg': '#fdfdf5',
         'card-bg': '#ffffff',
+        'input-bg': '#ffffff',
         'sidebar-bg': '#0F4C5C',
         'sidebar-bg-dark': '#0A3B49',
         'app-text-primary': '#000000',

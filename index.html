@@ -43,6 +43,7 @@
         --sidebar-width: 16rem;
         --quickkeys-width: 10rem;
 
+        /* Light modal variables */
         --modal-header-bg-light: #004242;
         --modal-header-text-light: #FFFFFF;
         --modal-header-border-light: #003333;
@@ -50,6 +51,17 @@
         --modal-bg-light: #fdfdf5;
         --modal-content-bg-light: #ffffff;
         --modal-footer-bg-light: #f1f1f1;
+        --modal-footer-border-light: #dddddd;
+
+        /* Dark modal variables — defined here so dark: variants never go transparent */
+        --modal-header-bg-dark: #004242;
+        --modal-header-text-dark: #FFFFFF;
+        --modal-header-border-dark: #003333;
+        --modal-border-color-dark: #004242;
+        --modal-bg-dark: #1e1e1e;
+        --modal-content-bg-dark: #2a2a2a;
+        --modal-footer-bg-dark: #1a1a1a;
+        --modal-footer-border-dark: #3a3a3a;
       }
 
       body {
@@ -106,10 +118,16 @@
         margin: 0;
       }
     </style>
-<link rel="stylesheet" href="/index.css">
+<link rel="stylesheet" href="/src/index.css">
 </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+<body>
+<!-- 
+  Prevent OS/system dark mode from activating Tailwind's dark: variants.
+  This app is intentionally light-mode only. The dark class must never be
+  present on <html> unless explicitly set by the app itself.
+-->
+<script>document.documentElement.classList.remove('dark');</script>
+<div id="root"></div>
+<script type="module" src="/src/index.tsx"></script>
+</body>
 </html>

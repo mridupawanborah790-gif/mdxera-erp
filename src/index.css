@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/*
+  CRITICAL: Override Tailwind v4's default dark mode strategy.
+  By default, Tailwind v4 uses @media (prefers-color-scheme: dark) for dark: variants.
+  This app is LIGHT-MODE ONLY. We redefine the dark variant to only match when
+  the .dark class is explicitly set on html — which we never do.
+  This prevents the OS/system dark mode from making the app look dark.
+*/
+@custom-variant dark (&:where(.dark, .dark *));
+
+
+@theme {
+  --color-primary: #004242;
+  --color-primary-dark: #003333;
+  --color-accent: #ffcc00;
+  --color-app-bg: #fdfdf5;
+  --color-card-bg: #ffffff;
+  --color-input-bg: #ffffff;
+  --color-sidebar-bg: #0F4C5C;
+  --color-sidebar-bg-dark: #0A3B49;
+  --color-app-text-primary: #000000;
+  --color-app-text-secondary: #333333;
+  --color-app-border: #999999;
+  
+  --radius-tally: 0px;
+}
+
+@layer base {
+  :root {
+    background-color: #fdfdf5;
+    color: #000000;
+    
+    /* Explicit Modal Variables (used in Modal.tsx) — LIGHT */
+    --modal-bg-light: #fdfdf5;
+    --modal-content-bg-light: #ffffff;
+    --modal-header-bg-light: #004242;
+    --modal-header-text-light: #ffffff;
+    --modal-header-border-light: #003333;
+    --modal-border-color-light: #004242;
+    --modal-footer-bg-light: #f1f1f1;
+    --modal-footer-border-light: #dddddd;
+
+    /*
+      DARK modal variables intentionally mirror light values.
+      Even if a dark: variant activates (e.g. from a future feature),
+      modals will always render with a readable light background.
+      Change these only if you explicitly implement dark mode.
+    */
+    --modal-bg-dark: #fdfdf5;
+    --modal-content-bg-dark: #ffffff;
+    --modal-header-bg-dark: #004242;
+    --modal-header-text-dark: #ffffff;
+    --modal-header-border-dark: #003333;
+    --modal-border-color-dark: #004242;
+    --modal-footer-bg-dark: #f1f1f1;
+    --modal-footer-border-dark: #dddddd;
+  }
+
+  /* Force light colors always — this app is light-mode only.
+     System dark mode is intentionally ignored to prevent dark backgrounds
+     on the dashboard and transparent modals. */
+  html, body {
+    background-color: #fdfdf5 !important;
+    color: #000000 !important;
+    -webkit-tap-highlight-color: transparent;
+    color-scheme: light !important;
+  }
+  
+  body {
+    @apply antialiased select-none;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Custom transitions */
+.page-transition-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.page-transition-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 200ms, transform 200ms;
+}
