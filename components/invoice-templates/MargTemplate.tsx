@@ -117,10 +117,13 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
   const toUpperDisplay = (value?: string | null) => (value || '').toString().trim().toUpperCase();
   const customerAddressLine1 = toUpperDisplay(bill.customerDetails?.address_line1 || bill.customerDetails?.address);
-  const customerArea = toUpperDisplay(bill.customerDetails?.area || bill.customerDetails?.city);
   const customerDistrict = toUpperDisplay(bill.customerDetails?.district);
   const customerState = toUpperDisplay(bill.customerDetails?.state);
   const customerPincode = toUpperDisplay(bill.customerDetails?.pincode);
+  const customerAddressParts = [customerAddressLine1, customerDistrict, customerState].filter(Boolean);
+  const customerAddressCompact = customerAddressParts.length > 0
+    ? `${customerAddressParts.join(', ')}${customerPincode ? ` - ${customerPincode}` : ''}`
+    : (customerPincode ? customerPincode : '');
   const customerPhone = toUpperDisplay(bill.customerPhone || bill.customerDetails?.phone);
   const customerGstin = toUpperDisplay(bill.customerDetails?.gstNumber);
   const customerDrugLicense = toUpperDisplay(bill.customerDetails?.drugLicense);
@@ -230,11 +233,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                <p className="uppercase text-[8.5pt] text-gray-950 leading-tight">{toUpperDisplay(bill.customerName)}</p>
                <div className="mt-0.5 space-y-0.5 text-[7pt] font-normal text-gray-700">
                  {customerPhone && <p>PH: {customerPhone}</p>}
-                 {customerAddressLine1 && <p className="leading-tight">ADDRESS: {customerAddressLine1}</p>}
-                 {customerArea && <p className="leading-tight">AREA: {customerArea}</p>}
-                 {customerDistrict && <p className="leading-tight">DISTRICT: {customerDistrict}</p>}
-                 {customerState && <p className="leading-tight">STATE: {customerState}</p>}
-                 {customerPincode && <p className="leading-tight">PINCODE: {customerPincode}</p>}
+                 {customerAddressCompact && <p className="leading-tight">ADDRESS: {customerAddressCompact}</p>}
                  {customerGstin && <p>GSTIN: {customerGstin}</p>}
                  {customerDrugLicense && <p>DL NO: {customerDrugLicense}</p>}
                </div>
