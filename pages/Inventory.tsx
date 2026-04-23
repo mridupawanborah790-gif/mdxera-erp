@@ -16,7 +16,8 @@ import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
 // Standardized typography matching POS screen "Product Selection Matrix"
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
-const ITEMS_PER_PAGE = 10;
+const DEFAULT_ITEMS_PER_PAGE = 15;
+const ROWS_PER_PAGE_OPTIONS = [10, 15, 25, 50] as const;
 
 // Icons
 const SearchIcon = (props: React.SVGProps<SVGSVGElement>) => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>;
@@ -91,6 +92,7 @@ const Inventory: React.FC<InventoryProps> = ({
     const [isColumnSelectorOpen, setIsColumnSelectorOpen] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [currentPage, setCurrentPage] = useState(1);
+    const [rowsPerPage, setRowsPerPage] = useState<number>(DEFAULT_ITEMS_PER_PAGE);
     const [isMrpLogOpen, setIsMrpLogOpen] = useState(false);
     const [detailRowKey, setDetailRowKey] = useState<string | null>(null);
     const columnSelectorRef = useRef<HTMLDivElement>(null);
@@ -213,12 +215,19 @@ const Inventory: React.FC<InventoryProps> = ({
         [detailRowKey, groupedItems],
     );
 
-    const totalPages = Math.ceil(groupedItems.length / ITEMS_PER_PAGE);
+    const totalPages = Math.max(1, Math.ceil(groupedItems.length / rowsPerPage));
 
     const paginatedItems = useMemo(() => {
-        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-        return groupedItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-    }, [groupedItems, currentPage]);
+        const startIndex = (currentPage - 1) * rowsPerPage;
+        return groupedItems.slice(startIndex, startIndex + rowsPerPage);
+    }, [groupedItems, currentPage, rowsPerPage]);
+
+    useEffect(() => {
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+            setSelectedIndex(0);
+        }
+    }, [currentPage, totalPages]);
 
     useEffect(() => {
         if (initialFilters?.lowStockOnly) {
@@ -313,7 +322,7 @@ const Inventory: React.FC<InventoryProps> = ({
         } else if (currentPage < totalPages) {
             setCurrentPage(p => p + 1);
             setSelectedIndex(0);
-            setItemToEdit(groupedItems[currentPage * ITEMS_PER_PAGE]?.representative || null);
+            setItemToEdit(groupedItems[currentPage * rowsPerPage]?.representative || null);
         }
     };
 
@@ -324,8 +333,8 @@ const Inventory: React.FC<InventoryProps> = ({
             setItemToEdit(paginatedItems[prevIdxInPage].representative);
         } else if (currentPage > 1) {
             setCurrentPage(p => p - 1);
-            setSelectedIndex(ITEMS_PER_PAGE - 1);
-            setItemToEdit(groupedItems[(currentPage - 2) * ITEMS_PER_PAGE + (ITEMS_PER_PAGE - 1)]?.representative || null);
+            setSelectedIndex(rowsPerPage - 1);
+            setItemToEdit(groupedItems[(currentPage - 2) * rowsPerPage + (rowsPerPage - 1)]?.representative || null);
         }
     };
 
@@ -541,6 +550,23 @@ const Inventory: React.FC<InventoryProps> = ({
                                 />
                                 <span className="text-[11px] font-bold uppercase text-gray-600">Low Stock</span>
                             </label>
+
+                            <label className="flex items-center gap-2 bg-white px-3 py-1.5 border border-gray-400">
+                                <span className="text-[10px] font-black uppercase tracking-wide text-gray-600">Rows</span>
+                                <select
+                                    value={rowsPerPage}
+                                    onChange={(e) => {
+                                        setRowsPerPage(Number(e.target.value));
+                                        setCurrentPage(1);
+                                        setSelectedIndex(0);
+                                    }}
+                                    className="bg-white text-[11px] font-bold text-gray-700 outline-none"
+                                >
+                                    {ROWS_PER_PAGE_OPTIONS.map((size) => (
+                                        <option key={size} value={size}>{size} / page</option>
+                                    ))}
+                                </select>
+                            </label>
                             
                             <div className="relative" ref={columnSelectorRef}>
                                 <button 
@@ -597,7 +623,7 @@ const Inventory: React.FC<InventoryProps> = ({
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-auto bg-white">
+                    <div className="flex-1 overflow-auto bg-white" style={{ minHeight: `${rowsPerPage * 42}px` }}>
                         <table className="min-w-full border-collapse whitespace-nowrap">
                             <thead className="bg-[#e1e1e1] sticky top-0 z-10">
                                 <tr className={`${uniformTextStyle} text-gray-700 border-b border-gray-400`}>
@@ -659,7 +685,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                                 setSelectedIndex(idx);
                                             }}
                                         >
-                                            <td className={`py-1.5 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-400'} ${uniformTextStyle}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
+                                            <td className={`py-1.5 px-2 border-r border-gray-200 text-center ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-400'} ${uniformTextStyle}`}>{((currentPage - 1) * rowsPerPage) + idx + 1}</td>
                                             
                                             {isFieldVisible('colName') && (
                                                 <td className="py-1 px-2 border-r border-gray-200">
@@ -731,7 +757,7 @@ const Inventory: React.FC<InventoryProps> = ({
                     {totalPages > 1 && (
                         <div className="p-2 bg-gray-100 border-t border-gray-400 flex justify-between items-center flex-shrink-0">
                             <div className="text-[10px] font-black uppercase text-gray-500 tracking-widest ml-2">
-                                Showing {paginatedItems.length} of {groupedItems.length} items
+                                Showing {paginatedItems.length} of {groupedItems.length} items · {rowsPerPage} per page
                             </div>
                             <div className="flex items-center gap-1">
                                 <button 
