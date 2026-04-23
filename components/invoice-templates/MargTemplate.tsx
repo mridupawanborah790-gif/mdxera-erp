@@ -117,7 +117,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
   const toUpperDisplay = (value?: string | null) => (value || '').toString().trim().toUpperCase();
   const customerAddressLine1 = toUpperDisplay(bill.customerDetails?.address_line1 || bill.customerDetails?.address);
+  const customerArea = toUpperDisplay(bill.customerDetails?.area || bill.customerDetails?.city);
   const customerDistrict = toUpperDisplay(bill.customerDetails?.district);
+  const customerState = toUpperDisplay(bill.customerDetails?.state);
   const customerPincode = toUpperDisplay(bill.customerDetails?.pincode);
   const customerPhone = toUpperDisplay(bill.customerPhone || bill.customerDetails?.phone);
   const customerGstin = toUpperDisplay(bill.customerDetails?.gstNumber);
@@ -225,12 +227,14 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
             <div className="p-1.5">
                <h3 className="text-[6pt] font-black uppercase underline mb-0.5 text-gray-500">Party Details:</h3>
-               <p className="font-black uppercase text-[8.5pt] text-gray-950 leading-tight">{bill.customerName}</p>
-               <div className="mt-0.5 space-y-0.5 text-[7pt] font-medium text-gray-700">
-                 {customerAddressLine1 && <p className="leading-tight">ADDRESS: {customerAddressLine1}</p>}
-                 {customerDistrict && <p className="leading-tight">DISTRICT: {customerDistrict}</p>}
-                 {customerPincode && <p className="leading-tight">PINCODE: {customerPincode}</p>}
+               <p className="uppercase text-[8.5pt] text-gray-950 leading-tight">{toUpperDisplay(bill.customerName)}</p>
+               <div className="mt-0.5 space-y-0.5 text-[7pt] font-normal text-gray-700">
                  {customerPhone && <p>PH: {customerPhone}</p>}
+                 {customerAddressLine1 && <p className="leading-tight">ADDRESS: {customerAddressLine1}</p>}
+                 {customerArea && <p className="leading-tight">AREA: {customerArea}</p>}
+                 {customerDistrict && <p className="leading-tight">DISTRICT: {customerDistrict}</p>}
+                 {customerState && <p className="leading-tight">STATE: {customerState}</p>}
+                 {customerPincode && <p className="leading-tight">PINCODE: {customerPincode}</p>}
                  {customerGstin && <p>GSTIN: {customerGstin}</p>}
                  {customerDrugLicense && <p>DL NO: {customerDrugLicense}</p>}
                </div>
