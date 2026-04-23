@@ -52,6 +52,7 @@ type GridColumnKey =
     | 'packType'
     | 'unitOfMeasurement'
     | 'quantity'
+    | 'freeQuantity'
     | 'estimatedRate'
     | 'discountPercent'
     | 'gstPercent'
@@ -65,6 +66,7 @@ const GRID_COLUMN_ORDER: GridColumnKey[] = [
     'packType',
     'unitOfMeasurement',
     'quantity',
+    'freeQuantity',
     'estimatedRate',
     'discountPercent',
     'gstPercent',
@@ -272,7 +274,12 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
     useEffect(() => {
         if (Array.isArray(draftItems) && draftItems.length > 0) {
-            setItems(normalizeLineItems(draftItems.map(item => ({ ...createEmptyLineItem(), ...item, id: item.id || generateSafeUUID() }))));
+            setItems(normalizeLineItems(draftItems.map(item => ({
+                ...createEmptyLineItem(),
+                ...item,
+                freeQuantity: Number((item as any).freeQuantity ?? (item as any).freeQty ?? 0),
+                id: item.id || generateSafeUUID()
+            }))));
             setView('create');
         }
     }, [draftItems]);
@@ -402,6 +409,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
     const recalculateLine = (line: PurchaseOrderItem): PurchaseOrderItem => {
         const qty = Number(line.quantity || 0);
+        const freeQty = Number((line as any).freeQuantity ?? (line as any).freeQty ?? 0);
         const rate = Number(line.estimatedRate ?? line.purchasePrice ?? 0);
         const discPct = Number(line.discountPercent || 0);
         const gstPct = Number(line.gstPercent || 0);
@@ -414,6 +422,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
 
         return {
             ...line,
+            freeQuantity: freeQty,
             purchasePrice: rate,
             lineAmount,
             discountAmount,
@@ -995,6 +1004,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                             <th className="p-2 border-r border-gray-400">Pack</th>
                                             <th className="p-2 border-r border-gray-400">Unit</th>
                                             <th className="p-2 border-r border-gray-400">Qty</th>
+                                            <th className="p-2 border-r border-gray-400">F.Qty</th>
                                             <th className="p-2 border-r border-gray-400">Est. Rate</th>
                                             <th className="p-2 border-r border-gray-400">Disc %</th>
                                             <th className="p-2 border-r border-gray-400">GST %</th>
@@ -1023,6 +1033,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                                 <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'packType', el)} value={item.packType || ''} onFocus={() => setActiveCell({ rowId: item.id, column: 'packType' })} onKeyDown={e => handleGridNavigation(e, item.id, 'packType')} onChange={e => handleUpdateItem(item.id, 'packType', e.target.value)} className={getCellClassName(item.id, 'packType', 'w-full bg-transparent p-1 outline-none')} /></td>
                                                 <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'unitOfMeasurement', el)} value={item.unitOfMeasurement || ''} onFocus={() => setActiveCell({ rowId: item.id, column: 'unitOfMeasurement' })} onKeyDown={e => handleGridNavigation(e, item.id, 'unitOfMeasurement')} onChange={e => handleUpdateItem(item.id, 'unitOfMeasurement', e.target.value)} className={getCellClassName(item.id, 'unitOfMeasurement', 'w-full bg-transparent p-1 outline-none')} /></td>
                                                 <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'quantity', el)} type="number" min={0} value={item.quantity} onFocus={() => setActiveCell({ rowId: item.id, column: 'quantity' })} onKeyDown={e => handleGridNavigation(e, item.id, 'quantity')} onChange={e => handleUpdateItem(item.id, 'quantity', Number(e.target.value) || 0)} className={getCellClassName(item.id, 'quantity', 'w-24 bg-transparent p-1 outline-none text-right')} /></td>
+                                                <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'freeQuantity', el)} type="number" min={0} value={item.freeQuantity || 0} onFocus={() => setActiveCell({ rowId: item.id, column: 'freeQuantity' })} onKeyDown={e => handleGridNavigation(e, item.id, 'freeQuantity')} onChange={e => handleUpdateItem(item.id, 'freeQuantity', Number(e.target.value) || 0)} className={getCellClassName(item.id, 'freeQuantity', 'w-24 bg-transparent p-1 outline-none text-right')} /></td>
                                                 <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'estimatedRate', el)} type="number" min={0} value={item.estimatedRate ?? item.purchasePrice ?? 0} onFocus={() => setActiveCell({ rowId: item.id, column: 'estimatedRate' })} onKeyDown={e => handleGridNavigation(e, item.id, 'estimatedRate')} onChange={e => handleUpdateItem(item.id, 'estimatedRate', Number(e.target.value) || 0)} className={getCellClassName(item.id, 'estimatedRate', 'w-28 bg-transparent p-1 outline-none text-right')} /></td>
                                                 <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'discountPercent', el)} type="number" min={0} value={item.discountPercent || 0} onFocus={() => setActiveCell({ rowId: item.id, column: 'discountPercent' })} onKeyDown={e => handleGridNavigation(e, item.id, 'discountPercent')} onChange={e => handleUpdateItem(item.id, 'discountPercent', Number(e.target.value) || 0)} className={getCellClassName(item.id, 'discountPercent', 'w-20 bg-transparent p-1 outline-none text-right')} /></td>
                                                 <td className="p-1 border-r"><input ref={el => setCellRef(item.id, 'gstPercent', el)} type="number" min={0} value={item.gstPercent || 0} onFocus={() => setActiveCell({ rowId: item.id, column: 'gstPercent' })} onKeyDown={e => handleGridNavigation(e, item.id, 'gstPercent')} onChange={e => handleUpdateItem(item.id, 'gstPercent', Number(e.target.value) || 0)} className={getCellClassName(item.id, 'gstPercent', 'w-20 bg-transparent p-1 outline-none text-right')} /></td>
@@ -1146,6 +1157,7 @@ const PurchaseOrdersPage = React.forwardRef<any, PurchaseOrdersProps>(({
                                                                         (po.items || []).map(item => ({
                                                                             ...createEmptyLineItem(),
                                                                             ...item,
+                                                                            freeQuantity: Number((item as any).freeQuantity ?? (item as any).freeQty ?? 0),
                                                                             id: item.id || crypto.randomUUID(),
                                                                             expectedDeliveryDate: item.expectedDeliveryDate
                                                                                 ? new Date(item.expectedDeliveryDate).toISOString().split('T')[0]
