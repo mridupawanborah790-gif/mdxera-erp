@@ -2048,6 +2048,32 @@ const App: React.FC = () => {
         return { ...currentUser, pharmacy_logo_url: configuredLogo };
     };
 
+    const buildPrintBillPayload = (tx: Transaction) => {
+        const billPharmacy = buildBillPharmacy();
+        if (!billPharmacy) return null;
+
+        const normalizedCustomerId = String(tx.customerId || '').trim();
+        const normalizedCustomerName = String(tx.customerName || '').trim().toLowerCase();
+        const normalizedCustomerPhone = String(tx.customerPhone || '').replace(/\D/g, '');
+
+        const matchedCustomer = customers.find((customer) => {
+            if (normalizedCustomerId && String(customer.id || '').trim() === normalizedCustomerId) return true;
+            const nameMatch = normalizedCustomerName && String(customer.name || '').trim().toLowerCase() === normalizedCustomerName;
+            if (!nameMatch) return false;
+            if (!normalizedCustomerPhone) return true;
+            const customerPhone = String(customer.phone || '').replace(/\D/g, '');
+            return customerPhone ? customerPhone === normalizedCustomerPhone : true;
+        });
+
+        return {
+            ...tx,
+            pharmacy: billPharmacy,
+            customerDetails: matchedCustomer,
+            inventory,
+            configurations
+        } as DetailedBill & { inventory: InventoryItem[]; configurations: AppConfigurations; };
+    };
+
     const renderPage = (pageId: string, isActive: boolean) => {
         const configId = pageId === 'nonGstPos' ? 'pos' : pageId;
         const config: ModuleConfig = { visible: true, fields: configurations.modules?.[configId]?.fields || {} };
@@ -2080,7 +2106,11 @@ const App: React.FC = () => {
                         inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
                         doctors={doctors}
                         onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
-                        onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
+                        onPrintBill={(tx) => {
+                            const payload = buildPrintBillPayload(tx);
+                            if (!payload) return;
+                            setPrintBill(payload);
+                        }}
                         currentUser={currentUser} config={config} configurations={configurations}
                         billType={pageId === 'nonGstPos' ? 'non-gst' : 'regular'}
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
@@ -2104,7 +2134,11 @@ const App: React.FC = () => {
                         configurations={configurations}
                         onAddMedicineMaster={handleAddMedicineMaster}
                         onViewDetails={setViewTransaction}
-                        onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
+                        onPrintBill={(tx) => {
+                            const payload = buildPrintBillPayload(tx);
+                            if (!payload) return;
+                            setPrintBill(payload);
+                        }}
                         onCancelTransaction={handleCancelTransaction}
                         currentUser={currentUser} onViewSale={setViewTransaction}
                         onEditSale={(tx) => { setEditingSale(tx); handleNavigate(tx.billType === 'non-gst' ? 'nonGstPos' : 'pos'); }}
@@ -2934,9 +2968,9 @@ const App: React.FC = () => {
                     transaction={viewTransaction}
                     customer={customers.find(c => c.id === viewTransaction.customerId)}
                     onPrintBill={(tx) => { 
-                        const billPharmacy = buildBillPharmacy(); 
-                        if (!billPharmacy) return; 
-                        setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); 
+                        const payload = buildPrintBillPayload(tx);
+                        if (!payload) return;
+                        setPrintBill(payload);
                     }}
                     onProcessReturn={() => { }}
                     currentUser={currentUser}
