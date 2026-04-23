@@ -390,6 +390,44 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         return sanitized;
     };
 
+    const extractMissingColumnFromPostgrestError = (error: any): string | null => {
+        const message = String(error?.message || '');
+        const details = String(error?.details || '');
+        const hint = String(error?.hint || '');
+        const source = `${message} ${details} ${hint}`;
+        const match = source.match(/Could not find the '([^']+)' column/i);
+        return match?.[1] || null;
+    };
+
+    const runSingleRowWriteWithFallback = async (
+        tableName: string,
+        mode: 'insert' | 'upsert',
+        snakeData: Record<string, any>,
+        maxSchemaFallbacks: number = 3
+    ): Promise<any> => {
+        let workingPayload: Record<string, any> = { ...snakeData };
+        const removedColumns = new Set<string>();
+
+        for (let attempt = 0; attempt <= maxSchemaFallbacks; attempt++) {
+            const query = mode === 'insert'
+                ? supabase.from(tableName).insert(workingPayload).select().single()
+                : supabase.from(tableName).upsert(workingPayload).select().single();
+            const { data, error } = await query;
+            if (!error) return data;
+
+            const missingColumn = extractMissingColumnFromPostgrestError(error);
+            if (!missingColumn || attempt === maxSchemaFallbacks || removedColumns.has(missingColumn)) {
+                throw error;
+            }
+
+            removedColumns.add(missingColumn);
+            delete workingPayload[missingColumn];
+            console.warn(`[storage:${tableName}] Retrying ${mode} without unknown schema column '${missingColumn}'.`);
+        }
+
+        throw new Error(`Unable to save ${tableName}: schema fallback exhausted.`);
+    };
+
     export const toCamel = (obj: any): any => {
         if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
         if (Array.isArray(obj)) return obj.map(toCamel);
@@ -617,52 +655,50 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                                 code: tableName === 'material_master' ? snakeData.material_code : snakeData.doctor_code
                             });
                         }
-                        const { data: saved, error } = await supabase.from(tableName).insert(snakeData).select().single();
-                        if (!error) {
+                        try {
+                            const saved = await runSingleRowWriteWithFallback(tableName, 'insert', snakeData);
                             result = saved;
                             break;
-                        }
+                        } catch (error: any) {
+                            if (tableName === 'material_master' || tableName === 'doctor_master') {
+                                console.error(`[${tableName}:create] insert failed`, {
+                                    attempt,
+                                    mode: 'insert',
+                                    organization_id: snakeData.organization_id,
+                                    code: tableName === 'material_master' ? snakeData.material_code : snakeData.doctor_code,
+                                    error
+                                });
+                            }
 
-                        if (tableName === 'material_master' || tableName === 'doctor_master') {
-                            console.error(`[${tableName}:create] insert failed`, {
-                                attempt,
-                                mode: 'insert',
-                                organization_id: snakeData.organization_id,
-                                code: tableName === 'material_master' ? snakeData.material_code : snakeData.doctor_code,
-                                error
-                            });
-                        }
+                            if (error.code !== '23505') throw error;
 
-                        if (error.code !== '23505') throw error;
+                            if (tableName !== 'material_master' && tableName !== 'doctor_master') {
+                                throw new Error(`Voucher number ${dbPayload.id} already exists in database. Please refresh and try again.`);
+                            }
 
-                        if (tableName !== 'material_master' && tableName !== 'doctor_master') {
-                            throw new Error(`Voucher number ${dbPayload.id} already exists in database. Please refresh and try again.`);
-                        }
+                            await idb.delete(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload.id);
+                            
+                            dbPayload.id = generateUUID();
+                            if (tableName === 'material_master') {
+                                dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
+                                snakeData.material_code = dbPayload.materialCode;
+                            } else if (tableName === 'doctor_master') {
+                                dbPayload.doctorCode = await getNextDoctorCode(user.organization_id);
+                                snakeData.doctor_code = dbPayload.doctorCode;
+                            }
+                            
+                            await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
+                            snakeData.id = dbPayload.id;
 
-                        await idb.delete(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload.id);
-                        
-                        dbPayload.id = generateUUID();
-                        if (tableName === 'material_master') {
-                            dbPayload.materialCode = await getNextMaterialCode(user.organization_id);
-                            snakeData.material_code = dbPayload.materialCode;
-                        } else if (tableName === 'doctor_master') {
-                            dbPayload.doctorCode = await getNextDoctorCode(user.organization_id);
-                            snakeData.doctor_code = dbPayload.doctorCode;
-                        }
-                        
-                        await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
-                        snakeData.id = dbPayload.id;
+                            await new Promise(r => setTimeout(r, 100 + Math.random() * 200));
 
-                        await new Promise(r => setTimeout(r, 100 + Math.random() * 200));
-
-                        if (attempt === maxAttempts) {
-                            throw new Error(`Unable to generate a unique ${tableName === 'material_master' ? 'Material Code' : 'Doctor Code'} after multiple attempts. Please try again.`);
+                            if (attempt === maxAttempts) {
+                                throw new Error(`Unable to generate a unique ${tableName === 'material_master' ? 'Material Code' : 'Doctor Code'} after multiple attempts. Please try again.`);
+                            }
                         }
                     }
                 } else {
-                    const { data: saved, error } = await supabase.from(tableName).upsert(snakeData).select().single();
-                    if (error) throw error;
-                    result = saved;
+                    result = await runSingleRowWriteWithFallback(tableName, 'upsert', snakeData);
                 }
                 
                 if (['sales_bill', 'sales_challans'].includes(tableName)) {
