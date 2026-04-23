@@ -115,6 +115,19 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, adjustment, taxableValue, totalGst, roundOff, grandTotal };
   }, [bill, isNonGst, computedBillTotals, showBillDiscount]);
 
+  const toUpperDisplay = (value?: string | null) => (value || '').toString().trim().toUpperCase();
+  const customerAddressLine1 = toUpperDisplay(bill.customerDetails?.address_line1 || bill.customerDetails?.address);
+  const customerDistrict = toUpperDisplay(bill.customerDetails?.district);
+  const customerState = toUpperDisplay(bill.customerDetails?.state);
+  const customerPincode = toUpperDisplay(bill.customerDetails?.pincode);
+  const customerAddressParts = [customerAddressLine1, customerDistrict, customerState].filter(Boolean);
+  const customerAddressCompact = customerAddressParts.length > 0
+    ? `${customerAddressParts.join(', ')}${customerPincode ? ` - ${customerPincode}` : ''}`
+    : (customerPincode ? customerPincode : '');
+  const customerPhone = toUpperDisplay(bill.customerPhone || bill.customerDetails?.phone);
+  const customerGstin = toUpperDisplay(bill.customerDetails?.gstNumber);
+  const customerDrugLicense = toUpperDisplay(bill.customerDetails?.drugLicense);
+
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased" style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}>
       <style>{`
@@ -198,9 +211,10 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           <div className="grid grid-cols-3 border-t border-x border-black">
             <div className="p-1.5 border-r border-black">
               <h1 className="text-base font-black uppercase text-blue-900 mb-0.5 leading-none">{bill.pharmacy.pharmacy_name}</h1>
-              <p className="text-[6.5pt] uppercase font-bold text-gray-700 line-clamp-1 leading-tight">{bill.pharmacy.address}</p>
-              <p className="text-[7.5pt] mt-0.5 font-black leading-none"><span className="opacity-50">PH:</span> {bill.pharmacy.mobile}</p>
-              {!isNonGst && <p className="text-[7.5pt] font-black leading-none"><span className="opacity-50">GST:</span> {bill.pharmacy.gstin}</p>}
+              {bill.pharmacy.address && <p className="text-[6.5pt] uppercase font-bold text-gray-700 leading-tight whitespace-pre-line">{bill.pharmacy.address}</p>}
+              {bill.pharmacy.mobile && <p className="text-[7.5pt] mt-0.5 font-normal leading-none tracking-[0.02em]">PH: {toUpperDisplay(bill.pharmacy.mobile)}</p>}
+              {bill.pharmacy.gstin && <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">GSTIN: {toUpperDisplay(bill.pharmacy.gstin)}</p>}
+              {bill.pharmacy.drug_license && <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">DL NO: {toUpperDisplay(bill.pharmacy.drug_license)}</p>}
             </div>
             
             <div className="flex flex-col items-center justify-center border-r border-black p-1">
@@ -216,10 +230,12 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
             <div className="p-1.5">
                <h3 className="text-[6pt] font-black uppercase underline mb-0.5 text-gray-500">Party Details:</h3>
-               <p className="font-black uppercase text-[8.5pt] truncate text-gray-950 leading-tight">{bill.customerName}</p>
-               <div className="mt-0.5 space-y-0.5 text-[7pt] font-bold text-gray-600">
-                 <p className="truncate">{bill.customerDetails?.address || 'N/A'}</p>
-                 <p><span className="opacity-50">PH:</span> {bill.customerPhone || bill.customerDetails?.phone || '-'}</p>
+               <p className="uppercase text-[8.5pt] text-gray-950 leading-tight">{toUpperDisplay(bill.customerName)}</p>
+               <div className="mt-0.5 space-y-0.5 text-[7pt] font-normal text-gray-700">
+                 {customerPhone && <p>PH: {customerPhone}</p>}
+                 {customerAddressCompact && <p className="leading-tight">ADDRESS: {customerAddressCompact}</p>}
+                 {customerGstin && <p>GSTIN: {customerGstin}</p>}
+                 {customerDrugLicense && <p>DL NO: {customerDrugLicense}</p>}
                </div>
             </div>
           </div>

@@ -15,6 +15,12 @@ const ROW_HEIGHT_PX = 32;
 
 const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmacy }) => {
   const displayUppercase = (value?: string | null) => value?.toUpperCase() || '';
+  const getFreeQty = (item: any): number => Number(item?.freeQuantity ?? item?.freeQty ?? item?.free_qty ?? 0);
+  const formatQtyWithFree = (item: any): string => {
+    const paidQty = Number(item?.quantity || 0);
+    const freeQty = getFreeQty(item);
+    return freeQty > 0 ? `${paidQty} + ${freeQty}` : `${paidQty}`;
+  };
   const subtotal = purchaseOrder.totalAmount || 0;
   const totalGst = purchaseOrder.items.reduce((acc, item) => {
     const itemTotal = (Number(item.purchasePrice || 0)) * (item.quantity || 0);
@@ -151,12 +157,11 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
               <table className="po-items-table w-full text-[11px] border-collapse mt-1">
                 <thead className="bg-gray-800 text-white">
                   <tr>
-                    <th className="py-1.5 px-1.5 text-center font-bold w-7 border border-gray-700">#</th>
+                    <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">SL No</th>
+                    <th className="py-1.5 px-1.5 text-center font-bold w-16 border border-gray-700">Qty + F</th>
                     <th className="py-1.5 px-2 text-left font-bold border border-gray-700">Item Description</th>
                     <th className="py-1.5 px-1.5 text-center font-bold w-14 border border-gray-700">HSN</th>
                     <th className="py-1.5 px-1.5 text-center font-bold w-12 border border-gray-700">Pack</th>
-                    <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">Qty</th>
-                    <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">Free</th>
                     <th className="py-1.5 px-1.5 text-right font-bold w-16 border border-gray-700">Rate</th>
                     <th className="py-1.5 px-1.5 text-right font-bold w-16 border border-gray-700">MRP</th>
                     <th className="py-1.5 px-1.5 text-center font-bold w-10 border border-gray-700">GST%</th>
@@ -170,13 +175,12 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
                     return (
                       <tr key={item.id} className="po-row border-b border-gray-300">
                         <td className="py-1 px-1.5 border-x border-gray-300 text-center align-middle">{actualIndex}</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-center font-semibold align-middle">{formatQtyWithFree(item)}</td>
                         <td className="py-1 px-2 border-r border-gray-300 align-middle">
                           <p className="font-semibold text-gray-900 leading-tight">{item.name}</p>
                         </td>
                         <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{item.hsnCode || '-'}</td>
                         <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{item.packType || item.unitOfMeasurement || '—'}</td>
-                        <td className="py-1 px-1.5 border-r border-gray-300 text-center font-semibold align-middle">{item.quantity}</td>
-                        <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{item.freeQuantity || 0}</td>
                         <td className="py-1 px-1.5 border-r border-gray-300 text-right align-middle">₹{Number(item.purchasePrice || 0).toFixed(2)}</td>
                         <td className="py-1 px-1.5 border-r border-gray-300 text-right align-middle">₹{Number(item.mrp || 0).toFixed(2)}</td>
                         <td className="py-1 px-1.5 border-r border-gray-300 text-center align-middle">{Number(item.gstPercent || 0)}%</td>
@@ -190,9 +194,8 @@ const PurchaseOrderTemplate: React.FC<TemplateProps> = ({ purchaseOrder, pharmac
                     return (
                       <tr key={`filler-${pageIndex}-${fillerIndex}`} className="po-row border-b border-gray-300">
                         <td className="py-1 px-1.5 border-x border-gray-300 text-center align-middle text-gray-300">{serial}</td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
                         <td className="py-1 px-2 border-r border-gray-300 align-middle">&nbsp;</td>
-                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
-                        <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
                         <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
                         <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
                         <td className="py-1 px-1.5 border-r border-gray-300 align-middle">&nbsp;</td>
