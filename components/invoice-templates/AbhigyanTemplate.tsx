@@ -125,6 +125,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
               <p className="text-[7.5pt] whitespace-pre-line leading-tight opacity-80">{bill.pharmacy.address}</p>
               <div className="text-[7.5pt] mt-0.5 space-y-0.5">
                 <p><span className="font-bold">GSTIN/UIN:</span> {bill.pharmacy.gstin}</p>
+                {bill.pharmacy.drug_license && <p><span className="font-bold">DL NO:</span> {bill.pharmacy.drug_license}</p>}
                 <p><span className="font-bold">State Name:</span> {(bill.pharmacy.address || '').split(',').pop()?.trim() || 'Assam'}, Code: 18</p>
               </div>
           </div>
