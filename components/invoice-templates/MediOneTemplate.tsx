@@ -16,6 +16,9 @@ const ITEMS_PER_PAGE = 10;
 const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isLandscape = orientation === 'landscape';
+  const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
+  const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
+  const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -135,9 +138,10 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
             <div className="flex-1">
               <h1 className="text-lg font-black uppercase text-blue-800 leading-none">{bill.pharmacy.pharmacy_name}</h1>
               <p className="text-[7pt] font-bold text-gray-600 mt-1 uppercase whitespace-pre-line leading-tight">{bill.pharmacy.address}</p>
-              <div className="text-[7.5pt] font-black mt-1 space-x-4">
-                <span>PH: {bill.pharmacy.mobile}</span>
-                {!isNonGst && bill.pharmacy.gstin && <span>GST: {bill.pharmacy.gstin}</span>}
+              <div className="text-[7.5pt] mt-1 space-x-3 font-normal leading-tight">
+                <span>PH: {companyPhone}</span>
+                <span>GSTIN: {companyGstin}</span>
+                <span>DL NO: {companyDrugLicense}</span>
               </div>
             </div>
             <div className="text-right flex-shrink-0 ml-4">

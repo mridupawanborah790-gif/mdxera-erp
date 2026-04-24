@@ -129,6 +129,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const customerDrugLicense = toUpperDisplay(bill.customerDetails?.drugLicense);
   const balanceSnapshot = bill.invoiceBalanceSnapshot;
   const showBalanceSection = Boolean(balanceSnapshot?.isCustomerSelected);
+  const companyPhone = toUpperDisplay(bill.pharmacy.mobile || '-');
+  const companyGstin = toUpperDisplay(bill.pharmacy.gstin || '-');
+  const companyDrugLicense = toUpperDisplay((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-');
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased" style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}>
@@ -214,9 +217,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
             <div className="p-1.5 border-r border-black">
               <h1 className="text-base font-black uppercase text-blue-900 mb-0.5 leading-none">{bill.pharmacy.pharmacy_name}</h1>
               {bill.pharmacy.address && <p className="text-[6.5pt] uppercase font-bold text-gray-700 leading-tight whitespace-pre-line">{bill.pharmacy.address}</p>}
-              {bill.pharmacy.mobile && <p className="text-[7.5pt] mt-0.5 font-normal leading-none tracking-[0.02em]">PH: {toUpperDisplay(bill.pharmacy.mobile)}</p>}
-              {bill.pharmacy.gstin && <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">GSTIN: {toUpperDisplay(bill.pharmacy.gstin)}</p>}
-              {bill.pharmacy.drug_license && <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">DL NO: {toUpperDisplay(bill.pharmacy.drug_license)}</p>}
+              <p className="text-[7.5pt] mt-0.5 font-normal leading-none tracking-[0.02em]">PH: {companyPhone}</p>
+              <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">GSTIN: {companyGstin}</p>
+              <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">DL NO: {companyDrugLicense}</p>
             </div>
             
             <div className="flex flex-col items-center justify-center border-r border-black p-1">

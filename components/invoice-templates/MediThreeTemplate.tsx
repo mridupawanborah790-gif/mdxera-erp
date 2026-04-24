@@ -12,6 +12,9 @@ interface TemplateProps {
 const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isLandscape = orientation === 'landscape';
+  const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
+  const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
+  const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
   const MAX_ITEMS_PER_PAGE = 16;
   const showRateColumn = isRateFieldAvailable(bill.configurations);
 
@@ -297,7 +300,9 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                   <div>
                     <div className="medi-three-company-name">{bill.pharmacy.pharmacy_name}</div>
                     <div>{bill.pharmacy.address}</div>
-                    <div><strong>GSTIN:</strong> {bill.pharmacy.gstin || '-'}</div>
+                    <div>PH: {companyPhone}</div>
+                    <div>GSTIN: {companyGstin}</div>
+                    <div>DL NO: {companyDrugLicense}</div>
                   </div>
                   <div className="invoice-meta">
                     <div><strong>Invoice No:</strong> {bill.invoiceNumber || bill.id}</div>

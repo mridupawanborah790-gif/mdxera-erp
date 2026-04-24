@@ -12,6 +12,9 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
   const showRateColumn = isRateFieldAvailable(bill.configurations);
+  const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
+  const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
+  const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -90,9 +93,10 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
       <div className="text-center mb-1">
         <h1 className="text-sm font-bold uppercase tracking-tight">{bill.pharmacy.pharmacy_name}</h1>
         <p className="text-[9px] leading-snug whitespace-pre-line">{bill.pharmacy.address}</p>
-        <div className="text-[9px] mt-0.5">
-          <p>PH: {bill.pharmacy.mobile}</p>
-          {!isNonGst && bill.pharmacy.gstin && <p>GSTIN: {bill.pharmacy.gstin}</p>}
+        <div className="text-[9px] mt-0.5 space-y-[1px] font-normal">
+          <p>PH: {companyPhone}</p>
+          <p>GSTIN: {companyGstin}</p>
+          <p>DL NO: {companyDrugLicense}</p>
         </div>
       </div>
 
