@@ -136,11 +136,17 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const netOutstandingReceivable = hasSelectedCustomer
     ? calculateCustomerReceivableBreakdown(bill.customerDetails).netOutstanding
     : 0;
+  const capturedPreviousBalance = Number(bill.previousBalanceBeforeBill);
+  const hasCapturedPreviousBalance = Number.isFinite(capturedPreviousBalance);
   const previousBalance = hasSelectedCustomer
-    ? (isCreditBill ? netOutstandingReceivable - calculations.grandTotal : netOutstandingReceivable)
+    ? (hasCapturedPreviousBalance
+        ? capturedPreviousBalance
+        : (isCreditBill ? netOutstandingReceivable - calculations.grandTotal : netOutstandingReceivable))
     : 0;
   const balanceAfterBill = hasSelectedCustomer
-    ? (isCreditBill ? previousBalance + calculations.grandTotal : previousBalance)
+    ? (isCreditBill
+        ? Number((previousBalance + calculations.grandTotal).toFixed(2))
+        : Number(previousBalance.toFixed(2)))
     : 0;
 
   return (

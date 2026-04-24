@@ -15,7 +15,7 @@ import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, Regi
 import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
-import { getOutstandingBalance, parseNumber, checkIsExpired, formatExpiryToMMYY } from '../utils/helpers';
+import { calculateCustomerReceivableBreakdown, getOutstandingBalance, parseNumber, checkIsExpired, formatExpiryToMMYY } from '../utils/helpers';
 import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { calculateBillingTotals, resolveBillingSettings } from '../utils/billing';
@@ -359,6 +359,53 @@ const POS = forwardRef<any, POSProps>(({
         return id;
     }, [transactionToEdit, isNonGst, configurations, billMode]);
 
+    const getCustomerInvoiceOutstandingTotal = useCallback(async (customer: Customer): Promise<number> => {
+        if (!currentUser?.organization_id) return 0;
+        const allTransactions = await storage.getData('sales_bill', [{ organization_id: currentUser.organization_id }], currentUser) as Transaction[];
+        const customerName = (customer.name || '').trim().toLowerCase();
+        const sales = (allTransactions || [])
+            .filter((t) => t && t.status !== 'cancelled')
+            .filter((t) => t.customerId === customer.id || ((t.customerName || '').trim().toLowerCase() === customerName))
+            .map((t) => ({
+                id: t.id,
+                invoiceNumber: String(t.invoiceNumber || '').trim().toLowerCase(),
+                invoiceAmount: Number(t.total || 0),
+                received: 0,
+                balance: Number(t.total || 0),
+                paymentMode: String(t.paymentMode || 'Credit').trim().toLowerCase(),
+            }));
+        if (sales.length === 0) return 0;
+
+        const byInvoiceId = new Map(sales.map((row) => [row.id, row]));
+        const byInvoiceNumber = new Map(sales.filter((row) => row.invoiceNumber).map((row) => [row.invoiceNumber, row.id]));
+        const ledger = Array.isArray(customer.ledger) ? customer.ledger : [];
+        const touchedInvoiceIds = new Set<string>();
+
+        for (const entry of ledger) {
+            if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
+            const entryCategory = String(entry.entryCategory || '');
+            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(entryCategory)) continue;
+
+            const invoiceId = entry.referenceInvoiceId || byInvoiceNumber.get(String(entry.referenceInvoiceNumber || '').trim().toLowerCase()) || '';
+            const target = invoiceId ? byInvoiceId.get(invoiceId) : undefined;
+            if (!target) continue;
+
+            const adjustedAmount = Number(entry.adjustedAmount || 0);
+            const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
+            target.received += (adjustedAmount * multiplier);
+            target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
+            if (target.balance < 0) target.balance = 0;
+            touchedInvoiceIds.add(target.id);
+        }
+
+        for (const sale of sales) {
+            if (touchedInvoiceIds.has(sale.id)) continue;
+            if (['cash', 'card', 'upi', 'bank'].includes(sale.paymentMode)) sale.balance = 0;
+        }
+
+        return Number(sales.reduce((sum, row) => sum + Number(row.balance || 0), 0).toFixed(2));
+    }, [currentUser]);
+
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
 
@@ -386,6 +433,16 @@ const POS = forwardRef<any, POSProps>(({
 
         const finalPaymentMode = billCategory === 'Credit Bill' ? 'Credit' : 'Cash';
 
+        const previousBalanceBeforeBill = selectedCustomer?.id
+            ? calculateCustomerReceivableBreakdown(
+                selectedCustomer,
+                await getCustomerInvoiceOutstandingTotal(selectedCustomer)
+            ).netOutstanding
+            : 0;
+        const balanceAfterBill = finalPaymentMode === 'Credit'
+            ? Number((previousBalanceBeforeBill + Math.round(totals.baseTotal)).toFixed(2))
+            : Number(previousBalanceBeforeBill.toFixed(2));
+
         const transaction: Transaction = {
             id: generatedId,
             invoiceNumber: generatedId, // Fallback, will be overridden by real reservation in handleSave if using that
@@ -407,6 +464,8 @@ const POS = forwardRef<any, POSProps>(({
             billType: isNonGst ? 'non-gst' : 'regular',
             itemCount: cartItems.length,
             prescriptionImages: prescriptions.map(p => p.data),
+            previousBalanceBeforeBill: Number(previousBalanceBeforeBill.toFixed(2)),
+            balanceAfterBill,
         };
 
         try {
@@ -426,7 +485,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines, getCustomerInvoiceOutstandingTotal]);
 
     const focusFirstEditableFieldInRow = useCallback((rowId: string) => {
         const firstEditableField = [

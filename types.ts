@@ -382,6 +382,8 @@ export interface Transaction {
     taxCalculationType?: TaxCalculationBasis;
     pricingMode?: 'mrp' | 'rate';
     linkedChallans?: string[];
+    previousBalanceBeforeBill?: number;
+    balanceAfterBill?: number;
     companyCodeId?: string;
     setOfBooksId?: string;
     sync_status?: 'synced' | 'pending' | 'failed';
