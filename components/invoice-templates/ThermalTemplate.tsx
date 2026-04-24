@@ -93,6 +93,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
         <div className="text-[9px] mt-0.5">
           <p>PH: {bill.pharmacy.mobile}</p>
           {!isNonGst && bill.pharmacy.gstin && <p>GSTIN: {bill.pharmacy.gstin}</p>}
+          {bill.pharmacy.drug_license && <p>DL NO: {bill.pharmacy.drug_license}</p>}
         </div>
       </div>
 

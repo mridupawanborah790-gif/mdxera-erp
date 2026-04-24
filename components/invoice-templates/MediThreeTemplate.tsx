@@ -298,6 +298,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                     <div className="medi-three-company-name">{bill.pharmacy.pharmacy_name}</div>
                     <div>{bill.pharmacy.address}</div>
                     <div><strong>GSTIN:</strong> {bill.pharmacy.gstin || '-'}</div>
+                    {bill.pharmacy.drug_license && <div><strong>DL NO:</strong> {bill.pharmacy.drug_license}</div>}
                   </div>
                   <div className="invoice-meta">
                     <div><strong>Invoice No:</strong> {bill.invoiceNumber || bill.id}</div>

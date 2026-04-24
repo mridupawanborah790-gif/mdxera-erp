@@ -138,6 +138,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
               <div className="text-[7.5pt] font-black mt-1 space-x-4">
                 <span>PH: {bill.pharmacy.mobile}</span>
                 {!isNonGst && bill.pharmacy.gstin && <span>GST: {bill.pharmacy.gstin}</span>}
+                {bill.pharmacy.drug_license && <span>DL NO: {bill.pharmacy.drug_license}</span>}
               </div>
             </div>
             <div className="text-right flex-shrink-0 ml-4">
