@@ -318,6 +318,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     // Matrix Props
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+    const [isInlineNameSearchOpen, setIsInlineNameSearchOpen] = useState(false);
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
@@ -346,7 +347,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     }, [modalSearchTerm]);
 
     useEffect(() => {
-        if (isSearchModalOpen && searchResultsRef.current) {
+        if ((isSearchModalOpen || isInlineNameSearchOpen) && searchResultsRef.current) {
             const timer = setTimeout(() => {
                 const selectedRow = searchResultsRef.current?.querySelector(`[data-index="${selectedSearchIndex}"]`);
                 if (selectedRow) {
@@ -358,7 +359,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             }, 0);
             return () => clearTimeout(timer);
         }
-    }, [selectedSearchIndex, isSearchModalOpen]);
+    }, [selectedSearchIndex, isSearchModalOpen, isInlineNameSearchOpen]);
 
     const [rateTierDraft, setRateTierDraft] = useState({ rateA: '', rateB: '', rateC: '' });
     const [rateTierHandledRows, setRateTierHandledRows] = useState<Set<string>>(new Set());
@@ -1309,6 +1310,41 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
     };
 
+    const handleNameFieldKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowId: string) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            const currentRow = items.find(item => item.id === rowId);
+            openSearchModal(rowId, (currentRow?.name || '').trim());
+            return;
+        }
+
+        if (isInlineNameSearchOpen && deduplicatedSearchInventory.length > 0) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setSelectedSearchIndex(prev => (prev + 1) % deduplicatedSearchInventory.length);
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setSelectedSearchIndex(prev => (prev - 1 + deduplicatedSearchInventory.length) % deduplicatedSearchInventory.length);
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const selectedWrapper = deduplicatedSearchInventory[selectedSearchIndex];
+                if (selectedWrapper) triggerBatchSelection(selectedWrapper);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                setIsInlineNameSearchOpen(false);
+                return;
+            }
+        }
+
+        handleGridKeyDown(e, rowId, 'name');
+    };
+
     useEffect(() => {
         if (!isInsightsOpen || !currentUser || salesHistory.length > 0) return;
         let isMounted = true;
@@ -1375,6 +1411,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
         setModalSearchTerm('');
         setIsSearchModalOpen(false);
+        setIsInlineNameSearchOpen(false);
         setActiveRowId(targetRowId);
 
         setTimeout(() => {
@@ -1422,6 +1459,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         if (isReadOnly) return;
         setActiveRowId(rowId);
         setModalSearchTerm(initialValue);
+        setIsInlineNameSearchOpen(false);
         setIsSearchModalOpen(true);
         setSelectedSearchIndex(0);
         setTimeout(() => modalSearchInputRef.current?.focus(), 150);
@@ -2201,16 +2239,46 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => {
                                                             const val = e.target.value;
                                                             handleUpdateItem(p.id, 'name', val);
-                                                            openSearchModal(p.id, val);
+                                                            setActiveRowId(p.id);
+                                                            setModalSearchTerm(val);
+                                                            setIsInlineNameSearchOpen(true);
                                                         }}
                                                         onFocus={() => {
                                                             setActiveRowId(p.id);
-                                                            openSearchModal(p.id, p.name);
+                                                            setModalSearchTerm(p.name);
+                                                            setIsInlineNameSearchOpen(true);
                                                         }}
-                                                        onKeyDown={(e) => handleGridKeyDown(e, p.id, 'name')}
+                                                        onBlur={() => {
+                                                            setTimeout(() => setIsInlineNameSearchOpen(false), 120);
+                                                        }}
+                                                        onKeyDown={(e) => handleNameFieldKeyDown(e, p.id)}
                                                         className={`w-full bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
+                                                    {isInlineNameSearchOpen && activeRowId === p.id && deduplicatedSearchInventory.length > 0 && (
+                                                        <div
+                                                            ref={searchResultsRef}
+                                                            className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto border border-gray-300 bg-white shadow-xl"
+                                                        >
+                                                            {deduplicatedSearchInventory.map((res, sIdx) => {
+                                                                const isSelected = sIdx === selectedSearchIndex;
+                                                                return (
+                                                                    <button
+                                                                        key={`${res.item.id}-${sIdx}`}
+                                                                        type="button"
+                                                                        data-index={sIdx}
+                                                                        onMouseDown={(e) => e.preventDefault()}
+                                                                        onMouseEnter={() => setSelectedSearchIndex(sIdx)}
+                                                                        onClick={() => triggerBatchSelection(res)}
+                                                                        className={`w-full px-2 py-1 text-left text-[11px] uppercase tracking-wide border-b border-gray-100 ${isSelected ? 'bg-primary text-white' : 'text-gray-900 hover:bg-yellow-50'}`}
+                                                                    >
+                                                                        <span className="font-bold">{res.item.name}</span>
+                                                                        <span className={`ml-2 font-mono ${isSelected ? 'text-white/90' : 'text-primary'}`}>{res.item.code || '-'}</span>
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
                                                 </td>
                                             )}
                                             {isFieldVisible('colBrand') && (
