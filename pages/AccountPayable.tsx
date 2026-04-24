@@ -395,13 +395,9 @@ const AccountPayable: React.FC<AccountPayableProps> = ({ distributors, purchases
         return { adjustedAmount, remainingAmount, status: 'Open / Unadjusted' };
     };
 
-    const invoiceOutstandingTotal = useMemo(
-        () => Number(invoiceRows.reduce((sum, row) => sum + Number(row.balance || 0), 0).toFixed(2)),
-        [invoiceRows]
-    );
     const payableBreakdown = useMemo(
-        () => calculateSupplierPayableBreakdown(selectedDistributor, invoiceOutstandingTotal),
-        [selectedDistributor, invoiceOutstandingTotal]
+        () => calculateSupplierPayableBreakdown(selectedDistributor),
+        [selectedDistributor]
     );
     const grossOutstanding = payableBreakdown.grossPayable;
     const totalAdjustedPayment = payableBreakdown.adjustedPayments;
