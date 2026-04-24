@@ -2474,6 +2474,7 @@ const App: React.FC = () => {
                         onBulkAddInventory={(list) => storage.saveBulkData('inventory', list, currentUser)}
                         onAddProduct={handleAddInventoryItem} onUpdateProduct={handleUpdateInventoryItem}
                         mrpChangeLogs={mrpChangeLogs}
+                        configurations={configurations}
                     />;
                 case 'physicalInventory':
                     return <PhysicalInventory

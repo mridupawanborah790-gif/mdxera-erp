@@ -8,7 +8,7 @@ import MrpChangeLogModal from '../components/MrpChangeLogModal';
 import InventoryBatchDetailModal from '../components/InventoryBatchDetailModal';
 import type { InventoryItem, RegisteredPharmacy, ModuleConfig, AppConfigurations, Medicine, MrpChangeLogEntry } from '../types';
 import { fuzzyMatch } from '../utils/search';
-import { formatExpiryToMMYY } from '../utils/helpers';
+import { formatExpiryToMMYY, normalizeImportDate } from '../utils/helpers';
 import { configurableModules } from '../constants';
 import { getInventoryPolicy } from '../utils/materialType';
 import { extractPackMultiplier, resolveUnitsPerStrip } from '../utils/pack';
@@ -49,6 +49,7 @@ interface InventoryProps {
     onAddProductLocal?: (item: Omit<InventoryItem, 'id'>) => void;
     onUpdateProduct: (item: InventoryItem) => Promise<void>;
     mrpChangeLogs?: MrpChangeLogEntry[];
+    configurations?: AppConfigurations | null;
 }
 
 interface GroupedInventoryRow {
@@ -82,7 +83,8 @@ const Inventory: React.FC<InventoryProps> = ({
     onBulkAddInventory,
     onAddProduct,
     onUpdateProduct,
-    mrpChangeLogs = []
+    mrpChangeLogs = [],
+    configurations
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -95,6 +97,7 @@ const Inventory: React.FC<InventoryProps> = ({
     const [rowsPerPage, setRowsPerPage] = useState<number>(DEFAULT_ITEMS_PER_PAGE);
     const [isMrpLogOpen, setIsMrpLogOpen] = useState(false);
     const [detailRowKey, setDetailRowKey] = useState<string | null>(null);
+    const [expiryFilter, setExpiryFilter] = useState<'all' | 'nearExpiry' | 'expired'>('all');
     const columnSelectorRef = useRef<HTMLDivElement>(null);
     const tableBodyRef = useRef<HTMLTableSectionElement>(null);
 
@@ -134,6 +137,30 @@ const Inventory: React.FC<InventoryProps> = ({
         };
     }, [medicineByCode]);
 
+    const nearExpiryThresholdDays = useMemo(() => {
+        const configuredThreshold = Number(configurations?.displayOptions?.expiryThreshold ?? 90);
+        if (!Number.isFinite(configuredThreshold) || configuredThreshold < 0) return 90;
+        return Math.floor(configuredThreshold);
+    }, [configurations?.displayOptions?.expiryThreshold]);
+
+    const parseInventoryExpiryDate = useCallback((expiry?: string | null): Date | null => {
+        if (!expiry) return null;
+        const normalized = normalizeImportDate(expiry);
+        if (!normalized) return null;
+        const date = new Date(normalized);
+        if (Number.isNaN(date.getTime())) return null;
+        date.setHours(0, 0, 0, 0);
+        return date;
+    }, []);
+
+    const expiryWindow = useMemo(() => {
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const nearExpiryEnd = new Date(todayStart);
+        nearExpiryEnd.setDate(nearExpiryEnd.getDate() + nearExpiryThresholdDays);
+        return { todayStart, nearExpiryEnd };
+    }, [nearExpiryThresholdDays]);
+
     const baseFilteredItems = useMemo(() => {
         let items = Array.isArray(inventory) ? [...inventory] : [];
         items = items.filter(i => getInventoryPolicy(i, medicines).inventorised);
@@ -145,13 +172,36 @@ const Inventory: React.FC<InventoryProps> = ({
         });
     }, [inventory, medicines]);
 
-    const filteredItems = baseFilteredItems;
+    const filteredItems = useMemo(() => {
+        return baseFilteredItems.filter(item => {
+            if (lowStockFilter && Number(item.stock || 0) > Number(item.minStockLimit || 0)) {
+                return false;
+            }
+
+            if (searchTerm) {
+                const matchesSearch =
+                    fuzzyMatch(item.name, searchTerm) ||
+                    fuzzyMatch(item.brand, searchTerm) ||
+                    fuzzyMatch(item.batch, searchTerm) ||
+                    fuzzyMatch(item.composition, searchTerm) ||
+                    fuzzyMatch(item.supplierName, searchTerm) ||
+                    fuzzyMatch(item.barcode, searchTerm);
+                if (!matchesSearch) return false;
+            }
+
+            if (expiryFilter === 'all') return true;
+            const expDate = parseInventoryExpiryDate(item.expiry);
+            if (!expDate) return false;
+            if (expiryFilter === 'expired') return expDate < expiryWindow.todayStart;
+            return expDate >= expiryWindow.todayStart && expDate <= expiryWindow.nearExpiryEnd;
+        });
+    }, [baseFilteredItems, lowStockFilter, searchTerm, expiryFilter, parseInventoryExpiryDate, expiryWindow]);
 
     const groupedItems = useMemo<GroupedInventoryRow[]>(() => {
         const map = new Map<string, InventoryItem[]>();
         const toKey = (item: InventoryItem) => `${(item.code || '').trim().toLowerCase()}|${(item.name || '').trim().toLowerCase()}`;
 
-        baseFilteredItems.forEach(item => {
+        filteredItems.forEach(item => {
             const key = toKey(item);
             if (!map.has(key)) map.set(key, []);
             map.get(key)!.push(item);
@@ -194,21 +244,8 @@ const Inventory: React.FC<InventoryProps> = ({
             };
         });
 
-        return rows.filter(row => {
-            if (lowStockFilter && row.totalStock > row.representative.minStockLimit) {
-                return false;
-            }
-            if (!searchTerm) return true;
-            return row.items.some(item =>
-                fuzzyMatch(item.name, searchTerm) ||
-                fuzzyMatch(item.brand, searchTerm) ||
-                fuzzyMatch(item.batch, searchTerm) ||
-                fuzzyMatch(item.composition, searchTerm) ||
-                fuzzyMatch(item.supplierName, searchTerm) ||
-                fuzzyMatch(item.barcode, searchTerm)
-            );
-        });
-    }, [baseFilteredItems, lowStockFilter, searchTerm]);
+        return rows;
+    }, [filteredItems]);
 
     const detailRow = useMemo(
         () => (detailRowKey ? groupedItems.find(row => row.key === detailRowKey) || null : null),
@@ -363,6 +400,7 @@ const Inventory: React.FC<InventoryProps> = ({
             isFieldVisible('colRateA') ? { id: 'rateA', label: 'Rate A', type: 'number', minChars: 7, maxChars: 9, getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateA || 0).toFixed(2) } : null,
             isFieldVisible('colRateB') ? { id: 'rateB', label: 'Rate B', type: 'number', minChars: 7, maxChars: 9, getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateB || 0).toFixed(2) } : null,
             isFieldVisible('colRateC') ? { id: 'rateC', label: 'Rate C', type: 'number', minChars: 7, maxChars: 9, getValue: (item: InventoryItem) => Number(getEffectiveFields(item).effectiveRateC || 0).toFixed(2) } : null,
+            isFieldVisible('colExpiry') ? { id: 'expiry', label: 'Expiry', type: 'text', minChars: 8, maxChars: 10, getValue: (item: InventoryItem) => formatExpiryToMMYY(item.expiry) || '-' } : null,
         ].filter(Boolean) as PrintableColumn[];
 
         const printWindow = window.open('', '_blank', 'width=1280,height=860');
@@ -432,9 +470,9 @@ const Inventory: React.FC<InventoryProps> = ({
                     <div class="container">
                         <div class="header">
                             <div>
-                                <h1>Inventory Stock Summary</h1>
+                                <h1>{expiryFilter === 'nearExpiry' ? 'Near Expiry Stock Report' : expiryFilter === 'expired' ? 'Expired Stock Report' : 'Inventory Stock Summary'}</h1>
                                 <div class="meta">${currentUser?.pharmacy_name || 'Pharmacy'}</div>
-                                <div class="meta">Filters: ${searchTerm ? `Search "${searchTerm}"` : 'None'}${lowStockFilter ? ' · Low Stock Only' : ''}</div>
+                                <div class="meta">Filters: ${searchTerm ? `Search "${searchTerm}"` : 'None'}${lowStockFilter ? ' · Low Stock Only' : ''}${expiryFilter !== 'all' ? ` · ${expiryFilter === 'nearExpiry' ? `Near Expiry (≤ ${nearExpiryThresholdDays} days)` : 'Expired'}` : ''}</div>
                             </div>
                             <div class="meta">
                                 <div>Generated: ${generatedOn}</div>
@@ -537,6 +575,22 @@ const Inventory: React.FC<InventoryProps> = ({
                             >
                                 MRP Log
                             </button>
+                            <label className="flex items-center gap-2 bg-white px-3 py-1.5 border border-gray-400">
+                                <span className="text-[10px] font-black uppercase tracking-wide text-gray-600">Expiry Filter</span>
+                                <select
+                                    value={expiryFilter}
+                                    onChange={(e) => {
+                                        setExpiryFilter(e.target.value as 'all' | 'nearExpiry' | 'expired');
+                                        setSelectedIndex(0);
+                                        setCurrentPage(1);
+                                    }}
+                                    className="bg-white text-[11px] font-bold text-gray-700 outline-none"
+                                >
+                                    <option value="all">All Stock</option>
+                                    <option value="nearExpiry">Near Expiry</option>
+                                    <option value="expired">Expired</option>
+                                </select>
+                            </label>
                             <label className="flex items-center gap-1.5 cursor-pointer bg-white px-3 py-1.5 border border-gray-400">
                                 <input 
                                     type="checkbox" 
@@ -817,7 +871,7 @@ const Inventory: React.FC<InventoryProps> = ({
                 <ExportInventoryModal 
                     isOpen={isExportModalOpen}
                     onClose={() => setIsExportModalOpen(false)}
-                    data={baseFilteredItems}
+                    data={filteredItems}
                     pharmacyName={currentUser?.pharmacy_name || 'MDXERA ERP'}
                 />
             )}
