@@ -1,4 +1,4 @@
-import type { Customer, Distributor } from '../types';
+import type { Customer, Distributor, Transaction } from '../types';
 import type { TransactionLedgerItem } from '../types';
 
 const round2 = (value: number): number => Number((Number(value || 0)).toFixed(2));
@@ -217,6 +217,67 @@ export const calculateCustomerReceivableBreakdown = (
         grossReceivable,
         netOutstanding,
     };
+};
+
+export const getCustomerInvoiceOutstandingTotalFromTransactions = (
+    customer: Customer | null | undefined,
+    transactions: Transaction[] = []
+): number => {
+    if (!customer || !Array.isArray(transactions)) return 0;
+
+    const customerName = (customer.name || '').trim().toLowerCase();
+    const sales = transactions
+        .filter((t) => t && t.status !== 'cancelled')
+        .filter((t) => t.customerId === customer.id || ((t.customerName || '').trim().toLowerCase() === customerName))
+        .map((t) => ({
+            id: t.id,
+            invoiceNumber: String(t.invoiceNumber || '').trim().toLowerCase(),
+            invoiceAmount: Number(t.total || 0),
+            received: 0,
+            balance: Number(t.total || 0),
+            paymentMode: String(t.paymentMode || 'Credit').trim().toLowerCase(),
+        }));
+    if (sales.length === 0) return 0;
+
+    const byInvoiceId = new Map(sales.map((row) => [row.id, row]));
+    const byInvoiceNumber = new Map(sales.filter((row) => row.invoiceNumber).map((row) => [row.invoiceNumber, row.id]));
+    const ledger = Array.isArray(customer.ledger) ? customer.ledger : [];
+    const touchedInvoiceIds = new Set<string>();
+
+    for (const entry of ledger) {
+        if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
+        const entryCategory = String(entry.entryCategory || '');
+        if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(entryCategory)) continue;
+
+        const invoiceId = entry.referenceInvoiceId || byInvoiceNumber.get(String(entry.referenceInvoiceNumber || '').trim().toLowerCase()) || '';
+        const target = invoiceId ? byInvoiceId.get(invoiceId) : undefined;
+        if (!target) continue;
+
+        const adjustedAmount = Number(entry.adjustedAmount || 0);
+        const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
+        target.received += (adjustedAmount * multiplier);
+        target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
+        if (target.balance < 0) target.balance = 0;
+        touchedInvoiceIds.add(target.id);
+    }
+
+    for (const sale of sales) {
+        if (touchedInvoiceIds.has(sale.id)) continue;
+        if (['cash', 'card', 'upi', 'bank'].includes(sale.paymentMode)) sale.balance = 0;
+    }
+
+    return Number(sales.reduce((sum, row) => sum + Number(row.balance || 0), 0).toFixed(2));
+};
+
+export const buildCustomerInvoiceOutstandingMap = (
+    customers: Customer[] = [],
+    transactions: Transaction[] = []
+): Record<string, number> => {
+    if (!Array.isArray(customers) || customers.length === 0) return {};
+    return customers.reduce<Record<string, number>>((acc, customer) => {
+        acc[customer.id] = getCustomerInvoiceOutstandingTotalFromTransactions(customer, transactions);
+        return acc;
+    }, {});
 };
 
 /**

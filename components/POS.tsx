@@ -29,6 +29,7 @@ interface POSProps {
     purchases: Purchase[];
     medicines: Medicine[];
     customers: Customer[];
+    transactions?: Transaction[];
     doctors?: DoctorMaster[];
     onSaveOrUpdateTransaction: (transaction: Transaction, isUpdate: boolean, nextCounter?: number) => Promise<void>;
     onPrintBill: (transaction: Transaction) => void;
@@ -243,6 +244,7 @@ const POS = forwardRef<any, POSProps>(({
     purchases,
     medicines,
     customers,
+    transactions = [],
     doctors = [],
     onSaveOrUpdateTransaction,
     onPrintBill,
@@ -2808,6 +2810,7 @@ const POS = forwardRef<any, POSProps>(({
                     setTimeout(() => phoneInputRef.current?.focus(), 100);
                 }}
                 customers={customers}
+                transactions={transactions}
                 onSelect={handleSelectCustomer}
                 initialSearch={customerSearch}
             />
