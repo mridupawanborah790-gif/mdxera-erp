@@ -1191,6 +1191,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const handleGridKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowId: string, field: string) => {
         if (isReadOnly) return;
 
+        if (field === 'name' && (e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            const row = items.find(item => item.id === rowId);
+            setActiveRowId(rowId);
+            setModalSearchTerm((row?.name || '').trim());
+            setIsSearchModalOpen(true);
+            setSelectedSearchIndex(0);
+            setTimeout(() => modalSearchInputRef.current?.focus(), 150);
+            return;
+        }
+
         if (e.key === 'Delete') {
             e.preventDefault();
             const index = items.findIndex(item => item.id === rowId);
@@ -2201,11 +2212,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         onChange={e => {
                                                             const val = e.target.value;
                                                             handleUpdateItem(p.id, 'name', val);
-                                                            openSearchModal(p.id, val);
                                                         }}
                                                         onFocus={() => {
                                                             setActiveRowId(p.id);
-                                                            openSearchModal(p.id, p.name);
+                                                            if (!(p.name || '').trim()) {
+                                                                openSearchModal(p.id, '');
+                                                            }
+                                                        }}
+                                                        onClick={() => {
+                                                            if (!(p.name || '').trim()) {
+                                                                openSearchModal(p.id, '');
+                                                            }
                                                         }}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'name')}
                                                         className={`w-full bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
