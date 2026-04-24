@@ -1188,6 +1188,22 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         });
     }, [isReadOnly]);
 
+    const clearItemSelection = useCallback((rowId: string) => {
+        if (isReadOnly || !supplier.trim()) return;
+
+        setItems(prev => prev.map(item => {
+            if (item.id !== rowId) return item;
+            return {
+                ...item,
+                name: '',
+                packType: '',
+                materialCode: '',
+                inventoryItemId: undefined,
+                matchStatus: 'pending'
+            };
+        }));
+    }, [isReadOnly, supplier]);
+
     const handleGridKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowId: string, field: string) => {
         if (isReadOnly) return;
 
@@ -1200,6 +1216,15 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setSelectedSearchIndex(0);
             setTimeout(() => modalSearchInputRef.current?.focus(), 150);
             return;
+        }
+
+        if (field === 'name' && (e.key === 'Delete' || e.key === 'Backspace')) {
+            const row = items.find(item => item.id === rowId);
+            if ((row?.name || '').trim() || (row?.packType || '').trim()) {
+                e.preventDefault();
+                clearItemSelection(rowId);
+                return;
+            }
         }
 
         if (e.key === 'Delete') {
@@ -1296,12 +1321,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
             e.preventDefault();
-            const pendingName = modalSearchTerm.trim();
             setIsSearchModalOpen(false);
             setIsAddMedicineMasterModalOpen(true);
-            if (pendingName && activeRowId) {
-                handleUpdateItem(activeRowId, 'name', pendingName);
-            }
             return;
         }
 
@@ -2209,23 +2230,20 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         id={`name-${p.id}`}
                                                         value={p.name}
                                                         autoComplete="off"
-                                                        onChange={e => {
-                                                            const val = e.target.value;
-                                                            handleUpdateItem(p.id, 'name', val);
-                                                        }}
+                                                        readOnly
                                                         onFocus={() => {
                                                             setActiveRowId(p.id);
-                                                            if (!(p.name || '').trim()) {
-                                                                openSearchModal(p.id, '');
+                                                            if (!isReadOnly && supplier.trim()) {
+                                                                openSearchModal(p.id, p.name || '');
                                                             }
                                                         }}
                                                         onClick={() => {
-                                                            if (!(p.name || '').trim()) {
-                                                                openSearchModal(p.id, '');
+                                                            if (!isReadOnly && supplier.trim()) {
+                                                                openSearchModal(p.id, p.name || '');
                                                             }
                                                         }}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'name')}
-                                                        className={`w-full bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
+                                                        className={`w-full bg-transparent outline-none cursor-pointer ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
@@ -2250,7 +2268,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         type="text"
                                                         id={`pack-${p.id}`}
                                                         value={p.packType}
-                                                        onChange={e => handleUpdateItem(p.id, 'packType', e.target.value)}
+                                                        readOnly
                                                         onFocus={() => setActiveRowId(p.id)}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'pack')}
                                                         className={`w-full text-center bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
