@@ -5,6 +5,7 @@ import type { InventoryItem, RegisteredPharmacy, Transaction, Purchase, Medicine
 import Chatbot from '../components/Chatbot'; // Import Chatbot here
 import { MASTER_SHORTCUT_OPTIONS } from '../constants';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
+import { buildCustomerInvoiceOutstandingMap, calculateCustomerReceivableBreakdown, calculateSupplierPayableBreakdown } from '../utils/helpers';
 
 interface DashboardProps {
     currentUser: RegisteredPharmacy | null;
@@ -100,12 +101,43 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
         return Math.round(netSales - cogs);
     }, [todayTransactions, inventory]);
 
+    const customerInvoiceOutstandingMap = useMemo(
+        () => buildCustomerInvoiceOutstandingMap(customers, transactions),
+        [customers, transactions]
+    );
+
+    const totalReceivable = useMemo(() => {
+        return customers.reduce((sum, customer) => {
+            const receivable = calculateCustomerReceivableBreakdown(customer, customerInvoiceOutstandingMap[customer.id] || 0).netOutstanding;
+            return sum + Math.max(receivable, 0);
+        }, 0);
+    }, [customers, customerInvoiceOutstandingMap]);
+
+    const totalPayable = useMemo(() => {
+        return distributors.reduce((sum, distributor) => {
+            const payable = calculateSupplierPayableBreakdown(distributor).netOutstanding;
+            return sum + Math.max(payable, 0);
+        }, 0);
+    }, [distributors]);
+
     const lowStockCount = inventory.filter(i => i.stock <= i.minStockLimit).length;
     
     const inventoryValue = inventory.reduce((sum, i) => {
         const cost = i.cost || (i.purchasePrice / (i.unitsPerPack || 1));
         return sum + (i.stock * cost);
     }, 0);
+
+    const formatCompactRupees = (value: number) => {
+        const absolute = Math.abs(value);
+        if (absolute >= 100000) {
+            return `₹${(value / 100000).toFixed(2)}L`;
+        }
+        return `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+    };
+
+    const amountClass = (value: number) => (
+        value < 0 ? 'text-red-300' : 'text-accent'
+    );
 
     const expiryAlerts = useMemo(() => {
         const threshold = configurations.displayOptions?.expiryThreshold || 90;
@@ -218,10 +250,12 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                         )}
                     </div>
                     <div className="flex gap-8 text-[13px] font-bold uppercase">
-                        {isVisible('statSales') && <span>Sales: <span className="text-accent">₹{todaySales.toLocaleString()}</span></span>}
-                        {isVisible('statProfit') && <span>Profit: <span className="text-accent">₹{todayProfit.toLocaleString()}</span></span>}
-                        {isVisible('statPurchases') && <span>Purchases: <span className="text-accent">₹{todayPurchases.toLocaleString()}</span></span>}
-                        {isVisible('statStockValue') && <span>Inventory: <span className="text-accent">₹{(inventoryValue/100000).toFixed(2)}L</span></span>}
+                        {isVisible('statSales') && <span>Sales: <span className={amountClass(todaySales)}>{formatCompactRupees(todaySales)}</span></span>}
+                        {isVisible('statProfit') && <span>Profit: <span className={amountClass(todayProfit)}>{formatCompactRupees(todayProfit)}</span></span>}
+                        {isVisible('statPurchases') && <span>Purchases: <span className={amountClass(todayPurchases)}>{formatCompactRupees(todayPurchases)}</span></span>}
+                        {isVisible('statStockValue') && <span>Inventory: <span className={amountClass(inventoryValue)}>{formatCompactRupees(inventoryValue)}</span></span>}
+                        <span>Receivables: <span className={amountClass(totalReceivable)}>{formatCompactRupees(totalReceivable)}</span></span>
+                        <span>Payables: <span className={amountClass(totalPayable)}>{formatCompactRupees(totalPayable)}</span></span>
                     </div>
                 </div>
 
