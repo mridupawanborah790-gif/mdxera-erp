@@ -1459,6 +1459,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         setTimeout(() => modalSearchInputRef.current?.focus(), 150);
     }, [isReadOnly]);
 
+    const shouldOpenSearchForRow = useCallback((item: PurchaseItem) => {
+        const hasSelectedItem = Boolean((item.name || '').trim() || item.inventoryItemId || (item.packType || '').trim());
+        return !hasSelectedItem;
+    }, []);
+
     const handleUpdateItem = (id: string, field: keyof PurchaseItem, value: any) => {
         if (isReadOnly || !supplier.trim()) return;
         setItems(prev => {
@@ -2233,17 +2238,17 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         readOnly
                                                         onFocus={() => {
                                                             setActiveRowId(p.id);
-                                                            if (!isReadOnly && supplier.trim()) {
+                                                            if (!isReadOnly && supplier.trim() && shouldOpenSearchForRow(p)) {
                                                                 openSearchModal(p.id, p.name || '');
                                                             }
                                                         }}
                                                         onClick={() => {
-                                                            if (!isReadOnly && supplier.trim()) {
+                                                            if (!isReadOnly && supplier.trim() && shouldOpenSearchForRow(p)) {
                                                                 openSearchModal(p.id, p.name || '');
                                                             }
                                                         }}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'name')}
-                                                        className={`w-full bg-transparent outline-none cursor-pointer ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
+                                                        className={`w-full bg-transparent outline-none ${shouldOpenSearchForRow(p) ? 'cursor-pointer' : 'cursor-default'} ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}
                                                         disabled={isReadOnly || !supplier.trim()}
                                                     />
                                                 </td>
