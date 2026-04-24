@@ -5,6 +5,7 @@ import SchemeModal from '../components/SchemeModal';
 import SchemeCalculatorModal from '../components/SchemeCalculatorModal';
 import Modal from '../components/Modal';
 import AddMedicineModal from '../components/AddMedicineModal';
+import EditMedicineModal from '../components/EditMedicineModal';
 import AddCustomerModal from './AddCustomerModal';
 import SearchableDropdown from './SearchableDropdown';
 import BatchSelectionModal from './BatchSelectionModal';
@@ -42,6 +43,7 @@ interface POSProps {
     isReadOnly?: boolean;
     onCancel?: () => void;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
+    onUpdateMedicineMaster?: (updatedMedicine: Medicine) => Promise<void>;
     onQuickAddCustomer?: (data: {
         name: string;
         phone?: string;
@@ -257,6 +259,7 @@ const POS = forwardRef<any, POSProps>(({
     isReadOnly,
     onCancel,
     onAddMedicineMaster,
+    onUpdateMedicineMaster,
     onQuickAddCustomer,
     onAddCustomer,
     teamMembers = [],
@@ -431,6 +434,9 @@ const POS = forwardRef<any, POSProps>(({
     const [isInsightsLoading, setIsInsightsLoading] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
+    const [isEditMaterialModalOpen, setIsEditMaterialModalOpen] = useState(false);
+    const [materialToEdit, setMaterialToEdit] = useState<Medicine | null>(null);
+    const [materialEditRowId, setMaterialEditRowId] = useState<string | null>(null);
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
     const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
@@ -1696,6 +1702,86 @@ const POS = forwardRef<any, POSProps>(({
         setTimeout(() => modalSearchInputRef.current?.focus(), 150);
     }, [isReadOnly]);
 
+    const findMedicineForSalesRow = useCallback((row: BillItem): Medicine | null => {
+        const rowName = (row.name || '').trim().toLowerCase();
+        if (!rowName) return null;
+
+        const inventoryItem = row.inventoryItemId ? inventory.find((inv) => inv.id === row.inventoryItemId) : undefined;
+        const inventoryCode = (inventoryItem?.code || '').trim().toLowerCase();
+        if (inventoryCode) {
+            const byInventoryCode = medicines.find((med) => (med.materialCode || '').trim().toLowerCase() === inventoryCode);
+            if (byInventoryCode) return byInventoryCode;
+        }
+
+        const rowPack = (row.packType || '').trim().toLowerCase();
+        return medicines.find((med) => {
+            const medName = (med.name || '').trim().toLowerCase();
+            if (!medName || medName !== rowName) return false;
+            if (!rowPack) return true;
+            return (med.pack || '').trim().toLowerCase() === rowPack;
+        }) || null;
+    }, [inventory, medicines]);
+
+    const openMaterialEditOrSearch = useCallback((rowId: string) => {
+        if (isReadOnly) return;
+        const row = cartItems.find(item => item.id === rowId);
+        if (!row) return;
+
+        if (!((row.name || '').trim())) {
+            openSearchModal(rowId, '');
+            return;
+        }
+
+        const materialRecord = findMedicineForSalesRow(row);
+        if (!materialRecord) {
+            addNotification('Material Master record not found for selected product.', 'warning');
+            return;
+        }
+
+        activeRowIdRef.current = rowId;
+        setMaterialEditRowId(rowId);
+        setMaterialToEdit(materialRecord);
+        setIsEditMaterialModalOpen(true);
+    }, [addNotification, cartItems, findMedicineForSalesRow, isReadOnly, openSearchModal]);
+
+    const handleUpdateMaterialFromSales = useCallback(async (updatedMedicine: Medicine) => {
+        if (!onUpdateMedicineMaster) {
+            addNotification('Material update action is unavailable in this view.', 'warning');
+            return;
+        }
+        const targetRowId = materialEditRowId;
+        if (!targetRowId) return;
+
+        await onUpdateMedicineMaster(updatedMedicine);
+
+        setCartItems(prev => prev.map(item => {
+            if (item.id !== targetRowId) return item;
+
+            const parsedMrp = parseFloat(String(updatedMedicine.mrp ?? ''));
+            const nextMrp = Number.isFinite(parsedMrp) ? parsedMrp : Number(item.mrp || 0);
+            const nextGst = Number(updatedMedicine.gstRate ?? item.gstPercent ?? 0);
+            const nextRate = resolveSalesRate({
+                mrp: nextMrp,
+                gstPercent: nextGst,
+                rateA: Number(updatedMedicine.rateA ?? item.rate ?? 0),
+                rateB: Number(updatedMedicine.rateB ?? 0),
+                rateC: Number(updatedMedicine.rateC ?? 0),
+            }, selectedCustomer?.defaultRateTier);
+
+            return {
+                ...item,
+                name: updatedMedicine.name || item.name,
+                packType: updatedMedicine.pack || item.packType,
+                hsnCode: updatedMedicine.hsnCode || item.hsnCode,
+                gstPercent: nextGst,
+                mrp: nextMrp,
+                rate: nextRate,
+            };
+        }));
+
+        addNotification('Material Master updated and sales line refreshed.', 'success');
+    }, [addNotification, materialEditRowId, onUpdateMedicineMaster, selectedCustomer?.defaultRateTier]);
+
     const closeInsightsPanel = useCallback(() => {
         setIsInsightsOpen(false);
         if (!isSearchModalOpen) return;
@@ -2127,6 +2213,12 @@ const POS = forwardRef<any, POSProps>(({
                                                         onChange={e => handleUpdateCartItem(item.id, 'name', e.target.value)}
                                                         onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
+                                                            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                openMaterialEditOrSearch(item.id);
+                                                                return;
+                                                            }
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
@@ -2801,6 +2893,19 @@ const POS = forwardRef<any, POSProps>(({
                 currentUser={currentUser}
                 isPosted={isPostedVoucher}
             />
+
+            {isEditMaterialModalOpen && materialToEdit && (
+                <EditMedicineModal
+                    isOpen={isEditMaterialModalOpen}
+                    onClose={() => {
+                        setIsEditMaterialModalOpen(false);
+                        setMaterialToEdit(null);
+                        setMaterialEditRowId(null);
+                    }}
+                    medicine={materialToEdit}
+                    onSave={handleUpdateMaterialFromSales}
+                />
+            )}
 
             <CustomerSearchModal
                 isOpen={isCustomerSearchModalOpen}
