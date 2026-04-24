@@ -1585,6 +1585,10 @@ const POS = forwardRef<any, POSProps>(({
     const handleUpdateCartItem = useCallback((id: string, field: keyof BillItem, value: any) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === id) {
+                const isSelectedProductRow = Boolean((item.inventoryItemId || '').trim());
+                if (field === 'name' && isSelectedProductRow) {
+                    return item;
+                }
                 const updated = { ...item, [field]: value };
                 if (field === 'expiry') {
                     updated.expiry = normalizeExpiryInput(String(value || ''));
@@ -1619,6 +1623,16 @@ const POS = forwardRef<any, POSProps>(({
             return item;
         }));
     }, [isValidRateInput, normalizeExpiryInput]);
+
+    const clearSelectedProductFromRow = useCallback((rowId: string) => {
+        setCartItems(prev => prev.map(item => {
+            if (item.id !== rowId) return item;
+            return {
+                ...createBlankItem(),
+                id: rowId,
+            };
+        }));
+    }, []);
 
     const handleLooseQtyFinalize = useCallback((id: string) => {
         setCartItems(prev => prev.map(item => item.id === id ? normalizePackConversion(item) : item));
@@ -1727,8 +1741,9 @@ const POS = forwardRef<any, POSProps>(({
         const row = cartItems.find(item => item.id === rowId);
         if (!row) return;
 
-        if (!((row.name || '').trim())) {
-            openSearchModal(rowId, '');
+        const isSelectedProductRow = Boolean((row.inventoryItemId || '').trim());
+        if (!isSelectedProductRow) {
+            openSearchModal(rowId, (row.name || '').trim());
             return;
         }
 
@@ -2206,11 +2221,23 @@ const POS = forwardRef<any, POSProps>(({
                                             </td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-2 border-r border-gray-200 uppercase w-72 truncate ${uniformTextStyle} ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-primary'}`} title={item.name}>
+                                                    {(() => {
+                                                        const isSelectedProductRow = Boolean((item.inventoryItemId || '').trim());
+                                                        const canOpenMatrix = !isReadOnly && !isSelectedProductRow && !(item.name || '').trim();
+                                                        return (
                                                     <input
                                                         id={`name-${item.id}`}
                                                         type="text"
                                                         value={item.name}
-                                                        onChange={e => handleUpdateCartItem(item.id, 'name', e.target.value)}
+                                                        onChange={e => {
+                                                            if (isSelectedProductRow) return;
+                                                            handleUpdateCartItem(item.id, 'name', e.target.value);
+                                                        }}
+                                                        onClick={() => {
+                                                            if (canOpenMatrix) {
+                                                                openSearchModal(item.id, '');
+                                                            }
+                                                        }}
                                                         onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
                                                             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -2219,12 +2246,27 @@ const POS = forwardRef<any, POSProps>(({
                                                                 openMaterialEditOrSearch(item.id);
                                                                 return;
                                                             }
+                                                            if (e.key === 'Enter' && canOpenMatrix) {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                openSearchModal(item.id, '');
+                                                                return;
+                                                            }
+                                                            if ((e.ctrlKey || e.metaKey) && e.key === 'Backspace' && isSelectedProductRow) {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                clearSelectedProductFromRow(item.id);
+                                                                return;
+                                                            }
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
                                                         className={`w-full bg-transparent border-none outline-none ${selectedRowIndex === idx ? 'text-white placeholder:text-white/50' : 'group-hover:text-white text-primary placeholder:text-gray-400'} ${uniformTextStyle}`}
+                                                        readOnly={isReadOnly || isSelectedProductRow}
                                                         disabled={isReadOnly}
                                                     />
+                                                        );
+                                                    })()}
                                                 </td>
                                             )}
                                             {isFieldVisible('colBatch') && (
