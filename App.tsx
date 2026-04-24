@@ -65,6 +65,7 @@ import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screen
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
 import { canAccessScreen, filterNavigationByPermissions } from './utils/rbac';
 import { normalizeStockHandlingConfig, resolveStockHandlingConfig, logStockMovement } from './utils/stockHandling';
+import { calculateCustomerReceivableBreakdown } from './utils/helpers';
 
 const DATA_ENTRY_SCREENS = [
     'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
@@ -2066,10 +2067,50 @@ const App: React.FC = () => {
             return customerPhone ? customerPhone === normalizedCustomerPhone : true;
         });
 
+        const currentBillAmount = Number(tx.total || 0);
+        const isCreditBill = String(tx.paymentMode || '').trim().toLowerCase() === 'credit';
+        const isCustomerSelected = Boolean(matchedCustomer?.id);
+        const sourceLabel = 'Sundry Debtors (Receivable)';
+        const sourceDetail = 'Net Outstanding Receivable';
+
+        const currentNetReceivable = isCustomerSelected
+            ? Number(calculateCustomerReceivableBreakdown(matchedCustomer).netOutstanding || 0)
+            : 0;
+
+        const hasLedgerEntryForThisInvoice = Boolean(
+            matchedCustomer?.ledger?.some((entry) =>
+                entry?.status !== 'cancelled' &&
+                entry.type === 'sale' &&
+                (entry.referenceInvoiceId === tx.id ||
+                    (tx.invoiceNumber && entry.referenceInvoiceNumber === tx.invoiceNumber))
+            )
+        );
+
+        const previousBalance = isCustomerSelected
+            ? Number(
+                (isCreditBill && hasLedgerEntryForThisInvoice
+                    ? currentNetReceivable - currentBillAmount
+                    : currentNetReceivable).toFixed(2)
+            )
+            : 0;
+
+        const newBalance = isCustomerSelected
+            ? Number((previousBalance + (isCreditBill ? currentBillAmount : 0)).toFixed(2))
+            : 0;
+
         return {
             ...tx,
             pharmacy: billPharmacy,
             customerDetails: matchedCustomer,
+            invoiceBalanceSnapshot: {
+                previousBalance,
+                currentBillAmount,
+                newBalance,
+                sourceLabel,
+                sourceDetail,
+                isCustomerSelected,
+                isCreditBill
+            },
             inventory,
             configurations
         } as DetailedBill & { inventory: InventoryItem[]; configurations: AppConfigurations; };

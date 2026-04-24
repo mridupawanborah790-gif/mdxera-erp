@@ -127,6 +127,8 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const customerPhone = toUpperDisplay(bill.customerPhone || bill.customerDetails?.phone);
   const customerGstin = toUpperDisplay(bill.customerDetails?.gstNumber);
   const customerDrugLicense = toUpperDisplay(bill.customerDetails?.drugLicense);
+  const balanceSnapshot = bill.invoiceBalanceSnapshot;
+  const showBalanceSection = Boolean(balanceSnapshot?.isCustomerSelected);
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased" style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}>
@@ -368,9 +370,23 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                         {numberToWords(calculations.grandTotal)}
                       </p>
                       <div className="mt-2 flex justify-between items-end">
-                          <div>
-                              <span className="text-base font-black text-gray-900 mr-2">BAL:</span>
-                              <span className="text-base font-black text-red-600">₹{(calculations.grandTotal - (bill.amountReceived || 0)).toFixed(2)}</span>
+                          <div className="space-y-0.5">
+                              {showBalanceSection && balanceSnapshot ? (
+                                <>
+                                  <div className="text-[6.5pt] font-bold uppercase text-gray-600 tracking-wide">
+                                    Source: {balanceSnapshot.sourceLabel} - {balanceSnapshot.sourceDetail}
+                                  </div>
+                                  <div className="text-[8.5pt] font-black text-gray-900">
+                                    PREVIOUS BAL: <span className="text-red-700">₹{balanceSnapshot.previousBalance.toFixed(2)}</span>
+                                  </div>
+                                  <div className="text-[8.5pt] font-black text-gray-900">
+                                    CURRENT BILL: <span className="text-blue-800">₹{balanceSnapshot.currentBillAmount.toFixed(2)}</span>
+                                  </div>
+                                  <div className="text-[9pt] font-black text-gray-900">
+                                    NEW BAL: <span className="text-red-700">₹{balanceSnapshot.newBalance.toFixed(2)}</span>
+                                  </div>
+                                </>
+                              ) : null}
                           </div>
                           <div className="text-center pr-1">
                               <p className="text-[6pt] font-black mb-4 uppercase tracking-wider">FOR {bill.pharmacy.pharmacy_name}</p>

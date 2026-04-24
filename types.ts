@@ -385,6 +385,15 @@ export interface Transaction {
     companyCodeId?: string;
     setOfBooksId?: string;
     sync_status?: 'synced' | 'pending' | 'failed';
+    invoiceBalanceSnapshot?: {
+        previousBalance: number;
+        currentBillAmount: number;
+        newBalance: number;
+        sourceLabel: string;
+        sourceDetail: string;
+        isCustomerSelected: boolean;
+        isCreditBill: boolean;
+    };
 }
 
 export type DetailedBill = Transaction & { pharmacy: RegisteredPharmacy; customerDetails?: Customer; };
