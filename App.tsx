@@ -2105,6 +2105,7 @@ const App: React.FC = () => {
                     return <POS
                         ref={isActive ? posRef : undefined}
                         inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
+                        transactions={transactions}
                         doctors={doctors}
                         onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
                         onPrintBill={(tx) => {
