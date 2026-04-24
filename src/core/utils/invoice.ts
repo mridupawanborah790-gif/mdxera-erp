@@ -8,9 +8,11 @@ export function getFiscalYearSuffix(date = new Date()): number {
 }
 
 export function getFinancialYearLabel(date = new Date()): string {
-    const startYear = getFiscalYearSuffix(date);
-    const endYear = (startYear + 1) % 100;
-    return `${startYear}-${String(endYear).padStart(2, '0')}`;
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const startYear = month >= 3 ? year : year - 1;
+    const endYear = (startYear + 1).toString().slice(-2);
+    return `/${startYear}-${endYear}`;
 }
 
 export interface GeneratedInvoiceIds {

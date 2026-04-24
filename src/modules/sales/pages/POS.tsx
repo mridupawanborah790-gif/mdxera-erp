@@ -348,13 +348,31 @@ const POS = forwardRef<any, POSProps>(({
         }
     }, [transactionToEdit, customers]);
 
-    const currentInvoiceNo = useMemo(() => {
-        if (transactionToEdit) return transactionToEdit.id;
-        const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
-        const typeKey = isNonGst ? 'non-gst' : 'regular';
-        const { id } = generateNewInvoiceId(configurations[configKey], typeKey);
-        return id;
-    }, [transactionToEdit, isNonGst, configurations, billMode]);
+    const [currentInvoiceNo, setCurrentInvoiceNo] = useState<string>('');
+
+    useEffect(() => {
+        const updateInvoiceNo = async () => {
+            if (transactionToEdit) {
+                setCurrentInvoiceNo(transactionToEdit.id);
+                return;
+            }
+            if (!currentUser) return;
+            
+            try {
+                const res = await storage.reserveVoucherNumber(isNonGst ? 'sales-non-gst' : 'sales-gst', currentUser, true);
+                setCurrentInvoiceNo(res.documentNumber);
+            } catch (e) {
+                console.error("Failed to preview invoice number:", e);
+                // Fallback
+                const configKey = isNonGst ? 'nonGstInvoiceConfig' : 'invoiceConfig';
+                const typeKey = isNonGst ? 'non-gst' : 'regular';
+                const { id } = generateNewInvoiceId(configurations[configKey], typeKey);
+                setCurrentInvoiceNo(id);
+            }
+        };
+        
+        updateInvoiceNo();
+    }, [transactionToEdit, isNonGst, configurations, currentUser, billMode]);
 
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;

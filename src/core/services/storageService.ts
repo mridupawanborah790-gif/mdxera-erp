@@ -1,6 +1,7 @@
 
 import { db } from '../database/databaseService';
 import { authService } from '../../modules/auth/services/authService';
+import { getFinancialYearLabel } from '../utils/invoice';
 import {
     RegisteredPharmacy, InventoryItem, Transaction, BillItem, Purchase, PurchaseItem, Supplier,
     Customer, PurchaseOrder, TransactionLedgerItem, UserRole, OrganizationMember,
@@ -26,11 +27,19 @@ export const toSnake = (obj: any): any => {
     if (Array.isArray(obj)) return obj.map(toSnake);
     return Object.keys(obj).reduce((acc, key) => {
         if (key.startsWith('_')) return acc;
+        
+        // These specific keys MUST remain snake_case for database interaction
         const preservedKeys = [
             'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'performed_by_id',
-            'narration', 'adjustment', 'supplier_id', 'master_medicine_id', 'full_name', 'pharmacy_name'
+            'supplier_id', 'master_medicine_id', 'full_name', 'pharmacy_name'
         ];
-        let snakeKey = preservedKeys.includes(key) ? key : key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+        
+        if (preservedKeys.includes(key)) {
+            acc[key] = toSnake(obj[key]);
+            return acc;
+        }
+
+        const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
         acc[snakeKey] = toSnake(obj[key]);
         return acc;
     }, {} as any);
@@ -40,6 +49,17 @@ export const toCamel = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
     if (Array.isArray(obj)) return obj.map(toCamel);
     return Object.keys(obj).reduce((acc, key) => {
+        // These specific keys MUST remain snake_case to match database structure and component expectations
+        const preservedKeys = [
+            'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'performed_by_id',
+            'supplier_id', 'master_medicine_id', 'full_name', 'pharmacy_name'
+        ];
+        
+        if (preservedKeys.includes(key)) {
+            acc[key] = toCamel(obj[key]);
+            return acc;
+        }
+
         const camelKey = key.replace(/_([a-z0-9])/g, (_, letter) => letter.toUpperCase());
         acc[camelKey] = toCamel(obj[key]);
         return acc;
@@ -48,7 +68,16 @@ export const toCamel = (obj: any): any => {
 
 export const fromDb = (tableName: string, payload: Record<string, any>): any => {
     if (!payload) return payload;
-    const jsonColumns = ['items', 'ledger', 'payment_details', 'invoice_config', 'non_gst_invoice_config', 'purchase_config', 'purchase_order_config', 'medicine_master_config', 'physical_inventory_config', 'delivery_challan_config', 'sales_challan_config', 'master_shortcuts', 'display_options', 'modules', 'sidebar'];
+    const jsonColumns = [
+        'items', 'ledger', 'payment_details', 'invoice_config', 'non_gst_invoice_config', 
+        'purchase_config', 'purchase_order_config', 'medicine_master_config', 
+        'physical_inventory_config', 'delivery_challan_config', 'sales_challan_config', 
+        'master_shortcuts', 'display_options', 'modules', 'sidebar',
+        'master_price_maintains', 'linked_challans', 'prescription_images', 
+        'receive_links', 'source_purchase_bill_ids',
+        // Configurations extras
+        'discount_rules', 'gst_settings', 'eway_login_setup', 'master_shortcut_order'
+    ];
     const processed = { ...payload };
     for (const col of jsonColumns) {
         if (typeof processed[col] === 'string') {
@@ -61,13 +90,46 @@ export const fromDb = (tableName: string, payload: Record<string, any>): any => 
 export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null, isUpdate: boolean = false): Promise<any> => {
     if (!user?.organization_id) throw new Error("Organizational identity not verified.");
     const dbPayload: any = { ...data, organization_id: user.organization_id };
-    if (!isUpdate && !dbPayload.id) dbPayload.id = generateUUID();
+    
+    if (tableName === 'configurations') {
+        delete dbPayload.id; // configurations table does not use an id column
+    } else if (!isUpdate && !dbPayload.id) {
+        dbPayload.id = generateUUID();
+    }
+
+    // Auto-generate codes if missing and not an update
+    if (!isUpdate && dbPayload.id) {
+        const shortId = dbPayload.id.substring(0, 8).toUpperCase();
+        
+        if (tableName === 'material_master' && (!dbPayload.materialCode || dbPayload.materialCode === 'Auto-generated on save')) {
+            dbPayload.materialCode = `MM-${shortId}`;
+        }
+        
+        if (tableName === 'doctor_master' && !dbPayload.doctorCode) {
+            dbPayload.doctorCode = `DOC-${shortId}`;
+        }
+
+        if (tableName === 'mbc_card_types' && !dbPayload.typeCode) {
+            dbPayload.typeCode = `MCT-${shortId}`;
+        }
+
+        if (tableName === 'sales_challans' && !dbPayload.challanSerialId) {
+            dbPayload.challanSerialId = `SC-${shortId}`;
+        }
+
+        if (tableName === 'delivery_challans' && !dbPayload.challanSerialId) {
+            dbPayload.challanSerialId = `DC-${shortId}`;
+        }
+    }
 
     const snakeData = toSnake(dbPayload);
     const columns = Object.keys(snakeData);
     const values = columns.map(k => (typeof snakeData[k] === 'object' && snakeData[k] !== null) ? JSON.stringify(snakeData[k]) : snakeData[k]);
 
-    if (isUpdate) {
+    if (tableName === 'configurations') {
+        const placeholders = columns.map(() => '?').join(', ');
+        await db.exec(`INSERT OR REPLACE INTO configurations (${columns.join(', ')}) VALUES (${placeholders})`, values);
+    } else if (isUpdate) {
         const setClause = columns.map(k => `${k} = ?`).join(', ');
         await db.exec(`UPDATE ${tableName} SET ${setClause} WHERE id = ?`, [...values, snakeData.id]);
     } else {
@@ -147,7 +209,62 @@ export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
 };
 
 export const reserveVoucherNumber = async (docType: string, user: RegisteredPharmacy, isPreview: boolean = false): Promise<any> => {
-    return { documentNumber: `V-${Date.now()}`, usedNumber: 0, nextNumber: 1, remainingCount: null };
+    if (!user?.organization_id) throw new Error("Unauthorized");
+
+    try {
+        // 1. Fetch current configuration
+        const rows = await db.exec('SELECT * FROM configurations WHERE organization_id = ? LIMIT 1', [user.organization_id]);
+        if (rows.length === 0) {
+            // Fallback if no config exists
+            return { documentNumber: `V-${Date.now()}`, usedNumber: 0, nextNumber: 1, remainingCount: null };
+        }
+
+        const config = fromDb('configurations', rows[0]);
+        
+        // 2. Map docType to config key
+        const docTypeToConfigKey: Record<string, keyof AppConfigurations> = {
+            'sales-gst': 'invoiceConfig',
+            'sales-non-gst': 'nonGstInvoiceConfig',
+            'purchase-entry': 'purchaseConfig',
+            'purchase-order': 'purchaseOrderConfig',
+            'delivery-challan': 'deliveryChallanConfig',
+            'sales-challan': 'salesChallanConfig',
+            'physical-inventory': 'physicalInventoryConfig'
+        };
+
+        const configKey = docTypeToConfigKey[docType];
+        if (!configKey || !config[configKey]) {
+            return { documentNumber: `${docType.toUpperCase()}-${Date.now()}`, usedNumber: 0, nextNumber: 1, remainingCount: null };
+        }
+
+        const vConfig: InvoiceNumberConfig = config[configKey] as any;
+        const currentNum = vConfig.currentNumber || vConfig.startingNumber || 1;
+        
+        // 3. Format document number
+        const prefix = vConfig.prefix || '';
+        const padding = vConfig.paddingLength || 0;
+        const formattedNumber = currentNum.toString().padStart(padding, '0');
+        
+        const fiscalYear = vConfig.useFiscalYear ? getFinancialYearLabel() : '';
+        const documentNumber = `${prefix}${formattedNumber}${fiscalYear}`;
+
+        // 4. Update config if not a preview
+        if (!isPreview) {
+            vConfig.currentNumber = currentNum + 1;
+            config[configKey] = vConfig as any;
+            await saveData('configurations', config, user, true);
+        }
+
+        return {
+            documentNumber,
+            usedNumber: currentNum,
+            nextNumber: currentNum + 1,
+            remainingCount: null
+        };
+    } catch (error) {
+        console.error('Failed to reserve voucher number:', error);
+        return { documentNumber: `ERR-${Date.now()}`, usedNumber: 0, nextNumber: 1, remainingCount: null };
+    }
 };
 
 export const fetchBankMasters = async (user: RegisteredPharmacy) => getData('bank_master', [], user);

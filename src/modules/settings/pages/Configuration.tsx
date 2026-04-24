@@ -111,9 +111,9 @@ const getVoucherSchemeDefaults = (): InvoiceNumberConfig => ({
 
 const buildNumberPreview = (cfg: Partial<InvoiceNumberConfig>, number: number) => {
     const prefix = cfg.prefix || '';
-    const fy = cfg.fy || getFinancialYearLabel();
+    const fy = getFinancialYearLabel();
     const padded = String(number).padStart(Math.max(1, Number(cfg.paddingLength) || 1), '0');
-    return `${prefix}${padded}${cfg.useFiscalYear ? `-${fy}` : ''}`;
+    return `${prefix}${padded}${cfg.useFiscalYear ? fy : ''}`;
 };
 
 function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, configs: AppConfigurations, onChange: (section: keyof AppConfigurations, field: string, value: any) => void, liveSequences: Record<string, { currentNumber: number, documentNumber: string }>, isLoadingLive: boolean) {
@@ -1470,7 +1470,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
                         <div className="mt-auto pt-10 border-t border-gray-200 flex justify-end gap-4">
                             <button onClick={() => setLocalConfigs(configurations)} className="px-10 py-3 tally-border bg-white text-gray-500 font-black uppercase text-[11px] hover:bg-red-50 transition-colors">Discard</button>
-                            <button onClick={() => {
+                            <button onClick={async () => {
                                 const error = validateVoucherSchemes();
                                 if (error) {
                                     addNotification(error, 'error');
@@ -1507,8 +1507,13 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                     masterShortcutOrder: sanitizedOrder 
                                 } as AppConfigurations);
 
-                                onUpdateConfigurations(normalizeStockHandlingConfig(normalizedConfigs));
+                                try {
+                                    await onUpdateConfigurations(normalizeStockHandlingConfig(normalizedConfigs));
                                     addNotification('Accepted Changes and sanitized shortcut list.', 'success');
+                                } catch (e) {
+                                    console.error('Failed to update configurations:', e);
+                                    addNotification('Failed to update configuration.', 'error');
+                                }
                             }} className="px-16 py-4 tally-button-primary shadow-2xl uppercase text-[11px] font-black tracking-[0.3em] active:scale-95">Accept (Enter)</button>
                         </div>
                     </Card>

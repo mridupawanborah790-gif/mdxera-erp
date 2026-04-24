@@ -133,7 +133,10 @@ const resolveActivePriceRecord = (batch: InventoryItem, medicines: Medicine[], t
     const effectiveDate = transactionDate || new Date().toISOString().slice(0, 10);
     const med = medicines.find(m => (m.materialCode || '').trim().toLowerCase() === normalizedCode);
     if (!med) return null;
-    return (med.masterPriceMaintains || [])
+    
+    const records = Array.isArray(med.masterPriceMaintains) ? med.masterPriceMaintains : [];
+    
+    return records
         .filter(r =>
         r.status === 'active' &&
         effectiveDate >= r.validFrom &&

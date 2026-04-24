@@ -91,6 +91,33 @@ type PersistedScreenState = {
     activeDashboardMenu?: 'left' | 'right';
 };
 
+const getDefaultConfigurations = (orgId: string): AppConfigurations => {
+    const fy = `/${new Date().getFullYear()}-${(new Date().getFullYear() + 1).toString().slice(-2)}`;
+    const defaultScheme = (prefix: string) => ({
+        prefix,
+        startingNumber: 1,
+        currentNumber: 1,
+        paddingLength: 5,
+        useFiscalYear: true,
+        fy
+    });
+
+    return {
+        organization_id: orgId,
+        invoiceConfig: defaultScheme('SL/'),
+        nonGstInvoiceConfig: defaultScheme('EST/'),
+        purchaseConfig: defaultScheme('PR/'),
+        purchaseOrderConfig: defaultScheme('PO/'),
+        deliveryChallanConfig: defaultScheme('DC/'),
+        salesChallanConfig: defaultScheme('SC/'),
+        physicalInventoryConfig: defaultScheme('AUD/'),
+        displayOptions: {
+            strictStock: true,
+            enableNegativeStock: false,
+        }
+    };
+};
+
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
     const [currentPage, setCurrentPage] = useState('dashboard');
@@ -460,8 +487,17 @@ const App: React.FC = () => {
             const promo = readSettled<Promotion[]>(18, []);
             const team = readSettled<OrganizationMember[]>(19, []);
             const roleData = readSettled<BusinessRole[]>(20, []);
-            const configData = readSettled<AppConfigurations[]>(21, [{ organization_id: orgId } as AppConfigurations]);
-            const mrpLogs = readSettled<MrpChangeLogEntry[]>(22, []);
+            // Fetch configuration directly by organization_id
+            let configResult = await storage.getData('configurations', [], user);
+            
+            // If empty, try one more time after a tiny delay (race condition safeguard)
+            if (!configResult || configResult.length === 0) {
+                await new Promise(r => setTimeout(r, 200));
+                configResult = await storage.getData('configurations', [], user);
+            }
+
+            const configData = configResult?.[0] ? [configResult[0]] : [];
+            const mrpLogs = readSettled<MrpChangeLogEntry[]>(21, []);
 
             const failedLoads = settled
                 .map((result, index) => ({ result, label: loadJobs[index][0] }))
@@ -502,14 +538,16 @@ const App: React.FC = () => {
             if (configData && configData.length > 0) {
                 const normalizedConfig = normalizeStockHandlingConfig(configData[0]);
                 setConfigurations(normalizedConfig);
-                if (
-                    (configData[0].displayOptions?.strictStock ?? true) &&
-                    (configData[0].displayOptions?.enableNegativeStock ?? false)
-                ) {
-                    await storage.saveData('configurations', normalizedConfig, user);
-                }
             } else {
-                setConfigurations(normalizeStockHandlingConfig({ organization_id: orgId }));
+                // IMPORTANT: Protect existing state if load returned nothing but we have an orgId
+                setConfigurations(prev => {
+                    if (prev && prev.organization_id === orgId && (prev.invoiceConfig || prev.purchaseConfig)) {
+                        console.log("App: Keeping current configuration state as DB returned empty.");
+                        return prev;
+                    }
+                    console.log("App: Initializing default configurations for org:", orgId);
+                    return getDefaultConfigurations(orgId);
+                });
             }
             setLastRefreshed(new Date());
             if (mode === 'sync') addNotification("ERP synchronized with cloud master.", "success");
@@ -523,30 +561,48 @@ const App: React.FC = () => {
         }
     }, [addNotification, syncInventoryFromMaterialMaster]);
 
-    // Initialize DB on mount
+    // Initialize DB and User on mount
     useEffect(() => {
-        console.log('App: Starting initialization...');
-        db.init().then(() => {
-            console.log('App: DB initialized, fetching current user...');
-            authService.getCurrentUser().then(user => {
+        let isMounted = true;
+        
+        const initApp = async () => {
+            console.log('App: Starting initialization...');
+            try {
+                // Small delay to allow worker/FS to settle on fast refreshes
+                await new Promise(r => setTimeout(r, 150));
+                
+                await db.init();
+                if (!isMounted) return;
+                
+                console.log('App: DB initialized, fetching current user...');
+                const user = await authService.getCurrentUser();
+                
+                if (!isMounted) return;
                 console.log('App: Current user check complete:', user ? 'User found' : 'No user');
+                
                 if (user) {
                     setCurrentUser(user);
-                    loadData(user, 'initial');
+                    await loadData(user, modeModeRef.current === 'sync' ? 'initial' : 'initial');
                 } else {
                     setIsAppLoading(false);
                 }
-            }).catch(userErr => {
-                console.error('App: Failed to get current user:', userErr);
-                setAppLoadError('Failed to verify user session.');
-                setIsAppLoading(false);
-            });
-        }).catch(err => {
-            console.error('App: Database initialization failed:', err);
-            setAppLoadError('Failed to initialize local database.');
-            setIsAppLoading(false);
-        });
+            } catch (error) {
+                console.error('App: Initialization failed:', error);
+                if (isMounted) {
+                    setAppLoadError('Failed to initialize local database or verify user session.');
+                    setIsAppLoading(false);
+                }
+            }
+        };
+
+        initApp();
+        
+        return () => {
+            isMounted = false;
+        };
     }, [loadData]);
+
+    const modeModeRef = useRef('initial');
 
     const refreshInventoryViews = useCallback(async (
         user: RegisteredPharmacy,
@@ -709,23 +765,6 @@ const App: React.FC = () => {
         setIsRealtimeActive(true);
         return () => {};
     }, [currentUser]);
-
-    useEffect(() => {
-        db.init().then(() => {
-            authService.getCurrentUser().then(user => {
-                if (user) {
-                    setCurrentUser(user);
-                    loadData(user, 'initial');
-                } else {
-                    setIsAppLoading(false);
-                }
-            });
-        }).catch(err => {
-            console.error('Database initialization failed:', err);
-            setAppLoadError('Failed to initialize local database.');
-            setIsAppLoading(false);
-        });
-    }, [loadData]);
 
     const handleReload = useCallback(async () => {
         if (currentUser) await loadData(currentUser, 'sync');
@@ -994,6 +1033,22 @@ const App: React.FC = () => {
 
             const savedTx = await storage.addTransaction(tx, currentUser, isUpdate);
 
+            // Deduct inventory stock for each sold item
+            const latestInventoryForSale = await storage.fetchInventory(currentUser);
+            for (const item of tx.items || []) {
+                if (!item.inventoryItemId) continue;
+                const invItem = latestInventoryForSale.find(i => i.id === item.inventoryItemId);
+                if (!invItem) continue;
+                const policy = getInventoryPolicy(invItem, medicines);
+                if (!policy.inventorised) continue;
+                const uPP = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
+                const soldUnits = (Number(item.quantity || 0) * uPP) + Number(item.looseQuantity || 0);
+                const stockBefore = Number(invItem.stock || 0);
+                const stockAfter = Math.max(0, stockBefore - soldUnits);
+                logStockMovement({ transactionType: 'sales-outward', voucherId: savedTx.id, item: invItem.name, batch: invItem.batch || 'UNSET', qty: soldUnits, qtyOut: soldUnits, stockBefore, stockAfter, organizationId: currentUser.organization_id, validationResult: 'allowed', mode: resolveStockHandlingConfig(configurations).mode });
+                await storage.saveData('inventory', { ...invItem, stock: stockAfter }, currentUser, true);
+            }
+
             // Synchronize the local configuration state with the next expected number.
             // This ensures that the "Preview" number shown in the UI is consistent with what's in the DB
             // without waiting for a background reload.
@@ -1164,6 +1219,25 @@ const App: React.FC = () => {
         setIsOperationLoading(true);
         try {
             const savedPurchase = await storage.addPurchase(p, currentUser);
+
+            // Add inventory stock for each purchased item
+            const latestInventoryForPurchase = await storage.fetchInventory(currentUser);
+            for (const item of (p.items || [])) {
+                // Match by name + batch (standard approach for purchase)
+                const invMatch = latestInventoryForPurchase.find(i =>
+                    (i.name || '').toLowerCase().trim() === (item.name || '').toLowerCase().trim() &&
+                    (i.batch || 'UNSET').toLowerCase().trim() === (item.batch || 'UNSET').toLowerCase().trim()
+                );
+                if (!invMatch) continue;
+                const policy = getInventoryPolicy(invMatch, medicines);
+                if (!policy.inventorised) continue;
+                const uPP = resolveUnitsPerStrip(invMatch.unitsPerPack, invMatch.packType);
+                const purchasedUnits = ((Number(item.quantity || 0) + Number(item.freeQuantity || 0)) * uPP) + Number(item.looseQuantity || 0);
+                const stockBefore = Number(invMatch.stock || 0);
+                const stockAfter = stockBefore + purchasedUnits;
+                logStockMovement({ transactionType: 'purchase-inward', voucherId: savedPurchase.id, item: invMatch.name, batch: invMatch.batch || 'UNSET', qty: purchasedUnits, qtyIn: purchasedUnits, stockBefore, stockAfter, organizationId: currentUser.organization_id, validationResult: 'allowed', mode: resolveStockHandlingConfig(configurations).mode });
+                await storage.saveData('inventory', { ...invMatch, stock: stockAfter }, currentUser, true);
+            }
             // Immediate local state update
             setPurchases(prev => [savedPurchase, ...prev]);
 
@@ -1294,7 +1368,7 @@ const App: React.FC = () => {
                 };
 
                 const today = new Date().toISOString().slice(0, 10);
-                const nextPriceRecords = (linkedMedicine.masterPriceMaintains || []).map(record => {
+                const nextPriceRecords = (Array.isArray(linkedMedicine.masterPriceMaintains) ? linkedMedicine.masterPriceMaintains : []).map(record => {
                     if (today < record.validFrom || today > record.validTo || record.status !== 'active') return record;
                     return {
                         ...record,

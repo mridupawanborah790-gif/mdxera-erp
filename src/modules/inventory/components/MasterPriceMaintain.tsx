@@ -237,7 +237,7 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
     return medicines.filter(m => {
       const search = materialSearch.trim().toLowerCase();
       const matchesSearch = !search || m.name.toLowerCase().includes(search) || m.materialCode.toLowerCase().includes(search);
-      const current = (m.masterPriceMaintains || []).find(r => r.status === 'active' && todayIso() >= r.validFrom && todayIso() <= r.validTo);
+      const current = (Array.isArray(m.masterPriceMaintains) ? m.masterPriceMaintains : []).find(r => r.status === 'active' && todayIso() >= r.validFrom && todayIso() <= r.validTo);
       const matchesStatus = statusFilter === 'all' || (current?.status || 'inactive') === statusFilter;
       const matchesRateType = rateTypeFilter === 'all' || Number(current?.[rateTypeFilter] || m[rateTypeFilter] || 0) > 0;
       return matchesSearch && matchesStatus && matchesRateType;
@@ -246,7 +246,7 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
 
   const exportRows = useMemo(() => {
     return filteredMedicines.map(med => {
-      const active = (med.masterPriceMaintains || []).find(r => r.status === 'active' && todayIso() >= r.validFrom && todayIso() <= r.validTo);
+      const active = (Array.isArray(med.masterPriceMaintains) ? med.masterPriceMaintains : []).find(r => r.status === 'active' && todayIso() >= r.validFrom && todayIso() <= r.validTo);
       const row = active || editableTemplate(med);
       return [
         med.materialCode,
@@ -737,7 +737,7 @@ const MasterPriceMaintain: React.FC<MasterPriceMaintainProps> = ({ medicines, cu
           </thead>
           <tbody>
             {filteredMedicines.map(med => {
-              const active = (med.masterPriceMaintains || []).find(r => r.status === 'active' && todayIso() >= r.validFrom && todayIso() <= r.validTo);
+              const active = (Array.isArray(med.masterPriceMaintains) ? med.masterPriceMaintains : []).find(r => r.status === 'active' && todayIso() >= r.validFrom && todayIso() <= r.validTo);
               const row = active || editableTemplate(med);
               const isEditing = editingMaterialId === med.id && draft;
               const value = isEditing ? draft : row;

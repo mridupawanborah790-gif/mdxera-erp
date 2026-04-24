@@ -8,6 +8,7 @@ class DatabaseService {
     private initPromise: Promise<void> | null = null;
 
     constructor() {
+        // Reverting to original name to restore existing user data
         this.sqlocal = new SQLocal('medimart_local.sqlite3');
         this.sql = this.sqlocal.sql;
     }
@@ -17,10 +18,17 @@ class DatabaseService {
         if (this.initPromise) return this.initPromise;
 
         this.initPromise = (async () => {
-            console.log('Initializing local database...');
+            console.log('Initializing local database (medimart_local)...');
             try {
+                // The SQLocal worker might take a moment to be ready
+                await new Promise(r => setTimeout(r, 150));
+                
                 await this.createTables();
                 await this.runMigrations();
+                
+                // Verify a simple query to ensure the DB is truly writable/readable
+                await this.exec('SELECT 1');
+                
                 this.initialized = true;
                 console.log('Local database initialized successfully.');
             } catch (error) {
@@ -66,6 +74,21 @@ class DatabaseService {
         await addColumnIfMissing('material_master', 'is_purchase_enabled', 'INTEGER DEFAULT 1');
         await addColumnIfMissing('material_master', 'is_production_enabled', 'INTEGER DEFAULT 0');
         await addColumnIfMissing('material_master', 'is_internal_issue_enabled', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing('material_master', 'directions', 'TEXT');
+        await addColumnIfMissing('material_master', 'is_prescription_required', 'INTEGER DEFAULT 1');
+        await addColumnIfMissing('material_master', 'composition', 'TEXT');
+        await addColumnIfMissing('material_master', 'pack', 'TEXT');
+        await addColumnIfMissing('material_master', 'barcode', 'TEXT');
+        await addColumnIfMissing('material_master', 'brand', 'TEXT');
+        await addColumnIfMissing('material_master', 'manufacturer', 'TEXT');
+        await addColumnIfMissing('material_master', 'marketer', 'TEXT');
+        await addColumnIfMissing('material_master', 'description', 'TEXT');
+        await addColumnIfMissing('material_master', 'gst_rate', 'REAL DEFAULT 12');
+        await addColumnIfMissing('material_master', 'hsn_code', 'TEXT');
+        await addColumnIfMissing('material_master', 'mrp', 'REAL DEFAULT 0');
+        await addColumnIfMissing('material_master', 'rate_a', 'REAL DEFAULT 0');
+        await addColumnIfMissing('material_master', 'rate_b', 'REAL DEFAULT 0');
+        await addColumnIfMissing('material_master', 'rate_c', 'REAL DEFAULT 0');
 
         // Specific missing columns for inventory
         await addColumnIfMissing('inventory', 'manufacturer', 'TEXT');
@@ -81,6 +104,16 @@ class DatabaseService {
         await addColumnIfMissing('inventory', 'purchase_deal', 'REAL DEFAULT 0');
         await addColumnIfMissing('inventory', 'purchase_free', 'REAL DEFAULT 0');
         await addColumnIfMissing('inventory', 'tax_basis', 'TEXT');
+        await addColumnIfMissing('inventory', 'supplier_name', 'TEXT');
+        await addColumnIfMissing('inventory', 'rack_number', 'TEXT');
+        await addColumnIfMissing('inventory', 'cost', 'REAL DEFAULT 0');
+        await addColumnIfMissing('inventory', 'value', 'REAL DEFAULT 0');
+        await addColumnIfMissing('inventory', 'composition', 'TEXT');
+        await addColumnIfMissing('inventory', 'barcode', 'TEXT');
+        await addColumnIfMissing('inventory', 'ptr', 'REAL DEFAULT 0');
+        await addColumnIfMissing('inventory', 'pack_type', 'TEXT');
+        await addColumnIfMissing('inventory', 'min_stock_limit', 'REAL DEFAULT 10');
+        await addColumnIfMissing('inventory', 'units_per_pack', 'INTEGER DEFAULT 1');
 
         // Specific missing columns for customers
         await addColumnIfMissing('customers', 'address_line1', 'TEXT');
@@ -105,6 +138,10 @@ class DatabaseService {
         await addColumnIfMissing('customers', 'credit_control_mode', 'TEXT DEFAULT \'warning_only\'');
         await addColumnIfMissing('customers', 'allow_override', 'INTEGER DEFAULT 0');
         await addColumnIfMissing('customers', 'override_approval_required', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing('customers', 'is_blocked', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing('customers', 'customer_type', 'TEXT DEFAULT \'regular\'');
+        await addColumnIfMissing('customers', 'default_discount', 'REAL DEFAULT 0');
+        await addColumnIfMissing('customers', 'gst_number', 'TEXT');
 
         // Specific missing columns for suppliers
         await addColumnIfMissing('suppliers', 'contact_person', 'TEXT');
@@ -121,6 +158,10 @@ class DatabaseService {
         await addColumnIfMissing('suppliers', 'remarks', 'TEXT');
         await addColumnIfMissing('suppliers', 'is_blocked', 'INTEGER DEFAULT 0');
         await addColumnIfMissing('suppliers', 'city', 'TEXT');
+        await addColumnIfMissing('suppliers', 'supplier_group', 'TEXT DEFAULT \'Sundry Creditors\'');
+        await addColumnIfMissing('suppliers', 'control_gl_id', 'TEXT');
+        await addColumnIfMissing('suppliers', 'district', 'TEXT');
+        await addColumnIfMissing('suppliers', 'state', 'TEXT');
 
         // Specific missing columns for sales_bill
         await addColumnIfMissing('sales_bill', 'invoice_number', 'TEXT');
@@ -141,6 +182,13 @@ class DatabaseService {
         await addColumnIfMissing('sales_bill', 'company_code_id', 'TEXT');
         await addColumnIfMissing('sales_bill', 'set_of_books_id', 'TEXT');
         await addColumnIfMissing('sales_bill', 'sync_status', 'TEXT DEFAULT \'pending\'');
+        await addColumnIfMissing('sales_bill', 'item_count', 'TEXT');
+        await addColumnIfMissing('sales_bill', 'bill_type', 'TEXT DEFAULT \'regular\'');
+        await addColumnIfMissing('sales_bill', 'payment_mode', 'TEXT DEFAULT \'Cash\'');
+        await addColumnIfMissing('sales_bill', 'pricing_mode', 'TEXT DEFAULT \'mrp\'');
+        await addColumnIfMissing('sales_bill', 'total_item_discount', 'REAL DEFAULT 0');
+        await addColumnIfMissing('sales_bill', 'scheme_discount', 'REAL DEFAULT 0');
+        await addColumnIfMissing('sales_bill', 'round_off', 'REAL DEFAULT 0');
 
         // Specific missing columns for purchases
         await addColumnIfMissing('purchases', 'total_item_discount', 'REAL DEFAULT 0');
@@ -156,6 +204,8 @@ class DatabaseService {
         await addColumnIfMissing('purchases', 'source_receive_mode', 'TEXT');
         await addColumnIfMissing('purchases', 'company_code_id', 'TEXT');
         await addColumnIfMissing('purchases', 'set_of_books_id', 'TEXT');
+        await addColumnIfMissing('purchases', 'pricing_mode', 'TEXT DEFAULT \'rate\'');
+        await addColumnIfMissing('purchases', 'purchase_serial_id', 'TEXT');
 
         // Specific missing columns for sales_challans
         await addColumnIfMissing('sales_challans', 'user_id', 'TEXT');
@@ -166,6 +216,9 @@ class DatabaseService {
         await addColumnIfMissing('sales_challans', 'total_gst', 'REAL DEFAULT 0');
         await addColumnIfMissing('sales_challans', 'narration', 'TEXT');
         await addColumnIfMissing('sales_challans', 'remarks', 'TEXT');
+        await addColumnIfMissing('sales_challans', 'total_amount', 'REAL DEFAULT 0');
+        await addColumnIfMissing('sales_challans', 'total_items', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing('sales_challans', 'total_item_discount', 'REAL DEFAULT 0');
 
         // Specific missing columns for delivery_challans
         await addColumnIfMissing('delivery_challans', 'user_id', 'TEXT');
@@ -175,6 +228,35 @@ class DatabaseService {
         await addColumnIfMissing('delivery_challans', 'subtotal', 'REAL DEFAULT 0');
         await addColumnIfMissing('delivery_challans', 'total_gst', 'REAL DEFAULT 0');
         await addColumnIfMissing('delivery_challans', 'remarks', 'TEXT');
+        await addColumnIfMissing('delivery_challans', 'total_amount', 'REAL DEFAULT 0');
+
+        // Specific missing columns for returns
+        await addColumnIfMissing('sales_returns', 'subtotal', 'REAL DEFAULT 0');
+        await addColumnIfMissing('sales_returns', 'total_gst', 'REAL DEFAULT 0');
+        await addColumnIfMissing('sales_returns', 'round_off', 'REAL DEFAULT 0');
+        await addColumnIfMissing('sales_returns', 'original_invoice_id', 'TEXT');
+        await addColumnIfMissing('sales_returns', 'original_invoice_number', 'TEXT');
+        await addColumnIfMissing('sales_returns', 'customer_name', 'TEXT');
+        await addColumnIfMissing('sales_returns', 'customer_id', 'TEXT');
+        await addColumnIfMissing('sales_returns', 'total_refund', 'REAL DEFAULT 0');
+        await addColumnIfMissing('sales_returns', 'remarks', 'TEXT');
+        await addColumnIfMissing('purchase_returns', 'subtotal', 'REAL DEFAULT 0');
+        await addColumnIfMissing('purchase_returns', 'total_gst', 'REAL DEFAULT 0');
+        await addColumnIfMissing('purchase_returns', 'round_off', 'REAL DEFAULT 0');
+        await addColumnIfMissing('purchase_returns', 'original_purchase_invoice_id', 'TEXT');
+        await addColumnIfMissing('purchase_returns', 'supplier', 'TEXT');
+        await addColumnIfMissing('purchase_returns', 'total_value', 'REAL DEFAULT 0');
+        await addColumnIfMissing('purchase_returns', 'remarks', 'TEXT');
+
+        // Fix supplier_product_map column name mismatches (type uses master_medicine_id, supplier_product_name)
+        await addColumnIfMissing('supplier_product_map', 'master_medicine_id', 'TEXT');
+        await addColumnIfMissing('supplier_product_map', 'supplier_product_name', 'TEXT');
+        await addColumnIfMissing('supplier_product_map', 'auto_apply', 'INTEGER DEFAULT 0');
+
+        // Extra configurations columns for discount rules, GST settings and eWay setup
+        await addColumnIfMissing('configurations', 'discount_rules', 'TEXT');
+        await addColumnIfMissing('configurations', 'gst_settings', 'TEXT');
+        await addColumnIfMissing('configurations', 'eway_login_setup', 'TEXT');
 
         // Specific missing columns for purchase_orders
         await addColumnIfMissing('purchase_orders', 'user_id', 'TEXT');
@@ -213,6 +295,21 @@ class DatabaseService {
 
         // Specific missing columns reported
         await addColumnIfMissing('company_codes', 'description', 'TEXT');
+
+        // Specific missing columns for configurations
+        await addColumnIfMissing('configurations', 'invoice_config', 'TEXT');
+        await addColumnIfMissing('configurations', 'non_gst_invoice_config', 'TEXT');
+        await addColumnIfMissing('configurations', 'purchase_config', 'TEXT');
+        await addColumnIfMissing('configurations', 'purchase_order_config', 'TEXT');
+        await addColumnIfMissing('configurations', 'medicine_master_config', 'TEXT');
+        await addColumnIfMissing('configurations', 'physical_inventory_config', 'TEXT');
+        await addColumnIfMissing('configurations', 'delivery_challan_config', 'TEXT');
+        await addColumnIfMissing('configurations', 'sales_challan_config', 'TEXT');
+        await addColumnIfMissing('configurations', 'master_shortcuts', 'TEXT');
+        await addColumnIfMissing('configurations', 'master_shortcut_order', 'TEXT');
+        await addColumnIfMissing('configurations', 'display_options', 'TEXT');
+        await addColumnIfMissing('configurations', 'modules', 'TEXT');
+        await addColumnIfMissing('configurations', 'sidebar', 'TEXT');
     }
 
     private async createTables() {
@@ -278,8 +375,7 @@ class DatabaseService {
         // --- CONFIGURATION ---
         await this.sql`
             CREATE TABLE IF NOT EXISTS configurations (
-                id TEXT PRIMARY KEY,
-                organization_id TEXT NOT NULL UNIQUE,
+                organization_id TEXT PRIMARY KEY,
                 invoice_config TEXT, -- JSON
                 non_gst_invoice_config TEXT, -- JSON
                 purchase_config TEXT, -- JSON
@@ -289,6 +385,7 @@ class DatabaseService {
                 delivery_challan_config TEXT, -- JSON
                 sales_challan_config TEXT, -- JSON
                 master_shortcuts TEXT, -- JSON array
+                master_shortcut_order TEXT, -- JSON array
                 display_options TEXT, -- JSON
                 modules TEXT, -- JSON
                 sidebar TEXT, -- JSON
