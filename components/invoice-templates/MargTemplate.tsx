@@ -234,7 +234,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                <div className="mt-0.5 space-y-0.5 text-[7pt] font-normal text-gray-700">
                  {customerPhone && <p>PH: {customerPhone}</p>}
                  {customerAddressCompact && <p className="leading-tight">ADDRESS: {customerAddressCompact}</p>}
-                 {customerGstin && <p>GSTIN: {customerGstin}</p>}
+                 {customerGstin ? <p>GSTIN: {customerGstin}</p> : (bill.customerDetails?.panNumber ? <p>PAN: {toUpperDisplay(bill.customerDetails.panNumber)}</p> : null)}
                  {customerDrugLicense && <p>DL NO: {customerDrugLicense}</p>}
                </div>
             </div>

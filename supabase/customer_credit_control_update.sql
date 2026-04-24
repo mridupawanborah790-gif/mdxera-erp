@@ -4,6 +4,7 @@ alter table if exists public.customers
   add column if not exists credit_days integer not null default 0,
   add column if not exists credit_status text not null default 'active',
   add column if not exists credit_control_mode text not null default 'hard_block',
+  add column if not exists enable_credit_limit boolean not null default false,
   add column if not exists allow_override boolean not null default false,
   add column if not exists override_approval_required boolean not null default false;
 

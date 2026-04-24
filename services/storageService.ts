@@ -222,8 +222,30 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         'createdAt', 'updatedAt'
     ];
 
+    const CUSTOMERS_ALLOWED_FIELDS = [
+        'id', 'organization_id', 'user_id', 'created_by_id',
+        'name', 'customerType', 'phone', 'mobile', 'email',
+        'address', 'address_line1', 'address_line2', 'area', 'city', 'pincode', 'district', 'state', 'country',
+        'gstNumber', 'gst_number', 'drugLicense', 'drug_license', 'panNumber', 'pan_number',
+        'ledger', 'defaultDiscount', 'default_discount', 'defaultRateTier', 'default_rate_tier', 'is_active', 'is_blocked',
+        'assignedStaffId', 'assigned_staff_id', 'assignedStaffName', 'assigned_staff_name', 'opening_balance', 'customerGroup', 'customer_group', 'controlGlId', 'control_gl_id',
+        'creditLimit', 'credit_limit', 'creditDays', 'credit_days', 'creditStatus', 'credit_status', 'creditControlMode', 'credit_control_mode', 
+        'allowOverride', 'allow_override', 'overrideApprovalRequired', 'override_approval_required', 'enableCreditLimit', 'enable_credit_limit',
+        'remarks', 'referredBy', 'referred_by', 'currentBalance', 'current_balance', 'paymentTerms', 'payment_terms', 'createdAt', 'updatedAt'
+    ];
+
+    const SUPPLIERS_ALLOWED_FIELDS = [
+        'id', 'organization_id', 'user_id', 'created_by_id',
+        'name', 'brandAgencies', 'category', 'contactPerson',
+        'phone', 'mobile', 'email', 'website',
+        'address', 'address_line1', 'address_line2', 'area', 'city', 'pincode', 'district', 'state', 'country',
+        'gstNumber', 'panNumber', 'drugLicense', 'foodLicense', 'tanNumber', 'paymentDetails',
+        'opening_balance', 'supplierGroup', 'controlGlId', 'currentBalance', 'ledger',
+        'is_active', 'is_blocked', 'remarks', 'createdAt', 'updatedAt'
+    ];
+
     const isValidUuid = (value: any): boolean => 
-        typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+        typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
     // Standardize Primary Keys to 'id' for all tables.
     // This aligns with the migration_proper_fix.sql and avoids collisions with Owner IDs.
@@ -259,6 +281,10 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         } else if (tableName === 'sales_challans') {
             sanitized = pickFields(payload, SALES_CHALLAN_ALLOWED_FIELDS);
             if (payload.narration !== undefined) sanitized.narration = payload.narration;
+        } else if (tableName === 'customers') {
+            sanitized = pickFields(payload, CUSTOMERS_ALLOWED_FIELDS);
+        } else if (tableName === 'suppliers') {
+            sanitized = pickFields(payload, SUPPLIERS_ALLOWED_FIELDS);
         }
 
         // 2. Standard Primary Key Handling
@@ -274,9 +300,12 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             // SPECIAL: For physical_inventory, if 'id' is a custom voucher (e.g. PHY-001)
             // and it's being used as the primary key, we must NOT delete it in step 3.
         } else if (!TEXT_PK_TABLES.includes(tableName)) {
-            // Ensure 'id' is a valid UUID, otherwise strip it so DB can generate a new one
+            // Ensure 'id' is a valid UUID. If it's not, we intentionally DO NOT strip it here.
+            // Stripping it causes Supabase to silently insert a new record instead of updating.
+            // If the ID is invalid for a UUID column, it's better to let Supabase throw a 
+            // explicit error than to create silent duplicates in the database.
             if (payload.id && !isValidUuid(payload.id)) {
-                delete sanitized.id; 
+                // delete sanitized.id; 
             }
         }
 
@@ -400,12 +429,11 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
                 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
                 'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
                 'contact_person', 'opening_balance', 'supplier_group', 'control_gl_id',
-                'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 
-                'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
+                'retailer_gstin', 'dl_valid_to', 'food_license', 
+                'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
                 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 
                 'terms_and_conditions', 'purchase_order_terms', 'organization_type', 'subscription_plan', 
-                'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 
-                'gst_number', 'pan_number'
+                'subscription_status', 'subscription_id', 'is_active', 'is_blocked'
             ];
 
             // Skip key conversion for these specific metadata fields that contain IDs
@@ -474,12 +502,11 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
                 'supplier_id', 'master_medicine_id', 'supplier_product_name', 'auto_apply', 
                 'full_name', 'pharmacy_name', 'manager_name', 'address_line1', 'address_line2', 
                 'contact_person', 'opening_balance', 'supplier_group', 'control_gl_id',
-                'retailer_gstin', 'drug_license', 'dl_valid_to', 'food_license', 
-                'pan_number', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
+                'retailer_gstin', 'dl_valid_to', 'food_license', 
+                'bank_account_name', 'bank_account_number', 'bank_ifsc_code', 
                 'bank_upi_id', 'authorized_signatory', 'pharmacy_logo_url', 'dashboard_logo_url', 
                 'terms_and_conditions', 'purchase_order_terms', 'organization_type', 'subscription_plan', 
-                'subscription_status', 'subscription_id', 'is_active', 'is_blocked', 
-                'gst_number', 'pan_number'
+                'subscription_status', 'subscription_id', 'is_active', 'is_blocked'
             ];
             
             const skipValueConversionKeys = ['master_shortcuts', 'masterShortcuts', 'master_shortcut_order', 'masterShortcutOrder'];
@@ -660,7 +687,8 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                         }
                     }
                 } else {
-                    const { data: saved, error } = await supabase.from(tableName).upsert(snakeData).select().single();
+                    const onConflictColumn = tableName === 'physical_inventory' ? 'voucher_no' : 'id';
+                    const { data: saved, error } = await supabase.from(tableName).upsert(snakeData, { onConflict: onConflictColumn }).select().single();
                     if (error) throw error;
                     result = saved;
                 }

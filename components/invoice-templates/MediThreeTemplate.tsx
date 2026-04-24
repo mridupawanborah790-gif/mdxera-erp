@@ -312,6 +312,14 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                     <div><strong>Customer:</strong> {bill.customerName || 'Walk-in Customer'}</div>
                     <div><strong>Address:</strong> {bill.customerDetails?.address || '-'}</div>
                     <div><strong>Phone:</strong> {bill.customerDetails?.phone || bill.customerPhone || '-'}</div>
+                    {bill.customerDetails?.gstNumber ? (
+                      <div><strong>GSTIN:</strong> {bill.customerDetails.gstNumber}</div>
+                    ) : bill.customerDetails?.panNumber ? (
+                      <div><strong>PAN:</strong> {bill.customerDetails.panNumber}</div>
+                    ) : null}
+                    {bill.customerDetails?.drugLicense && (
+                      <div><strong>DL NO:</strong> {bill.customerDetails.drugLicense}</div>
+                    )}
                   </div>
                 </div>
               </div>

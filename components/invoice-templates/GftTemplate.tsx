@@ -170,8 +170,14 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     <div className="flex"><span className="w-24 font-bold flex-shrink-0">M/S</span><span>: {bill.customerName}</span></div>
                     <div className="flex"><span className="w-24 font-bold flex-shrink-0">Address</span><span className="break-words max-w-[200px]">: {bill.customerDetails?.address || ''}</span></div>
                     <div className="flex"><span className="w-24 font-bold flex-shrink-0">Phone</span><span>: {bill.customerDetails?.phone || ''}</span></div>
-                    <div className="flex"><span className="w-24 font-bold flex-shrink-0">GSTIN</span><span>: {bill.customerDetails?.gstNumber || ''}</span></div>
-                    <div className="flex"><span className="w-24 font-bold flex-shrink-0">DL No</span><span>: {bill.customerDetails?.drugLicense || ''}</span></div>
+                    {bill.customerDetails?.gstNumber ? (
+                      <div className="flex"><span className="w-24 font-bold flex-shrink-0">GSTIN</span><span>: {bill.customerDetails.gstNumber}</span></div>
+                    ) : bill.customerDetails?.panNumber ? (
+                      <div className="flex"><span className="w-24 font-bold flex-shrink-0">PAN</span><span>: {bill.customerDetails.panNumber}</span></div>
+                    ) : null}
+                    {bill.customerDetails?.drugLicense && (
+                      <div className="flex"><span className="w-24 font-bold flex-shrink-0">DL No</span><span>: {bill.customerDetails.drugLicense}</span></div>
+                    )}
                     <div className="flex"><span className="w-24 font-bold flex-shrink-0">Place of Supply</span><span>: {bill.customerDetails?.address ? (bill.customerDetails.address.split(',').pop() || '') : ''}</span></div>
                 </div>
             </div>
