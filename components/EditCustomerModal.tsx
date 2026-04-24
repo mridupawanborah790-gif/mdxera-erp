@@ -40,9 +40,15 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
 
     useEffect(() => {
         if (isOpen) {
+            // Robustly initialize toggles from either camelCase or snake_case keys
+            // This handles transition states in local storage (IndexedDB)
             setFormData({
                 ...customer,
-                enableCreditLimit: customer.enableCreditLimit === true,
+                enableCreditLimit: customer.enableCreditLimit === true || (customer as any).enable_credit_limit === true,
+                allowOverride: customer.allowOverride === true || (customer as any).allow_override === true,
+                overrideApprovalRequired: customer.overrideApprovalRequired === true || (customer as any).override_approval_required === true,
+                is_active: customer.is_active ?? true,
+                is_blocked: customer.is_blocked ?? false
             });
         }
     }, [isOpen, customer]);
@@ -100,8 +106,12 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({ isOpen, on
         }
         onSave({
             ...formData,
+            gstNumber: formData.gstNumber,
+            panNumber: formData.panNumber,
+            drugLicense: formData.drugLicense,
             enableCreditLimit: formData.enableCreditLimit === true,
-            is_active: formData.is_blocked === true ? false : formData.is_active !== false,
+            is_active: formData.is_blocked === true ? false : (formData.is_active !== false),
+            is_blocked: formData.is_blocked === true
         });
         onClose();
     };

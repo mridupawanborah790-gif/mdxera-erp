@@ -1701,6 +1701,7 @@ const App: React.FC = () => {
                 currentUser,
                 existingSuppliers: suppliers,
                 defaultControlGlId: mappedControlGlId,
+                isUpdate: true
             });
 
             if (result.status !== 'duplicate') {
@@ -1733,7 +1734,7 @@ const App: React.FC = () => {
                 customerGroup,
                 controlGlId: mappedControlGlId,
             };
-            await storage.saveData('customers', customerPayload, currentUser);
+            await storage.saveData('customers', customerPayload, currentUser, true);
             await loadData(currentUser, 'background');
             addNotification(`Customer ${customer.name} updated successfully.`, "success");
         } catch (e) {

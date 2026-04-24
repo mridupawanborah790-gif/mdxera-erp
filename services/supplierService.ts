@@ -51,6 +51,7 @@ export const createSupplierQuick = async (
         currentUser: RegisteredPharmacy;
         existingSuppliers?: Supplier[];
         defaultControlGlId?: string;
+        isUpdate?: boolean;
     }
 ): Promise<SupplierQuickResult> => {
     if (!organizationId) throw new Error('Organization is required to create supplier.');

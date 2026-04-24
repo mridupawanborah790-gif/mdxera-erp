@@ -154,13 +154,27 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
               <p className="text-[7pt] font-bold text-gray-500 uppercase mb-0.5 leading-none">Consignee (Ship to)</p>
               <p className="font-bold uppercase text-[8.5pt] leading-tight truncate">{bill.customerName}</p>
               <p className="text-[8pt] line-clamp-1 opacity-80">{bill.customerDetails?.address || 'N/A'}</p>
-              <p className="text-[8pt]"><span className="font-bold">GSTIN:</span> {bill.customerDetails?.gstNumber || 'N/A'}</p>
+              {bill.customerDetails?.gstNumber ? (
+                 <p className="text-[8pt]"><span className="font-bold">GSTIN:</span> {bill.customerDetails.gstNumber}</p>
+              ) : bill.customerDetails?.panNumber ? (
+                 <p className="text-[8pt]"><span className="font-bold">PAN:</span> {bill.customerDetails.panNumber}</p>
+              ) : null}
+              {bill.customerDetails?.drugLicense && (
+                 <p className="text-[8pt]"><span className="font-bold">DL NO:</span> {bill.customerDetails.drugLicense}</p>
+              )}
           </div>
           <div className="p-1">
               <p className="text-[7pt] font-bold text-gray-500 uppercase mb-0.5 leading-none">Buyer (Bill to)</p>
               <p className="font-bold uppercase text-[8.5pt] leading-tight truncate">{bill.customerName}</p>
               <p className="text-[8pt] line-clamp-1 opacity-80">{bill.customerDetails?.address || 'N/A'}</p>
-              <p className="text-[8pt]"><span className="font-bold">GSTIN:</span> {bill.customerDetails?.gstNumber || 'N/A'}</p>
+              {bill.customerDetails?.gstNumber ? (
+                 <p className="text-[8pt]"><span className="font-bold">GSTIN:</span> {bill.customerDetails.gstNumber}</p>
+              ) : bill.customerDetails?.panNumber ? (
+                 <p className="text-[8pt]"><span className="font-bold">PAN:</span> {bill.customerDetails.panNumber}</p>
+              ) : null}
+              {bill.customerDetails?.drugLicense && (
+                 <p className="text-[8pt]"><span className="font-bold">DL NO:</span> {bill.customerDetails.drugLicense}</p>
+              )}
           </div>
       </div>
 

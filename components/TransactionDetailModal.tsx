@@ -188,12 +188,17 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                                                 </p>
                                             </div>
                                         )}
-                                        {customer.gstNumber && (
+                                        {customer.gstNumber ? (
                                             <div>
                                                 <p className="text-[10px] font-normal text-gray-500 uppercase tracking-widest mb-0.5 opacity-60">GSTIN</p>
                                                 <p className="text-xs font-mono text-emerald-600">{customer.gstNumber}</p>
                                             </div>
-                                        )}
+                                        ) : customer.panNumber ? (
+                                            <div>
+                                                <p className="text-[10px] font-normal text-gray-500 uppercase tracking-widest mb-0.5 opacity-60">PAN</p>
+                                                <p className="text-xs font-mono text-emerald-600">{customer.panNumber}</p>
+                                            </div>
+                                        ) : null}
                                         {customer.drugLicense && (
                                             <div>
                                                 <p className="text-[10px] font-normal text-gray-500 uppercase tracking-widest mb-0.5 opacity-60">Drug License</p>
