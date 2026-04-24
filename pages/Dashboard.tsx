@@ -47,7 +47,9 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
 
     const promoImageUrl = configurations.displayOptions?.dashboard_logo_url || 'https://sblmbkgoiefqzykjksgm.supabase.co/storage/v1/object/public/logos/IMG_9600.PNG';
 
-    const isVisible = (fieldId: string) => configurations.modules?.dashboard?.fields?.[fieldId] === true;
+    const isVisible = (fieldId: string) => configurations.modules?.dashboard?.fields?.[fieldId] !== false;
+    const showReceivables = isVisible('statReceivables');
+    const showPayables = isVisible('statPayables');
 
     const todayLocalStr = useMemo(() => {
         const now = new Date();
@@ -102,23 +104,25 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
     }, [todayTransactions, inventory]);
 
     const customerInvoiceOutstandingMap = useMemo(
-        () => buildCustomerInvoiceOutstandingMap(customers, transactions),
-        [customers, transactions]
+        () => (showReceivables ? buildCustomerInvoiceOutstandingMap(customers, transactions) : {}),
+        [customers, transactions, showReceivables]
     );
 
     const totalReceivable = useMemo(() => {
+        if (!showReceivables) return 0;
         return customers.reduce((sum, customer) => {
             const receivable = calculateCustomerReceivableBreakdown(customer, customerInvoiceOutstandingMap[customer.id] || 0).netOutstanding;
             return sum + Math.max(receivable, 0);
         }, 0);
-    }, [customers, customerInvoiceOutstandingMap]);
+    }, [customers, customerInvoiceOutstandingMap, showReceivables]);
 
     const totalPayable = useMemo(() => {
+        if (!showPayables) return 0;
         return distributors.reduce((sum, distributor) => {
             const payable = calculateSupplierPayableBreakdown(distributor).netOutstanding;
             return sum + Math.max(payable, 0);
         }, 0);
-    }, [distributors]);
+    }, [distributors, showPayables]);
 
     const lowStockCount = inventory.filter(i => i.stock <= i.minStockLimit).length;
     
@@ -254,8 +258,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, configurations, tran
                         {isVisible('statProfit') && <span>Profit: <span className={amountClass(todayProfit)}>{formatCompactRupees(todayProfit)}</span></span>}
                         {isVisible('statPurchases') && <span>Purchases: <span className={amountClass(todayPurchases)}>{formatCompactRupees(todayPurchases)}</span></span>}
                         {isVisible('statStockValue') && <span>Inventory: <span className={amountClass(inventoryValue)}>{formatCompactRupees(inventoryValue)}</span></span>}
-                        <span>Receivables: <span className={amountClass(totalReceivable)}>{formatCompactRupees(totalReceivable)}</span></span>
-                        <span>Payables: <span className={amountClass(totalPayable)}>{formatCompactRupees(totalPayable)}</span></span>
+                        {showReceivables && <span>Receivables: <span className={amountClass(totalReceivable)}>{formatCompactRupees(totalReceivable)}</span></span>}
+                        {showPayables && <span>Payables: <span className={amountClass(totalPayable)}>{formatCompactRupees(totalPayable)}</span></span>}
                     </div>
                 </div>
 

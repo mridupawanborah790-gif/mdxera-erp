@@ -1204,6 +1204,16 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                         setEnabled={() => handleModuleFieldToggle('dashboard', 'statStockValue')}
                                     />
                                     <Toggle
+                                        label="Receivables (with amount display)"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.statReceivables) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'statReceivables')}
+                                    />
+                                    <Toggle
+                                        label="Payables (with amount display)"
+                                        enabled={(localConfigs.modules?.dashboard?.fields?.statPayables) !== false}
+                                        setEnabled={() => handleModuleFieldToggle('dashboard', 'statPayables')}
+                                    />
+                                    <Toggle
                                         label="Recent Vouchers"
                                         enabled={(localConfigs.modules?.dashboard?.fields?.recentVouchers) !== false}
                                         setEnabled={() => handleModuleFieldToggle('dashboard', 'recentVouchers')}
