@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, f
 import Card from './Card';
 import Modal from './Modal';
 import AddMedicineModal from './AddMedicineModal';
+import EditMedicineModal from './EditMedicineModal';
 import { AddSupplierModal } from './AddSupplierModal';
 import { extractPurchaseDetailsFromBill } from '../services/geminiService';
 import type { Purchase, InventoryItem, Supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, SupplierProductMap, Medicine, AppConfigurations, FileInput, Transaction, LineAmountCalculationMode } from '../types';
@@ -221,6 +222,7 @@ interface PurchaseFormProps {
     currentUser: RegisteredPharmacy | null;
     onAddInventoryItem?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
+    onUpdateMedicineMaster?: (updatedMedicine: Medicine) => Promise<void>;
     onAddsupplier: (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<SupplierQuickResult>;
     onAddInventoryItemDirectly?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onSaveMapping: (map: Partial<SupplierProductMap>) => Promise<void>;
@@ -242,7 +244,7 @@ interface PurchaseFormProps {
 }
 
 const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
-    onAddPurchase, onUpdatePurchase, inventory, suppliers, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, draftInvoiceNumber, draftDate, draftSourceId, onClearDraft, currentUser, onAddMedicineMaster, onAddsupplier, onSaveMapping, onCancel, onPrint, title, className, configurations, addNotification, isReadOnly = false,
+    onAddPurchase, onUpdatePurchase, inventory, suppliers, medicines = [], mappings = [], purchases, purchaseToEdit, draftItems, draftSupplier, draftInvoiceNumber, draftDate, draftSourceId, onClearDraft, currentUser, onAddMedicineMaster, onUpdateMedicineMaster, onAddsupplier, onSaveMapping, onCancel, onPrint, title, className, configurations, addNotification, isReadOnly = false,
     isManualEntry = false, isChallan = false, disableAIInput = false, mobileSyncSessionId, setMobileSyncSessionId,
     organizationId, config,
 }, ref) => {
@@ -340,6 +342,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const [isSupplierSearchModalOpen, setIsSupplierSearchModalOpen] = useState(false);
     const [isRateTierModalOpen, setIsRateTierModalOpen] = useState(false);
     const [activeRateTierRowId, setActiveRateTierRowId] = useState<string | null>(null);
+    const [isEditMaterialModalOpen, setIsEditMaterialModalOpen] = useState(false);
+    const [materialToEdit, setMaterialToEdit] = useState<Medicine | null>(null);
+    const [materialEditRowId, setMaterialEditRowId] = useState<string | null>(null);
 
     useEffect(() => {
         setSelectedSearchIndex(0);
@@ -1209,12 +1214,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
         if (field === 'name' && (e.ctrlKey || e.metaKey) && e.key === 'Enter') {
             e.preventDefault();
-            const row = items.find(item => item.id === rowId);
-            setActiveRowId(rowId);
-            setModalSearchTerm((row?.name || '').trim());
-            setIsSearchModalOpen(true);
-            setSelectedSearchIndex(0);
-            setTimeout(() => modalSearchInputRef.current?.focus(), 150);
+            openMaterialEditOrSearch(rowId);
             return;
         }
 
@@ -1463,6 +1463,88 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         const hasSelectedItem = Boolean((item.name || '').trim() || item.inventoryItemId || (item.packType || '').trim());
         return !hasSelectedItem;
     }, []);
+
+    const findMedicineForPurchaseRow = useCallback((row: PurchaseItem): Medicine | null => {
+        const rowName = (row.name || '').trim().toLowerCase();
+        const rowCode = (row.materialCode || '').trim().toLowerCase();
+        if (!rowName && !rowCode) return null;
+
+        const byCode = rowCode
+            ? medicines.find((med) => (med.materialCode || '').trim().toLowerCase() === rowCode)
+            : undefined;
+        if (byCode) return byCode;
+
+        const inventoryItem = row.inventoryItemId ? inventory.find((inv) => inv.id === row.inventoryItemId) : undefined;
+        const inventoryCode = (inventoryItem?.code || '').trim().toLowerCase();
+        if (inventoryCode) {
+            const byInventoryCode = medicines.find((med) => (med.materialCode || '').trim().toLowerCase() === inventoryCode);
+            if (byInventoryCode) return byInventoryCode;
+        }
+
+        const rowPack = (row.packType || '').trim().toLowerCase();
+        return medicines.find((med) => {
+            const medName = (med.name || '').trim().toLowerCase();
+            if (!medName || medName !== rowName) return false;
+            if (!rowPack) return true;
+            return (med.pack || '').trim().toLowerCase() === rowPack;
+        }) || null;
+    }, [inventory, medicines]);
+
+    const openMaterialEditOrSearch = useCallback((rowId: string) => {
+        if (isReadOnly || !supplier.trim()) return;
+
+        const row = items.find(item => item.id === rowId);
+        if (!row) return;
+
+        if (!((row.name || '').trim())) {
+            openSearchModal(rowId, '');
+            return;
+        }
+
+        const materialRecord = findMedicineForPurchaseRow(row);
+        if (!materialRecord) {
+            addNotification('Material Master record not found for selected product.', 'warning');
+            return;
+        }
+
+        setActiveRowId(rowId);
+        setMaterialEditRowId(rowId);
+        setMaterialToEdit(materialRecord);
+        setIsEditMaterialModalOpen(true);
+    }, [addNotification, findMedicineForPurchaseRow, isReadOnly, items, openSearchModal, supplier]);
+
+    const handleUpdateMaterialFromPurchase = useCallback(async (updatedMedicine: Medicine) => {
+        if (!onUpdateMedicineMaster) {
+            addNotification('Material update action is unavailable in this view.', 'warning');
+            return;
+        }
+        const targetRowId = materialEditRowId;
+        if (!targetRowId) return;
+
+        await onUpdateMedicineMaster(updatedMedicine);
+
+        setItems(prev => prev.map(item => {
+            if (item.id !== targetRowId) return item;
+            const parsedMrp = parseFloat(String(updatedMedicine.mrp ?? ''));
+            const parsedRateA = Number(updatedMedicine.rateA ?? 0);
+            return {
+                ...item,
+                name: updatedMedicine.name || item.name,
+                manufacturer: updatedMedicine.manufacturer || '',
+                packType: updatedMedicine.pack || '',
+                materialCode: updatedMedicine.materialCode || item.materialCode,
+                hsnCode: updatedMedicine.hsnCode || '',
+                gstPercent: Number(updatedMedicine.gstRate ?? 0),
+                mrp: Number.isFinite(parsedMrp) ? parsedMrp : item.mrp,
+                rateA: Number(updatedMedicine.rateA ?? item.rateA ?? 0),
+                rateB: Number(updatedMedicine.rateB ?? item.rateB ?? 0),
+                rateC: Number(updatedMedicine.rateC ?? item.rateC ?? 0),
+                purchasePrice: parsedRateA > 0 ? parsedRateA : item.purchasePrice,
+            };
+        }));
+
+        addNotification('Material Master updated and purchase line refreshed.', 'success');
+    }, [addNotification, materialEditRowId, onUpdateMedicineMaster]);
 
     const handleUpdateItem = (id: string, field: keyof PurchaseItem, value: any) => {
         if (isReadOnly || !supplier.trim()) return;
@@ -2578,6 +2660,18 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     onMedicineSaved={handleMedicineSavedFromPurchase}
                     initialName={modalSearchTerm.trim() || undefined}
                     organizationId={organizationId}
+                />
+            )}
+            {isEditMaterialModalOpen && materialToEdit && (
+                <EditMedicineModal
+                    isOpen={isEditMaterialModalOpen}
+                    onClose={() => {
+                        setIsEditMaterialModalOpen(false);
+                        setMaterialToEdit(null);
+                        setMaterialEditRowId(null);
+                    }}
+                    medicine={materialToEdit}
+                    onSave={handleUpdateMaterialFromPurchase}
                 />
             )}
             {isLinkModalOpen && reconciliationModalVisible && reconciliationSupplier && (

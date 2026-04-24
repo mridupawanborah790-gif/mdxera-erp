@@ -2380,7 +2380,7 @@ const App: React.FC = () => {
                         draftItems={sourceChallansForPurchase?.items || null}
                         draftSupplier={sourceChallansForPurchase?.supplier}
                         onClearDraft={() => setSourceChallansForPurchase(null)}
-                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
+                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster} onUpdateMedicineMaster={handleUpdateMedicineMaster}
                         onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                         setIsDirty={() => { }} addNotification={addNotification}
                         title="AI-Powered Automated Purchase"
@@ -2406,7 +2406,7 @@ const App: React.FC = () => {
                         draftDate={purchaseCopyDraft?.date}
                         draftSourceId={purchaseCopyDraft?.sourceId}
                         onClearDraft={() => setPurchaseCopyDraft(null)}
-                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
+                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster} onUpdateMedicineMaster={handleUpdateMedicineMaster}
                         onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                         setIsDirty={() => { }} addNotification={addNotification}
                         title="Manual Purchase Entry"
