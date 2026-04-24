@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { calculateCustomerReceivableBreakdown } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
@@ -130,6 +131,17 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const companyPhone = toUpperDisplay(bill.pharmacy.mobile || '-');
   const companyGstin = toUpperDisplay(bill.pharmacy.gstin || '-');
   const companyDrugLicense = toUpperDisplay((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-');
+  const isCreditBill = String(bill.paymentMode || '').trim().toLowerCase() === 'credit';
+  const hasSelectedCustomer = Boolean(bill.customerDetails?.id);
+  const netOutstandingReceivable = hasSelectedCustomer
+    ? calculateCustomerReceivableBreakdown(bill.customerDetails).netOutstanding
+    : 0;
+  const previousBalance = hasSelectedCustomer
+    ? (isCreditBill ? netOutstandingReceivable - calculations.grandTotal : netOutstandingReceivable)
+    : 0;
+  const balanceAfterBill = hasSelectedCustomer
+    ? (isCreditBill ? previousBalance + calculations.grandTotal : previousBalance)
+    : 0;
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased" style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}>
@@ -372,8 +384,18 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                       </p>
                       <div className="mt-2 flex justify-between items-end">
                           <div>
-                              <span className="text-base font-black text-gray-900 mr-2">BAL:</span>
-                              <span className="text-base font-black text-red-600">₹{(calculations.grandTotal - (bill.amountReceived || 0)).toFixed(2)}</span>
+                              {hasSelectedCustomer && (
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[8pt] font-black uppercase text-gray-900">Previous Bal:</span>
+                                    <span className="text-[8pt] font-black text-red-600">₹{previousBalance.toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[8pt] font-black uppercase text-gray-900">Balance After Bill:</span>
+                                    <span className="text-[8pt] font-black text-red-600">₹{balanceAfterBill.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              )}
                           </div>
                           <div className="text-center pr-1">
                               <p className="text-[6pt] font-black mb-4 uppercase tracking-wider">FOR {bill.pharmacy.pharmacy_name}</p>
