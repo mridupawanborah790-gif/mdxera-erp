@@ -6,7 +6,7 @@ import { getResolvedMedicinePolicy, MATERIAL_TYPE_RULES, type MaterialMasterType
 interface EditMedicineModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (updatedMedicine: Medicine) => void;
+    onSave: (updatedMedicine: Medicine) => void | Promise<void>;
     medicine: Medicine | null;
 }
 
@@ -31,10 +31,10 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
         return Object.keys(newErrors).length === 0;
     }, [formState]);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (formState && validate()) {
-            onSave(formState);
+            await onSave(formState);
             onClose();
         }
     };
@@ -107,9 +107,18 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
                     </div>
 
                     <div className="bg-blue-50 p-4 border border-blue-100 grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="text-xs font-bold uppercase text-blue-900">Inventorised: {materialPolicy.inventorised ? 'Yes' : 'No'}</div>
-                        <div className="text-xs font-bold uppercase text-blue-900">Sales Enabled: {materialPolicy.salesEnabled ? 'Yes' : 'No'}</div>
-                        <div className="text-xs font-bold uppercase text-blue-900">Purchase Enabled: {materialPolicy.purchaseEnabled ? 'Yes' : 'No'}</div>
+                        <label className="text-xs font-bold uppercase text-blue-900 flex items-center gap-2">
+                            <input type="checkbox" checked={Boolean(formState.isInventorised ?? materialPolicy.inventorised)} onChange={(e) => setFormState(p => p ? ({ ...p, isInventorised: e.target.checked }) : null)} className="w-4 h-4 text-primary" />
+                            Inventorised
+                        </label>
+                        <label className="text-xs font-bold uppercase text-blue-900 flex items-center gap-2">
+                            <input type="checkbox" checked={Boolean(formState.isSalesEnabled ?? materialPolicy.salesEnabled)} onChange={(e) => setFormState(p => p ? ({ ...p, isSalesEnabled: e.target.checked }) : null)} className="w-4 h-4 text-primary" />
+                            Sales Enabled
+                        </label>
+                        <label className="text-xs font-bold uppercase text-blue-900 flex items-center gap-2">
+                            <input type="checkbox" checked={Boolean(formState.isPurchaseEnabled ?? materialPolicy.purchaseEnabled)} onChange={(e) => setFormState(p => p ? ({ ...p, isPurchaseEnabled: e.target.checked }) : null)} className="w-4 h-4 text-primary" />
+                            Purchase Enabled
+                        </label>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
