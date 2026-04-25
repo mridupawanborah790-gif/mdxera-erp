@@ -215,11 +215,13 @@ const ManualPurchase = React.forwardRef<any, ManualPurchaseProps>(({
     if (!supplierId) return 'Supplier is mandatory.';
     if (!supplierInvoiceNumber.trim()) return 'Supplier invoice number is mandatory.';
 
+    const inactiveStatuses = new Set(['cancelled', 'void', 'deleted']);
     const duplicate = purchases.find((p) => {
       const sameOrg = (p.organization_id || '').trim() === (currentUser.organization_id || '').trim();
       const sameSupplier = (p.supplier || '').trim().toLowerCase() === (selectedSupplier?.name || '').trim().toLowerCase();
       const sameInvoice = (p.invoiceNumber || '').trim().toLowerCase() === supplierInvoiceNumber.trim().toLowerCase();
-      return sameOrg && sameSupplier && sameInvoice && p.status !== 'cancelled';
+      const isActive = !inactiveStatuses.has(String((p as any).status || 'completed').trim().toLowerCase());
+      return sameOrg && sameSupplier && sameInvoice && isActive;
     });
     if (duplicate) return `Supplier invoice number ${supplierInvoiceNumber} already exists for this supplier.`;
 

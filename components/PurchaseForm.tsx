@@ -859,12 +859,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         const normalizedSupplier = supplier.toLowerCase().trim();
         const normalizedInvoice = invoiceNumber.toLowerCase().trim();
         if (!normalizedSupplier || !normalizedInvoice) return false;
+        const inactiveStatuses = new Set(['cancelled', 'void', 'deleted']);
 
         const currentFy = (purchaseToEdit as any)?.fy;
 
         return purchases.some(p => {
             if (purchaseToEdit?.id && p.id === purchaseToEdit.id) return false;
             if ((p.organization_id || '').trim() !== (organizationId || '').trim()) return false;
+            if (inactiveStatuses.has(String((p as any).status || 'completed').trim().toLowerCase())) return false;
 
             const sameSupplier = (p.supplier || '').toLowerCase().trim() === normalizedSupplier;
             const sameInvoice = (p.invoiceNumber || '').toLowerCase().trim() === normalizedInvoice;
@@ -898,7 +900,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
         
         if (hasDuplicateSupplierInvoice()) {
-            const duplicateMessage = "Duplicate Supplier Invoice # already recorded. Please verify Purchase History.";
+            const duplicateMessage = "Supplier Invoice Number already exists for this supplier. Duplicate entry not allowed.";
             setInvoiceNumberError(duplicateMessage);
             addNotification(duplicateMessage, "error");
             isSubmittingRef.current = false;
