@@ -213,6 +213,10 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const handleCopySelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
+        if (purchase.status === 'cancelled') {
+            setActionWarning('Cancelled bill can only be viewed or printed.');
+            return;
+        }
 
         if (!onCopyPurchase) {
             setActionWarning('Selected bill cannot be copied.');
@@ -251,6 +255,10 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const handleViewJournalSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
+        if (purchase.status === 'cancelled') {
+            setActionWarning('Cancelled bill can only be viewed or printed.');
+            return;
+        }
         setJournalPurchase(purchase);
     }, [requireSelectedPurchase]);
 
@@ -259,6 +267,8 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         if (!purchase) return;
         onViewDetails(purchase);
     }, [onViewDetails, requireSelectedPurchase]);
+
+    const selectedIsCancelled = selectedPurchase?.status === 'cancelled';
 
     const handleCancelClick = (id: string) => {
         setPurchaseToCancel(id);
@@ -290,6 +300,10 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const handleExportSelected = useCallback(() => {
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
+        if (purchase.status === 'cancelled') {
+            setActionWarning('Cancelled bill can only be viewed or printed.');
+            return;
+        }
 
         const headers = ['System ID', 'Supplier Bill ID', 'Date', 'Supplier', 'Items', 'Amount', 'Status'];
         const row = [
@@ -516,14 +530,14 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                         {actionWarning && <div className="text-[11px] font-bold text-red-700 bg-red-100 border border-red-200 px-2 py-1">{actionWarning}</div>}
                         <div className="flex flex-wrap gap-2">
                             <button disabled={!selectedPurchase} onClick={handleViewSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Enter: View</button>
-                            <button disabled={!selectedPurchase} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
-                            <button disabled={!selectedPurchase} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Modify Purchase Bill</button>
-                            <button disabled={!selectedPurchase} onClick={handleCopySelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F9: Copy Purchase Bill</button>
-                            <button disabled={!selectedPurchase} onClick={handleReturnSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Purchase Return</button>
-                            <button disabled={!selectedPurchase} onClick={handleViewJournalSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F7: View Journal Entry</button>
+                            <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
+                            <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Modify Purchase Bill</button>
+                            <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleCopySelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F9: Copy Purchase Bill</button>
+                            <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleReturnSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Purchase Return</button>
+                            <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleViewJournalSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F7: View Journal Entry</button>
                             <button disabled={!selectedPurchase} onClick={handlePrintSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F8: Print</button>
-                            <button disabled={!selectedPurchase} onClick={handleCancelSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase text-red-700 disabled:opacity-50">Delete: Cancel</button>
-                            <button disabled={!selectedPurchase} onClick={handleExportSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F3: Export</button>
+                            <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleCancelSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase text-red-700 disabled:opacity-50">Delete: Cancel</button>
+                            <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleExportSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F3: Export</button>
                             <button onClick={handleRefresh} disabled={isSyncing} className="px-3 py-1.5 tally-button-primary text-[10px] font-black uppercase disabled:opacity-60">F5: Refresh</button>
                             <button onClick={onCreateNew} className="px-3 py-1.5 tally-border bg-emerald-600 text-white text-[10px] font-black uppercase hover:bg-emerald-700 shadow-md">F2: New Purchase</button>
                         </div>
