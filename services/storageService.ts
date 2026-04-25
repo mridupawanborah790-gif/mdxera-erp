@@ -1339,6 +1339,57 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         }
     };
 
+    const normalizeStockText = (value?: string | null, fallback = '') => String(value || fallback).trim().toLowerCase();
+
+    const normalizeStockNumber = (value: unknown, fallback = 0, precision = 4) => {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return fallback;
+        return Number(parsed.toFixed(precision));
+    };
+
+    const normalizeStockDate = (value?: string | null) => normalizeImportDate(value || '') || '';
+
+    const getPurchaseStockKey = (item: Partial<PurchaseItem>) => {
+        const materialIdentity = normalizeStockText(
+            item.materialCode || item.inventoryItemId || item.name,
+            'unknown'
+        );
+        const batch = normalizeStockText(item.batch, 'unset');
+        const expiry = normalizeStockDate(item.expiry);
+        const mrp = normalizeStockNumber(item.mrp, 0, 2);
+        const pack = normalizeStockNumber(item.unitsPerPack, 1, 4);
+        return `${materialIdentity}|${batch}|${expiry}|${mrp}|${pack}`;
+    };
+
+    const doesInventoryMatchPurchaseStockKey = (inv: InventoryItem, item: Partial<PurchaseItem>) => {
+        const inventoryMaterialIdentity = normalizeStockText(inv.code || inv.id || inv.name, 'unknown');
+        const purchaseMaterialIdentity = normalizeStockText(item.materialCode || item.inventoryItemId || item.name, 'unknown');
+        if (inventoryMaterialIdentity !== purchaseMaterialIdentity) return false;
+
+        const invBatch = normalizeStockText(inv.batch, 'unset');
+        const itemBatch = normalizeStockText(item.batch, 'unset');
+        if (invBatch !== itemBatch) return false;
+
+        const invExpiry = normalizeStockDate(inv.expiry);
+        const itemExpiry = normalizeStockDate(item.expiry);
+        if (invExpiry !== itemExpiry) return false;
+
+        const invMrp = normalizeStockNumber(inv.mrp, 0, 2);
+        const itemMrp = normalizeStockNumber(item.mrp, 0, 2);
+        if (invMrp !== itemMrp) return false;
+
+        const invPack = normalizeStockNumber(inv.unitsPerPack, 1, 4);
+        const itemPack = normalizeStockNumber(item.unitsPerPack, 1, 4);
+        return invPack === itemPack;
+    };
+
+    const getPurchaseUnits = (item: PurchaseItem) => {
+        const uPP = item.unitsPerPack || 1;
+        const freeUnits = Number(item.freeQuantity || 0) * uPP;
+        const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
+        return { units, freeUnits };
+    };
+
     export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
         try {
             const postingContext = await ensurePostingContext(p, user);
@@ -1354,18 +1405,15 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         await assertNoDuplicateActivePurchaseInvoice(p, user);
         const res = await saveData('purchases', p, user);
 
-        // Use a Map to accumulate stock changes for this purchase
-        // Key is inventoryItemId or "name|batch" if not linked
+        // Use a Map to accumulate stock changes for this purchase.
+        // Key includes material identity + batch + expiry + MRP + pack.
         const stockChanges = new Map<string, { units: number, freeUnits: number, item: PurchaseItem }>();
 
         for (const item of p.items) {
             if (!item.name) continue;
-            const key = item.inventoryItemId || `${(item.name || '').toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
+            const key = getPurchaseStockKey(item);
             const existing = stockChanges.get(key) || { units: 0, freeUnits: 0, item };
-
-            const uPP = item.unitsPerPack || 1;
-            const freeUnits = Number(item.freeQuantity || 0) * uPP;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
+            const { units, freeUnits } = getPurchaseUnits(item);
 
             stockChanges.set(key, { units: existing.units + units, freeUnits: (existing.freeUnits || 0) + freeUnits, item });
         }
@@ -1381,18 +1429,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         for (const [key, change] of stockChanges.entries()) {
             let existingInv: InventoryItem | undefined;
 
-            if (change.item.inventoryItemId) {
-                existingInv = currentInventory.find(i => i.id === change.item.inventoryItemId);
-            }
-
-            if (!existingInv) {
-                const nameClean = (change.item.name || '').toLowerCase().trim();
-                const batchClean = (change.item.batch || 'UNSET').toLowerCase().trim();
-                existingInv = currentInventory.find(i =>
-                    (i.name || '').toLowerCase().trim() === nameClean &&
-                    (i.batch || 'UNSET').toLowerCase().trim() === batchClean
-                );
-            }
+            existingInv = currentInventory.find(i => doesInventoryMatchPurchaseStockKey(i, change.item));
 
             if (existingInv) {
                 const stockBefore = Number(existingInv.stock || 0);
@@ -1403,6 +1440,9 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 if (change.item.expiry) {
                     existingInv.expiry = normalizeImportDate(change.item.expiry) || existingInv.expiry;
                 }
+                existingInv.purchasePrice = Number(change.item.purchasePrice || existingInv.purchasePrice || 0);
+                existingInv.mrp = Number(change.item.mrp || existingInv.mrp || 0);
+                existingInv.unitsPerPack = Number(change.item.unitsPerPack || existingInv.unitsPerPack || 1);
                 applyTierRates(existingInv, change.item);
                 await saveData('inventory', existingInv, user);
             } else {
@@ -1452,27 +1492,23 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             if (src.rateC !== undefined) inv.rateC = Number(src.rateC || 0);
         };
 
-        // map key: identification string
+        // map key: material + batch + expiry + mrp + pack
         const itemMap = new Map<string, { oldUnits: number, oldFreeUnits: number, newUnits: number, newFreeUnits: number, item: PurchaseItem }>();
 
         // Process original items
         for (const item of original.items) {
             if (!item.name) continue;
-            const key = item.inventoryItemId || `${item.name.toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
-            const uPP = item.unitsPerPack || 1;
-            const freeUnits = Number(item.freeQuantity || 0) * uPP;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
+            const key = getPurchaseStockKey(item);
+            const { units, freeUnits } = getPurchaseUnits(item);
             itemMap.set(key, { oldUnits: units, oldFreeUnits: freeUnits, newUnits: 0, newFreeUnits: 0, item });
         }
 
         // Process new items
         for (const item of p.items) {
             if (!item.name) continue;
-            const key = item.inventoryItemId || `${item.name.toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
+            const key = getPurchaseStockKey(item);
             const existing = itemMap.get(key) || { oldUnits: 0, oldFreeUnits: 0, newUnits: 0, newFreeUnits: 0, item };
-            const uPP = item.unitsPerPack || 1;
-            const freeUnits = Number(item.freeQuantity || 0) * uPP;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
+            const { units, freeUnits } = getPurchaseUnits(item);
             itemMap.set(key, { ...existing, newUnits: units, newFreeUnits: freeUnits, item });
         }
 
@@ -1480,31 +1516,23 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         for (const [key, data] of itemMap.entries()) {
             const diff = data.newUnits - data.oldUnits;
             const freeDiff = (data.newFreeUnits || 0) - (data.oldFreeUnits || 0);
-            if (diff === 0 && freeDiff === 0) continue;
-
             let invItem: InventoryItem | undefined;
-            if (data.item.inventoryItemId) {
-                invItem = currentInventory.find(i => i.id === data.item.inventoryItemId);
-            }
-
-            if (!invItem) {
-                const nameClean = data.item.name.toLowerCase().trim();
-                const batchClean = (data.item.batch || 'UNSET').toLowerCase().trim();
-                invItem = currentInventory.find(i =>
-                    (i.name || '').toLowerCase().trim() === nameClean &&
-                    (i.batch || 'UNSET').toLowerCase().trim() === batchClean
-                );
-            }
+            invItem = currentInventory.find(i => doesInventoryMatchPurchaseStockKey(i, data.item));
 
             if (invItem) {
                 const stockBefore = Number(invItem.stock || 0);
                 invItem.stock = stockBefore + diff;
                 invItem.purchaseFree = Number(invItem.purchaseFree || 0) + freeDiff;
-                logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: invItem.name, batch: invItem.batch || 'UNSET', qty: Math.abs(diff), qtyIn: diff > 0 ? diff : 0, qtyOut: diff < 0 ? Math.abs(diff) : 0, stockBefore, stockAfter: invItem.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
+                if (diff !== 0 || freeDiff !== 0) {
+                    logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: invItem.name, batch: invItem.batch || 'UNSET', qty: Math.abs(diff), qtyIn: diff > 0 ? diff : 0, qtyOut: diff < 0 ? Math.abs(diff) : 0, stockBefore, stockAfter: invItem.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
+                }
                 // Normalize expiry if present in purchase item
                 if (data.item.expiry) {
                     invItem.expiry = normalizeImportDate(data.item.expiry) || invItem.expiry;
                 }
+                invItem.purchasePrice = Number(data.item.purchasePrice || invItem.purchasePrice || 0);
+                invItem.mrp = Number(data.item.mrp || invItem.mrp || 0);
+                invItem.unitsPerPack = Number(data.item.unitsPerPack || invItem.unitsPerPack || 1);
                 applyTierRates(invItem, data.item);
                 await saveData('inventory', invItem, user);
             } else if (diff > 0) {
