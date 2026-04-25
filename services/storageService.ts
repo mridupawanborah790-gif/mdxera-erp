@@ -1090,6 +1090,30 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     };
 
     const normalizeInventoryKey = (name?: string, batch?: string) => `${String(name || '').trim().toLowerCase()}|${String(batch || 'UNSET').trim().toLowerCase()}`;
+    const normalizeStockMatchToken = (value?: string | number | null, fallback: string = 'unset') => String(value ?? fallback).trim().toLowerCase() || fallback;
+    const normalizeMrpMatchToken = (value?: number | null) => Number(value ?? 0).toFixed(2);
+    const getPurchaseStockUnits = (item: PurchaseItem) => {
+        const uPP = Number(item.unitsPerPack || 1);
+        const freeUnits = Number(item.freeQuantity || 0) * uPP;
+        const units = (Number(item.quantity || 0) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
+        return { units, freeUnits };
+    };
+    const getPurchaseStockMatchKey = (item: Partial<PurchaseItem>) => {
+        const productToken = normalizeStockMatchToken(item.materialCode || item.name, 'unknown-item');
+        const batchToken = normalizeStockMatchToken(item.batch, 'unset');
+        const expiryToken = normalizeStockMatchToken(normalizeImportDate(item.expiry || ''), 'unset');
+        const packToken = normalizeStockMatchToken(item.packType, 'unset');
+        const mrpToken = normalizeMrpMatchToken(item.mrp);
+        return `${productToken}|${batchToken}|${expiryToken}|${packToken}|${mrpToken}`;
+    };
+    const getInventoryStockMatchKey = (inv: Partial<InventoryItem>) => {
+        const productToken = normalizeStockMatchToken(inv.code || inv.name, 'unknown-item');
+        const batchToken = normalizeStockMatchToken(inv.batch, 'unset');
+        const expiryToken = normalizeStockMatchToken(normalizeImportDate(inv.expiry || ''), 'unset');
+        const packToken = normalizeStockMatchToken(inv.packType, 'unset');
+        const mrpToken = normalizeMrpMatchToken(inv.mrp);
+        return `${productToken}|${batchToken}|${expiryToken}|${packToken}|${mrpToken}`;
+    };
 
     const getBillItemStockUnits = (item: BillItem, inventoryItem?: InventoryItem): number => {
         const resolvedUpp = normalizeUnitsPerPack(item.unitsPerPack ?? inventoryItem?.unitsPerPack, item.packType || inventoryItem?.packType);
@@ -1452,49 +1476,49 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             if (src.rateC !== undefined) inv.rateC = Number(src.rateC || 0);
         };
 
-        // map key: identification string
-        const itemMap = new Map<string, { oldUnits: number, oldFreeUnits: number, newUnits: number, newFreeUnits: number, item: PurchaseItem }>();
+        // map key: Material ID/Name + Batch + Expiry + Pack + MRP (inventory-diff safe identity for edited purchase lines)
+        const itemMap = new Map<string, { oldUnits: number, oldFreeUnits: number, newUnits: number, newFreeUnits: number, oldItem?: PurchaseItem, newItem?: PurchaseItem }>();
 
         // Process original items
         for (const item of original.items) {
             if (!item.name) continue;
-            const key = item.inventoryItemId || `${item.name.toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
-            const uPP = item.unitsPerPack || 1;
-            const freeUnits = Number(item.freeQuantity || 0) * uPP;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
-            itemMap.set(key, { oldUnits: units, oldFreeUnits: freeUnits, newUnits: 0, newFreeUnits: 0, item });
+            const key = getPurchaseStockMatchKey(item);
+            const existing = itemMap.get(key) || { oldUnits: 0, oldFreeUnits: 0, newUnits: 0, newFreeUnits: 0 };
+            const { units, freeUnits } = getPurchaseStockUnits(item);
+            itemMap.set(key, { ...existing, oldUnits: existing.oldUnits + units, oldFreeUnits: existing.oldFreeUnits + freeUnits, oldItem: existing.oldItem || item });
         }
 
         // Process new items
         for (const item of p.items) {
             if (!item.name) continue;
-            const key = item.inventoryItemId || `${item.name.toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
-            const existing = itemMap.get(key) || { oldUnits: 0, oldFreeUnits: 0, newUnits: 0, newFreeUnits: 0, item };
-            const uPP = item.unitsPerPack || 1;
-            const freeUnits = Number(item.freeQuantity || 0) * uPP;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
-            itemMap.set(key, { ...existing, newUnits: units, newFreeUnits: freeUnits, item });
+            const key = getPurchaseStockMatchKey(item);
+            const existing = itemMap.get(key) || { oldUnits: 0, oldFreeUnits: 0, newUnits: 0, newFreeUnits: 0 };
+            const { units, freeUnits } = getPurchaseStockUnits(item);
+            itemMap.set(key, { ...existing, newUnits: existing.newUnits + units, newFreeUnits: existing.newFreeUnits + freeUnits, newItem: existing.newItem || item });
         }
 
+        const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
+        const inventoryByStockKey = new Map(currentInventory.map((inv) => [getInventoryStockMatchKey(inv), inv]));
+        const inventoryByNameBatch = new Map(currentInventory.map((inv) => [normalizeInventoryKey(inv.name, inv.batch), inv]));
+        const findInventoryForPurchaseItem = (candidate?: PurchaseItem): InventoryItem | undefined => {
+            if (!candidate) return undefined;
+            const byComposite = inventoryByStockKey.get(getPurchaseStockMatchKey(candidate));
+            if (byComposite) return byComposite;
+            if (candidate.inventoryItemId) {
+                const byId = inventoryById.get(candidate.inventoryItemId);
+                if (byId) return byId;
+            }
+            return inventoryByNameBatch.get(normalizeInventoryKey(candidate.name, candidate.batch));
+        };
+
         // Apply changes
-        for (const [key, data] of itemMap.entries()) {
+        for (const [, data] of itemMap.entries()) {
             const diff = data.newUnits - data.oldUnits;
             const freeDiff = (data.newFreeUnits || 0) - (data.oldFreeUnits || 0);
             if (diff === 0 && freeDiff === 0) continue;
 
-            let invItem: InventoryItem | undefined;
-            if (data.item.inventoryItemId) {
-                invItem = currentInventory.find(i => i.id === data.item.inventoryItemId);
-            }
-
-            if (!invItem) {
-                const nameClean = data.item.name.toLowerCase().trim();
-                const batchClean = (data.item.batch || 'UNSET').toLowerCase().trim();
-                invItem = currentInventory.find(i =>
-                    (i.name || '').toLowerCase().trim() === nameClean &&
-                    (i.batch || 'UNSET').toLowerCase().trim() === batchClean
-                );
-            }
+            const sourceItem = diff >= 0 ? (data.newItem || data.oldItem) : (data.oldItem || data.newItem);
+            let invItem: InventoryItem | undefined = findInventoryForPurchaseItem(sourceItem);
 
             if (invItem) {
                 const stockBefore = Number(invItem.stock || 0);
@@ -1502,33 +1526,40 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 invItem.purchaseFree = Number(invItem.purchaseFree || 0) + freeDiff;
                 logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: invItem.name, batch: invItem.batch || 'UNSET', qty: Math.abs(diff), qtyIn: diff > 0 ? diff : 0, qtyOut: diff < 0 ? Math.abs(diff) : 0, stockBefore, stockAfter: invItem.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 // Normalize expiry if present in purchase item
-                if (data.item.expiry) {
-                    invItem.expiry = normalizeImportDate(data.item.expiry) || invItem.expiry;
+                if (sourceItem?.expiry) {
+                    invItem.expiry = normalizeImportDate(sourceItem.expiry) || invItem.expiry;
                 }
-                applyTierRates(invItem, data.item);
+                if (sourceItem) {
+                    applyTierRates(invItem, sourceItem);
+                }
                 await saveData('inventory', invItem, user);
+                inventoryByStockKey.set(getInventoryStockMatchKey(invItem), invItem);
+                inventoryByNameBatch.set(normalizeInventoryKey(invItem.name, invItem.batch), invItem);
             } else if (diff > 0) {
                 // New inventory item created during update
-                const uPP = data.item.unitsPerPack || 1;
+                const incomingItem = data.newItem || data.oldItem;
+                if (!incomingItem) continue;
+                const uPP = incomingItem.unitsPerPack || 1;
                 const newInv: Omit<InventoryItem, 'id'> = {
                     organization_id: user.organization_id,
-                    name: data.item.name,
-                    brand: data.item.brand || '',
-                    category: data.item.category || 'General',
-                    manufacturer: data.item.manufacturer || '',
+                    name: incomingItem.name,
+                    brand: incomingItem.brand || '',
+                    category: incomingItem.category || 'General',
+                    manufacturer: incomingItem.manufacturer || '',
                     stock: diff,
                     purchaseFree: data.newFreeUnits,
                     unitsPerPack: uPP,
-                    batch: data.item.batch || 'UNSET',
-                    expiry: normalizeImportDate(data.item.expiry) || '',
-                    purchasePrice: data.item.purchasePrice,
-                    mrp: data.item.mrp,
-                    gstPercent: data.item.gstPercent || 0,
-                    hsnCode: data.item.hsnCode || '',
-                    code: data.item.materialCode || '',
-                    rateA: data.item.rateA,
-                    rateB: data.item.rateB,
-                    rateC: data.item.rateC,
+                    packType: incomingItem.packType,
+                    batch: incomingItem.batch || 'UNSET',
+                    expiry: normalizeImportDate(incomingItem.expiry) || '',
+                    purchasePrice: incomingItem.purchasePrice,
+                    mrp: incomingItem.mrp,
+                    gstPercent: incomingItem.gstPercent || 0,
+                    hsnCode: incomingItem.hsnCode || '',
+                    code: incomingItem.materialCode || '',
+                    rateA: incomingItem.rateA,
+                    rateB: incomingItem.rateB,
+                    rateC: incomingItem.rateC,
                     minStockLimit: 10,
                     is_active: true
                 };
