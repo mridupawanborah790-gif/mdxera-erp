@@ -413,12 +413,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         const isDuplicate = purchases.some(p => {
             if (purchaseToEdit?.id && p.id === purchaseToEdit.id) return false;
             if ((p.organization_id || '').trim() !== (organizationId || '').trim()) return false;
+            if ((p.status || 'completed') === 'cancelled') return false;
             return (p.supplier || '').toLowerCase().trim() === normalizedSupplier && 
                    (p.invoiceNumber || '').toLowerCase().trim() === normalizedInvoice;
         });
 
         if (isDuplicate) {
-            const msg = "Duplicate Supplier Invoice # already recorded. Please verify Purchase History.";
+            const msg = "Supplier Invoice Number already exists for this supplier. Duplicate entry not allowed.";
             setInvoiceNumberError(msg);
             addNotification(msg, "error");
             return;

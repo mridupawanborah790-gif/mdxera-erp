@@ -455,6 +455,9 @@ export interface Purchase {
     sourceReceiveMode?: PurchaseOrderReceiveMode | 'POST_RECEIVED_ENTRY' | 'ADJUST_RECEIVED_ENTRY';
     companyCodeId?: string;
     setOfBooksId?: string;
+    cancelledAt?: string;
+    cancelledBy?: string;
+    cancellationReason?: string;
 }
 
 export enum DeliveryChallanStatus {

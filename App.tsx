@@ -1271,7 +1271,13 @@ const App: React.FC = () => {
             }
 
             // 1. Mark status as cancelled
-            const cancelledPurchase = { ...purchase, status: 'cancelled' as const };
+            const cancelledPurchase = {
+                ...purchase,
+                status: 'cancelled' as const,
+                cancelledAt: new Date().toISOString(),
+                cancelledBy: currentUser.id,
+                cancellationReason: 'Cancelled from Purchase Register'
+            };
             await storage.saveData('purchases', cancelledPurchase, currentUser, true);
             await storage.syncPurchaseLedger(cancelledPurchase, currentUser);
             await storage.markVoucherCancelled('purchase-entry', currentUser, cancelledPurchase.purchaseSerialId, cancelledPurchase.id);
