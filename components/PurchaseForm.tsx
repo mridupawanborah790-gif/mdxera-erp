@@ -1044,7 +1044,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         category: 'Medicine',
                         manufacturer: m.manufacturer || '',
                         stock: 0,
-                        unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '10', 10),
+                        unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(m.pack) ?? 1, m.pack),
                         packType: m.pack || '',
                         minStockLimit: 0,
                         batch: 'NEW-STOCK',
