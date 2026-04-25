@@ -1452,28 +1452,58 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             if (src.rateC !== undefined) inv.rateC = Number(src.rateC || 0);
         };
 
-        // map key: identification string
+        const normalizeKeyPart = (value?: string | number | null) => String(value ?? '').trim().toLowerCase();
+        const normalizeMrp = (value?: number | string | null) => Number(value || 0).toFixed(4);
+        const normalizeMaterialId = (item: PurchaseItem | InventoryItem) => {
+            const byInventory = normalizeKeyPart((item as PurchaseItem).inventoryItemId || (item as InventoryItem).id);
+            if (byInventory) return `inv:${byInventory}`;
+            const byCode = normalizeKeyPart((item as PurchaseItem).materialCode || (item as InventoryItem).code);
+            if (byCode) return `code:${byCode}`;
+            // Final fallback for legacy rows with no link/code
+            return `name:${normalizeKeyPart(item.name)}`;
+        };
+        const resolveItemKey = (item: PurchaseItem | InventoryItem) => {
+            const normalizedExpiry = normalizeKeyPart(normalizeImportDate(item.expiry) || item.expiry || '');
+            const normalizedPack = normalizeKeyPart((item as PurchaseItem).packType || (item as InventoryItem).packType || (item as PurchaseItem).unitsPerPack || (item as InventoryItem).unitsPerPack || '');
+            return [
+                normalizeMaterialId(item),
+                normalizeKeyPart(item.batch || 'UNSET'),
+                normalizedExpiry,
+                normalizedPack,
+                normalizeMrp(item.mrp),
+            ].join('|');
+        };
+        const getLineUnits = (item: PurchaseItem) => {
+            const uPP = Number(item.unitsPerPack || 1);
+            const freeUnits = Number(item.freeQuantity || 0) * uPP;
+            const units = (Number(item.quantity || 0) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
+            return { units, freeUnits };
+        };
+
+        // map key: material_id + batch + expiry + pack + mrp
         const itemMap = new Map<string, { oldUnits: number, oldFreeUnits: number, newUnits: number, newFreeUnits: number, item: PurchaseItem }>();
 
-        // Process original items
+        // Process original items snapshot
         for (const item of original.items) {
             if (!item.name) continue;
-            const key = item.inventoryItemId || `${item.name.toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
-            const uPP = item.unitsPerPack || 1;
-            const freeUnits = Number(item.freeQuantity || 0) * uPP;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
-            itemMap.set(key, { oldUnits: units, oldFreeUnits: freeUnits, newUnits: 0, newFreeUnits: 0, item });
+            const key = resolveItemKey(item);
+            const existing = itemMap.get(key) || { oldUnits: 0, oldFreeUnits: 0, newUnits: 0, newFreeUnits: 0, item };
+            const { units, freeUnits } = getLineUnits(item);
+            itemMap.set(key, { ...existing, oldUnits: existing.oldUnits + units, oldFreeUnits: existing.oldFreeUnits + freeUnits, item: existing.item || item });
         }
 
-        // Process new items
+        // Process updated items snapshot
         for (const item of p.items) {
             if (!item.name) continue;
-            const key = item.inventoryItemId || `${item.name.toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
+            const key = resolveItemKey(item);
             const existing = itemMap.get(key) || { oldUnits: 0, oldFreeUnits: 0, newUnits: 0, newFreeUnits: 0, item };
-            const uPP = item.unitsPerPack || 1;
-            const freeUnits = Number(item.freeQuantity || 0) * uPP;
-            const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
-            itemMap.set(key, { ...existing, newUnits: units, newFreeUnits: freeUnits, item });
+            const { units, freeUnits } = getLineUnits(item);
+            itemMap.set(key, { ...existing, newUnits: existing.newUnits + units, newFreeUnits: existing.newFreeUnits + freeUnits, item });
+        }
+
+        const inventoryByCompositeKey = new Map<string, InventoryItem>();
+        for (const inv of currentInventory) {
+            inventoryByCompositeKey.set(resolveItemKey(inv), inv);
         }
 
         // Apply changes
@@ -1486,25 +1516,26 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             if (data.item.inventoryItemId) {
                 invItem = currentInventory.find(i => i.id === data.item.inventoryItemId);
             }
-
             if (!invItem) {
-                const nameClean = data.item.name.toLowerCase().trim();
-                const batchClean = (data.item.batch || 'UNSET').toLowerCase().trim();
-                invItem = currentInventory.find(i =>
-                    (i.name || '').toLowerCase().trim() === nameClean &&
-                    (i.batch || 'UNSET').toLowerCase().trim() === batchClean
-                );
+                invItem = inventoryByCompositeKey.get(key);
             }
 
             if (invItem) {
                 const stockBefore = Number(invItem.stock || 0);
-                invItem.stock = stockBefore + diff;
-                invItem.purchaseFree = Number(invItem.purchaseFree || 0) + freeDiff;
+                const stockAfter = Math.max(0, stockBefore + diff);
+                invItem.stock = stockAfter;
+                invItem.purchaseFree = Math.max(0, Number(invItem.purchaseFree || 0) + freeDiff);
                 logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: invItem.name, batch: invItem.batch || 'UNSET', qty: Math.abs(diff), qtyIn: diff > 0 ? diff : 0, qtyOut: diff < 0 ? Math.abs(diff) : 0, stockBefore, stockAfter: invItem.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                 // Normalize expiry if present in purchase item
                 if (data.item.expiry) {
                     invItem.expiry = normalizeImportDate(data.item.expiry) || invItem.expiry;
                 }
+                if (data.item.packType) invItem.packType = data.item.packType;
+                if (data.item.unitsPerPack !== undefined) invItem.unitsPerPack = Number(data.item.unitsPerPack || 1);
+                if (data.item.purchasePrice !== undefined) invItem.purchasePrice = Number(data.item.purchasePrice || 0);
+                if (data.item.gstPercent !== undefined) invItem.gstPercent = Number(data.item.gstPercent || 0);
+                invItem.mrp = Number(data.item.mrp || invItem.mrp || 0);
+                invItem.value = Number(invItem.stock || 0) * Number(invItem.purchasePrice || 0);
                 applyTierRates(invItem, data.item);
                 await saveData('inventory', invItem, user);
             } else if (diff > 0) {
@@ -1517,8 +1548,9 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     category: data.item.category || 'General',
                     manufacturer: data.item.manufacturer || '',
                     stock: diff,
-                    purchaseFree: data.newFreeUnits,
+                    purchaseFree: Math.max(0, freeDiff),
                     unitsPerPack: uPP,
+                    packType: data.item.packType || '',
                     batch: data.item.batch || 'UNSET',
                     expiry: normalizeImportDate(data.item.expiry) || '',
                     purchasePrice: data.item.purchasePrice,
@@ -1530,6 +1562,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     rateB: data.item.rateB,
                     rateC: data.item.rateC,
                     minStockLimit: 10,
+                    value: Number(diff || 0) * Number(data.item.purchasePrice || 0),
                     is_active: true
                 };
                 logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: newInv.name, batch: newInv.batch || 'UNSET', qty: diff, qtyIn: diff, stockBefore: 0, stockAfter: diff, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
