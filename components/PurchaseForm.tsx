@@ -13,6 +13,7 @@ import LinkToMasterModal from './LinkToMasterModal';
 import { fuzzyMatch } from '../utils/search';
 import { fetchPendingMobileBills, fetchSupplierProductMaps, fetchTransactions, generateUUID, getLatestSyncMessage, getOrCreateMobileDeviceId, listenForSyncMessage, markMobileBillImported, reserveVoucherNumber, saveData } from '../services/storageService';
 import { parseNumber, normalizeImportDate, getOutstandingBalance } from '../utils/helpers';
+import { resolveUnitsPerStrip, extractPackMultiplier } from '../utils/pack';
 import SupplierLedgerModal from './SupplierLedgerModal';
 import SupplierSearchModal from './SupplierSearchModal';
 import type { SupplierQuickResult } from '../services/supplierService';
@@ -1051,7 +1052,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                         category: 'Medicine',
                         manufacturer: m.manufacturer || '',
                         stock: 0,
-                        unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '10', 10),
+                        unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(m.pack) ?? 1, m.pack),
                         packType: m.pack || '',
                         minStockLimit: 0,
                         batch: 'NEW-STOCK',
@@ -1432,7 +1433,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             category: 'Medicine',
             manufacturer: savedMedicine.manufacturer || '',
             stock: 0,
-            unitsPerPack: parseInt(savedMedicine.pack?.match(/\d+/)?.[0] || '10', 10),
+            unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(savedMedicine.pack) ?? 1, savedMedicine.pack),
             packType: savedMedicine.pack || '',
             minStockLimit: 0,
             batch: 'NEW-STOCK',
@@ -1823,7 +1824,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                     manufacturer: String(item.manufacturer || '').trim(),
                     brand: String(item.brand || '').trim(),
                     packType: packTypeStr,
-                    unitsPerPack: parseNumber(item.unitsPerPack) || parseInt(packTypeStr.match(/\d+/)?.[0] || '10', 10),
+                    unitsPerPack: resolveUnitsPerStrip(parseNumber(item.unitsPerPack), packTypeStr),
                     batch: String(item.batch || '').trim(),
                     expiry: normalizeExpiryInput(formatExpiryToMMYY(String(item.expiry || ''))),
                     quantity: parseNumber(item.quantity),

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Modal from './Modal';
 import type { Medicine, Distributor, Purchase, PurchaseItem } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
+import { resolveUnitsPerStrip, extractPackMultiplier } from '../utils/pack';
 
 interface AddToStockModalProps {
   isOpen: boolean;
@@ -75,9 +76,8 @@ const AddToStockModal: React.FC<AddToStockModalProps> = ({ isOpen, onClose, medi
 
     // Derived State & Refs
     const unitsPerPack = useMemo(() => {
-        // Simple regex to find the first number in the description
-        const match = medicine?.description?.match(/\d+/);
-        return match ? parseInt(match[0], 10) : 10;
+        const packType = medicine?.pack || medicine?.description || '';
+        return resolveUnitsPerStrip(extractPackMultiplier(packType) ?? 1, packType);
     }, [medicine]);
     
     const isNewDistributor = useMemo(() => {
