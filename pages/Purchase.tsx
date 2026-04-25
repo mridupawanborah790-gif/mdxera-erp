@@ -410,10 +410,11 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         // Check for duplicate supplier invoice
         const normalizedSupplier = supplier.toLowerCase().trim();
         const normalizedInvoice = invoiceNumber.toLowerCase().trim();
+        const inactiveStatuses = new Set(['cancelled', 'void', 'deleted']);
         const isDuplicate = purchases.some(p => {
             if (purchaseToEdit?.id && p.id === purchaseToEdit.id) return false;
             if ((p.organization_id || '').trim() !== (organizationId || '').trim()) return false;
-            if ((p.status || 'completed') === 'cancelled') return false;
+            if (inactiveStatuses.has(String((p as any).status || 'completed').trim().toLowerCase())) return false;
             return (p.supplier || '').toLowerCase().trim() === normalizedSupplier && 
                    (p.invoiceNumber || '').toLowerCase().trim() === normalizedInvoice;
         });

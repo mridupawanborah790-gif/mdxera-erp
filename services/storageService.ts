@@ -1316,6 +1316,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     };
 
     const normalizeSupplierInvoiceKey = (value?: string | null) => String(value || '').trim().toLowerCase();
+    const INACTIVE_PURCHASE_STATUSES = new Set(['cancelled', 'void', 'deleted']);
 
     const assertNoDuplicateActivePurchaseInvoice = async (payload: Purchase, user: RegisteredPharmacy) => {
         const supplierKey = normalizeSupplierInvoiceKey(payload.supplier);
@@ -1329,7 +1330,8 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             if (row.id === payload.id) return false;
             if (normalizeSupplierInvoiceKey(row.supplier) !== supplierKey) return false;
             if (normalizeSupplierInvoiceKey(row.invoiceNumber) !== invoiceKey) return false;
-            return (row.status || 'completed') !== 'cancelled';
+            const normalizedStatus = String(row.status || 'completed').trim().toLowerCase();
+            return !INACTIVE_PURCHASE_STATUSES.has(normalizedStatus);
         });
 
         if (duplicateActiveLocal) {
