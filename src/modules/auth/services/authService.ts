@@ -7,14 +7,43 @@ const SESSION_KEY = 'medimart_session';
 
 export class AuthService {
     async register(email: string, pass: string, fullName: string, pharmacyName: string): Promise<RegisteredPharmacy> {
+        // Check for existing user first to provide a clear error
+        const existing = await db.sql`SELECT id FROM users WHERE email = ${email} LIMIT 1`;
+        if (existing.length > 0) {
+            throw new Error('This email is already registered. If you were unable to complete registration previously, please try logging in.');
+        }
+
         const organization_id = crypto.randomUUID();
         const user_id = crypto.randomUUID();
         const password_hash = await bcrypt.hash(pass, 10);
 
-        await db.sql`
-            INSERT INTO users (id, organization_id, email, password_hash, full_name, role)
-            VALUES (${user_id}, ${organization_id}, ${email}, ${password_hash}, ${fullName}, 'owner')
-        `;
+        // Wrapping in manual transaction if driver supports it, 
+        // though sqlocal handles these sequentially.
+        try {
+            await db.sql`BEGIN TRANSACTION`;
+
+            await db.sql`
+                INSERT INTO users (id, organization_id, email, password_hash, full_name, role)
+                VALUES (${user_id}, ${organization_id}, ${email}, ${password_hash}, ${fullName}, 'owner')
+            `;
+
+            await db.sql`
+                INSERT INTO profiles (user_id, organization_id, email, full_name, pharmacy_name, role, is_active)
+                VALUES (${user_id}, ${organization_id}, ${email}, ${fullName}, ${pharmacyName}, 'owner', 1)
+            `;
+
+            // Initialize default configuration
+            await db.sql`
+                INSERT INTO configurations (organization_id)
+                VALUES (${organization_id})
+            `;
+
+            await db.sql`COMMIT`;
+        } catch (err) {
+            await db.sql`ROLLBACK`;
+            console.error("Registration transaction failed:", err);
+            throw err;
+        }
 
         const profile: RegisteredPharmacy = {
             id: user_id,
@@ -28,18 +57,6 @@ export class AuthService {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         } as any;
-
-        // Convert types to string for SQLite if necessary, but sqlocal handles params
-        await db.sql`
-            INSERT INTO profiles (user_id, organization_id, email, full_name, pharmacy_name, role, is_active)
-            VALUES (${user_id}, ${organization_id}, ${email}, ${fullName}, ${pharmacyName}, 'owner', 1)
-        `;
-
-        // Initialize default configuration
-        await db.sql`
-            INSERT INTO configurations (id, organization_id)
-            VALUES (${crypto.randomUUID()}, ${organization_id})
-        `;
 
         this.setSession(user_id);
         return profile;

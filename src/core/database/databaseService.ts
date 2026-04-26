@@ -47,19 +47,74 @@ class DatabaseService {
                 await this.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
                 console.log(`Migration: Added ${column} to ${table}`);
             } catch {
-                // Column likely already exists
+                // Column likely already exists or table doesn't exist yet
             }
         };
 
         // Ensure audit columns exist on core tables if they were created by previous partial scripts
-        const coreTables = ['company_codes', 'set_of_books', 'gl_master', 'gl_assignments', 'bank_master', 'users', 'profiles', 'inventory', 'material_master', 'suppliers', 'customers', 'sales_bill', 'purchases'];
+        const coreTables = [
+            'company_codes', 'set_of_books', 'gl_master', 'gl_assignments', 'bank_master', 
+            'users', 'profiles', 'inventory', 'material_master', 'suppliers', 'customers', 
+            'sales_bill', 'purchases', 'sales_challans', 'delivery_challans', 
+            'sales_returns', 'purchase_returns', 'purchase_orders', 'doctor_master',
+            'team_members', 'business_roles', 'mrp_change_log', 'mbc_cards', 'mbc_card_types',
+            'mbc_card_templates', 'ewaybills', 'physical_inventory', 'customer_price_list'
+        ];
+        
         for (const table of coreTables) {
             await addColumnIfMissing(table, 'created_by', 'TEXT');
             await addColumnIfMissing(table, 'updated_by', 'TEXT');
             await addColumnIfMissing(table, 'user_id', 'TEXT');
+            await addColumnIfMissing(table, 'organization_id', 'TEXT');
         }
-        
-        // Specific missing columns reported for material_master
+
+        // Set of Books
+        await addColumnIfMissing('set_of_books', 'name', 'TEXT');
+        await addColumnIfMissing('set_of_books', 'description', 'TEXT');
+        await addColumnIfMissing('set_of_books', 'default_currency', 'TEXT');
+        await addColumnIfMissing('set_of_books', 'default_customer_gl_id', 'TEXT');
+        await addColumnIfMissing('set_of_books', 'default_supplier_gl_id', 'TEXT');
+        await addColumnIfMissing('set_of_books', 'default_demo_bank_gl_id', 'TEXT');
+        await addColumnIfMissing('set_of_books', 'default_bank_gl_id', 'TEXT');
+        await addColumnIfMissing('set_of_books', 'posting_count', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing('set_of_books', 'active_status', 'TEXT DEFAULT \'Active\'');
+
+        // Company Codes
+        await addColumnIfMissing('company_codes', 'description', 'TEXT');
+        await addColumnIfMissing('company_codes', 'status', 'TEXT DEFAULT \'Active\'');
+        await addColumnIfMissing('company_codes', 'is_default', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing('company_codes', 'default_set_of_books_id', 'TEXT');
+
+        // GL Master
+        await addColumnIfMissing('gl_master', 'gl_type', 'TEXT');
+        await addColumnIfMissing('gl_master', 'account_group', 'TEXT');
+        await addColumnIfMissing('gl_master', 'subgroup', 'TEXT');
+        await addColumnIfMissing('gl_master', 'alias', 'TEXT');
+        await addColumnIfMissing('gl_master', 'mapping_structure', 'TEXT');
+        await addColumnIfMissing('gl_master', 'posting_allowed', 'INTEGER DEFAULT 1');
+        await addColumnIfMissing('gl_master', 'control_account', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing('gl_master', 'active_status', 'TEXT DEFAULT \'Active\'');
+        await addColumnIfMissing('gl_master', 'seeded_by_system', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing('gl_master', 'template_version', 'TEXT');
+        await addColumnIfMissing('gl_master', 'posting_count', 'INTEGER DEFAULT 0');
+
+        // GL Assignments
+        await addColumnIfMissing('gl_assignments', 'assignment_scope', 'TEXT NOT NULL DEFAULT \'MATERIAL\'');
+        await addColumnIfMissing('gl_assignments', 'party_type', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'party_group', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'material_master_type', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'control_gl_id', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'inventory_gl', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'purchase_gl', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'cogs_gl', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'sales_gl', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'discount_gl', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'tax_gl', 'TEXT');
+        await addColumnIfMissing('gl_assignments', 'seeded_by_system', 'INTEGER DEFAULT 0');
+        await addColumnIfMissing('gl_assignments', 'active_status', 'TEXT DEFAULT \'Active\'');
+
+        // Material Master
+        await addColumnIfMissing('material_master', 'material_code', 'TEXT NOT NULL');
         await addColumnIfMissing('material_master', 'default_discount_percent', 'REAL DEFAULT 0');
         await addColumnIfMissing('material_master', 'scheme_percent', 'REAL DEFAULT 0');
         await addColumnIfMissing('material_master', 'scheme_type', 'TEXT');
@@ -90,7 +145,9 @@ class DatabaseService {
         await addColumnIfMissing('material_master', 'rate_b', 'REAL DEFAULT 0');
         await addColumnIfMissing('material_master', 'rate_c', 'REAL DEFAULT 0');
 
-        // Specific missing columns for inventory
+        // Inventory
+        await addColumnIfMissing('inventory', 'brand', 'TEXT');
+        await addColumnIfMissing('inventory', 'category', 'TEXT DEFAULT \'General\'');
         await addColumnIfMissing('inventory', 'manufacturer', 'TEXT');
         await addColumnIfMissing('inventory', 'unit_of_measurement', 'TEXT');
         await addColumnIfMissing('inventory', 'pack_unit', 'TEXT');
@@ -114,8 +171,10 @@ class DatabaseService {
         await addColumnIfMissing('inventory', 'pack_type', 'TEXT');
         await addColumnIfMissing('inventory', 'min_stock_limit', 'REAL DEFAULT 10');
         await addColumnIfMissing('inventory', 'units_per_pack', 'INTEGER DEFAULT 1');
+        await addColumnIfMissing('inventory', 'purchase_price', 'REAL DEFAULT 0');
+        await addColumnIfMissing('inventory', 'gst_percent', 'REAL DEFAULT 12');
 
-        // Specific missing columns for customers
+        // Customers
         await addColumnIfMissing('customers', 'address_line1', 'TEXT');
         await addColumnIfMissing('customers', 'address_line2', 'TEXT');
         await addColumnIfMissing('customers', 'area', 'TEXT');
@@ -143,7 +202,7 @@ class DatabaseService {
         await addColumnIfMissing('customers', 'default_discount', 'REAL DEFAULT 0');
         await addColumnIfMissing('customers', 'gst_number', 'TEXT');
 
-        // Specific missing columns for suppliers
+        // Suppliers
         await addColumnIfMissing('suppliers', 'contact_person', 'TEXT');
         await addColumnIfMissing('suppliers', 'mobile', 'TEXT');
         await addColumnIfMissing('suppliers', 'website', 'TEXT');
@@ -163,7 +222,13 @@ class DatabaseService {
         await addColumnIfMissing('suppliers', 'district', 'TEXT');
         await addColumnIfMissing('suppliers', 'state', 'TEXT');
 
-        // Specific missing columns for sales_bill
+        // Bank Master
+        await addColumnIfMissing('bank_master', 'linked_bank_gl_id', 'TEXT');
+        await addColumnIfMissing('bank_master', 'account_type', 'TEXT');
+        await addColumnIfMissing('bank_master', 'active_status', 'TEXT DEFAULT \'Active\'');
+        await addColumnIfMissing('bank_master', 'is_default', 'INTEGER DEFAULT 0');
+
+        // Sales Bill
         await addColumnIfMissing('sales_bill', 'invoice_number', 'TEXT');
         await addColumnIfMissing('sales_bill', 'referred_by', 'TEXT');
         await addColumnIfMissing('sales_bill', 'doctor_id', 'TEXT');
@@ -190,7 +255,7 @@ class DatabaseService {
         await addColumnIfMissing('sales_bill', 'scheme_discount', 'REAL DEFAULT 0');
         await addColumnIfMissing('sales_bill', 'round_off', 'REAL DEFAULT 0');
 
-        // Specific missing columns for purchases
+        // Purchases
         await addColumnIfMissing('purchases', 'total_item_discount', 'REAL DEFAULT 0');
         await addColumnIfMissing('purchases', 'total_item_scheme_discount', 'REAL DEFAULT 0');
         await addColumnIfMissing('purchases', 'scheme_discount', 'REAL DEFAULT 0');
@@ -207,8 +272,7 @@ class DatabaseService {
         await addColumnIfMissing('purchases', 'pricing_mode', 'TEXT DEFAULT \'rate\'');
         await addColumnIfMissing('purchases', 'purchase_serial_id', 'TEXT');
 
-        // Specific missing columns for sales_challans
-        await addColumnIfMissing('sales_challans', 'user_id', 'TEXT');
+        // Sales Challans
         await addColumnIfMissing('sales_challans', 'challan_serial_id', 'TEXT');
         await addColumnIfMissing('sales_challans', 'customer_name', 'TEXT');
         await addColumnIfMissing('sales_challans', 'customer_phone', 'TEXT');
@@ -220,8 +284,7 @@ class DatabaseService {
         await addColumnIfMissing('sales_challans', 'total_items', 'INTEGER DEFAULT 0');
         await addColumnIfMissing('sales_challans', 'total_item_discount', 'REAL DEFAULT 0');
 
-        // Specific missing columns for delivery_challans
-        await addColumnIfMissing('delivery_challans', 'user_id', 'TEXT');
+        // Delivery Challans
         await addColumnIfMissing('delivery_challans', 'challan_serial_id', 'TEXT');
         await addColumnIfMissing('delivery_challans', 'supplier', 'TEXT');
         await addColumnIfMissing('delivery_challans', 'challan_number', 'TEXT');
@@ -230,7 +293,7 @@ class DatabaseService {
         await addColumnIfMissing('delivery_challans', 'remarks', 'TEXT');
         await addColumnIfMissing('delivery_challans', 'total_amount', 'REAL DEFAULT 0');
 
-        // Specific missing columns for returns
+        // Returns
         await addColumnIfMissing('sales_returns', 'subtotal', 'REAL DEFAULT 0');
         await addColumnIfMissing('sales_returns', 'total_gst', 'REAL DEFAULT 0');
         await addColumnIfMissing('sales_returns', 'round_off', 'REAL DEFAULT 0');
@@ -248,55 +311,15 @@ class DatabaseService {
         await addColumnIfMissing('purchase_returns', 'total_value', 'REAL DEFAULT 0');
         await addColumnIfMissing('purchase_returns', 'remarks', 'TEXT');
 
-        // Fix supplier_product_map column name mismatches (type uses master_medicine_id, supplier_product_name)
+        // Supplier Product Map
         await addColumnIfMissing('supplier_product_map', 'master_medicine_id', 'TEXT');
         await addColumnIfMissing('supplier_product_map', 'supplier_product_name', 'TEXT');
         await addColumnIfMissing('supplier_product_map', 'auto_apply', 'INTEGER DEFAULT 0');
 
-        // Extra configurations columns for discount rules, GST settings and eWay setup
+        // Configurations
         await addColumnIfMissing('configurations', 'discount_rules', 'TEXT');
         await addColumnIfMissing('configurations', 'gst_settings', 'TEXT');
         await addColumnIfMissing('configurations', 'eway_login_setup', 'TEXT');
-
-        // Specific missing columns for purchase_orders
-        await addColumnIfMissing('purchase_orders', 'user_id', 'TEXT');
-        await addColumnIfMissing('purchase_orders', 'serial_id', 'TEXT');
-        await addColumnIfMissing('purchase_orders', 'distributor_id', 'TEXT');
-        await addColumnIfMissing('purchase_orders', 'distributor_name', 'TEXT');
-        await addColumnIfMissing('purchase_orders', 'sender_email', 'TEXT');
-        await addColumnIfMissing('purchase_orders', 'total_items', 'INTEGER');
-        await addColumnIfMissing('purchase_orders', 'total_amount', 'REAL');
-        await addColumnIfMissing('purchase_orders', 'sync_status', 'TEXT DEFAULT \'pending\'');
-        await addColumnIfMissing('purchase_orders', 'remarks', 'TEXT');
-        await addColumnIfMissing('purchase_orders', 'receive_links', 'TEXT');
-        await addColumnIfMissing('purchase_orders', 'source_purchase_bill_ids', 'TEXT');
-
-        // Specific missing columns for doctor_master
-        await addColumnIfMissing('doctor_master', 'doctor_code', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'qualification', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'registration_no', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'mobile', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'alternate_contact', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'clinic_name', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'area', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'city', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'state', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'pincode', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'commission_percent', 'REAL DEFAULT 0');
-        await addColumnIfMissing('doctor_master', 'notes', 'TEXT');
-        await addColumnIfMissing('doctor_master', 'updated_at', 'TEXT');
-
-        // Specific missing columns reported for profiles
-        await addColumnIfMissing('profiles', 'dashboard_logo_url', 'TEXT');
-        await addColumnIfMissing('profiles', 'organization_type', 'TEXT DEFAULT \'Retail\'');
-
-        // Specific missing columns reported for accounting
-        await addColumnIfMissing('journal_entry_header', 'narration', 'TEXT');
-
-        // Specific missing columns reported
-        await addColumnIfMissing('company_codes', 'description', 'TEXT');
-
-        // Specific missing columns for configurations
         await addColumnIfMissing('configurations', 'invoice_config', 'TEXT');
         await addColumnIfMissing('configurations', 'non_gst_invoice_config', 'TEXT');
         await addColumnIfMissing('configurations', 'purchase_config', 'TEXT');
@@ -310,6 +333,60 @@ class DatabaseService {
         await addColumnIfMissing('configurations', 'display_options', 'TEXT');
         await addColumnIfMissing('configurations', 'modules', 'TEXT');
         await addColumnIfMissing('configurations', 'sidebar', 'TEXT');
+
+        // Purchase Orders
+        await addColumnIfMissing('purchase_orders', 'serial_id', 'TEXT');
+        await addColumnIfMissing('purchase_orders', 'supplier_id', 'TEXT');
+        await addColumnIfMissing('purchase_orders', 'distributor_id', 'TEXT');
+        await addColumnIfMissing('purchase_orders', 'distributor_name', 'TEXT');
+        await addColumnIfMissing('purchase_orders', 'sender_email', 'TEXT');
+        await addColumnIfMissing('purchase_orders', 'total_items', 'INTEGER');
+        await addColumnIfMissing('purchase_orders', 'total_amount', 'REAL');
+        await addColumnIfMissing('purchase_orders', 'sync_status', 'TEXT DEFAULT \'pending\'');
+        await addColumnIfMissing('purchase_orders', 'remarks', 'TEXT');
+        await addColumnIfMissing('purchase_orders', 'receive_links', 'TEXT');
+        await addColumnIfMissing('purchase_orders', 'source_purchase_bill_ids', 'TEXT');
+
+        // Doctor Master
+        await addColumnIfMissing('doctor_master', 'doctor_code', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'qualification', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'specialization', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'registration_no', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'mobile', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'alternate_contact', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'clinic_name', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'area', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'city', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'state', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'pincode', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'commission_percent', 'REAL DEFAULT 0');
+        await addColumnIfMissing('doctor_master', 'notes', 'TEXT');
+        await addColumnIfMissing('doctor_master', 'is_active', 'INTEGER DEFAULT 1');
+
+        // Profiles
+        await addColumnIfMissing('profiles', 'dashboard_logo_url', 'TEXT');
+        await addColumnIfMissing('profiles', 'organization_type', 'TEXT DEFAULT \'Retail\'');
+
+        // Journal Entry Header
+        await addColumnIfMissing('journal_entry_header', 'narration', 'TEXT');
+
+        // Team Members
+        await addColumnIfMissing('team_members', 'department', 'TEXT');
+        await addColumnIfMissing('team_members', 'employee_id', 'TEXT');
+        await addColumnIfMissing('team_members', 'company', 'TEXT');
+        await addColumnIfMissing('team_members', 'assigned_roles', 'TEXT DEFAULT \'[]\'');
+        await addColumnIfMissing('team_members', 'work_centers', 'TEXT DEFAULT \'[]\'');
+        await addColumnIfMissing('team_members', 'technical_id', 'TEXT');
+
+        // Business Roles
+        await addColumnIfMissing('business_roles', 'work_centers', 'TEXT NOT NULL DEFAULT \'[]\'');
+        await addColumnIfMissing('business_roles', 'is_system_role', 'INTEGER DEFAULT 0');
+
+        // MBC Cards
+        await addColumnIfMissing('mbc_cards', 'photo_url', 'TEXT');
+        await addColumnIfMissing('mbc_cards', 'whatsapp_number', 'TEXT');
+        await addColumnIfMissing('mbc_cards', 'website_link', 'TEXT');
+        await addColumnIfMissing('mbc_cards', 'office_location_text', 'TEXT');
     }
 
     private async createTables() {
@@ -820,9 +897,14 @@ class DatabaseService {
                 organization_id TEXT NOT NULL,
                 company_code_id TEXT NOT NULL,
                 name TEXT,
+                description TEXT,
+                default_currency TEXT,
                 active_status TEXT DEFAULT 'Active',
                 default_customer_gl_id TEXT,
                 default_supplier_gl_id TEXT,
+                default_demo_bank_gl_id TEXT,
+                default_bank_gl_id TEXT,
+                posting_count INTEGER DEFAULT 0,
                 created_by TEXT,
                 updated_by TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -837,8 +919,19 @@ class DatabaseService {
                 set_of_books_id TEXT NOT NULL,
                 gl_code TEXT NOT NULL,
                 gl_name TEXT NOT NULL,
+                gl_type TEXT,
                 gl_group TEXT,
+                account_group TEXT,
+                subgroup TEXT,
+                alias TEXT,
+                mapping_structure TEXT,
+                posting_allowed INTEGER DEFAULT 1,
+                control_account INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
+                active_status TEXT DEFAULT 'Active',
+                seeded_by_system INTEGER DEFAULT 0,
+                template_version TEXT,
+                posting_count INTEGER DEFAULT 0,
                 created_by TEXT,
                 updated_by TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,

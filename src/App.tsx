@@ -584,6 +584,7 @@ const App: React.FC = () => {
                     setCurrentUser(user);
                     await loadData(user, modeModeRef.current === 'sync' ? 'initial' : 'initial');
                 } else {
+                    resetAppState();
                     setIsAppLoading(false);
                 }
             } catch (error) {
@@ -909,7 +910,47 @@ const App: React.FC = () => {
         };
     }, [currentUser, loadData]);
 
+    const resetAppState = useCallback(() => {
+        setInventory([]);
+        setMedicines([]);
+        setTransactions([]);
+        setPurchases([]);
+        setSuppliers([]);
+        setCustomers([]);
+        setDoctors([]);
+        setEwayBills([]);
+        setMappings([]);
+        setPhysicalInventory([]);
+        setDeliveryChallans([]);
+        setSalesChallans([]);
+        setPurchaseOrders([]);
+        setMrpChangeLogs([]);
+        setSalesReturns([]);
+        setPurchaseReturns([]);
+        setCategories([]);
+        setSubCategories([]);
+        setPromotions([]);
+        setTeamMembers([]);
+        setBusinessRoles([]);
+        setBankOptions([]);
+        setConfigurations({ organization_id: '' });
+        setDefaultCustomerControlGlId('');
+        setDefaultSupplierControlGlId('');
+        setSourceChallansForPurchase(null);
+        setPurchaseCopyDraft(null);
+        setEditingPurchase(null);
+        setEditingSale(null);
+        setSalesReturnPrefillInvoiceId(null);
+        setPurchaseReturnPrefillInvoiceId(null);
+        setPrintBill(null);
+        setViewTransaction(null);
+        setViewPurchase(null);
+        setPrintPO(null);
+        setViewReport(null);
+    }, []);
+
     const handleLogin = (user: RegisteredPharmacy) => {
+        resetAppState();
         setCurrentPage('dashboard');
         setAppLoadError(null);
         setConfigurations(prev => ({
@@ -934,6 +975,7 @@ const App: React.FC = () => {
             if (persistedStateKey) {
                 window.localStorage.removeItem(persistedStateKey);
             }
+            resetAppState();
             setCurrentUser(null);
             setCurrentPage('dashboard');
             setAuthView('auth');
@@ -942,6 +984,7 @@ const App: React.FC = () => {
             if (persistedStateKey) {
                 window.localStorage.removeItem(persistedStateKey);
             }
+            resetAppState();
             setCurrentUser(null);
             setCurrentPage('dashboard');
             setAuthView('auth');
@@ -949,7 +992,7 @@ const App: React.FC = () => {
         } finally {
             setIsAppLoading(false);
         }
-    }, [currentUser, getScreenStateStorageKey]);
+    }, [currentUser, getScreenStateStorageKey, resetAppState]);
 
     const toggleFullScreen = () => {
         if (!document.fullscreenElement) {

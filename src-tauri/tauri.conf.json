@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "medimart-retail",
+  "productName": "mdxeraerp-retail",
   "version": "0.1.0",
   "identifier": "com.mdxeraerp.retail",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Medimart Retail ERP",
+        "title": "MDXERA ERP",
         "width": 800,
         "height": 600,
         "resizable": true,
