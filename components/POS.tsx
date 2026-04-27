@@ -804,138 +804,146 @@ const POS = forwardRef<any, POSProps>(({
         return Number(sales.reduce((sum, row) => sum + Number(row.balance || 0), 0).toFixed(2));
     }, [currentUser]);
 
-    const handleSave = useCallback(async () => {
+    const handleSave = useCallback(async (forcedStatus?: 'completed' | 'hold' | 'draft') => {
         if (isSaving || cartItems.length === 0) return;
-
-        if (creditCheck && !creditCheck.canProceed) {
-            const formatted = `Credit Limit ₹${creditCheck.details.creditLimit.toFixed(2)} | Outstanding ₹${creditCheck.details.currentOutstanding.toFixed(2)} | Open Challan ₹${creditCheck.details.openChallanExposure.toFixed(2)} | Bill ₹${creditCheck.details.currentTransactionAmount.toFixed(2)} | Projected ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
-            if (creditCheck.mode === 'warning_only') {
-                const proceed = window.confirm(`${creditCheck.message}\n\n${formatted}\n\nDo you want to continue?`);
-                if (!proceed) return;
-            } else {
-                addNotification(`${creditCheck.message} ${formatted}`, 'error');
-                return;
-            }
-        }
-
-        if (shouldPreventNegativeStock) {
-            const issues: StockValidationIssue[] = [];
-
-            for (const item of cartItems) {
-                const normalizedBatch = (item.batch || '').trim();
-                const normalizedItemName = (item.name || '').trim().toLowerCase();
-                const normalizedItemBrand = (item.brand || '').trim().toLowerCase();
-                const currentInvItem = inventory.find(i => i.id === item.inventoryItemId);
-                const relatedInventoryRows = inventory.filter(i => {
-                    const sameId = item.inventoryItemId && i.id === item.inventoryItemId;
-                    const sameName = (i.name || '').trim().toLowerCase() === normalizedItemName;
-                    const sameBrand = normalizedItemBrand === '' || (i.brand || '').trim().toLowerCase() === normalizedItemBrand;
-                    return sameId || (sameName && sameBrand);
-                });
-                const hasRealBatchStock = relatedInventoryRows.some(i => isRealBatch(i.batch));
-
-                let invItem: InventoryItem | undefined;
-                if (isRealBatch(normalizedBatch)) {
-                    invItem = currentInvItem && isRealBatch(currentInvItem.batch)
-                        ? currentInvItem
-                        : relatedInventoryRows.find(i => isRealBatch(i.batch) && normalizeBatchToken(i.batch) === normalizeBatchToken(normalizedBatch));
-                } else {
-                    invItem = (currentInvItem && !isRealBatch(currentInvItem.batch))
-                        ? currentInvItem
-                        : relatedInventoryRows.find(i => !isRealBatch(i.batch));
-                }
-
-                if (!normalizedBatch && hasRealBatchStock && !invItem) {
-                    issues.push({
-                        itemId: item.id,
-                        itemName: item.name || 'Unknown Item',
-                        batch: 'Not selected',
-                        available: 0,
-                        required: Math.max(0, Number(item.quantity || 0) + Number(item.looseQuantity || 0)),
-                        reason: 'batch_missing',
-                    });
-                    continue;
-                }
-
-                if (!invItem) {
-                    const displayBatch = isRealBatch(normalizedBatch) ? normalizedBatch : 'NO BATCH';
-                    issues.push({
-                        itemId: item.id,
-                        itemName: item.name || 'Unknown Item',
-                        batch: displayBatch,
-                        available: 0,
-                        required: Math.max(0, Number(item.quantity || 0) + Number(item.looseQuantity || 0)),
-                        reason: 'no_stock',
-                    });
-                    continue;
-                }
-
-                const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
-                const requiredUnits = Math.max(0, (Number(item.quantity || 0) * unitsPerPack) + Number(item.looseQuantity || 0));
-                const availableUnits = Math.max(0, Number(invItem.stock || 0));
-
-                if (availableUnits <= 0) {
-                    const displayBatch = isRealBatch(normalizedBatch || invItem.batch) ? (normalizedBatch || invItem.batch || 'N/A') : 'NO BATCH';
-                    issues.push({
-                        itemId: item.id,
-                        itemName: item.name || invItem.name || 'Unknown Item',
-                        batch: displayBatch,
-                        available: availableUnits,
-                        required: requiredUnits,
-                        reason: 'no_stock',
-                    });
-                    continue;
-                }
-
-                if (requiredUnits > availableUnits) {
-                    const displayBatch = isRealBatch(normalizedBatch || invItem.batch) ? (normalizedBatch || invItem.batch || 'N/A') : 'NO BATCH';
-                    issues.push({
-                        itemId: item.id,
-                        itemName: item.name || invItem.name || 'Unknown Item',
-                        batch: displayBatch,
-                        available: availableUnits,
-                        required: requiredUnits,
-                        reason: 'insufficient',
-                    });
-                }
-            }
-
-            if (issues.length > 0) {
-                setStockValidationIssues(issues);
-                setIsStockIssueModalOpen(true);
-                const firstIssue = issues[0];
-                const firstIssueIndex = cartItems.findIndex(ci => ci.id === firstIssue.itemId);
-                if (firstIssueIndex >= 0) setSelectedRowIndex(firstIssueIndex);
-
-                if (issues.length === 1) {
-                    const issue = issues[0];
-                    const singleMessage = issue.reason === 'batch_missing'
-                        ? `Please select batch for item: ${issue.itemName}`
-                        : issue.reason === 'no_stock'
-                            ? `No stock available for: Item: ${issue.itemName} | Batch: ${issue.batch}`
-                            : `Insufficient stock for:\nItem: ${issue.itemName}\nBatch: ${issue.batch}\nAvailable: ${issue.available}\nRequired: ${issue.required}`;
-                    addNotification(singleMessage, 'error');
-                } else {
-                    addNotification(`Stock issue in ${issues.length} items. Click to view details.`, 'error');
-                }
-
-                setTimeout(() => {
-                    const rowEl = document.getElementById(`cart-row-${firstIssue.itemId}`);
-                    rowEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-                    const preferredFieldId = firstIssue.reason === 'batch_missing'
-                        ? `batch-${firstIssue.itemId}`
-                        : `qty-p-${firstIssue.itemId}`;
-                    const preferredField = document.getElementById(preferredFieldId) as HTMLInputElement | HTMLButtonElement | null;
-                    preferredField?.focus();
-                }, 0);
-                return;
-            }
-            setStockValidationIssues([]);
-            setIsStockIssueModalOpen(false);
-        }
-
         setIsSaving(true);
+
+        const targetStatus = forcedStatus || 'completed';
+
+        if (targetStatus === 'completed') {
+            if (creditCheck && !creditCheck.canProceed) {
+                const formatted = `Credit Limit ₹${creditCheck.details.creditLimit.toFixed(2)} | Outstanding ₹${creditCheck.details.currentOutstanding.toFixed(2)} | Open Challan ₹${creditCheck.details.openChallanExposure.toFixed(2)} | Bill ₹${creditCheck.details.currentTransactionAmount.toFixed(2)} | Projected ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
+                if (creditCheck.mode === 'warning_only') {
+                    const proceed = window.confirm(`${creditCheck.message}\n\n${formatted}\n\nDo you want to continue?`);
+                    if (!proceed) {
+                        setIsSaving(false);
+                        return;
+                    }
+                } else {
+                    addNotification(`${creditCheck.message} ${formatted}`, 'error');
+                    setIsSaving(false);
+                    return;
+                }
+            }
+
+            if (shouldPreventNegativeStock) {
+                const issues: StockValidationIssue[] = [];
+
+                for (const item of cartItems) {
+                    const normalizedBatch = (item.batch || '').trim();
+                    const normalizedItemName = (item.name || '').trim().toLowerCase();
+                    const normalizedItemBrand = (item.brand || '').trim().toLowerCase();
+                    const currentInvItem = inventory.find(i => i.id === item.inventoryItemId);
+                    const relatedInventoryRows = inventory.filter(i => {
+                        const sameId = item.inventoryItemId && i.id === item.inventoryItemId;
+                        const sameName = (i.name || '').trim().toLowerCase() === normalizedItemName;
+                        const sameBrand = normalizedItemBrand === '' || (i.brand || '').trim().toLowerCase() === normalizedItemBrand;
+                        return sameId || (sameName && sameBrand);
+                    });
+                    const hasRealBatchStock = relatedInventoryRows.some(i => isRealBatch(i.batch));
+
+                    let invItem: InventoryItem | undefined;
+                    if (isRealBatch(normalizedBatch)) {
+                        invItem = currentInvItem && isRealBatch(currentInvItem.batch)
+                            ? currentInvItem
+                            : relatedInventoryRows.find(i => isRealBatch(i.batch) && normalizeBatchToken(i.batch) === normalizeBatchToken(normalizedBatch));
+                    } else {
+                        invItem = (currentInvItem && !isRealBatch(currentInvItem.batch))
+                            ? currentInvItem
+                            : relatedInventoryRows.find(i => !isRealBatch(i.batch));
+                    }
+
+                    if (!normalizedBatch && hasRealBatchStock && !invItem) {
+                        issues.push({
+                            itemId: item.id,
+                            itemName: item.name || 'Unknown Item',
+                            batch: 'Not selected',
+                            available: 0,
+                            required: Math.max(0, Number(item.quantity || 0) + Number(item.looseQuantity || 0)),
+                            reason: 'batch_missing',
+                        });
+                        continue;
+                    }
+
+                    if (!invItem) {
+                        const displayBatch = isRealBatch(normalizedBatch) ? normalizedBatch : 'NO BATCH';
+                        issues.push({
+                            itemId: item.id,
+                            itemName: item.name || 'Unknown Item',
+                            batch: displayBatch,
+                            available: 0,
+                            required: Math.max(0, Number(item.quantity || 0) + Number(item.looseQuantity || 0)),
+                            reason: 'no_stock',
+                        });
+                        continue;
+                    }
+
+                    const unitsPerPack = resolveUnitsPerStrip(invItem.unitsPerPack, invItem.packType);
+                    const requiredUnits = Math.max(0, (Number(item.quantity || 0) * unitsPerPack) + Number(item.looseQuantity || 0));
+                    const availableUnits = Math.max(0, Number(invItem.stock || 0));
+
+                    if (availableUnits <= 0) {
+                        const displayBatch = isRealBatch(normalizedBatch || invItem.batch) ? (normalizedBatch || invItem.batch || 'N/A') : 'NO BATCH';
+                        issues.push({
+                            itemId: item.id,
+                            itemName: item.name || invItem.name || 'Unknown Item',
+                            batch: displayBatch,
+                            available: availableUnits,
+                            required: requiredUnits,
+                            reason: 'no_stock',
+                        });
+                        continue;
+                    }
+
+                    if (requiredUnits > availableUnits) {
+                        const displayBatch = isRealBatch(normalizedBatch || invItem.batch) ? (normalizedBatch || invItem.batch || 'N/A') : 'NO BATCH';
+                        issues.push({
+                            itemId: item.id,
+                            itemName: item.name || invItem.name || 'Unknown Item',
+                            batch: displayBatch,
+                            available: availableUnits,
+                            required: requiredUnits,
+                            reason: 'insufficient',
+                        });
+                    }
+                }
+
+                if (issues.length > 0) {
+                    setStockValidationIssues(issues);
+                    setIsStockIssueModalOpen(true);
+                    const firstIssue = issues[0];
+                    const firstIssueIndex = cartItems.findIndex(ci => ci.id === firstIssue.itemId);
+                    if (firstIssueIndex >= 0) setSelectedRowIndex(firstIssueIndex);
+
+                    if (issues.length === 1) {
+                        const issue = issues[0];
+                        const singleMessage = issue.reason === 'batch_missing'
+                            ? `Please select batch for item: ${issue.itemName}`
+                            : issue.reason === 'no_stock'
+                                ? `No stock available for: Item: ${issue.itemName} | Batch: ${issue.batch}`
+                                : `Insufficient stock for:\nItem: ${issue.itemName}\nBatch: ${issue.batch}\nAvailable: ${issue.available}\nRequired: ${issue.required}`;
+                        addNotification(issue.reason === 'batch_missing' ? singleMessage : `Insufficient stock for ${issue.itemName}. Available: ${issue.available}, Required: ${issue.required}`, 'error');
+                    } else {
+                        addNotification(`Stock issue in ${issues.length} items. Click to view details.`, 'error');
+                    }
+
+                    setTimeout(() => {
+                        const rowEl = document.getElementById(`cart-row-${firstIssue.itemId}`);
+                        rowEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                        const preferredFieldId = firstIssue.reason === 'batch_missing'
+                            ? `batch-${firstIssue.itemId}`
+                            : `qty-p-${firstIssue.itemId}`;
+                        const preferredField = document.getElementById(preferredFieldId) as HTMLInputElement | HTMLButtonElement | null;
+                        preferredField?.focus();
+                    }, 0);
+                    setIsSaving(false);
+                    return;
+                }
+                setStockValidationIssues([]);
+                setIsStockIssueModalOpen(false);
+            }
+        }
 
         let generatedId = transactionToEdit?.id;
         let invoiceNumber = transactionToEdit?.invoiceNumber;
@@ -973,7 +981,7 @@ const POS = forwardRef<any, POSProps>(({
                 await getCustomerInvoiceOutstandingTotal(selectedCustomer)
             ).netOutstanding
             : 0;
-        const balanceAfterBill = finalPaymentMode === 'Credit'
+        const balanceAfterBill = (finalPaymentMode === 'Credit' && targetStatus === 'completed')
             ? Number((previousBalanceBeforeBill + grandTotal).toFixed(2))
             : Number(previousBalanceBeforeBill.toFixed(2));
 
@@ -997,7 +1005,7 @@ const POS = forwardRef<any, POSProps>(({
             adjustment,
             narration,
             roundOff,
-            status: 'completed',
+            status: targetStatus,
             paymentMode: finalPaymentMode,
             billType: isNonGst ? 'non-gst' : 'regular',
             itemCount: cartItems.length,
@@ -1009,34 +1017,26 @@ const POS = forwardRef<any, POSProps>(({
 
         try {
             await onSaveOrUpdateTransaction(transaction, !!transactionToEdit, reservedNextNumber ?? undefined);
-            if (onPrintBill) onPrintBill(transaction);
+            if (targetStatus === 'completed' && onPrintBill) onPrintBill(transaction);
             
             // Stats will refresh automatically via useEffect dependency on selectedCustomer change,
             // but we call it explicitly to be sure and to update global stats.
             fetchStats();
-
-            setCartItems([]);
-            setPrescriptions([]);
-            setSelectedCustomer(null);
-            setCustomerSearch('');
-            setCustomerPhone('');
-            setReferredBy('');
-            setNarration('');
-            setBillCategory('Cash');
-            setAdjustment(0);
-            setLumpsumDiscount(0);
-            setDoctorId(null);
-            
-            // Clear current reservation before getting next
-            setReservedVoucherNumber(null);
-            lastReservedType.current = null;
-            
-            if (!transactionToEdit) {
-                await reserveNextVoucherNumber(true);
-            } else if (reservedNextNumber) {
-                setNextVoucherNumberHint(reservedNextNumber);
+            resetForm();
+            if (onCancel) {
+                onCancel();
+            } else {
+                
+                // Clear current reservation before getting next
+                setReservedVoucherNumber(null);
+                lastReservedType.current = null;
+                
+                if (!transactionToEdit) {
+                    await reserveNextVoucherNumber(true);
+                } else if (reservedNextNumber) {
+                    setNextVoucherNumberHint(reservedNextNumber);
+                }
             }
-            // App.tsx handleSaveOrUpdateTransaction already shows a success notification.
         } catch (e: any) {
             console.error("POS Save failure:", e);
             if (e.message?.includes('already exists')) {
@@ -1048,7 +1048,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment, getCustomerInvoiceOutstandingTotal]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment, getCustomerInvoiceOutstandingTotal, onCancel, fetchStats]);
 
     const resetForm = useCallback(() => {
         setCartItems([]);
@@ -1147,8 +1147,7 @@ const POS = forwardRef<any, POSProps>(({
                     return;
                 case 'F8':
                     e.preventDefault();
-                    localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy }));
-                    addNotification('Bill placed on hold.', 'success');
+                    if (transactionToEdit) onPrintBill(transactionToEdit);
                     return;
                 case 'F10':
                     e.preventDefault();
@@ -2693,16 +2692,12 @@ const POS = forwardRef<any, POSProps>(({
                                 </button>
                             </>
                         ) : (
-                            ["SALE", "PURC", "SC", "PC", "COPY BILL", "PASTE", "SR", "PR", "CASH", "HOLD", "SAVE", "PRINT", "RETURN"].map(btn => (
+                            ["SALE", "PURC", "SC", "PC", "COPY BILL", "PASTE", "SR", "PR", "CASH", "SAVE", "PRINT", "RETURN"].map(btn => (
                                 <button
                                     key={btn}
                                     onClick={() => {
                                         if (btn === 'SAVE') handleSave();
                                         if (btn === 'PRINT' && transactionToEdit) onPrintBill(transactionToEdit);
-                                        if (btn === 'HOLD') {
-                                            localStorage.setItem('mdxera-pos-hold', JSON.stringify({ customerSearch, customerPhone, cartItems, billMode, billCategory, invoiceDate, referredBy, narration }));
-                                            addNotification('Bill placed on hold.', 'success');
-                                        }
                                         if (btn === 'RETURN' && onCancel) onCancel();
                                     }}
                                     className="px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap hover:bg-white hover:text-[#255d55] transition-colors"

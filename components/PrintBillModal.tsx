@@ -33,6 +33,19 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   }, [template]);
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isOpen && e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    if (isOpen) {
+      window.addEventListener('keydown', handleKeyDown, true);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [isOpen, onClose]);
+
+  useEffect(() => {
     if (!bill) return;
     console.debug('[Invoice Print Debug]', {
       invoiceId: bill.id,
@@ -161,7 +174,12 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   };
 
   return createPortal(
-    <div id="print-bill-modal-container" className="fixed inset-0 bg-black bg-opacity-60 z-[999] flex justify-center items-center backdrop-blur-sm print:bg-white print:backdrop-blur-none">
+    <div 
+      id="print-bill-modal-container" 
+      className="fixed inset-0 bg-black bg-opacity-60 z-[999] flex justify-center items-center backdrop-blur-sm print:bg-white print:backdrop-blur-none"
+      role="dialog"
+      aria-modal="true"
+    >
       <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl transform transition-all flex flex-col max-h-[95vh] overflow-hidden print:max-h-none print:overflow-visible print:shadow-none print:rounded-none">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border-b no-print bg-white z-10 relative gap-4">
           <div className="flex flex-col gap-2">

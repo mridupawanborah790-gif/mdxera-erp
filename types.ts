@@ -360,7 +360,7 @@ export interface Transaction {
     items: BillItem[];
     total: number;
     itemCount: number | string;
-    status: 'completed' | 'cancelled' | 'draft';
+    status: 'completed' | 'cancelled' | 'draft' | 'hold';
     paymentMode?: string;
     billType?: 'regular' | 'non-gst';
     subtotal: number;
@@ -445,7 +445,7 @@ export interface Purchase {
     totalItemSchemeDiscount: number;
     schemeDiscount: number;
     roundOff: number;
-    status: 'completed' | 'cancelled' | 'draft';
+    status: 'completed' | 'cancelled' | 'draft' | 'hold';
     referenceDocNumber?: string;
     idempotency_key?: string;
     eWayBillNo?: string;
