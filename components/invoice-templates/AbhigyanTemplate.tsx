@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -13,6 +13,8 @@ const ITEMS_PER_PAGE = 10;
 const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const showRateColumn = isRateFieldAvailable(bill.configurations);
+  const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
+  const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
 
   const calculations = useMemo(() => {
     let subTotalTaxable = 0;
@@ -25,7 +27,13 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
       const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-      const lineAmount = billedQty * rate;
+      const grossAmount = billedQty * rate;
+      const tradeDiscountAmount = grossAmount * ((item.discountPercent || 0) / 100);
+      const schemeDiscountAmount = item.schemeDiscountAmount || 0;
+      const flatDiscountAmount = item.itemFlatDiscount || 0;
+      const lineAmount = isIncludingDiscountMode
+        ? Math.max(0, grossAmount - tradeDiscountAmount - schemeDiscountAmount - flatDiscountAmount)
+        : Math.max(0, grossAmount);
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
       const isInclusive = effectivePricingMode === 'mrp';
@@ -71,14 +79,14 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
     const totalTax = isNonGst ? 0 : (bill.totalGst || 0);
-    const subTotal = (bill.subtotal || 0) + totalTax;
+    const subTotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
     const billDiscount = bill.schemeDiscount || 0;
     const roundOff = bill.roundOff || 0;
     const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
 
     return { items, itemChunks, subTotalTaxable: bill.subtotal || 0, gstSummary, subTotal, totalTax, billDiscount, adjustment, roundOff, grandTotal };
-  }, [bill, isNonGst]);
+  }, [bill, isNonGst, isIncludingDiscountMode]);
 
   const totalQty = (bill.items || []).reduce((acc, i) => acc + i.quantity, 0);
 
@@ -135,6 +143,8 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
               <div className="p-1">
                   <p className="text-[7pt] font-bold text-gray-500 uppercase leading-none">Mode of Pay</p>
                   <p className="font-bold text-[8.5pt]">{bill.paymentMode}</p>
+                  <p className="text-[7pt] font-bold text-gray-500 uppercase leading-none mt-1">Calculation Mode</p>
+                  <p className="font-bold text-[8.5pt]">{isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</p>
               </div>
           </div>
       </div>

@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
-import { getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 import { calculateCustomerReceivableBreakdown } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
@@ -24,6 +24,8 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const showTradeDiscountColumn = showItemWiseDisc && (bill.items || []).some(item => (item.discountPercent || 0) > 0);
   const showSchemeColumn = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
   const showRateColumn = isRateFieldAvailable(bill.configurations);
+  const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
+  const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -43,9 +45,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
       const lineManualFlat = item.itemFlatDiscount || 0;
       const schemeDiscount = item.schemeDiscountAmount || 0;
       
-      const lineAmount = Number.isFinite(item.finalAmount)
-        ? (item.finalAmount as number)
-        : (itemGross - tradeDiscount - schemeDiscount - lineManualFlat);
+      const lineAmount = isIncludingDiscountMode
+        ? Math.max(0, itemGross - tradeDiscount - schemeDiscount - lineManualFlat)
+        : Math.max(0, itemGross);
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
       const isInclusive = effectivePricingMode === 'mrp';
@@ -103,7 +105,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     const grandTotal = bill.total || 0;
     const schemeDiscount = (bill.items || []).reduce((sum, item) => sum + Number(item.schemeDiscountAmount || 0), 0);
     return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, adjustment, taxableValue, totalGst, roundOff, grandTotal };
-  }, [bill, isNonGst, showBillDiscount]);
+  }, [bill, isNonGst, showBillDiscount, isIncludingDiscountMode]);
 
   const toUpperDisplay = (value?: string | null) => (value || '').toString().trim().toUpperCase();
   const customerAddressLine1 = toUpperDisplay(bill.customerDetails?.address_line1 || bill.customerDetails?.address);
@@ -257,6 +259,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               <div className="p-0.5 pl-2 flex flex-col justify-center text-[8pt]">
                   <p className="font-bold leading-none">INV: <span className="font-mono font-black text-blue-900">{bill.invoiceNumber || bill.id}</span></p>
                   <p className="font-bold uppercase text-[6.5pt] mt-0.5">DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</p>
+                  <p className="font-bold uppercase text-[6.5pt] mt-0.5">CALC: {isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</p>
               </div>
           </div>
 
@@ -404,9 +407,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                 <div className="flex flex-col bg-gray-50/80">
                   <>
                     <div className="p-2 flex-1 space-y-1 text-[8.5pt] font-bold">
-                        <div className="flex justify-between"><span>SUB TOTAL</span> <span className="font-black">₹ {(bill.subtotal || 0).toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>SUB TOTAL</span> <span className="font-black">₹ {(calculations.subtotalValue || 0).toFixed(2)}</span></div>
                         
-                        {calculations.tradeDiscount > 0 && (
+                        {!isIncludingDiscountMode && calculations.tradeDiscount > 0 && (
                           <div className="flex justify-between text-indigo-700 font-black">
                               <span>Trade Discount (₹)</span>
                               <span>- {calculations.tradeDiscount.toFixed(2)}</span>
