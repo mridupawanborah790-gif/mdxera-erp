@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import type { AppConfigurations, DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
-import { isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
@@ -17,6 +17,8 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
   const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
   const MAX_ITEMS_PER_PAGE = 16;
   const showRateColumn = isRateFieldAvailable(bill.configurations);
+  const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
+  const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
 
   const calculations = useMemo(() => {
     const effectivePricingMode = resolveEffectivePricingMode(bill.pharmacy?.organization_type, bill.pricingMode, bill.configurations);
@@ -30,11 +32,9 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
       const tradeDiscount = gross * ((item.discountPercent || 0) / 100);
       const flatDiscount = item.itemFlatDiscount || 0;
       const schemeDiscount = item.schemeDiscountAmount || 0;
-      const lineAmount = Number.isFinite(item.finalAmount)
-        ? (item.finalAmount as number)
-        : Number.isFinite(item.amount)
-          ? (item.amount as number)
-          : Math.max(0, gross - tradeDiscount - flatDiscount - schemeDiscount);
+      const lineAmount = isIncludingDiscountMode
+        ? Math.max(0, gross - tradeDiscount - flatDiscount - schemeDiscount)
+        : Math.max(0, gross);
 
       const gstPercent = isNonGst ? 0 : (item.gstPercent || 0);
       const isInclusive = effectivePricingMode === 'mrp';
@@ -60,10 +60,11 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
     });
 
     return { items };
-  }, [bill.items, bill.inventory, isNonGst, bill.pricingMode, bill.pharmacy?.organization_type, bill.configurations]);
+  }, [bill.items, bill.inventory, isNonGst, bill.pricingMode, bill.pharmacy?.organization_type, bill.configurations, isIncludingDiscountMode]);
 
   const totals = {
-    subTotal: bill.subtotal || 0,
+    subTotal: calculations.items.reduce((sum, item) => sum + item.lineAmount, 0),
+    tradeDiscount: bill.totalItemDiscount || 0,
     discount: bill.schemeDiscount || 0,
     adjustment: bill.adjustment || 0,
     taxTotal: isNonGst ? 0 : (bill.totalGst || 0),
@@ -297,6 +298,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                   <div className="invoice-meta">
                     <div><strong>Invoice No:</strong> {bill.invoiceNumber || bill.id}</div>
                     <div><strong>Invoice Date:</strong> {new Date(bill.date).toLocaleDateString('en-GB')}</div>
+                    <div><strong>Calculation Mode:</strong> {isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</div>
                     <div><strong>Terms:</strong> Cash</div>
                     <div><strong>Page:</strong> {pageIndex + 1} / {paginatedItems.length}</div>
                   </div>
@@ -388,6 +390,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                     </div>
                     <div className="medi-three-summary-right">
                       <div className="row"><span>Sub Total</span><strong>{totals.subTotal.toFixed(2)}</strong></div>
+                      {!isIncludingDiscountMode && totals.tradeDiscount > 0 && <div className="row"><span>Trade Discount</span><strong>-{totals.tradeDiscount.toFixed(2)}</strong></div>}
                       {totals.discount > 0 && <div className="row"><span>Discount</span><strong>-{totals.discount.toFixed(2)}</strong></div>}
                       <div className="row"><span>Tax Total</span><strong>{totals.taxTotal.toFixed(2)}</strong></div>
                       <div className="row grand"><span>Grand Total</span><span>{totals.grandTotal.toFixed(2)}</span></div>

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatExpiryToMMYY } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -12,6 +12,8 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const isCredit = bill.paymentMode === 'Credit';
   const showRateColumn = isRateFieldAvailable(bill.configurations);
+  const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
+  const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
   const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
   const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
   const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
@@ -32,7 +34,9 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
       const tradeDiscountAmount = grossAmount * ((item.discountPercent || 0) / 100);
       const schemeDiscountAmount = item.schemeDiscountAmount || 0;
       const itemTotalDiscount = tradeDiscountAmount + schemeDiscountAmount;
-      const finalPrice = grossAmount - itemTotalDiscount;
+      const finalPrice = isIncludingDiscountMode
+        ? Math.max(0, grossAmount - itemTotalDiscount)
+        : Math.max(0, grossAmount);
       
       const effectiveGstPercent = isNonGst ? 0 : (item.gstPercent || 0);
       const isInclusive = effectivePricingMode === 'mrp';
@@ -75,8 +79,8 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
     const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
 
-    return { items, subtotal: bill.subtotal || 0, totalGst: (isNonGst ? 0 : (bill.totalGst || 0)), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal };
-  }, [bill, isNonGst]);
+    return { items, subtotal, totalGst: (isNonGst ? 0 : (bill.totalGst || 0)), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal };
+  }, [bill, isNonGst, isIncludingDiscountMode]);
 
   return (
     <div className="w-[76mm] max-w-[76mm] text-black font-mono text-[10px] leading-tight px-1 py-1">
@@ -94,6 +98,7 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
         <span className="truncate">Bill: {bill.invoiceNumber || bill.id}</span>
         <span>{new Date(bill.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
       </div>
+      <div className="text-[9px] mb-1">Calc Mode: {isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</div>
 
       {bill.customerName && bill.customerName.toLowerCase() !== 'cash' && (
         <div className="text-[9px] border-b border-dashed border-black pb-0.5 mb-1">

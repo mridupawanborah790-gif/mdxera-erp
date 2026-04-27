@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
-import { resolveEffectivePricingMode } from '../../utils/billing';
+import { resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -19,6 +19,8 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
   const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
   const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
   const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
+  const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
+  const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -32,7 +34,13 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
       const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-      const lineAmount = billedQty * rate;
+      const grossAmount = billedQty * rate;
+      const tradeDiscountAmount = grossAmount * ((item.discountPercent || 0) / 100);
+      const schemeDiscountAmount = item.schemeDiscountAmount || 0;
+      const flatDiscountAmount = item.itemFlatDiscount || 0;
+      const lineAmount = isIncludingDiscountMode
+        ? Math.max(0, grossAmount - tradeDiscountAmount - schemeDiscountAmount - flatDiscountAmount)
+        : Math.max(0, grossAmount);
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
       const isInclusive = effectivePricingMode === 'mrp';
@@ -74,8 +82,8 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
     const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
 
-    return { items, itemChunks, subtotalValue: (bill.subtotal || 0), totalGst: (isNonGst ? 0 : (bill.totalGst || 0)), billDiscount, adjustment, roundOff, grandTotal };
-  }, [bill, isNonGst]);
+    return { items, itemChunks, subtotalValue, totalGst: (isNonGst ? 0 : (bill.totalGst || 0)), billDiscount, adjustment, roundOff, grandTotal };
+  }, [bill, isNonGst, isIncludingDiscountMode]);
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased border border-gray-200" style={{ fontSize: '8.25pt', fontWeight: 400 }}>
@@ -141,6 +149,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
                 <div className="mt-2 text-[8pt] font-bold">
                     <p>INV NO: <span className="font-mono text-blue-900">{bill.invoiceNumber || bill.id}</span></p>
                     <p>DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</p>
+                    <p>CALC: {isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</p>
                 </div>
             </div>
           </div>
