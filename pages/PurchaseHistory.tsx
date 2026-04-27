@@ -89,7 +89,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [distributorFilter, setDistributorFilter] = useState('all');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('completed');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled' | 'hold'>('all');
     const [currentPage, setCurrentPage] = useState(1);
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [purchaseToCancel, setPurchaseToCancel] = useState<string | null>(null);
@@ -111,7 +111,7 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
             filtered = filtered.filter(p => new Date(p.date) <= end);
         }
         if (distributorFilter !== 'all') filtered = filtered.filter(p => p.supplier === distributorFilter);
-        if (statusFilter !== 'all') filtered = filtered.filter(p => p.status === statusFilter);
+        if (statusFilter !== 'all') filtered = filtered.filter(p => (p.status as string) === statusFilter);
 
         if (searchTerm) {
             const lowercasedFilter = searchTerm.toLowerCase();
@@ -195,7 +195,10 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
         const purchase = requireSelectedPurchase();
         if (!purchase) return;
 
-        if (purchase.status !== 'completed' || !onEditPurchase) {
+        // Allow editing for both completed and hold status
+        const isEditable = purchase.status === 'completed' || purchase.status === 'hold' || purchase.status === 'draft';
+
+        if (!isEditable || !onEditPurchase) {
             setActionWarning('Selected bill cannot be modified.');
             return;
         }
@@ -591,8 +594,16 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                                         </td>
                                         <td className={`p-2 border-r border-gray-200 text-right font-black ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white'}`}>₹{(p.totalAmount || 0).toFixed(2)}</td>
                                         <td className={`p-2 border-r border-gray-200 text-center ${selectedPurchaseId === p.id ? 'text-white' : 'group-hover:text-white'}`}>
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${selectedPurchaseId === p.id ? 'bg-white/20 text-white border-white/30' : (p.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200')}`}>
-                                                {p.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                                                selectedPurchaseId === p.id 
+                                                ? 'bg-white/20 text-white border-white/30' 
+                                                : (p.status === 'cancelled' 
+                                                    ? 'bg-red-100 text-red-700 border-red-200' 
+                                                    : p.status === 'hold' || p.status === 'draft'
+                                                    ? 'bg-amber-100 text-amber-700 border-amber-200'
+                                                    : 'bg-emerald-100 text-emerald-700 border-emerald-200')
+                                            }`}>
+                                                {p.status === 'cancelled' ? 'Cancelled' : (p.status === 'hold' ? 'On Hold' : (p.status === 'draft' ? 'Draft' : 'Completed'))}
                                             </span>
                                         </td>
                                     </tr>

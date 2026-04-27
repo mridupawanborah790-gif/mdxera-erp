@@ -68,7 +68,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
     const [endDate, setEndDate] = useState('');
     const [rmpFilter, setRmpFilter] = useState('all');
     const [paymentModeFilter, setPaymentModeFilter] = useState('all');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('completed');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
     const [sortConfig, setSortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' }>({ key: 'date', direction: 'descending' });
     const [currentPage, setCurrentPage] = useState(1);
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
@@ -92,7 +92,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
         }
         if (rmpFilter !== 'all') filtered = filtered.filter(t => t.referredBy === rmpFilter);
         if (paymentModeFilter !== 'all') filtered = filtered.filter(t => (t.paymentMode || 'Cash') === paymentModeFilter);
-        if (statusFilter !== 'all') filtered = filtered.filter(t => t.status === statusFilter);
+        if (statusFilter !== 'all') filtered = filtered.filter(t => (t.status || 'completed') === statusFilter);
         
         if (searchTerm) {
             const lowercasedFilter = searchTerm.toLowerCase();
@@ -114,7 +114,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
 
             return String(b.invoiceNumber || b.id || '').localeCompare(String(a.invoiceNumber || a.id || ''));
         });
-    }, [transactions, searchTerm, startDate, endDate, rmpFilter, paymentModeFilter, statusFilter, sortConfig]);
+    }, [transactions, searchTerm, startDate, endDate, rmpFilter, paymentModeFilter, statusFilter]);
 
     const totalPages = Math.ceil(filteredAndSortedTransactions.length / ITEMS_PER_PAGE);
 
@@ -181,7 +181,8 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
         const tx = requireSelectedTransaction();
         if (!tx) return;
 
-        if (tx.status !== 'completed') {
+        const canEdit = tx.status === 'completed' || tx.status === 'hold' || tx.status === 'draft';
+        if (!canEdit) {
             setActionWarning('Selected invoice cannot be modified.');
             return;
         }
@@ -259,7 +260,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
             tx.customerName,
             String((tx.items || []).length),
             (tx.total || 0).toFixed(2),
-            tx.status,
+            tx.status || 'completed',
         ];
 
         const csvContent = [arrayToCsvRow(headers), arrayToCsvRow(row)].join('\n');
@@ -435,12 +436,12 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                             <label className="text-[11px] font-semibold text-gray-600">Status:</label>
                             <select
                                 value={statusFilter}
-                                onChange={e => setStatusFilter(e.target.value as 'all' | 'completed' | 'cancelled')}
+                                onChange={e => setStatusFilter(e.target.value as any)}
                                 className="h-8 w-[165px] border border-gray-400 px-2 text-[12px] font-semibold outline-none bg-white"
                             >
                                 <option value="all">All Orders</option>
-                                <option value="cancelled">Cancelled Orders</option>
                                 <option value="completed">Completed Orders</option>
+                                <option value="cancelled">Cancelled Orders</option>
                             </select>
                         </div>
 
@@ -496,11 +497,13 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
-                                {paginatedTransactions.map((tx, idx) => (
+                                {paginatedTransactions.map((tx, idx) => {
+                                    const status = tx.status || 'completed';
+                                    return (
                                     <tr
                                         key={tx.id}
                                         onClick={() => handleSelectRow(tx.id)}
-                                        className={`cursor-pointer transition-colors group ${selectedTransactionId === tx.id ? 'bg-primary text-white shadow-md' : 'hover:bg-primary hover:text-white'} ${tx.status === 'cancelled' ? (selectedTransactionId === tx.id ? 'line-through text-white/50 bg-primary' : 'line-through text-red-500 bg-red-50/50') : ''}`}
+                                        className={`cursor-pointer transition-colors group ${selectedTransactionId === tx.id ? 'bg-primary text-white shadow-md' : 'hover:bg-primary hover:text-white'} ${status === 'cancelled' ? (selectedTransactionId === tx.id ? 'line-through text-white/50 bg-primary' : 'line-through text-red-500 bg-red-50/50') : ''}`}
                                     >
                                         <td className={`p-2 border-r border-gray-200 font-bold text-center ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white text-gray-400'}`}>{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
                                         <td className={`p-2 border-r border-gray-200 font-mono font-bold ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white text-primary'}`}>{tx.invoiceNumber || tx.id}</td>
@@ -530,8 +533,14 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                                         <td className={`p-2 border-r border-gray-400 text-right font-black ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>₹{(tx.total || 0).toFixed(2)}</td>
                                         <td className={`p-2 border-r border-gray-200 text-center ${selectedTransactionId === tx.id ? 'text-white' : 'group-hover:text-white'}`}>
                                             <div className="flex flex-col gap-1 items-center">
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${selectedTransactionId === tx.id ? 'bg-white/20 text-white border-white/30' : (tx.status === 'cancelled' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200')}`}>
-                                                    {tx.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                                                    selectedTransactionId === tx.id 
+                                                    ? 'bg-white/20 text-white border-white/30' 
+                                                    : (status === 'cancelled' 
+                                                        ? 'bg-red-100 text-red-700 border-red-200' 
+                                                        : 'bg-emerald-100 text-emerald-700 border-emerald-200')
+                                                }`}>
+                                                    {status === 'cancelled' ? 'Cancelled' : 'Completed'}
                                                 </span>
                                                 {tx.sync_status === 'pending' && (
                                                     <span className={`text-[8px] font-black px-1 border uppercase animate-pulse ${selectedTransactionId === tx.id ? 'text-white border-white/40 bg-white/10' : 'text-amber-600 bg-amber-50 border-amber-200'}`}>
@@ -541,7 +550,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                                             </div>
                                         </td>
                                     </tr>
-                                ))}
+                                )})}
                             </tbody>
                         </table>
                     </div>

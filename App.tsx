@@ -1001,45 +1001,49 @@ const App: React.FC = () => {
                 }
             }
 
-            const openChallanExposure = getCustomerOpenChallanExposure(salesChallans, selectedCustomer?.id);
-            const creditCheck = evaluateCustomerCredit({
-                customer: selectedCustomer || null,
-                currentTransactionAmount: Number(tx.total || 0),
-                openChallanExposure,
-                moduleName: 'POS'
-            });
+            // Only perform credit and stock checks for COMPLETED bills.
+            // Draft/Hold bills should be allowed to save even with issues.
+            if (tx.status === 'completed') {
+                const openChallanExposure = getCustomerOpenChallanExposure(salesChallans, selectedCustomer?.id);
+                const creditCheck = evaluateCustomerCredit({
+                    customer: selectedCustomer || null,
+                    currentTransactionAmount: Number(tx.total || 0),
+                    openChallanExposure,
+                    moduleName: 'POS'
+                });
 
-            if (creditCheck && !creditCheck.canProceed) {
-                const detail = `Credit limit ₹${creditCheck.details.creditLimit.toFixed(2)}, projected exposure ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
-                if (creditCheck.mode === 'warning_only') {
-                    addNotification(`${creditCheck.message} ${detail} (Saved due to warning-only mode).`, 'warning');
-                } else {
-                    throw new Error(`${creditCheck.message} ${detail}`);
-                }
-            }
-
-            const stockHandling = resolveStockHandlingConfig(configurations);
-            const shouldPreventNegativeStock = stockHandling.mode === 'strict';
-
-            if (shouldPreventNegativeStock) {
-                const requiredUnitsByInventoryId = new Map<string, number>();
-                for (const item of tx.items || []) {
-                    if (!item.inventoryItemId) continue;
-                    const requiredUnits = ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0);
-                    requiredUnitsByInventoryId.set(
-                        item.inventoryItemId,
-                        (requiredUnitsByInventoryId.get(item.inventoryItemId) || 0) + requiredUnits
-                    );
+                if (creditCheck && !creditCheck.canProceed) {
+                    const detail = `Credit limit ₹${creditCheck.details.creditLimit.toFixed(2)}, projected exposure ₹${creditCheck.details.projectedExposure.toFixed(2)}`;
+                    if (creditCheck.mode === 'warning_only') {
+                        addNotification(`${creditCheck.message} ${detail} (Saved due to warning-only mode).`, 'warning');
+                    } else {
+                        throw new Error(`${creditCheck.message} ${detail}`);
+                    }
                 }
 
-                for (const [inventoryItemId, requiredUnits] of requiredUnitsByInventoryId.entries()) {
-                    const invItem = inventory.find(i => i.id === inventoryItemId);
-                    if (!invItem) continue;
-                    const policy = getInventoryPolicy(invItem, medicines);
-                    if (!policy.inventorised) continue;
-                    if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
-                        logStockMovement({ transactionType: 'sales-outward-validation', item: invItem.name, batch: invItem.batch || 'UNSET', qty: requiredUnits, stockBefore: Number(invItem.stock || 0), stockAfter: Number(invItem.stock || 0), validationResult: 'blocked', mode: stockHandling.mode });
-                        throw new Error('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
+                const stockHandling = resolveStockHandlingConfig(configurations);
+                const shouldPreventNegativeStock = stockHandling.mode === 'strict';
+
+                if (shouldPreventNegativeStock) {
+                    const requiredUnitsByInventoryId = new Map<string, number>();
+                    for (const item of tx.items || []) {
+                        if (!item.inventoryItemId) continue;
+                        const requiredUnits = ((item.quantity || 0) * (item.unitsPerPack || 1)) + (item.looseQuantity || 0);
+                        requiredUnitsByInventoryId.set(
+                            item.inventoryItemId,
+                            (requiredUnitsByInventoryId.get(item.inventoryItemId) || 0) + requiredUnits
+                        );
+                    }
+
+                    for (const [inventoryItemId, requiredUnits] of requiredUnitsByInventoryId.entries()) {
+                        const invItem = inventory.find(i => i.id === inventoryItemId);
+                        if (!invItem) continue;
+                        const policy = getInventoryPolicy(invItem, medicines);
+                        if (!policy.inventorised) continue;
+                        if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
+                            logStockMovement({ transactionType: 'sales-outward-validation', item: invItem.name, batch: invItem.batch || 'UNSET', qty: requiredUnits, stockBefore: Number(invItem.stock || 0), stockAfter: Number(invItem.stock || 0), validationResult: 'blocked', mode: stockHandling.mode });
+                            throw new Error('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
+                        }
                     }
                 }
             }
@@ -1115,11 +1119,20 @@ const App: React.FC = () => {
             }
 
             const savedPurchase = await storage.updatePurchase(p, currentUser);
-            // Immediate local state update
-            setPurchases(prev => prev.map(pur => pur.id === savedPurchase.id ? savedPurchase : pur));
+            console.log('App: Purchase updated successfully, new status:', savedPurchase.status);
+            
+            // Immediate local state update with the fresh record from storage
+            setPurchases(prev => {
+                const index = prev.findIndex(pur => pur.id === savedPurchase.id);
+                if (index === -1) return [savedPurchase, ...prev];
+                const next = [...prev];
+                next[index] = savedPurchase;
+                return next;
+            });
 
-            await refreshInventoryViews(currentUser, ['purchases']);
-            loadData(currentUser, 'background');
+            // Only refresh inventory, we already updated purchases locally and want to avoid race conditions
+            await refreshInventoryViews(currentUser, []); 
+            
             addNotification("Purchase voucher updated.", "success");
             return savedPurchase;
         } catch (e) {
@@ -2128,9 +2141,8 @@ const App: React.FC = () => {
                         teamMembers={teamMembers}
                         defaultCustomerControlGlId={defaultCustomerControlGlId}
                         onCancel={() => {
-                            const wasEditing = !!editingSale;
                             setEditingSale(null);
-                            handleNavigate(wasEditing ? 'salesHistory' : 'dashboard');
+                            handleNavigate('salesHistory', true);
                         }}
                         transactionToEdit={editingSale}
                         onRefreshConfig={() => loadData(currentUser!, 'background')}

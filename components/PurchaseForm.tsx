@@ -879,7 +879,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         });
     }, [supplier, invoiceNumber, purchaseToEdit, purchases, organizationId]);
 
-    const handleSubmit = useCallback(async () => {
+    const handleSubmit = useCallback(async (forcedStatus?: 'completed' | 'hold' | 'draft') => {
         if (isSubmittingRef.current) return null;
         isSubmittingRef.current = true;
         setIsSubmitting(true);
@@ -928,7 +928,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             return null;
         }
         try {
-            console.log('PurchaseForm: Starting submission...', { supplier, invoiceNumber, itemCount: activeItems.length });
+            console.log('PurchaseForm: Starting submission...', { supplier, invoiceNumber, itemCount: activeItems.length, status: forcedStatus || 'completed' });
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;
 
             if (!purchaseToEdit && currentUser) {
@@ -954,7 +954,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 totalAmount: calculatedTotals.totalAmount,
                 totalItemDiscount: calculatedTotals.totalItemDiscount,
                 totalItemSchemeDiscount: calculatedTotals.totalItemSchemeDiscount,
-                status: 'completed' as const,
+                status: forcedStatus || 'completed',
                 organization_id: organizationId,
                 roundOff: calculatedTotals.roundOff,
                 schemeDiscount: 0,
@@ -983,13 +983,13 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
         }
     }, [supplier, invoiceNumber, hasDuplicateSupplierInvoice, items, calculatedTotals, purchaseToEdit, currentUser, date, organizationId, onUpdatePurchase, supplierGst, onAddPurchase, onClearDraft, addNotification]);
 
-    const triggerSaveAction = useCallback(async () => {
-        const saved = await handleSubmit();
-        if (saved && onCancel && !purchaseToEdit) {
+    const triggerSaveAction = useCallback(async (forcedStatus?: 'completed' | 'hold' | 'draft') => {
+        const saved = await handleSubmit(forcedStatus);
+        if (saved && onCancel) {
             onCancel();
         }
         return saved;
-    }, [handleSubmit, onCancel, purchaseToEdit]);
+    }, [handleSubmit, onCancel]);
 
     const handleDiscard = useCallback(() => {
         resetFormForNewEntry();
@@ -1141,9 +1141,21 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const handleGlobalKeyDown = useCallback((e: KeyboardEvent) => {
         if (isSearchModalOpen || isWebcamModalOpen || isAddSupplierModalOpen || isAddMedicineMasterModalOpen || isLinkModalOpen || isRateTierModalOpen || isSupplierSearchModalOpen) return;
 
+        if (e.key === 'F8') {
+            e.preventDefault();
+            triggerSaveAction('hold');
+            return;
+        }
+
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
             e.preventDefault();
             triggerSaveAction();
+            return;
+        }
+
+        if (e.altKey && e.key.toLowerCase() === 'h') {
+            e.preventDefault();
+            triggerSaveAction('hold');
             return;
         }
 
@@ -2577,6 +2589,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                 console.log('PurchaseForm: Save clicked');
                                                 await triggerSaveAction();
                                             }
+                                            if (btn === 'HOLD') {
+                                                console.log('PurchaseForm: Hold clicked');
+                                                await triggerSaveAction('hold');
+                                            }
                                             if (btn === 'PRINT') {
                                                 console.log('PurchaseForm: Print clicked');
                                                 const activeItems = items.filter(p => (p.name || '').trim() !== '');
@@ -2591,10 +2607,14 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                             }
                                             if (btn === 'RETURN') handleDiscard();
                                         }}
-                                        disabled={isSubmitting && (btn === 'SAVE' || btn === 'PRINT')}
-                                        className={`px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap transition-colors ${btn === 'PURC' ? 'bg-white text-[#255d55]' : ''} ${isSubmitting && (btn === 'SAVE' || btn === 'PRINT') ? 'opacity-60 cursor-not-allowed' : 'hover:bg-white hover:text-[#255d55]'}`}
+                                        disabled={isSubmitting && (btn === 'SAVE' || btn === 'PRINT' || btn === 'HOLD')}
+                                        className={`px-3 py-0.5 border border-white/40 text-[10px] font-black uppercase whitespace-nowrap transition-colors 
+                                            ${btn === 'PURC' ? 'bg-white text-[#255d55]' : ''} 
+                                            ${btn === 'HOLD' ? 'bg-amber-600 text-white border-amber-400' : ''}
+                                            ${btn === 'SAVE' ? 'bg-emerald-700 text-white border-emerald-500' : ''}
+                                            ${isSubmitting && (btn === 'SAVE' || btn === 'PRINT' || btn === 'HOLD') ? 'opacity-60 cursor-not-allowed' : 'hover:bg-white hover:text-[#255d55]'}`}
                                     >
-                                        {btn}
+                                        {btn === 'HOLD' ? 'HOLD (F8/Alt+H)' : (btn === 'SAVE' ? 'SAVE (Ctrl+S)' : btn)}
                                     </button>
                                 ))
                             )}

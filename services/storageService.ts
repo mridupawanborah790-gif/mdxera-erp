@@ -21,12 +21,34 @@ import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHand
     const memoryCache: Record<string, any[]> = {};
     const memoryCacheOrgScope: Record<string, string> = {};
 
-    const clearTableMemoryCache = (tableName: keyof typeof STORES) => {
-        if (memoryCache[tableName]) {
-            delete memoryCache[tableName];
+    const updateMemoryCacheBulk = (tableName: string, dataArray: any[], organizationId: string) => {
+        const storeKey = tableName.toUpperCase();
+        if (memoryCacheOrgScope[storeKey] !== organizationId) {
+            memoryCache[storeKey] = [...dataArray];
+            memoryCacheOrgScope[storeKey] = organizationId;
+            return;
         }
-        if (memoryCacheOrgScope[tableName]) {
-            delete memoryCacheOrgScope[tableName];
+
+        if (!memoryCache[storeKey]) {
+            memoryCache[storeKey] = [...dataArray];
+            return;
+        }
+
+        const cache = memoryCache[storeKey];
+        for (const item of dataArray) {
+            const idx = cache.findIndex(c => c.id === item.id);
+            if (idx >= 0) cache[idx] = item;
+            else cache.push(item);
+        }
+    };
+
+    const clearTableMemoryCache = (tableName: keyof typeof STORES) => {
+        const storeKey = tableName.toUpperCase() as keyof typeof STORES;
+        if (memoryCache[storeKey]) {
+            delete memoryCache[storeKey];
+        }
+        if (memoryCacheOrgScope[storeKey]) {
+            delete memoryCacheOrgScope[storeKey];
         }
     };
 
@@ -711,11 +733,16 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     syncedData = { ...dbPayload, sync_status: 'synced' };
                 }
                 
-                const storeKey = tableName.toUpperCase() as keyof typeof STORES;
-                await idb.put(STORES[storeKey], syncedData);
+                const currentStoreKey = tableName.toUpperCase() as keyof typeof STORES;
+                await idb.put(STORES[currentStoreKey], syncedData);
                 
-                // CRITICAL FIX: Clear memory cache for this table to force the next getData/fetch to read from IDB (fresh data)
-                clearTableMemoryCache(storeKey);
+                // Instead of clearing the cache (which causes data loss in loops when IDB is disabled),
+                // we ensure the memory cache is updated with the latest synced data.
+                if (memoryCache[storeKey]) {
+                    const idx = memoryCache[storeKey].findIndex(item => item.id === syncedData.id);
+                    if (idx >= 0) memoryCache[storeKey][idx] = syncedData;
+                    else memoryCache[storeKey].push(syncedData);
+                }
 
                 return syncedData;
             } catch (e: any) {
@@ -1099,21 +1126,38 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     export const addTransaction = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
         if (!tx.user_id) tx.user_id = user.user_id;
 
+        const oldTx = isUpdate ? await idb.get(STORES.SALES_BILL, tx.id) as Transaction | undefined : undefined;
+        const oldStatus = oldTx?.status || 'completed';
+        const newStatus = tx.status || 'completed';
+
+        // Draft/Hold logic:
+        // 1. If it stays draft/hold -> just save and return
+        if (newStatus === 'hold' || newStatus === 'draft') {
+            // Even if it was completed before, if we move it to hold (reversal), 
+            // we should probably allow it, but for now we focus on the basic case.
+            if (oldStatus !== 'completed') {
+                return await saveData('sales_bill', tx, user, isUpdate);
+            }
+        }
+
+        // Posting Context and Accounting validation - only for COMPLETED bills
         try {
             const postingContext = await ensurePostingContext(tx, user);
             tx.companyCodeId = postingContext.companyCodeId;
             tx.setOfBooksId = postingContext.setOfBooksId;
             
-            // CRITICAL: Validate GL mappings BEFORE saving anything to database
-            // This prevents the "bill saved but accounting failed" error loop.
             await validateGLMappings(user.organization_id, tx.setOfBooksId, 'sales');
         } catch (e: any) {
-            throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+            // Only block if we are actually trying to post a completed bill
+            if (newStatus === 'completed') {
+                throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+            }
+            console.warn('[storage:addTransaction] Accounting validation failed for non-completed bill:', e.message);
         }
 
         // Handle stock reversal for updates BEFORE saving new data to IDB
-        if (isUpdate) {
-            const oldTx = await idb.get(STORES.SALES_BILL, tx.id) as Transaction | undefined;
+        // Only reverse if the OLD status was completed (actually deducted stock)
+        if (isUpdate && oldStatus === 'completed') {
             if (oldTx && oldTx.items) {
                 const currentInventory = await fetchInventory(user);
                 const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
@@ -1147,19 +1191,24 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     if (updatedInventory.length > 0) {
                         await idb.putBulk(STORES.INVENTORY, updatedInventory);
                         clearTableMemoryCache('INVENTORY');
-                        // We don't sync to supabase yet; the deduction logic below will handle it in one batch.
                     }
                 }
             }
         }
 
+        const res = await saveData('sales_bill', tx, user, isUpdate);
+
+        // If it's a draft/hold (and not a transition to completed which was handled above or will be below), skip impacts
+        if (newStatus === 'draft' || newStatus === 'hold') {
+            return res;
+        }
+
+        // Now process stock deduction (for new completed or transition hold -> completed or update completed)
         const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
         const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
         const allowNegativeStock = stockHandling.allowNegativeStock;
 
-        const res = await saveData('sales_bill', tx, user, isUpdate);
-
-        // Batch inventory updates to avoid one network/database roundtrip per line item.
+        // Batch inventory updates
         const currentInventory = await fetchInventory(user);
         const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
         const inventoryByKey = new Map(currentInventory.map((inv) => [normalizeInventoryKey(inv.name, inv.batch), inv]));
@@ -1215,9 +1264,6 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         } catch (e) {
             if (isNetworkError(e)) {
                 console.warn('Sales ledger sync deferred due to network connectivity.', e);
-                // If the transaction itself wasn't already pending, we should mark it as pending
-                // if the ledger sync failed, but since saveData already handled that if it was a network error,
-                // we are mostly covered. 
             } else {
                 throw e;
             }
@@ -1340,19 +1386,28 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     };
 
     export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
+        // Posting Context and Accounting validation - only for COMPLETED bills
         try {
             const postingContext = await ensurePostingContext(p, user);
             p.companyCodeId = postingContext.companyCodeId;
             p.setOfBooksId = postingContext.setOfBooksId;
 
-            // CRITICAL: Validate GL mappings BEFORE saving anything to database
             await validateGLMappings(user.organization_id, p.setOfBooksId, 'purchase');
         } catch (e: any) {
-            throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+            // Only block if we are actually trying to post a completed bill
+            if (p.status === 'completed') {
+                throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+            }
+            console.warn('[storage:addPurchase] Accounting validation failed for non-completed bill:', e.message);
         }
 
         await assertNoDuplicateActivePurchaseInvoice(p, user);
         const res = await saveData('purchases', p, user);
+
+        // If it's a draft/hold, we do not update inventory or ledger
+        if (p.status === 'draft' || p.status === 'hold') {
+            return res;
+        }
 
         // Use a Map to accumulate stock changes for this purchase
         // Key is inventoryItemId or "name|batch" if not linked
@@ -1404,7 +1459,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     existingInv.expiry = normalizeImportDate(change.item.expiry) || existingInv.expiry;
                 }
                 applyTierRates(existingInv, change.item);
-                await saveData('inventory', existingInv, user);
+                await saveData('inventory', existingInv, user, true);
             } else {
                 const uPP = change.item.unitsPerPack || 1;
                 const newInv: Omit<InventoryItem, 'id'> = {
@@ -1439,18 +1494,95 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
     export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
         await assertNoDuplicateActivePurchaseInvoice(p, user);
-        const original = await idb.get(STORES.PURCHASES, p.id) as Purchase;
-        const res = await saveData('purchases', p, user, true);
-        if (!original) return res;
+        let original = await idb.get(STORES.PURCHASES, p.id) as Purchase;
+        
+        // Robustness: If missing in local IDB (e.g. after clear), try fetching from remote
+        // so that status transition logic (draft/hold -> completed) works correctly.
+        if (!original && navigator.onLine) {
+            try {
+                const { data } = await supabase.from('purchases').select('*').eq('id', p.id).maybeSingle();
+                if (data) original = fromSupabase('purchases', data);
+            } catch (err) {
+                console.warn('[storage:updatePurchase] Failed to fetch original from remote:', err);
+            }
+        }
 
-        // To properly adjust stock, we calculate the diff between original and new
-        // We reverse the original stock added, then add the new stock
-        const currentInventory = await fetchInventory(user);
+        const res = await saveData('purchases', p, user, true);
+        if (!original) {
+            console.warn('[storage:updatePurchase] Original record not found, skipping stock adjustment logic.');
+            return res;
+        }
+
+        // Draft/Hold logic:
+        // 1. If it stays draft/hold -> just return
+        if ((p.status === 'draft' || (p.status as string) === 'hold') && (original.status === 'draft' || (original.status as string) === 'hold')) {
+            return { ...p, ...res };
+        }
+
         const applyTierRates = (inv: InventoryItem, src: PurchaseItem) => {
             if (src.rateA !== undefined) inv.rateA = Number(src.rateA || 0);
             if (src.rateB !== undefined) inv.rateB = Number(src.rateB || 0);
             if (src.rateC !== undefined) inv.rateC = Number(src.rateC || 0);
         };
+
+        // 2. If it goes from draft/hold -> completed -> Treat it like addPurchase (full stock add)
+        // But we don't call addPurchase because it would call saveData again.
+        if (p.status === 'completed' && (original.status === 'draft' || (original.status as string) === 'hold')) {
+            console.info(`[storage:updatePurchase] Finalizing ${original.status} bill ${p.id} -> Completed. Triggering full stock inward.`);
+            const stockChanges = new Map<string, { units: number, freeUnits: number, item: PurchaseItem }>();
+            for (const item of p.items) {
+                if (!item.name) continue;
+                const key = item.inventoryItemId || `${(item.name || '').toLowerCase().trim()}|${(item.batch || 'UNSET').toLowerCase().trim()}`;
+                const existing = stockChanges.get(key) || { units: 0, freeUnits: 0, item };
+                const uPP = item.unitsPerPack || 1;
+                const freeUnits = Number(item.freeQuantity || 0) * uPP;
+                const units = (Number(item.quantity) * uPP) + Number(item.looseQuantity || 0) + freeUnits;
+                stockChanges.set(key, { units: existing.units + units, freeUnits: (existing.freeUnits || 0) + freeUnits, item });
+            }
+
+            const currentInventory = await fetchInventory(user);
+            for (const [key, change] of stockChanges.entries()) {
+                let existingInv: InventoryItem | undefined;
+                if (change.item.inventoryItemId) existingInv = currentInventory.find(i => i.id === change.item.inventoryItemId);
+                if (!existingInv) {
+                    const nameClean = (change.item.name || '').toLowerCase().trim();
+                    const batchClean = (change.item.batch || 'UNSET').toLowerCase().trim();
+                    existingInv = currentInventory.find(i => (i.name || '').toLowerCase().trim() === nameClean && (i.batch || 'UNSET').toLowerCase().trim() === batchClean);
+                }
+
+                if (existingInv) {
+                    const stockBefore = Number(existingInv.stock || 0);
+                    existingInv.stock = stockBefore + change.units;
+                    existingInv.purchaseFree = Number(existingInv.purchaseFree || 0) + change.freeUnits;
+                    logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: existingInv.name, batch: existingInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore, stockAfter: existingInv.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
+                    if (change.item.expiry) existingInv.expiry = normalizeImportDate(change.item.expiry) || existingInv.expiry;
+                    applyTierRates(existingInv, change.item);
+                    await saveData('inventory', existingInv, user, true);
+                } else {
+                    const uPP = change.item.unitsPerPack || 1;
+                    const newInv: Omit<InventoryItem, 'id'> = {
+                        organization_id: user.organization_id,
+                        name: change.item.name, brand: change.item.brand || '', category: change.item.category || 'General', manufacturer: change.item.manufacturer || '',
+                        stock: change.units, purchaseFree: change.freeUnits, unitsPerPack: uPP, batch: change.item.batch || 'UNSET',
+                        expiry: normalizeImportDate(change.item.expiry) || '', purchasePrice: change.item.purchasePrice, mrp: change.item.mrp,
+                        gstPercent: change.item.gstPercent || 0, hsnCode: change.item.hsnCode || '', code: change.item.materialCode || '',
+                        rateA: change.item.rateA, rateB: change.item.rateB, rateC: change.item.rateC, minStockLimit: 10, is_active: true
+                    };
+                    logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: newInv.name, batch: newInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore: 0, stockAfter: change.units, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
+                    await saveData('inventory', newInv, user);
+                }
+            }
+            await syncPurchaseLedger(p, user);
+            return { ...p, ...res };
+        }
+
+        // 3. If it stays completed -> Standard diff adjustment logic
+        if (p.status !== 'completed') {
+            return { ...p, ...res };
+        }
+
+        // To properly adjust stock, we calculate the diff between original and new
+        const currentInventory = await fetchInventory(user);
 
         // map key: identification string
         const itemMap = new Map<string, { oldUnits: number, oldFreeUnits: number, newUnits: number, newFreeUnits: number, item: PurchaseItem }>();
@@ -1506,7 +1638,13 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     invItem.expiry = normalizeImportDate(data.item.expiry) || invItem.expiry;
                 }
                 applyTierRates(invItem, data.item);
-                await saveData('inventory', invItem, user);
+                const updated = await saveData('inventory', invItem, user, true);
+                
+                // Update local reference to keep currentInventory in sync for next loop iteration
+                if (updated && invItem.id) {
+                    const idx = currentInventory.findIndex(i => i.id === invItem!.id);
+                    if (idx >= 0) currentInventory[idx] = updated;
+                }
             } else if (diff > 0) {
                 // New inventory item created during update
                 const uPP = data.item.unitsPerPack || 1;
@@ -1533,7 +1671,8 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     is_active: true
                 };
                 logStockMovement({ transactionType: 'purchase-edit-repost', voucherId: p.id, item: newInv.name, batch: newInv.batch || 'UNSET', qty: diff, qtyIn: diff, stockBefore: 0, stockAfter: diff, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
-                await saveData('inventory', newInv, user);
+                const saved = await saveData('inventory', newInv, user);
+                if (saved) currentInventory.push(saved);
             }
         }
 
