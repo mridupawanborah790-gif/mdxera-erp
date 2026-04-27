@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -19,16 +19,6 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const showSchemeColumn = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
   const showRateColumn = isRateFieldAvailable(bill.configurations);
   
-  const computedBillTotals = useMemo(() => calculateBillingTotals({
-    items: bill.items || [],
-    billDiscount: bill.schemeDiscount || 0,
-    adjustment: bill.adjustment || 0,
-    isNonGst,
-    configurations: bill.configurations,
-    organizationType: bill.pharmacy?.organization_type,
-    pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
-
   const billDetails = useMemo(() => {
     let subtotal = 0;
     let totalCgst = 0;
@@ -83,16 +73,16 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
     const billDiscount = bill.schemeDiscount || 0;
-    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
-    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
-    const subtotalFromBill = computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax);
-    const totalTaxFromBill = isNonGst ? 0 : computedBillTotals.tax;
+    const roundOff = bill.roundOff || 0;
+    const adjustment = bill.adjustment || 0;
+    const subtotalFromBill = bill.subtotal || 0;
+    const totalTaxFromBill = isNonGst ? 0 : (bill.totalGst || 0);
     const grandTotal = bill.total || 0;
 
-    const tradeDiscount = computedBillTotals.tradeDiscount || 0;
-    const schemeDiscount = computedBillTotals.schemeTotal || 0;
+    const tradeDiscount = bill.totalItemDiscount || 0;
+    const schemeDiscount = (bill.items || []).reduce((sum, item) => sum + Number(item.schemeDiscountAmount || 0), 0);
     return { items: itemsWithCalculations, itemChunks, subtotal: subtotalFromBill, totalCgst, totalSgst, totalTaxFromBill, tradeDiscount, schemeDiscount, billDiscount, adjustment, roundOff, grandTotal };
-  }, [bill, isNonGst, computedBillTotals]);
+  }, [bill, isNonGst]);
 
   const termsList = bill.pharmacy.terms_and_conditions 
     ? bill.pharmacy.terms_and_conditions.split('\n').filter(t => t.trim() !== '')

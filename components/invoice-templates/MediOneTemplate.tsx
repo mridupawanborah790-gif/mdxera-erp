@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
-import { calculateBillingTotals, resolveEffectivePricingMode } from '../../utils/billing';
+import { resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -19,16 +19,6 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
   const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
   const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
   const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
-
-  const computedBillTotals = useMemo(() => calculateBillingTotals({
-    items: bill.items || [],
-    billDiscount: bill.schemeDiscount || 0,
-    adjustment: bill.adjustment || 0,
-    isNonGst,
-    configurations: bill.configurations,
-    organizationType: bill.pharmacy?.organization_type,
-    pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -80,12 +70,12 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
     const billDiscount = bill.schemeDiscount || 0;
-    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
-    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const roundOff = bill.roundOff || 0;
+    const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
 
-    return { items, itemChunks, subtotalValue: computedBillTotals.taxableValue, totalGst: (isNonGst ? 0 : computedBillTotals.tax), billDiscount, adjustment, roundOff, grandTotal };
-  }, [bill, isNonGst, computedBillTotals]);
+    return { items, itemChunks, subtotalValue: (bill.subtotal || 0), totalGst: (isNonGst ? 0 : (bill.totalGst || 0)), billDiscount, adjustment, roundOff, grandTotal };
+  }, [bill, isNonGst]);
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased border border-gray-200" style={{ fontSize: '8.25pt', fontWeight: 400 }}>
