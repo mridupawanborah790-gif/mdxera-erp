@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatExpiryToMMYY } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -15,16 +15,6 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
   const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
   const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
-
-  const computedBillTotals = useMemo(() => calculateBillingTotals({
-    items: bill.items || [],
-    billDiscount: bill.schemeDiscount || 0,
-    adjustment: bill.adjustment || 0,
-    isNonGst,
-    configurations: bill.configurations,
-    organizationType: bill.pharmacy?.organization_type,
-    pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const billDetails = useMemo(() => {
     let subtotal = 0;
@@ -82,11 +72,11 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
       gstBreakdown[rate].tax += item.gstAmount;
     });
 
-    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
 
-    return { items, subtotal: computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax), totalGst: (isNonGst ? 0 : computedBillTotals.tax), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal };
-  }, [bill, isNonGst, computedBillTotals]);
+    return { items, subtotal: bill.subtotal || 0, totalGst: (isNonGst ? 0 : (bill.totalGst || 0)), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal };
+  }, [bill, isNonGst]);
 
   return (
     <div className="w-[76mm] max-w-[76mm] text-black font-mono text-[10px] leading-tight px-1 py-1">

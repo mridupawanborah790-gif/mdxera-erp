@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -13,16 +13,6 @@ const ITEMS_PER_PAGE = 10;
 const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
   const showRateColumn = isRateFieldAvailable(bill.configurations);
-
-  const computedBillTotals = useMemo(() => calculateBillingTotals({
-    items: bill.items || [],
-    billDiscount: bill.schemeDiscount || 0,
-    adjustment: bill.adjustment || 0,
-    isNonGst,
-    configurations: bill.configurations,
-    organizationType: bill.pharmacy?.organization_type,
-    pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const calculations = useMemo(() => {
     let subTotalTaxable = 0;
@@ -80,15 +70,15 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    const totalTax = isNonGst ? 0 : computedBillTotals.tax;
-    const subTotal = computedBillTotals.taxableValue + totalTax;
+    const totalTax = isNonGst ? 0 : (bill.totalGst || 0);
+    const subTotal = (bill.subtotal || 0) + totalTax;
     const billDiscount = bill.schemeDiscount || 0;
-    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
-    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const roundOff = bill.roundOff || 0;
+    const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
 
-    return { items, itemChunks, subTotalTaxable: computedBillTotals.taxableValue, gstSummary, subTotal, totalTax, billDiscount, adjustment, roundOff, grandTotal };
-  }, [bill, isNonGst, computedBillTotals]);
+    return { items, itemChunks, subTotalTaxable: bill.subtotal || 0, gstSummary, subTotal, totalTax, billDiscount, adjustment, roundOff, grandTotal };
+  }, [bill, isNonGst]);
 
   const totalQty = (bill.items || []).reduce((acc, i) => acc + i.quantity, 0);
 

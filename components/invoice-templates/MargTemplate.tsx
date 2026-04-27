@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
-import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
 import { calculateCustomerReceivableBreakdown } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
@@ -24,16 +24,6 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const showTradeDiscountColumn = showItemWiseDisc && (bill.items || []).some(item => (item.discountPercent || 0) > 0);
   const showSchemeColumn = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
   const showRateColumn = isRateFieldAvailable(bill.configurations);
-
-  const computedBillTotals = useMemo(() => calculateBillingTotals({
-    items: bill.items || [],
-    billDiscount: bill.schemeDiscount || 0,
-    adjustment: bill.adjustment || 0,
-    isNonGst,
-    configurations: bill.configurations,
-    organizationType: bill.pharmacy?.organization_type,
-    pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -104,17 +94,16 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
-    const tradeDiscount = computedBillTotals.tradeDiscount || bill.totalItemDiscount || 0;
-    const billDiscount = showBillDiscount ? (computedBillTotals.billDiscount || 0) : 0;
-    const taxableValue = computedBillTotals.taxableValue;
-    const totalGst = isNonGst ? 0 : computedBillTotals.tax;
-    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
-    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const tradeDiscount = bill.totalItemDiscount || 0;
+    const billDiscount = showBillDiscount ? (bill.schemeDiscount || 0) : 0;
+    const taxableValue = Math.max(0, (bill.total || 0) - (bill.totalGst || 0) - (bill.roundOff || 0));
+    const totalGst = isNonGst ? 0 : (bill.totalGst || 0);
+    const roundOff = bill.roundOff || 0;
+    const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
-
-    const schemeDiscount = computedBillTotals.schemeTotal || 0;
+    const schemeDiscount = (bill.items || []).reduce((sum, item) => sum + Number(item.schemeDiscountAmount || 0), 0);
     return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, adjustment, taxableValue, totalGst, roundOff, grandTotal };
-  }, [bill, isNonGst, computedBillTotals, showBillDiscount]);
+  }, [bill, isNonGst, showBillDiscount]);
 
   const toUpperDisplay = (value?: string | null) => (value || '').toString().trim().toUpperCase();
   const customerAddressLine1 = toUpperDisplay(bill.customerDetails?.address_line1 || bill.customerDetails?.address);
