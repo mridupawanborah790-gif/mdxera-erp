@@ -1315,6 +1315,30 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         }
     };
 
+    const normalizeSupplierInvoiceKey = (value?: string | null) => String(value || '').trim().toLowerCase();
+    const INACTIVE_PURCHASE_STATUSES = new Set(['cancelled', 'void', 'deleted']);
+
+    const assertNoDuplicateActivePurchaseInvoice = async (payload: Purchase, user: RegisteredPharmacy) => {
+        const supplierKey = normalizeSupplierInvoiceKey(payload.supplier);
+        const invoiceKey = normalizeSupplierInvoiceKey(payload.invoiceNumber);
+        if (!supplierKey || !invoiceKey) return;
+
+        const localPurchases = await idb.getAll(STORES.PURCHASES) as Purchase[];
+        const duplicateActiveLocal = localPurchases.find(row => {
+            if (!row) return false;
+            if (row.organization_id !== user.organization_id) return false;
+            if (row.id === payload.id) return false;
+            if (normalizeSupplierInvoiceKey(row.supplier) !== supplierKey) return false;
+            if (normalizeSupplierInvoiceKey(row.invoiceNumber) !== invoiceKey) return false;
+            const normalizedStatus = String(row.status || 'completed').trim().toLowerCase();
+            return !INACTIVE_PURCHASE_STATUSES.has(normalizedStatus);
+        });
+
+        if (duplicateActiveLocal) {
+            throw new Error('Supplier Invoice Number already exists for this supplier. Duplicate entry not allowed.');
+        }
+    };
+
     export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
         try {
             const postingContext = await ensurePostingContext(p, user);
@@ -1327,6 +1351,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
         }
 
+        await assertNoDuplicateActivePurchaseInvoice(p, user);
         const res = await saveData('purchases', p, user);
 
         // Use a Map to accumulate stock changes for this purchase
@@ -1413,6 +1438,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     };
 
     export const updatePurchase = async (p: Purchase, user: RegisteredPharmacy) => {
+        await assertNoDuplicateActivePurchaseInvoice(p, user);
         const original = await idb.get(STORES.PURCHASES, p.id) as Purchase;
         const res = await saveData('purchases', p, user, true);
         if (!original) return res;

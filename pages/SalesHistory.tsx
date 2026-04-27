@@ -603,6 +603,7 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({
                             purchases={purchases}
                             medicines={medicines}
                             customers={customers}
+                            transactions={transactions}
                             onSaveOrUpdateTransaction={() => Promise.resolve()}
                             onPrintBill={onPrintBill}
                             currentUser={currentUser}

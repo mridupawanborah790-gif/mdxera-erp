@@ -1,21 +1,22 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Modal from './Modal';
-import { Customer } from '../types';
+import { Customer, Transaction } from '../types';
 import { fuzzyMatch } from '../utils/search';
-import { getOutstandingBalance } from '../utils/helpers';
+import { buildCustomerInvoiceOutstandingMap, calculateCustomerReceivableBreakdown, getOutstandingBalance } from '../utils/helpers';
 
 interface CustomerSearchModalProps {
     isOpen: boolean;
     onClose: () => void;
     customers: Customer[];
+    transactions?: Transaction[];
     onSelect: (customer: Customer) => void;
     initialSearch?: string;
 }
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
 
-const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClose, customers, onSelect, initialSearch = '' }) => {
+const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClose, customers, transactions = [], onSelect, initialSearch = '' }) => {
     const [searchTerm, setSearchTerm] = useState(initialSearch);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const searchInputRef = useRef<HTMLInputElement>(null);
@@ -37,6 +38,16 @@ const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClo
             fuzzyMatch(c.phone, searchTerm)
         );
     }, [customers, searchTerm]);
+
+    const customerInvoiceOutstandingMap = useMemo(
+        () => buildCustomerInvoiceOutstandingMap(customers, transactions),
+        [customers, transactions]
+    );
+
+    const resolveCustomerBalance = (customer: Customer): number => {
+        if (!transactions.length) return getOutstandingBalance(customer);
+        return calculateCustomerReceivableBreakdown(customer, customerInvoiceOutstandingMap[customer.id] || 0).netOutstanding;
+    };
 
     useEffect(() => {
         if (selectedIndex >= filtered.length) {
@@ -111,7 +122,7 @@ const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClo
                             <tbody>
                                 {filtered.map((cust, idx) => {
                                     const isSelected = idx === selectedIndex;
-                                    const balance = getOutstandingBalance(cust);
+                                    const balance = resolveCustomerBalance(cust);
                                     const addressLine1 = cust.address_line1 || cust.address || '—';
                                     return (
                                         <tr 
@@ -158,7 +169,7 @@ const CustomerSearchModal: React.FC<CustomerSearchModalProps> = ({ isOpen, onClo
                             <p><span className="font-black uppercase text-gray-500 mr-2">City / District:</span>{selectedCustomer.city || selectedCustomer.district || '—'}</p>
                             <p><span className="font-black uppercase text-gray-500 mr-2">State:</span>{selectedCustomer.state || '—'}</p>
                             <p><span className="font-black uppercase text-gray-500 mr-2">Pincode:</span>{selectedCustomer.pincode || '—'}</p>
-                            <p className="md:col-span-2"><span className="font-black uppercase text-gray-500 mr-2">Balance:</span>₹{getOutstandingBalance(selectedCustomer).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                            <p className="md:col-span-2"><span className="font-black uppercase text-gray-500 mr-2">Balance:</span>₹{resolveCustomerBalance(selectedCustomer).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
                         </div>
                     </div>
                 )}

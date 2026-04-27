@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { calculateCustomerReceivableBreakdown } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 
 interface TemplateProps {
@@ -127,6 +128,26 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const customerPhone = toUpperDisplay(bill.customerPhone || bill.customerDetails?.phone);
   const customerGstin = toUpperDisplay(bill.customerDetails?.gstNumber);
   const customerDrugLicense = toUpperDisplay(bill.customerDetails?.drugLicense);
+  const companyPhone = toUpperDisplay(bill.pharmacy.mobile || '-');
+  const companyGstin = toUpperDisplay(bill.pharmacy.gstin || '-');
+  const companyDrugLicense = toUpperDisplay((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-');
+  const isCreditBill = String(bill.paymentMode || '').trim().toLowerCase() === 'credit';
+  const hasSelectedCustomer = Boolean(bill.customerDetails?.id);
+  const netOutstandingReceivable = hasSelectedCustomer
+    ? calculateCustomerReceivableBreakdown(bill.customerDetails).netOutstanding
+    : 0;
+  const capturedPreviousBalance = Number(bill.previousBalanceBeforeBill);
+  const hasCapturedPreviousBalance = Number.isFinite(capturedPreviousBalance);
+  const previousBalance = hasSelectedCustomer
+    ? (hasCapturedPreviousBalance
+        ? capturedPreviousBalance
+        : (isCreditBill ? netOutstandingReceivable - calculations.grandTotal : netOutstandingReceivable))
+    : 0;
+  const balanceAfterBill = hasSelectedCustomer
+    ? (isCreditBill
+        ? Number((previousBalance + calculations.grandTotal).toFixed(2))
+        : Number(previousBalance.toFixed(2)))
+    : 0;
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased" style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}>
@@ -212,9 +233,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
             <div className="p-1.5 border-r border-black">
               <h1 className="text-base font-black uppercase text-blue-900 mb-0.5 leading-none">{bill.pharmacy.pharmacy_name}</h1>
               {bill.pharmacy.address && <p className="text-[6.5pt] uppercase font-bold text-gray-700 leading-tight whitespace-pre-line">{bill.pharmacy.address}</p>}
-              {bill.pharmacy.mobile && <p className="text-[7.5pt] mt-0.5 font-normal leading-none tracking-[0.02em]">PH: {toUpperDisplay(bill.pharmacy.mobile)}</p>}
-              {bill.pharmacy.gstin && <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">GSTIN: {toUpperDisplay(bill.pharmacy.gstin)}</p>}
-              {bill.pharmacy.drug_license && <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">DL NO: {toUpperDisplay(bill.pharmacy.drug_license)}</p>}
+              <p className="text-[7.5pt] mt-0.5 font-normal leading-none tracking-[0.02em]">PH: {companyPhone}</p>
+              <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">GSTIN: {companyGstin}</p>
+              <p className="text-[7.5pt] font-normal leading-none tracking-[0.02em]">DL NO: {companyDrugLicense}</p>
             </div>
             
             <div className="flex flex-col items-center justify-center border-r border-black p-1">
@@ -369,8 +390,18 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                       </p>
                       <div className="mt-2 flex justify-between items-end">
                           <div>
-                              <span className="text-base font-black text-gray-900 mr-2">BAL:</span>
-                              <span className="text-base font-black text-red-600">₹{(calculations.grandTotal - (bill.amountReceived || 0)).toFixed(2)}</span>
+                              {hasSelectedCustomer && (
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[8pt] font-black uppercase text-gray-900">Previous Bal:</span>
+                                    <span className="text-[8pt] font-black text-red-600">₹{previousBalance.toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[8pt] font-black uppercase text-gray-900">Balance After Bill:</span>
+                                    <span className="text-[8pt] font-black text-red-600">₹{balanceAfterBill.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              )}
                           </div>
                           <div className="text-center pr-1">
                               <p className="text-[6pt] font-black mb-4 uppercase tracking-wider">FOR {bill.pharmacy.pharmacy_name}</p>

@@ -382,6 +382,8 @@ export interface Transaction {
     taxCalculationType?: TaxCalculationBasis;
     pricingMode?: 'mrp' | 'rate';
     linkedChallans?: string[];
+    previousBalanceBeforeBill?: number;
+    balanceAfterBill?: number;
     companyCodeId?: string;
     setOfBooksId?: string;
     sync_status?: 'synced' | 'pending' | 'failed';
@@ -453,6 +455,9 @@ export interface Purchase {
     sourceReceiveMode?: PurchaseOrderReceiveMode | 'POST_RECEIVED_ENTRY' | 'ADJUST_RECEIVED_ENTRY';
     companyCodeId?: string;
     setOfBooksId?: string;
+    cancelledAt?: string;
+    cancelledBy?: string;
+    cancellationReason?: string;
 }
 
 export enum DeliveryChallanStatus {

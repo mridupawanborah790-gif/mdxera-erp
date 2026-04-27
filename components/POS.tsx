@@ -5,6 +5,7 @@ import SchemeModal from '../components/SchemeModal';
 import SchemeCalculatorModal from '../components/SchemeCalculatorModal';
 import Modal from '../components/Modal';
 import AddMedicineModal from '../components/AddMedicineModal';
+import EditMedicineModal from '../components/EditMedicineModal';
 import AddCustomerModal from './AddCustomerModal';
 import SearchableDropdown from './SearchableDropdown';
 import BatchSelectionModal from './BatchSelectionModal';
@@ -18,7 +19,7 @@ import { supabase } from '../services/supabaseClient';
 import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput, MasterPriceMaintainRecord, SalesChallan, DoctorMaster, OrganizationMember } from '../types';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
-import { formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
+import { calculateCustomerReceivableBreakdown, formatExpiryToMMYY, getOutstandingBalance, parseNumber, checkIsExpired } from '../utils/helpers';
 import { calculateBillingTotals, resolveBillingSettings, calculateLineNetAmount, isRateFieldAvailable } from '../utils/billing';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
@@ -29,6 +30,7 @@ interface POSProps {
     purchases: Purchase[];
     medicines: Medicine[];
     customers: Customer[];
+    transactions?: Transaction[];
     doctors?: DoctorMaster[];
     onSaveOrUpdateTransaction: (transaction: Transaction, isUpdate: boolean, nextCounter?: number) => Promise<void>;
     onPrintBill: (transaction: Transaction) => void;
@@ -41,6 +43,7 @@ interface POSProps {
     isReadOnly?: boolean;
     onCancel?: () => void;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
+    onUpdateMedicineMaster?: (updatedMedicine: Medicine) => Promise<void>;
     onQuickAddCustomer?: (data: {
         name: string;
         phone?: string;
@@ -243,6 +246,7 @@ const POS = forwardRef<any, POSProps>(({
     purchases,
     medicines,
     customers,
+    transactions = [],
     doctors = [],
     onSaveOrUpdateTransaction,
     onPrintBill,
@@ -255,6 +259,7 @@ const POS = forwardRef<any, POSProps>(({
     isReadOnly,
     onCancel,
     onAddMedicineMaster,
+    onUpdateMedicineMaster,
     onQuickAddCustomer,
     onAddCustomer,
     teamMembers = [],
@@ -429,6 +434,9 @@ const POS = forwardRef<any, POSProps>(({
     const [isInsightsLoading, setIsInsightsLoading] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
+    const [isEditMaterialModalOpen, setIsEditMaterialModalOpen] = useState(false);
+    const [materialToEdit, setMaterialToEdit] = useState<Medicine | null>(null);
+    const [materialEditRowId, setMaterialEditRowId] = useState<string | null>(null);
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
     const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
@@ -746,6 +754,56 @@ const POS = forwardRef<any, POSProps>(({
         }
     }, [transactionToEdit, nextVoucherNumberHint, isNonGst, configurations]);
 
+    const getCustomerInvoiceOutstandingTotal = useCallback(async (customer: Customer): Promise<number> => {
+        if (!currentUser?.organization_id) return 0;
+        const allTransactions = await storage.getData('sales_bill', [{ organization_id: currentUser.organization_id }], currentUser) as Transaction[];
+        const customerName = (customer.name || '').trim().toLowerCase();
+        const sales = (allTransactions || [])
+            .filter((t) => t && t.status !== 'cancelled')
+            .filter((t) => t.customerId === customer.id || ((t.customerName || '').trim().toLowerCase() === customerName))
+            .map((t) => ({
+                id: t.id,
+                invoiceNumber: String(t.invoiceNumber || '').trim().toLowerCase(),
+                invoiceAmount: Number(t.total || 0),
+                received: 0,
+                balance: Number(t.total || 0),
+                paymentMode: String(t.paymentMode || 'Credit').trim().toLowerCase(),
+            }));
+
+        if (sales.length === 0) return 0;
+
+        const byInvoiceId = new Map(sales.map((row) => [row.id, row]));
+        const byInvoiceNumber = new Map(sales.filter((row) => row.invoiceNumber).map((row) => [row.invoiceNumber, row.id]));
+        const ledger = Array.isArray(customer.ledger) ? customer.ledger : [];
+        const touchedInvoiceIds = new Set<string>();
+
+        for (const entry of ledger) {
+            if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') continue;
+            const entryCategory = String(entry.entryCategory || '');
+            if (!['invoice_payment_adjustment', 'down_payment_adjustment', 'invoice_payment_adjustment_reversal', 'down_payment_adjustment_reversal'].includes(entryCategory)) continue;
+
+            const invoiceId = entry.referenceInvoiceId || byInvoiceNumber.get(String(entry.referenceInvoiceNumber || '').trim().toLowerCase()) || '';
+            const target = invoiceId ? byInvoiceId.get(invoiceId) : undefined;
+            if (!target) continue;
+
+            const adjustedAmount = Number(entry.adjustedAmount || 0);
+            const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
+            target.received += (adjustedAmount * multiplier);
+            target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
+            if (target.balance < 0) target.balance = 0;
+            touchedInvoiceIds.add(target.id);
+        }
+
+        for (const sale of sales) {
+            if (touchedInvoiceIds.has(sale.id)) continue;
+            if (['cash', 'card', 'upi', 'bank'].includes(sale.paymentMode)) {
+                sale.balance = 0;
+            }
+        }
+
+        return Number(sales.reduce((sum, row) => sum + Number(row.balance || 0), 0).toFixed(2));
+    }, [currentUser]);
+
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
 
@@ -909,6 +967,15 @@ const POS = forwardRef<any, POSProps>(({
         }
 
         const finalPaymentMode = billCategory === 'Credit' ? 'Credit' : 'Cash';
+        const previousBalanceBeforeBill = selectedCustomer?.id
+            ? calculateCustomerReceivableBreakdown(
+                selectedCustomer,
+                await getCustomerInvoiceOutstandingTotal(selectedCustomer)
+            ).netOutstanding
+            : 0;
+        const balanceAfterBill = finalPaymentMode === 'Credit'
+            ? Number((previousBalanceBeforeBill + grandTotal).toFixed(2))
+            : Number(previousBalanceBeforeBill.toFixed(2));
 
         const transaction: Transaction = {
             id: generatedId,
@@ -936,6 +1003,8 @@ const POS = forwardRef<any, POSProps>(({
             itemCount: cartItems.length,
             pricingMode: localPricingMode,
             prescriptionImages: prescriptions.map(p => p.data),
+            previousBalanceBeforeBill: Number(previousBalanceBeforeBill.toFixed(2)),
+            balanceAfterBill,
         };
 
         try {
@@ -979,7 +1048,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment, getCustomerInvoiceOutstandingTotal]);
 
     const resetForm = useCallback(() => {
         setCartItems([]);
@@ -1516,6 +1585,10 @@ const POS = forwardRef<any, POSProps>(({
     const handleUpdateCartItem = useCallback((id: string, field: keyof BillItem, value: any) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === id) {
+                const isSelectedProductRow = Boolean((item.inventoryItemId || '').trim());
+                if (field === 'name' && isSelectedProductRow) {
+                    return item;
+                }
                 const updated = { ...item, [field]: value };
                 if (field === 'expiry') {
                     updated.expiry = normalizeExpiryInput(String(value || ''));
@@ -1550,6 +1623,16 @@ const POS = forwardRef<any, POSProps>(({
             return item;
         }));
     }, [isValidRateInput, normalizeExpiryInput]);
+
+    const clearSelectedProductFromRow = useCallback((rowId: string) => {
+        setCartItems(prev => prev.map(item => {
+            if (item.id !== rowId) return item;
+            return {
+                ...createBlankItem(),
+                id: rowId,
+            };
+        }));
+    }, []);
 
     const handleLooseQtyFinalize = useCallback((id: string) => {
         setCartItems(prev => prev.map(item => item.id === id ? normalizePackConversion(item) : item));
@@ -1632,6 +1715,87 @@ const POS = forwardRef<any, POSProps>(({
         setSelectedSearchIndex(0);
         setTimeout(() => modalSearchInputRef.current?.focus(), 150);
     }, [isReadOnly]);
+
+    const findMedicineForSalesRow = useCallback((row: BillItem): Medicine | null => {
+        const rowName = (row.name || '').trim().toLowerCase();
+        if (!rowName) return null;
+
+        const inventoryItem = row.inventoryItemId ? inventory.find((inv) => inv.id === row.inventoryItemId) : undefined;
+        const inventoryCode = (inventoryItem?.code || '').trim().toLowerCase();
+        if (inventoryCode) {
+            const byInventoryCode = medicines.find((med) => (med.materialCode || '').trim().toLowerCase() === inventoryCode);
+            if (byInventoryCode) return byInventoryCode;
+        }
+
+        const rowPack = (row.packType || '').trim().toLowerCase();
+        return medicines.find((med) => {
+            const medName = (med.name || '').trim().toLowerCase();
+            if (!medName || medName !== rowName) return false;
+            if (!rowPack) return true;
+            return (med.pack || '').trim().toLowerCase() === rowPack;
+        }) || null;
+    }, [inventory, medicines]);
+
+    const openMaterialEditOrSearch = useCallback((rowId: string) => {
+        if (isReadOnly) return;
+        const row = cartItems.find(item => item.id === rowId);
+        if (!row) return;
+
+        const isSelectedProductRow = Boolean((row.inventoryItemId || '').trim());
+        if (!isSelectedProductRow) {
+            openSearchModal(rowId, (row.name || '').trim());
+            return;
+        }
+
+        const materialRecord = findMedicineForSalesRow(row);
+        if (!materialRecord) {
+            addNotification('Material Master record not found for selected product.', 'warning');
+            return;
+        }
+
+        activeRowIdRef.current = rowId;
+        setMaterialEditRowId(rowId);
+        setMaterialToEdit(materialRecord);
+        setIsEditMaterialModalOpen(true);
+    }, [addNotification, cartItems, findMedicineForSalesRow, isReadOnly, openSearchModal]);
+
+    const handleUpdateMaterialFromSales = useCallback(async (updatedMedicine: Medicine) => {
+        if (!onUpdateMedicineMaster) {
+            addNotification('Material update action is unavailable in this view.', 'warning');
+            return;
+        }
+        const targetRowId = materialEditRowId;
+        if (!targetRowId) return;
+
+        await onUpdateMedicineMaster(updatedMedicine);
+
+        setCartItems(prev => prev.map(item => {
+            if (item.id !== targetRowId) return item;
+
+            const parsedMrp = parseFloat(String(updatedMedicine.mrp ?? ''));
+            const nextMrp = Number.isFinite(parsedMrp) ? parsedMrp : Number(item.mrp || 0);
+            const nextGst = Number(updatedMedicine.gstRate ?? item.gstPercent ?? 0);
+            const nextRate = resolveSalesRate({
+                mrp: nextMrp,
+                gstPercent: nextGst,
+                rateA: Number(updatedMedicine.rateA ?? item.rate ?? 0),
+                rateB: Number(updatedMedicine.rateB ?? 0),
+                rateC: Number(updatedMedicine.rateC ?? 0),
+            }, selectedCustomer?.defaultRateTier);
+
+            return {
+                ...item,
+                name: updatedMedicine.name || item.name,
+                packType: updatedMedicine.pack || item.packType,
+                hsnCode: updatedMedicine.hsnCode || item.hsnCode,
+                gstPercent: nextGst,
+                mrp: nextMrp,
+                rate: nextRate,
+            };
+        }));
+
+        addNotification('Material Master updated and sales line refreshed.', 'success');
+    }, [addNotification, materialEditRowId, onUpdateMedicineMaster, selectedCustomer?.defaultRateTier]);
 
     const closeInsightsPanel = useCallback(() => {
         setIsInsightsOpen(false);
@@ -2057,19 +2221,52 @@ const POS = forwardRef<any, POSProps>(({
                                             </td>
                                             {isFieldVisible('colName') && (
                                                 <td className={`p-2 border-r border-gray-200 uppercase w-72 truncate ${uniformTextStyle} ${selectedRowIndex === idx ? 'text-white' : 'group-hover:text-white text-primary'}`} title={item.name}>
+                                                    {(() => {
+                                                        const isSelectedProductRow = Boolean((item.inventoryItemId || '').trim());
+                                                        const canOpenMatrix = !isReadOnly && !isSelectedProductRow && !(item.name || '').trim();
+                                                        return (
                                                     <input
                                                         id={`name-${item.id}`}
                                                         type="text"
                                                         value={item.name}
-                                                        onChange={e => handleUpdateCartItem(item.id, 'name', e.target.value)}
+                                                        onChange={e => {
+                                                            if (isSelectedProductRow) return;
+                                                            handleUpdateCartItem(item.id, 'name', e.target.value);
+                                                        }}
+                                                        onClick={() => {
+                                                            if (canOpenMatrix) {
+                                                                openSearchModal(item.id, '');
+                                                            }
+                                                        }}
                                                         onFocus={() => handleRowFocus(idx)}
                                                         onKeyDown={e => {
+                                                            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                openMaterialEditOrSearch(item.id);
+                                                                return;
+                                                            }
+                                                            if (e.key === 'Enter' && canOpenMatrix) {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                openSearchModal(item.id, '');
+                                                                return;
+                                                            }
+                                                            if ((e.ctrlKey || e.metaKey) && e.key === 'Backspace' && isSelectedProductRow) {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                clearSelectedProductFromRow(item.id);
+                                                                return;
+                                                            }
                                                             handleItemKeyDown(e, item.id, idx);
                                                             handleRowKeyNavigation(e, item.id);
                                                         }}
                                                         className={`w-full bg-transparent border-none outline-none ${selectedRowIndex === idx ? 'text-white placeholder:text-white/50' : 'group-hover:text-white text-primary placeholder:text-gray-400'} ${uniformTextStyle}`}
+                                                        readOnly={isReadOnly || isSelectedProductRow}
                                                         disabled={isReadOnly}
                                                     />
+                                                        );
+                                                    })()}
                                                 </td>
                                             )}
                                             {isFieldVisible('colBatch') && (
@@ -2739,6 +2936,19 @@ const POS = forwardRef<any, POSProps>(({
                 isPosted={isPostedVoucher}
             />
 
+            {isEditMaterialModalOpen && materialToEdit && (
+                <EditMedicineModal
+                    isOpen={isEditMaterialModalOpen}
+                    onClose={() => {
+                        setIsEditMaterialModalOpen(false);
+                        setMaterialToEdit(null);
+                        setMaterialEditRowId(null);
+                    }}
+                    medicine={materialToEdit}
+                    onSave={handleUpdateMaterialFromSales}
+                />
+            )}
+
             <CustomerSearchModal
                 isOpen={isCustomerSearchModalOpen}
                 onClose={() => {
@@ -2747,6 +2957,7 @@ const POS = forwardRef<any, POSProps>(({
                     setTimeout(() => phoneInputRef.current?.focus(), 100);
                 }}
                 customers={customers}
+                transactions={transactions}
                 onSelect={handleSelectCustomer}
                 initialSearch={customerSearch}
             />

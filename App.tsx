@@ -1271,7 +1271,13 @@ const App: React.FC = () => {
             }
 
             // 1. Mark status as cancelled
-            const cancelledPurchase = { ...purchase, status: 'cancelled' as const };
+            const cancelledPurchase = {
+                ...purchase,
+                status: 'cancelled' as const,
+                cancelledAt: new Date().toISOString(),
+                cancelledBy: currentUser.id,
+                cancellationReason: 'Cancelled from Purchase Register'
+            };
             await storage.saveData('purchases', cancelledPurchase, currentUser, true);
             await storage.syncPurchaseLedger(cancelledPurchase, currentUser);
             await storage.markVoucherCancelled('purchase-entry', currentUser, cancelledPurchase.purchaseSerialId, cancelledPurchase.id);
@@ -2105,6 +2111,7 @@ const App: React.FC = () => {
                     return <POS
                         ref={isActive ? posRef : undefined}
                         inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
+                        transactions={transactions}
                         doctors={doctors}
                         onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
                         onPrintBill={(tx) => {
@@ -2115,6 +2122,7 @@ const App: React.FC = () => {
                         currentUser={currentUser} config={config} configurations={configurations}
                         billType={pageId === 'nonGstPos' ? 'non-gst' : 'regular'}
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
+                        onUpdateMedicineMaster={handleUpdateMedicineMaster}
                         onQuickAddCustomer={handleQuickAddCustomerFromPos}
                         onAddCustomer={handleAddCustomer}
                         teamMembers={teamMembers}
@@ -2379,7 +2387,7 @@ const App: React.FC = () => {
                         draftItems={sourceChallansForPurchase?.items || null}
                         draftSupplier={sourceChallansForPurchase?.supplier}
                         onClearDraft={() => setSourceChallansForPurchase(null)}
-                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
+                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster} onUpdateMedicineMaster={handleUpdateMedicineMaster}
                         onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                         setIsDirty={() => { }} addNotification={addNotification}
                         title="AI-Powered Automated Purchase"
@@ -2405,7 +2413,7 @@ const App: React.FC = () => {
                         draftDate={purchaseCopyDraft?.date}
                         draftSourceId={purchaseCopyDraft?.sourceId}
                         onClearDraft={() => setPurchaseCopyDraft(null)}
-                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster}
+                        currentUser={currentUser} onAddMedicineMaster={handleAddMedicineMaster} onUpdateMedicineMaster={handleUpdateMedicineMaster}
                         onAddsupplier={handleAddDistributor} onSaveMapping={(map) => storage.saveData('supplier_product_map', map, currentUser).then(() => loadData(currentUser!, 'background'))}
                         setIsDirty={() => { }} addNotification={addNotification}
                         title="Manual Purchase Entry"
@@ -2473,6 +2481,7 @@ const App: React.FC = () => {
                         onBulkAddInventory={(list) => storage.saveBulkData('inventory', list, currentUser)}
                         onAddProduct={handleAddInventoryItem} onUpdateProduct={handleUpdateInventoryItem}
                         mrpChangeLogs={mrpChangeLogs}
+                        configurations={configurations}
                     />;
                 case 'physicalInventory':
                     return <PhysicalInventory
