@@ -189,8 +189,6 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     <div className="p-1 pl-2 border-b border-black font-semibold flex items-center">{bill.invoiceNumber || bill.id}</div>
                     <div className="p-1 pl-2 border-b border-r border-black font-bold flex items-center bg-gray-50">Invoice Date</div>
                     <div className="p-1 pl-2 border-b border-black flex items-center">{new Date(bill.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric'})}</div>
-                    <div className="p-1 pl-2 border-r border-black font-bold flex items-center bg-gray-50">Calculation Mode</div>
-                    <div className="p-1 pl-2 flex items-center">{isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</div>
                 </div>
             </div>
         </div>

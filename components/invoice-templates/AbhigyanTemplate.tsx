@@ -147,8 +147,6 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
               <div className="p-1">
                   <p className="text-[7pt] font-bold text-gray-500 uppercase leading-none">Mode of Pay</p>
                   <p className="font-bold text-[8.5pt]">{bill.paymentMode}</p>
-                  <p className="text-[7pt] font-bold text-gray-500 uppercase leading-none mt-1">Calculation Mode</p>
-                  <p className="font-bold text-[8.5pt]">{isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</p>
               </div>
           </div>
       </div>
