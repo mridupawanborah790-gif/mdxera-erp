@@ -5,6 +5,7 @@ import { numberToWords } from '../../utils/numberToWords';
 import { getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 import { calculateCustomerReceivableBreakdown } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -122,6 +123,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const companyPhone = toUpperDisplay(bill.pharmacy.mobile || '-');
   const companyGstin = toUpperDisplay(bill.pharmacy.gstin || '-');
   const companyDrugLicense = toUpperDisplay((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-');
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
   const isCreditBill = String(bill.paymentMode || '').trim().toLowerCase() === 'credit';
   const hasSelectedCustomer = Boolean(bill.customerDetails?.id);
   const netOutstandingReceivable = hasSelectedCustomer
@@ -377,6 +381,12 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
                   <div className="mt-1">
                     <>
+                      <BankDetailsInline
+                        bankName={companyBankName}
+                        accountNumber={companyAccountNumber}
+                        ifscCode={companyIfscCode}
+                        className="text-[7pt] text-gray-700 mb-1.5 leading-tight"
+                      />
                       <p className="text-[7.5pt] font-black uppercase text-gray-950 border-b border-dashed border-gray-300 pb-1 mb-1 leading-tight">
                         {numberToWords(calculations.grandTotal)}
                       </p>
