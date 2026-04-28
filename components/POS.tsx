@@ -471,6 +471,8 @@ const POS = forwardRef<any, POSProps>(({
     const [isStockIssueModalOpen, setIsStockIssueModalOpen] = useState(false);
 
     const activeRowIdRef = useRef<string | null>(null);
+    const isProcessingBarcodeRef = useRef(false);
+    const lastProcessedBarcodeRef = useRef<{ token: string; timestamp: number } | null>(null);
 
     useEffect(() => {
         setSelectedSearchIndex(0);
@@ -1415,11 +1417,31 @@ const POS = forwardRef<any, POSProps>(({
         return false;
     }, [addNotification, deduplicatedSearchInventory]);
 
-    useEffect(() => {
-        if (!isSearchModalOpen) return;
-        if (!modalSearchTerm.trim()) return;
-        tryAutoPickByBarcode(modalSearchTerm);
-    }, [isSearchModalOpen, modalSearchTerm, tryAutoPickByBarcode]);
+    const processBarcodeScanFromMatrix = useCallback((rawValue: string): boolean => {
+        const token = normalizeLookupToken(rawValue);
+        if (!token) return false;
+
+        if (isProcessingBarcodeRef.current) return true;
+
+        const lastProcessed = lastProcessedBarcodeRef.current;
+        const now = Date.now();
+        if (lastProcessed && lastProcessed.token === token && (now - lastProcessed.timestamp) < 500) {
+            return true;
+        }
+
+        const scannedByBarcode = tryAutoPickByBarcode(token);
+        if (!scannedByBarcode) return false;
+
+        isProcessingBarcodeRef.current = true;
+        lastProcessedBarcodeRef.current = { token, timestamp: now };
+        setModalSearchTerm('');
+
+        window.setTimeout(() => {
+            isProcessingBarcodeRef.current = false;
+        }, 250);
+
+        return true;
+    }, [tryAutoPickByBarcode]);
 
     const activeIntelItem = useMemo(() => {
         if (isSearchModalOpen && deduplicatedSearchInventory.length > 0) {
@@ -1464,6 +1486,9 @@ const POS = forwardRef<any, POSProps>(({
             setSelectedSearchIndex(prev => (prev - 1 + deduplicatedSearchInventory.length) % deduplicatedSearchInventory.length);
         } else if (e.key === 'Enter') {
             e.preventDefault();
+            if (processBarcodeScanFromMatrix(modalSearchTerm)) {
+                return;
+            }
             const selectedWrapper = deduplicatedSearchInventory[selectedSearchIndex];
             if (selectedWrapper) triggerBatchSelection(selectedWrapper);
         }
@@ -2605,11 +2630,6 @@ const POS = forwardRef<any, POSProps>(({
                                                         openSearchModal(tempId, val);
                                                     } else {
                                                         openSearchModal(activeRowIdRef.current, val);
-                                                    }
-                                                    if (val.trim()) {
-                                                        setTimeout(() => {
-                                                            tryAutoPickByBarcode(val);
-                                                        }, 0);
                                                     }
                                                 }}
                                                 onFocus={(e) => {
