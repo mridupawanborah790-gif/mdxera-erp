@@ -223,6 +223,23 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         .invoice-container { padding-bottom: 20px; min-height: 100%; height: auto; overflow: visible; }
         .invoice-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
         .amount-in-words, .bank-details, .invoice-footer { page-break-inside: avoid; break-inside: avoid; }
+        .invoice-header-right {
+          width: 100%;
+          display: flex;
+          justify-content: flex-end;
+        }
+        .invoice-meta {
+          display: flex;
+          justify-content: flex-end;
+          align-items: center;
+          gap: 6px;
+          font-size: 11px;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .invoice-meta span {
+          white-space: nowrap;
+        }
       `}</style>
 
       {calculations.itemChunks.map((chunk, pageIdx) => {
@@ -267,9 +284,14 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               <div className="col-span-2 py-0.5 flex items-center justify-center border-r border-black">
                   <h2 className="text-lg font-black uppercase tracking-[0.2em] text-gray-900 leading-none">{isNonGst ? 'ESTIMATE' : 'GST INVOICE'}</h2>
               </div>
-              <div className="p-0.5 pl-2 flex flex-col justify-center text-[8pt]">
-                  <p className="font-bold leading-none">INV: <span className="font-mono font-black text-blue-900">{bill.invoiceNumber || bill.id}</span></p>
-                  <p className="font-bold uppercase text-[6.5pt] mt-0.5">DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</p>
+              <div className="p-0.5 pl-2 flex items-center">
+                  <div className="invoice-header-right">
+                    <div className="invoice-meta">
+                      <span>INV: <span className="font-mono font-black text-blue-900">{bill.invoiceNumber || bill.id}</span></span>
+                      <span>|</span>
+                      <span>DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</span>
+                    </div>
+                  </div>
               </div>
           </div>
 
