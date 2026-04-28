@@ -98,7 +98,6 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
         <span className="truncate">Bill: {bill.invoiceNumber || bill.id}</span>
         <span>{new Date(bill.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
       </div>
-      <div className="text-[9px] mb-1">Calc Mode: {isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</div>
 
       {bill.customerName && bill.customerName.toLowerCase() !== 'cash' && (
         <div className="text-[9px] border-b border-dashed border-black pb-0.5 mb-1">

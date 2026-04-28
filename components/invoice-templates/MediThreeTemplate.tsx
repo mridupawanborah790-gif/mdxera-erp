@@ -118,7 +118,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
       };
 
   return (
-    <div className={`medi-three-template text-black bg-white w-full font-sans text-[10.8px] leading-tight ${isLandscape ? 'medi-three-landscape' : 'medi-three-portrait'}`}>
+    <div className={`invoice-container medi-three-template text-black bg-white w-full font-sans text-[10.8px] leading-tight ${isLandscape ? 'medi-three-landscape' : 'medi-three-portrait'}`}>
       <style>{`
         .medi-three-template {
           display: flex;
@@ -131,10 +131,11 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           padding: 1.5mm;
           box-sizing: border-box;
           width: ${isLandscape ? '210mm' : '148mm'};
-          height: ${isLandscape ? '148mm' : '210mm'};
+          min-height: ${isLandscape ? '148mm' : '210mm'};
+          height: auto;
           display: flex;
           flex-direction: column;
-          overflow: hidden;
+          overflow: visible;
         }
         .medi-three-box {
           border: 1px solid #111;
@@ -144,7 +145,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           --footer-height: ${isLandscape ? '28mm' : '35mm'};
           --row-height: ${isLandscape ? '4mm' : '5.85mm'};
           display: grid;
-          grid-template-rows: var(--header-height) var(--items-height) var(--footer-height);
+          grid-template-rows: auto 1fr auto;
           row-gap: var(--section-gap);
           flex: 1;
           min-height: 0;
@@ -152,7 +153,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         }
         .medi-three-header {
           min-height: 0;
-          overflow: hidden;
+          overflow: visible;
         }
         .medi-three-items {
           min-height: 0;
@@ -164,7 +165,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          height: 100%;
+          height: auto;
           align-self: stretch;
           border-bottom: 1px solid #111;
         }
@@ -200,7 +201,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         .medi-three-grid .left { text-align: left; }
         .medi-three-grid .num { font-size: 10.2px; }
         .medi-three-grid .desc { font-size: 10.2px; }
-        .medi-three-grid .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .medi-three-grid .desc { white-space: nowrap; overflow: visible; text-overflow: ellipsis; }
         .medi-three-title { font-size: 21px; font-weight: 800; letter-spacing: 0.1em; text-align: center; padding: 3px 0 2px; }
         .medi-three-meta { display: grid; grid-template-columns: 1fr 1fr; }
         .medi-three-meta > div { border-top: 1px solid #111; padding: 3px 4px; min-height: 35px; }
@@ -213,7 +214,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           border: 1px solid #111;
           display: grid;
           grid-template-columns: 1fr ${isLandscape ? '220px' : '190px'};
-          height: 100%;
+          height: auto;
           width: 100%;
           box-sizing: border-box;
           background: #fff;
@@ -221,8 +222,10 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         .medi-three-footer {
           min-height: 0;
           display: flex;
-          overflow: hidden;
+          overflow: visible;
           align-items: stretch;
+          page-break-inside: avoid;
+          break-inside: avoid;
         }
         .medi-three-footer > * {
           width: 100%;
@@ -232,6 +235,8 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           height: 100%;
         }
         .medi-three-summary-left { padding: 5px 4px; font-size: 10.8px; }
+        .invoice-container { padding-bottom: 20px; min-height: 100%; height: auto; overflow: visible; }
+        .invoice-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
         .medi-three-bank-line { font-size: 9.4px; line-height: 1.2; margin-bottom: 3px; color: #333; }
         .medi-three-summary-right {
           padding: 5px 4px;
@@ -245,6 +250,8 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         .medi-three-summary-right .row { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 10.95px; }
         .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 17px; font-weight: 800; }
         @media print {
+          .invoice-container { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
           @page { size: A5 ${orientation}; margin: 0; }
           .medi-three-template { gap: 0; }
           .medi-three-page {
@@ -303,7 +310,6 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                   <div className="invoice-meta">
                     <div><strong>Invoice No:</strong> {bill.invoiceNumber || bill.id}</div>
                     <div><strong>Invoice Date:</strong> {new Date(bill.date).toLocaleDateString('en-GB')}</div>
-                    <div><strong>Calculation Mode:</strong> {isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</div>
                     <div><strong>Terms:</strong> Cash</div>
                     <div><strong>Page:</strong> {pageIndex + 1} / {paginatedItems.length}</div>
                   </div>
@@ -389,17 +395,17 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
 
               <div className="medi-three-footer">
                 {isLastPage ? (
-                  <div className="medi-three-summary">
-                    <div className="medi-three-summary-left">
+                  <div className="invoice-footer medi-three-summary">
+                    <div className="medi-three-summary-left amount-in-words">
                       <BankDetailsInline
                         bankName={companyBankName}
                         accountNumber={companyAccountNumber}
                         ifscCode={companyIfscCode}
-                        className="medi-three-bank-line"
+                        className="bank-details medi-three-bank-line"
                       />
                       <div><strong>Amount in words:</strong> {numberToWords(totals.grandTotal)}</div>
                     </div>
-                    <div className="medi-three-summary-right">
+                    <div className="invoice-bottom medi-three-summary-right">
                       <div className="row"><span>Sub Total</span><strong>{totals.subTotal.toFixed(2)}</strong></div>
                       {!isIncludingDiscountMode && totals.tradeDiscount > 0 && <div className="row"><span>Trade Discount</span><strong>-{totals.tradeDiscount.toFixed(2)}</strong></div>}
                       {totals.discount > 0 && <div className="row"><span>Discount</span><strong>-{totals.discount.toFixed(2)}</strong></div>}
