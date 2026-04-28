@@ -12,7 +12,7 @@ interface TemplateProps {
   orientation?: 'portrait' | 'landscape';
 }
 
-const ITEMS_PER_PAGE = 14;
+const ITEMS_PER_PAGE = 13;
 
 const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -149,7 +149,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
       <style>{`
         @media print {
           .invoice-container { page-break-inside: avoid; break-inside: avoid; }
-          .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer, .invoice-footer-block, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
           @page { 
             margin: 0mm !important; 
             size: A5 ${orientation}; 
@@ -222,7 +222,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         .row-height { height: 17px; }
         .invoice-container { padding-bottom: 20px; min-height: 100%; height: auto; overflow: visible; }
         .invoice-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
-        .amount-in-words, .bank-details, .invoice-footer { page-break-inside: avoid; break-inside: avoid; }
+        .amount-in-words, .bank-details, .invoice-footer, .invoice-footer-block { page-break-inside: avoid; break-inside: avoid; }
         .invoice-header-right {
           width: 100%;
           display: flex;
@@ -378,7 +378,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           </div>
 
           {isLastPage && (
-          <div className="invoice-footer grid grid-cols-2 footer-border flex-shrink-0 bg-white">
+          <div className="invoice-footer invoice-footer-block grid grid-cols-2 footer-border flex-shrink-0 bg-white">
                 <div className="border-r border-black p-1.5 flex flex-col justify-between">
                   {!isNonGst && (
                     <table className="w-full text-[6.5pt] border-collapse erp-table mb-1">

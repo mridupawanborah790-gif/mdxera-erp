@@ -11,7 +11,7 @@ interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 13;
 
 const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -253,7 +253,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
             </table>
         </div>
 
-        <div className="border-x-2 border-b-2 border-black flex text-sm">
+        <div className="invoice-footer-block border-x-2 border-b-2 border-black flex text-sm">
             <div className="w-2/3 flex flex-col border-r-2 border-black">
                 <div className="p-2 border-b border-black flex-1">
                     <BankDetailsInline

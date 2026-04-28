@@ -9,7 +9,7 @@ interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 13;
 
 const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -253,7 +253,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
       </table>
 
       {/* Amount in words */}
-      <div className="border border-black border-t-0 p-1">
+      <div className="invoice-footer-block border border-black border-t-0 p-1">
           <BankDetailsInline
             bankName={companyBankName}
             accountNumber={companyAccountNumber}
@@ -324,7 +324,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
       )}
 
       {/* Declaration & Footer */}
-      <div className="grid grid-cols-2 border border-black border-t-0">
+      <div className="invoice-footer-block grid grid-cols-2 border border-black border-t-0">
           <div className="p-1 border-r border-black flex flex-col justify-center">
               <p className="text-[7pt] font-bold underline mb-0.5 uppercase tracking-tighter">Declaration</p>
               <p className="text-[7.5pt] leading-tight italic text-gray-700">

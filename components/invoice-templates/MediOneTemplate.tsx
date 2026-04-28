@@ -12,7 +12,7 @@ interface TemplateProps {
   orientation?: 'portrait' | 'landscape';
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 13;
 
 const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -94,7 +94,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
       <style>{`
         @media print {
           .invoice-container { page-break-inside: avoid; break-inside: avoid; }
-          .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer, .invoice-footer-block, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
           @page { 
             margin: 0mm !important; 
             size: A5 ${orientation}; 
@@ -137,7 +137,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
         .border-bottom { border-bottom: 1px solid black; }
         .invoice-container { padding-bottom: 20px; min-height: 100%; height: auto; overflow: visible; }
         .invoice-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
-        .amount-in-words, .bank-details, .invoice-footer { page-break-inside: avoid; break-inside: avoid; }
+        .amount-in-words, .bank-details, .invoice-footer, .invoice-footer-block { page-break-inside: avoid; break-inside: avoid; }
       `}</style>
 
       {calculations.itemChunks.map((chunk, pageIdx) => (
@@ -228,7 +228,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
           </table>
 
           {/* Footer */}
-          <div className="invoice-footer mt-2 flex flex-col">
+          <div className="invoice-footer invoice-footer-block mt-2 flex flex-col">
               <div className="invoice-bottom border border-black p-2 bg-gray-50">
                   <div className="flex-1">
                       <BankDetailsInline

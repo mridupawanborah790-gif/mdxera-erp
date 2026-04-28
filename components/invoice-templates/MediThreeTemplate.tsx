@@ -19,7 +19,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
   const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
   const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
   const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
-  const MAX_ITEMS_PER_PAGE = 16;
+  const MAX_ITEMS_PER_PAGE = 13;
   const showRateColumn = isRateFieldAvailable(bill.configurations);
   const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
   const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
@@ -251,7 +251,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         .medi-three-summary-right .grand { border-top: 1px solid #111; padding-top: 4px; margin-top: 2px; font-size: 17px; font-weight: 800; }
         @media print {
           .invoice-container { page-break-inside: avoid; break-inside: avoid; }
-          .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer, .invoice-footer-block, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
           @page { size: A5 ${orientation}; margin: 0; }
           .medi-three-template { gap: 0; }
           .medi-three-page {
@@ -395,7 +395,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
 
               <div className="medi-three-footer">
                 {isLastPage ? (
-                  <div className="invoice-footer medi-three-summary">
+                  <div className="invoice-footer invoice-footer-block medi-three-summary">
                     <div className="medi-three-summary-left amount-in-words">
                       <BankDetailsInline
                         bankName={companyBankName}
