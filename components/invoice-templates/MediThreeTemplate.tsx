@@ -3,6 +3,7 @@ import type { AppConfigurations, DetailedBill, InventoryItem } from '../../types
 import { numberToWords } from '../../utils/numberToWords';
 import { isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 import { formatPackLooseQuantity } from '../../utils/quantity';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations };
@@ -15,6 +16,9 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
   const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
   const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
   const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
   const MAX_ITEMS_PER_PAGE = 16;
   const showRateColumn = isRateFieldAvailable(bill.configurations);
   const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
@@ -228,6 +232,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           height: 100%;
         }
         .medi-three-summary-left { padding: 5px 4px; font-size: 10.8px; }
+        .medi-three-bank-line { font-size: 9.4px; line-height: 1.2; margin-bottom: 3px; color: #333; }
         .medi-three-summary-right {
           padding: 5px 4px;
           display: flex;
@@ -386,6 +391,12 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                 {isLastPage ? (
                   <div className="medi-three-summary">
                     <div className="medi-three-summary-left">
+                      <BankDetailsInline
+                        bankName={companyBankName}
+                        accountNumber={companyAccountNumber}
+                        ifscCode={companyIfscCode}
+                        className="medi-three-bank-line"
+                      />
                       <div><strong>Amount in words:</strong> {numberToWords(totals.grandTotal)}</div>
                     </div>
                     <div className="medi-three-summary-right">

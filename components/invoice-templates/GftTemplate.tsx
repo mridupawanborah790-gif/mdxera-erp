@@ -5,6 +5,7 @@ import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -14,6 +15,9 @@ const ITEMS_PER_PAGE = 10;
 
 const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
   const isCredit = bill.paymentMode === 'Credit';
   const showTradeDiscountColumn = (bill.items || []).some(item => (item.discountPercent || 0) > 0);
   const showSchemeColumn = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
@@ -254,20 +258,17 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
         <div className="border-x-2 border-b-2 border-black flex text-sm">
             <div className="w-2/3 flex flex-col border-r-2 border-black">
                 <div className="p-2 border-b border-black flex-1">
+                    <BankDetailsInline
+                      bankName={companyBankName}
+                      accountNumber={companyAccountNumber}
+                      ifscCode={companyIfscCode}
+                      className="text-[10px] text-gray-700 mb-1 leading-tight"
+                    />
                     <p className="font-bold underline mb-1 text-xs">Amount In Words:</p>
                     <p className="capitalize italic font-medium">{numberToWords(billDetails.grandTotal || 0)}</p>
                 </div>
                 
                 <div className="p-2 flex-1 flex justify-between items-start">
-                    <div>
-                        <p className="font-bold underline mb-1 text-xs">Bank Details:</p>
-                        <div className="text-xs space-y-0.5">
-                            <p><span className="font-semibold">Bank Name:</span> {bill.pharmacy.bank_account_name}</p>
-                            <p><span className="font-semibold">A/c No:</span> {bill.pharmacy.bank_account_number}</p>
-                            <p><span className="font-semibold">IFSC Code:</span> {bill.pharmacy.bank_ifsc_code}</p>
-                        </div>
-                    </div>
-                    
                     {bill.pharmacy.bank_upi_id && !isNonGst && (
                         <div className="text-center ml-2">
                              <img

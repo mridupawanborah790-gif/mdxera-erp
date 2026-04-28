@@ -5,6 +5,7 @@ import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
 import { resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -19,6 +20,9 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
   const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
   const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
   const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
   const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
   const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
 
@@ -221,6 +225,12 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
           <div className="mt-2 flex flex-col">
               <div className="flex justify-between items-start border border-black p-2 bg-gray-50">
                   <div className="flex-1">
+                      <BankDetailsInline
+                        bankName={companyBankName}
+                        accountNumber={companyAccountNumber}
+                        ifscCode={companyIfscCode}
+                        className="text-[7pt] text-gray-700 mb-1 leading-tight"
+                      />
                       <p className="text-[7.5pt] font-semibold uppercase italic leading-tight">
                         {numberToWords(calculations.grandTotal)}
                       </p>

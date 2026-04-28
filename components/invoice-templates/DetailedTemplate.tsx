@@ -4,6 +4,7 @@ import type { DetailedBill, InventoryItem } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { getDisplaySchemePercent, hasLineLevelSchemeDiscount } from '../../utils/billing';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[] };
@@ -11,6 +12,9 @@ interface TemplateProps {
 
 const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
   const isCredit = bill.paymentMode === 'Credit';
   
   const billDetails = useMemo(() => {
@@ -177,17 +181,15 @@ const DetailedTemplate: React.FC<TemplateProps> = ({ bill }) => {
 
       <div className="flex items-start justify-between mt-4 border-t-2 border-black pt-2">
           <div className="pr-4 flex-1">
+              <BankDetailsInline
+                bankName={companyBankName}
+                accountNumber={companyAccountNumber}
+                ifscCode={companyIfscCode}
+                className="text-[9px] text-gray-700 mb-1 leading-tight"
+              />
               <p className="text-[10px] mb-2"><strong>Amount in Words:</strong> {numberToWords(bill.total || 0)}</p>
               
               <div className="flex items-start space-x-8">
-                  {!bill.hideRetailerOnBill && !isNonGst && (
-                  <div className="text-[9px] text-gray-700 space-y-0.5 border p-2 rounded border-gray-200 bg-gray-50">
-                      <p className="font-bold border-b border-gray-300 pb-0.5 mb-0.5">BANK DETAILS</p>
-                      <p><span className="font-semibold">Bank:</span> {bill.pharmacy.bank_account_name}</p>
-                      <p><span className="font-semibold">A/c No:</span> {bill.pharmacy.bank_account_number}</p>
-                      <p><span className="font-semibold">IFSC:</span> {bill.pharmacy.bank_ifsc_code}</p>
-                  </div>
-                  )}
                   {bill.pharmacy.bank_upi_id && !isNonGst && (
                       <div className="text-center flex-shrink-0">
                           <div className="border border-gray-300 p-1 bg-white inline-block rounded">
