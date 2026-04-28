@@ -1099,13 +1099,13 @@ const App: React.FC = () => {
         setIsOperationLoading(true);
         try {
             // Check for linked payments
-            const distributor = suppliers.find(d => 
+            const distributor = suppliers.find(d =>
                 (d.name || '').trim().toLowerCase() === (p.supplier || '').trim().toLowerCase()
             );
-            
+
             if (distributor && Array.isArray(distributor.ledger)) {
-                const hasPayments = distributor.ledger.some(entry => 
-                    entry.type === 'payment' && 
+                const hasPayments = distributor.ledger.some(entry =>
+                    entry.type === 'payment' &&
                     entry.status !== 'cancelled' &&
                     (entry.referenceInvoiceId === p.id || entry.referenceInvoiceNumber === p.invoiceNumber) &&
                     ['invoice_payment', 'invoice_payment_adjustment', 'down_payment_adjustment'].includes(entry.entryCategory || '') &&
@@ -1120,7 +1120,7 @@ const App: React.FC = () => {
 
             const savedPurchase = await storage.updatePurchase(p, currentUser);
             console.log('App: Purchase updated successfully, new status:', savedPurchase.status);
-            
+
             // Immediate local state update with the fresh record from storage
             setPurchases(prev => {
                 const index = prev.findIndex(pur => pur.id === savedPurchase.id);
@@ -1130,9 +1130,11 @@ const App: React.FC = () => {
                 return next;
             });
 
-            // Only refresh inventory, we already updated purchases locally and want to avoid race conditions
-            await refreshInventoryViews(currentUser, []); 
-            
+            // Only refresh inventory (not purchases) to avoid overwriting the optimistic update above
+            // with potentially stale server data. The background loadData will sync everything later.
+            await refreshInventoryViews(currentUser);
+            loadData(currentUser, 'background');
+
             addNotification("Purchase voucher updated.", "success");
             return savedPurchase;
         } catch (e) {
@@ -1142,7 +1144,6 @@ const App: React.FC = () => {
             setIsOperationLoading(false);
         }
     };
-
     const normalizeEntityKey = (value?: string | null) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
     const resolvePurchaseItemKey = (item: PurchaseItem) => {
@@ -1232,7 +1233,9 @@ const App: React.FC = () => {
             // Immediate local state update
             setPurchases(prev => [savedPurchase, ...prev]);
 
-            await refreshInventoryViews(currentUser, ['purchases']);
+            // Only refresh inventory (not purchases) to avoid overwriting the optimistic update above
+            // with potentially stale server data. The background loadData will sync everything later.
+            await refreshInventoryViews(currentUser);
             if (savedPurchase?.sourcePurchaseOrderId) {
                 const linkedPO = purchaseOrders.find(po => po.id === savedPurchase.sourcePurchaseOrderId);
                 if (linkedPO) {

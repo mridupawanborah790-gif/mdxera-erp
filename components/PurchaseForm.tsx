@@ -985,7 +985,10 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     const triggerSaveAction = useCallback(async (forcedStatus?: 'completed' | 'hold' | 'draft') => {
         const saved = await handleSubmit(forcedStatus);
-        if (saved && onCancel) {
+        // handleSubmit returns null on any validation error or save failure.
+        // On success it returns the saved object or undefined (when onAddPurchase is typed void).
+        // Use `!== null` so navigation fires correctly even when the handler returns void/undefined.
+        if (saved !== null && onCancel) {
             onCancel();
         }
         return saved;

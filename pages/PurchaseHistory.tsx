@@ -504,9 +504,10 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
 
                         <div className="flex items-center gap-1.5 min-w-[190px]">
                             <label className="text-[11px] font-semibold text-gray-600">Status:</label>
-                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'all' | 'completed' | 'cancelled')} className="h-8 w-[150px] border border-gray-400 px-2 text-[12px] font-semibold outline-none bg-white">
+                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'all' | 'completed' | 'cancelled' | 'hold')} className="h-8 w-[150px] border border-gray-400 px-2 text-[12px] font-semibold outline-none bg-white">
                                 <option value="completed">Completed</option>
                                 <option value="cancelled">Cancelled</option>
+                                <option value="hold">On Hold</option>
                                 <option value="all">All Bills</option>
                             </select>
                         </div>
@@ -534,7 +535,6 @@ const PurchaseHistory: React.FC<PurchaseHistoryProps> = ({
                         <div className="flex flex-wrap gap-2">
                             <button disabled={!selectedPurchase} onClick={handleViewSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Enter: View</button>
                             <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F4: Edit / Modify Bill</button>
-                            <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleEditSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">Modify Purchase Bill</button>
                             <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleCopySelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F9: Copy Purchase Bill</button>
                             <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleReturnSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F6: Purchase Return</button>
                             <button disabled={!selectedPurchase || selectedIsCancelled} onClick={handleViewJournalSelected} className="px-3 py-1.5 tally-border bg-white text-[10px] font-black uppercase disabled:opacity-50">F7: View Journal Entry</button>
