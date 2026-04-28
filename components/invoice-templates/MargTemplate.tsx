@@ -13,6 +13,11 @@ interface TemplateProps {
 }
 
 const ITEMS_PER_PAGE = 14;
+const SMART_PAGE_HEIGHT = 730;
+const SMART_HEADER_HEIGHT = 190;
+const SMART_TABLE_HEADER_HEIGHT = 28;
+const SMART_ROW_HEIGHT = 17;
+const SMART_SUMMARY_HEIGHT = 220;
 
 const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -96,6 +101,26 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
       chunks.push(items.slice(i, i + ITEMS_PER_PAGE));
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
+    const adjustedChunks = [...itemChunks];
+
+    if (adjustedChunks.length > 0) {
+      const lastChunk = adjustedChunks[adjustedChunks.length - 1];
+      let remainingPageHeight = SMART_PAGE_HEIGHT - SMART_HEADER_HEIGHT - SMART_TABLE_HEADER_HEIGHT - (lastChunk.length * SMART_ROW_HEIGHT);
+      const summaryHeight = SMART_SUMMARY_HEIGHT;
+
+      if (remainingPageHeight < summaryHeight && lastChunk.length > 1) {
+        const overflowChunk: typeof lastChunk = [];
+        while (remainingPageHeight < summaryHeight && lastChunk.length > 1) {
+          const shifted = lastChunk.pop();
+          if (!shifted) break;
+          overflowChunk.unshift(shifted);
+          remainingPageHeight = SMART_PAGE_HEIGHT - SMART_HEADER_HEIGHT - SMART_TABLE_HEADER_HEIGHT - (lastChunk.length * SMART_ROW_HEIGHT);
+        }
+        if (overflowChunk.length > 0) {
+          adjustedChunks.push(overflowChunk);
+        }
+      }
+    }
 
     const tradeDiscount = bill.totalItemDiscount || 0;
     const billDiscount = showBillDiscount ? (bill.schemeDiscount || 0) : 0;
@@ -105,7 +130,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
     const schemeDiscount = (bill.items || []).reduce((sum, item) => sum + Number(item.schemeDiscountAmount || 0), 0);
-    return { items, itemChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, adjustment, taxableValue, totalGst, roundOff, grandTotal };
+    return { items, itemChunks: adjustedChunks, subtotalValue, totalSgst, totalCgst, gstSummary, tradeDiscount, schemeDiscount, billDiscount, adjustment, taxableValue, totalGst, roundOff, grandTotal };
   }, [bill, isNonGst, showBillDiscount, isIncludingDiscountMode]);
 
   const toUpperDisplay = (value?: string | null) => (value || '').toString().trim().toUpperCase();
@@ -185,8 +210,8 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           }
         }
         .erp-table { border: 1px solid black; }
-        .erp-table th { border: 1px solid black; padding: 1px 3px; font-weight: 600 !important; font-size: 7.5pt; }
-        .erp-table td { border-left: 1px solid black; border-right: 1px solid black; padding: 1px 3px; font-size: 8pt; font-weight: 500; }
+        .erp-table th { border: 1px solid black; padding: 2px 4px; font-weight: 600 !important; font-size: 7.5pt; line-height: 1.2; }
+        .erp-table td { border-left: 1px solid black; border-right: 1px solid black; padding: 2px 4px; font-size: 8pt; font-weight: 500; line-height: 1.2; }
         .items-table th,
         .items-table td {
           line-height: 1.05;
@@ -223,6 +248,26 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         .invoice-container { padding-bottom: 20px; min-height: 100%; height: auto; overflow: visible; }
         .invoice-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
         .amount-in-words, .bank-details, .invoice-footer { page-break-inside: avoid; break-inside: avoid; }
+        .invoice-meta {
+          display: flex;
+          justify-content: flex-end;
+          gap: 20px;
+          font-size: 12px;
+        }
+        .invoice-summary-block {
+          page-break-inside: avoid;
+          break-inside: avoid;
+        }
+        .invoice-table {
+          page-break-inside: auto;
+        }
+        .invoice-table tr {
+          page-break-inside: avoid;
+          page-break-after: auto;
+        }
+        .invoice-header {
+          margin-bottom: 4px;
+        }
       `}</style>
 
       {calculations.itemChunks.map((chunk, pageIdx) => {
@@ -231,7 +276,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
         return (
         <div key={pageIdx} className="marg-page">
-          <div className="grid grid-cols-3 border-t border-x border-black">
+          <div className="grid grid-cols-3 border-t border-x border-black invoice-header">
             <div className="p-1.5 border-r border-black">
               <h1 className="text-base font-black uppercase text-blue-900 mb-0.5 leading-none">{bill.pharmacy.pharmacy_name}</h1>
               {bill.pharmacy.address && <p className="text-[6.5pt] uppercase font-bold text-gray-700 leading-tight whitespace-pre-line">{bill.pharmacy.address}</p>}
@@ -267,14 +312,17 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               <div className="col-span-2 py-0.5 flex items-center justify-center border-r border-black">
                   <h2 className="text-lg font-black uppercase tracking-[0.2em] text-gray-900 leading-none">{isNonGst ? 'ESTIMATE' : 'GST INVOICE'}</h2>
               </div>
-              <div className="p-0.5 pl-2 flex flex-col justify-center text-[8pt]">
-                  <p className="font-bold leading-none">INV: <span className="font-mono font-black text-blue-900">{bill.invoiceNumber || bill.id}</span></p>
-                  <p className="font-bold uppercase text-[6.5pt] mt-0.5">DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</p>
+              <div className="p-0.5 pl-2 flex items-center justify-end text-[8pt]">
+                  <p className="invoice-meta font-bold leading-none uppercase">
+                    <span>INV: <span className="font-mono font-black text-blue-900 normal-case">{bill.invoiceNumber || bill.id}</span></span>
+                    <span>|</span>
+                    <span>DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</span>
+                  </p>
               </div>
           </div>
 
           <div className="flex flex-col">
-          <table className="w-full erp-table items-table invoice-items border-collapse bg-white">
+          <table className="w-full erp-table items-table invoice-items invoice-table border-collapse bg-white">
             <thead>
               <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
@@ -345,10 +393,10 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           {!isLastPage && (
             <div className="grid grid-cols-2 border-x border-b border-black bg-white">
               <div className="border-r border-black p-1.5">
-                <p className="text-[8pt] font-black text-gray-700 uppercase">Continued on next page…</p>
+                <p className="text-[8pt] font-black text-gray-700 uppercase">--- Continued on Next Page ---</p>
               </div>
               <div className="p-1.5 flex justify-between items-center bg-gray-50/80">
-                <span className="text-sm font-black text-gray-800 tracking-tighter">PAGE TOTAL</span>
+                <span className="text-sm font-black text-gray-800 tracking-tighter">Page Total:</span>
                 <span className="text-2xl font-black text-blue-900 tracking-tighter">₹ {pageTotal.toFixed(2)}</span>
               </div>
             </div>
@@ -356,7 +404,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           </div>
 
           {isLastPage && (
-          <div className="invoice-footer grid grid-cols-2 footer-border flex-shrink-0 bg-white">
+          <div className="invoice-footer invoice-summary-block grid grid-cols-2 footer-border flex-shrink-0 bg-white">
                 <div className="border-r border-black p-1.5 flex flex-col justify-between">
                   {!isNonGst && (
                     <table className="w-full text-[6.5pt] border-collapse erp-table mb-1">

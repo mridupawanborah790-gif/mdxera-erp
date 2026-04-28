@@ -253,6 +253,19 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         @media print {
           .invoice-container { page-break-inside: avoid; break-inside: avoid; }
           .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-summary-block { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-table { page-break-inside: auto; }
+          .invoice-table tr { page-break-inside: avoid; page-break-after: auto; }
+          .invoice-meta {
+            display: flex;
+            justify-content: flex-end;
+            gap: 20px;
+            font-size: 12px;
+          }
+          td, th {
+            padding: 2px 4px;
+            line-height: 1.2;
+          }
           @page {
             margin: 0;
             size: ${isThermal ? '76mm auto' : `A5 ${effectiveOrientation}`};
