@@ -12,7 +12,8 @@ interface TemplateProps {
   orientation?: 'portrait' | 'landscape';
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 6;      // footer renders on every page, so keep items low
+const ITEMS_LAST_PAGE = 5;     // last page also has tfoot row
 
 const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -75,9 +76,23 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
       };
     });
 
-    const chunks = [];
-    for (let i = 0; i < items.length; i += ITEMS_PER_PAGE) {
-      chunks.push(items.slice(i, i + ITEMS_PER_PAGE));
+    // Two-tier chunking: keep last page lighter so the footer fits
+    const chunks: (typeof items)[] = [];
+    let idx = 0;
+    while (idx < items.length) {
+      const remaining = items.length - idx;
+      if (remaining <= ITEMS_LAST_PAGE) {
+        chunks.push(items.slice(idx));
+        break;
+      }
+      if (remaining - ITEMS_PER_PAGE > ITEMS_LAST_PAGE) {
+        chunks.push(items.slice(idx, idx + ITEMS_PER_PAGE));
+        idx += ITEMS_PER_PAGE;
+      } else {
+        const takeNow = remaining - ITEMS_LAST_PAGE;
+        chunks.push(items.slice(idx, idx + takeNow));
+        idx += takeNow;
+      }
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
@@ -102,8 +117,8 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
           body { margin: 0; padding: 0; background: white !important; }
           .medi-page {
             page-break-after: always;
+            break-after: always;
             width: ${isLandscape ? '210mm' : '148mm'};
-            min-height: ${isLandscape ? '148mm' : '210mm'};
             height: auto;
             padding: 5mm !important;
             box-sizing: border-box;
@@ -209,12 +224,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
                   <td className="text-right font-semibold">{(item.lineTotal || 0).toFixed(2)}</td>
                 </tr>
               ))}
-              {/* Spacer rows to keep table size consistent */}
-              {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
-                <tr key={`empty-${i}`}>
-                  <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
-                </tr>
-              ))}
+
             </tbody>
             {pageIdx === calculations.itemChunks.length - 1 && (
                 <tfoot>

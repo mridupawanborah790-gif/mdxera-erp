@@ -19,7 +19,8 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
   const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
   const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
   const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
-  const MAX_ITEMS_PER_PAGE = 16;
+  const MAX_ITEMS_PER_PAGE = 16;  // intermediate pages
+  const MAX_ITEMS_LAST_PAGE = 10; // last page (shares space with footer)
   const showRateColumn = isRateFieldAvailable(bill.configurations);
   const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
   const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
@@ -76,9 +77,23 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
   };
 
   const paginatedItems = useMemo(() => {
-    const chunks: typeof calculations.items[] = [];
-    for (let index = 0; index < calculations.items.length; index += MAX_ITEMS_PER_PAGE) {
-      chunks.push(calculations.items.slice(index, index + MAX_ITEMS_PER_PAGE));
+    const items = calculations.items;
+    const chunks: typeof items[] = [];
+    let idx = 0;
+    while (idx < items.length) {
+      const remaining = items.length - idx;
+      if (remaining <= MAX_ITEMS_LAST_PAGE) {
+        chunks.push(items.slice(idx));
+        break;
+      }
+      if (remaining - MAX_ITEMS_PER_PAGE > MAX_ITEMS_LAST_PAGE) {
+        chunks.push(items.slice(idx, idx + MAX_ITEMS_PER_PAGE));
+        idx += MAX_ITEMS_PER_PAGE;
+      } else {
+        const takeNow = remaining - MAX_ITEMS_LAST_PAGE;
+        chunks.push(items.slice(idx, idx + takeNow));
+        idx += takeNow;
+      }
     }
     return chunks.length > 0 ? chunks : [[]];
   }, [calculations.items]);
@@ -131,11 +146,16 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
           padding: 1.5mm;
           box-sizing: border-box;
           width: ${isLandscape ? '210mm' : '148mm'};
-          min-height: ${isLandscape ? '148mm' : '210mm'};
           height: auto;
           display: flex;
           flex-direction: column;
-          overflow: visible;
+          overflow: hidden;
+        }
+        @media screen {
+          .medi-three-page {
+            min-height: ${isLandscape ? '148mm' : '210mm'};
+            overflow: visible;
+          }
         }
         .medi-three-box {
           border: 1px solid #111;
@@ -258,6 +278,9 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
             margin: 0;
             break-after: page;
             page-break-after: always;
+            break-inside: avoid;
+            page-break-inside: avoid;
+            overflow: hidden;
           }
           .medi-three-page:last-child {
             break-after: auto;
@@ -371,24 +394,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
                       <td className="right num">{item.lineAmount.toFixed(2)}</td>
                     </tr>
                   ))}
-                  {Array.from({ length: blankRows }, (_, index) => (
-                    <tr key={`blank-${pageIndex + 1}-${index + 1}`} className="medi-three-row-empty" aria-hidden="true">
-                      {showRateColumn && <td>&nbsp;</td>}
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                    </tr>
-                  ))}
+
                 </tbody>
                 </table>
               </div>

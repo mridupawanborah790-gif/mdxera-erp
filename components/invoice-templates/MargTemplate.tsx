@@ -12,7 +12,8 @@ interface TemplateProps {
   orientation?: 'portrait' | 'landscape';
 }
 
-const ITEMS_PER_PAGE = 14;
+const ITEMS_PER_PAGE = 12;      // intermediate pages (no footer)
+const ITEMS_LAST_PAGE = 8;      // last page must share space with the footer
 
 const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -91,9 +92,29 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         gstSummary[r].cgst += (item.gstAmt / 2);
     });
 
-    const chunks = [];
-    for (let i = 0; i < items.length; i += ITEMS_PER_PAGE) {
-      chunks.push(items.slice(i, i + ITEMS_PER_PAGE));
+    // Two-tier chunking: intermediate pages hold ITEMS_PER_PAGE items,
+    // but the final page is capped at ITEMS_LAST_PAGE so the footer fits.
+    const chunks: (typeof items)[] = [];
+    let idx = 0;
+    while (idx < items.length) {
+      const remaining = items.length - idx;
+      // If what remains fits on a last page, take it all
+      if (remaining <= ITEMS_LAST_PAGE) {
+        chunks.push(items.slice(idx));
+        break;
+      }
+      // If after taking a full page the remainder would exceed ITEMS_LAST_PAGE,
+      // take a full page worth now and continue
+      if (remaining - ITEMS_PER_PAGE > ITEMS_LAST_PAGE) {
+        chunks.push(items.slice(idx, idx + ITEMS_PER_PAGE));
+        idx += ITEMS_PER_PAGE;
+      } else {
+        // Taking a full page would leave too many for the last page;
+        // split so the last chunk has exactly ITEMS_LAST_PAGE
+        const takeNow = remaining - ITEMS_LAST_PAGE;
+        chunks.push(items.slice(idx, idx + takeNow));
+        idx += takeNow;
+      }
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
@@ -175,14 +196,16 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           body { margin: 0; padding: 0; }
           .marg-page {
             page-break-after: always;
+            page-break-inside: avoid;
+            break-after: always;
+            break-inside: avoid;
             width: ${isLandscape ? '210mm' : '148mm'};
-            min-height: ${isLandscape ? '148mm' : '210mm'};
             height: auto;
             padding: 4mm !important;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
-            overflow: visible;
+            overflow: hidden;
             background: white !important;
             border: 0 !important;
           }
@@ -359,23 +382,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                   </tr>
                 );
               })}
-              {isLastPage && Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
-                <tr key={`spacer-${i}`} className="row-height border-b border-gray-100 last:border-b-0">
-                    {showRateColumn && <td className="border-r border-black"></td>}
-                    <td className="border-r border-black"></td>
-                    <td className="border-r border-black"></td>
-                    <td className="border-r border-black"></td>
-                    <td className="border-r border-black"></td>
-                    <td className="border-r border-black"></td>
-                    <td className="border-r border-black"></td>
-                    <td className="border-r border-black"></td>
-                    <td className="border-r border-black"></td>
-                    {showTradeDiscountColumn && <td className="border-r border-black"></td>}
-                    {showSchemeColumn && <td className="border-r border-black"></td>}
-                    <td className="border-r border-black"></td>
-                    <td className=""></td>
-                </tr>
-              ))}
+
               {!isLastPage && (
                 <tr className="page-break-footer">
                   <td colSpan={11 + (showTradeDiscountColumn ? 1 : 0) + (showSchemeColumn ? 1 : 0)} style={{ borderBottom: '1px solid #000' }}></td>

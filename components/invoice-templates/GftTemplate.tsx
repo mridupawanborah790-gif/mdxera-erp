@@ -11,7 +11,8 @@ interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 10;     // intermediate pages
+const ITEMS_LAST_PAGE = 7;     // last page shares space with the footer
 
 const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -78,9 +79,23 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
         };
     });
 
-    const chunks = [];
-    for (let i = 0; i < itemsWithCalculations.length; i += ITEMS_PER_PAGE) {
-      chunks.push(itemsWithCalculations.slice(i, i + ITEMS_PER_PAGE));
+    // Two-tier chunking: keep last page lighter so the footer fits
+    const chunks: (typeof itemsWithCalculations)[] = [];
+    let idx = 0;
+    while (idx < itemsWithCalculations.length) {
+      const remaining = itemsWithCalculations.length - idx;
+      if (remaining <= ITEMS_LAST_PAGE) {
+        chunks.push(itemsWithCalculations.slice(idx));
+        break;
+      }
+      if (remaining - ITEMS_PER_PAGE > ITEMS_LAST_PAGE) {
+        chunks.push(itemsWithCalculations.slice(idx, idx + ITEMS_PER_PAGE));
+        idx += ITEMS_PER_PAGE;
+      } else {
+        const takeNow = remaining - ITEMS_LAST_PAGE;
+        chunks.push(itemsWithCalculations.slice(idx, idx + takeNow));
+        idx += takeNow;
+      }
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
@@ -233,22 +248,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                             <td className="p-1 text-right font-bold">{(item.finalAmount || 0).toFixed(2)}</td>
                         </tr>
                     ))}
-                    {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
-                        <tr key={`empty-${i}`} className="border-b border-gray-300 last:border-b-0 h-6">
-                            {showRateColumn && <td className="border-r border-black"></td>}
-                            <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
-                            <td className="border-r border-black"></td>
-                            {showTradeDiscountColumn && <td className="border-r border-black"></td>}
-                            {showSchemeColumn && <td className="border-r border-black"></td>}
-                            {!isNonGst && <td className="border-r border-black"></td>}
-                            <td></td>
-                        </tr>
-                    ))}
+
                 </tbody>
             </table>
         </div>

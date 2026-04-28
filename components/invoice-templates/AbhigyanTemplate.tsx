@@ -9,7 +9,8 @@ interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 10;     // intermediate pages
+const ITEMS_LAST_PAGE = 6;     // last page: footer includes GST analysis table
 
 const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
@@ -76,9 +77,23 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
         gstSummary[r].sgst += item.gstAmt / 2;
     });
 
-    const chunks = [];
-    for (let i = 0; i < items.length; i += ITEMS_PER_PAGE) {
-      chunks.push(items.slice(i, i + ITEMS_PER_PAGE));
+    // Two-tier chunking: keep last page lighter so the footer fits
+    const chunks: (typeof items)[] = [];
+    let cidx = 0;
+    while (cidx < items.length) {
+      const remaining = items.length - cidx;
+      if (remaining <= ITEMS_LAST_PAGE) {
+        chunks.push(items.slice(cidx));
+        break;
+      }
+      if (remaining - ITEMS_PER_PAGE > ITEMS_LAST_PAGE) {
+        chunks.push(items.slice(cidx, cidx + ITEMS_PER_PAGE));
+        cidx += ITEMS_PER_PAGE;
+      } else {
+        const takeNow = remaining - ITEMS_LAST_PAGE;
+        chunks.push(items.slice(cidx, cidx + takeNow));
+        cidx += takeNow;
+      }
     }
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
@@ -210,18 +225,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   </tr>
               ))}
               
-              {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - chunk.length) }).map((_, i) => (
-                  <tr key={`spacer-${i}`} className="row-min-h">
-                      {showRateColumn && <td className="border-l border-r border-black"></td>}
-                      <td className="border-l border-r border-black"></td>
-                      <td className="border-l border-r border-black"></td>
-                      <td className="border-l border-r border-black"></td>
-                      <td className="border-l border-r border-black"></td>
-                      <td className="border-l border-r border-black"></td>
-                      <td className="border-l border-r border-black"></td>
-                      <td className="border-l border-r border-black"></td>
-                  </tr>
-              ))}
+
               
               {/* Local Tax Rows inside table */}
               {!isNonGst && Object.entries(calculations.gstSummary).map(([rate, vals], idx) => {
