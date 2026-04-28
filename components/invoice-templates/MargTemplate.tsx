@@ -150,6 +150,24 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         @media print {
           .invoice-container { page-break-inside: avoid; break-inside: avoid; }
           .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer-block {
+            page-break-inside: avoid;
+            break-inside: avoid;
+            margin-top: 5px;
+            display: block;
+          }
+          table, tr, td {
+            page-break-inside: avoid;
+          }
+          .invoice-table tr {
+            page-break-inside: avoid;
+          }
+          .invoice-table td {
+            padding: 2px 4px;
+          }
+          .invoice-header {
+            margin-bottom: 4px;
+          }
           @page { 
             margin: 0mm !important; 
             size: A5 ${orientation}; 
@@ -248,6 +266,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
         return (
         <div key={pageIdx} className="marg-page">
+          <div className="invoice-header">
           <div className="grid grid-cols-3 border-t border-x border-black">
             <div className="p-1.5 border-r border-black">
               <h1 className="text-base font-black uppercase text-blue-900 mb-0.5 leading-none">{bill.pharmacy.pharmacy_name}</h1>
@@ -277,7 +296,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                  {customerGstin ? <p>GSTIN: {customerGstin}</p> : (bill.customerDetails?.panNumber ? <p>PAN: {toUpperDisplay(bill.customerDetails.panNumber)}</p> : null)}
                  {customerDrugLicense && <p>DL NO: {customerDrugLicense}</p>}
                </div>
-            </div>
+              </div>
           </div>
 
           <div className="grid grid-cols-3 border-y border-x border-black bg-gray-100">
@@ -294,9 +313,10 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                   </div>
               </div>
           </div>
+          </div>
 
           <div className="flex flex-col">
-          <table className="w-full erp-table items-table invoice-items border-collapse bg-white">
+          <table className="invoice-table w-full erp-table items-table invoice-items border-collapse bg-white">
             <thead>
               <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
@@ -378,6 +398,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           </div>
 
           {isLastPage && (
+          <div className="invoice-footer-block">
           <div className="invoice-footer grid grid-cols-2 footer-border flex-shrink-0 bg-white">
                 <div className="border-r border-black p-1.5 flex flex-col justify-between">
                   {!isNonGst && (
@@ -477,6 +498,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     </div>
                   </>
                 </div>
+            </div>
             </div>
           )}
         </div>
