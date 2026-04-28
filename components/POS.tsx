@@ -523,6 +523,27 @@ const POS = forwardRef<any, POSProps>(({
         return /^\d{0,6}(\.\d{0,2})?$/.test(value);
     }, []);
 
+    const isBarcodeLikeGridEntry = useCallback((field: keyof BillItem, rawValue: string) => {
+        const value = String(rawValue || '').trim();
+        if (!value) return false;
+
+        const guardedFields: Array<keyof BillItem> = [
+            'quantity',
+            'looseQuantity',
+            'freeQuantity',
+            'discountPercent',
+            'gstPercent',
+            'rate',
+            'mrp',
+            'itemFlatDiscount',
+        ];
+        if (!guardedFields.includes(field)) return false;
+
+        const compact = value.replace(/\s+/g, '');
+        const numericOnly = /^[0-9]+$/.test(compact);
+        return numericOnly && compact.length >= 8;
+    }, []);
+
     useEffect(() => {
         const handleGlobalKeyDown = () => {
             setHoveredRowId(null);
@@ -1640,6 +1661,10 @@ const POS = forwardRef<any, POSProps>(({
     const handleUpdateCartItem = useCallback((id: string, field: keyof BillItem, value: any) => {
         setCartItems(prev => prev.map(item => {
             if (item.id === id) {
+                if (isBarcodeLikeGridEntry(field, String(value ?? ''))) {
+                    addNotification('Barcode scanning is allowed only in Product Selection Matrix search.', 'warning');
+                    return item;
+                }
                 const isSelectedProductRow = Boolean((item.inventoryItemId || '').trim());
                 if (field === 'name' && isSelectedProductRow) {
                     return item;
@@ -1677,7 +1702,7 @@ const POS = forwardRef<any, POSProps>(({
             }
             return item;
         }));
-    }, [isValidRateInput, normalizeExpiryInput]);
+    }, [addNotification, isBarcodeLikeGridEntry, isValidRateInput, normalizeExpiryInput]);
 
     const clearSelectedProductFromRow = useCallback((rowId: string) => {
         setCartItems(prev => prev.map(item => {
