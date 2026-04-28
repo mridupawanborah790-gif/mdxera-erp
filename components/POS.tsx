@@ -115,6 +115,25 @@ const parseExpiryForSort = (expiry?: string | null): number => {
     return (year * 100) + month;
 };
 
+const normalizeLookupToken = (value?: string | null): string => (value || '').trim().toLowerCase();
+
+const resolveSearchPriority = (item: InventoryItem, searchTerm: string): number => {
+    const term = normalizeLookupToken(searchTerm);
+    if (!term) return 5;
+
+    const barcode = normalizeLookupToken(item.barcode);
+    const code = normalizeLookupToken(item.code);
+    const name = normalizeLookupToken(item.name);
+    const manufacturer = normalizeLookupToken(item.manufacturer);
+    const brand = normalizeLookupToken(item.brand);
+
+    if (barcode && barcode === term) return 1;
+    if (code && code.includes(term)) return 2;
+    if (name && name.includes(term)) return 3;
+    if ((brand && brand.includes(term)) || (manufacturer && manufacturer.includes(term))) return 4;
+    return 5;
+};
+
 const resolveCustomerTierRate = (item: Pick<InventoryItem, 'rateA' | 'rateB' | 'rateC'>, customerTier?: Customer['defaultRateTier']): number | null => {
     if (customerTier === 'rateA' && Number(item.rateA) > 0) return Number(item.rateA);
     if (customerTier === 'rateB' && Number(item.rateB) > 0) return Number(item.rateB);
@@ -1267,8 +1286,10 @@ const POS = forwardRef<any, POSProps>(({
             const name = i.name.toLowerCase();
             const code = (i.code || '').toLowerCase();
             const barcode = (i.barcode || '').toLowerCase();
+            const brand = (i.brand || '').toLowerCase();
+            const manufacturer = (i.manufacturer || '').toLowerCase();
             
-            if (!term || name.includes(term) || code.includes(term) || barcode.includes(term)) {
+            if (!term || name.includes(term) || code.includes(term) || barcode.includes(term) || brand.includes(term) || manufacturer.includes(term)) {
                 // Use code as primary key if available, otherwise name|brand
                 const key = i.code ? `CODE:${i.code.toLowerCase()}` : `NAME:${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
                 
@@ -1291,8 +1312,10 @@ const POS = forwardRef<any, POSProps>(({
             const name = m.name.toLowerCase();
             const materialCode = (m.materialCode || '').toLowerCase();
             const barcode = (m.barcode || '').toLowerCase();
+            const brand = (m.brand || '').toLowerCase();
+            const manufacturer = (m.manufacturer || '').toLowerCase();
 
-            if (!term || name.includes(term) || materialCode.includes(term) || barcode.includes(term)) {
+            if (!term || name.includes(term) || materialCode.includes(term) || barcode.includes(term) || brand.includes(term) || manufacturer.includes(term)) {
                 const key = m.materialCode ? `CODE:${m.materialCode.toLowerCase()}` : `NAME:${m.name.toLowerCase()}|${m.brand?.toLowerCase() || ''}`;
                 
                 // Only add if not already present from inventory (prevents duplicates)
@@ -1326,6 +1349,10 @@ const POS = forwardRef<any, POSProps>(({
 
         return Array.from(grouped.values())
             .sort((a, b) => {
+                const priorityA = resolveSearchPriority(a.item, term);
+                const priorityB = resolveSearchPriority(b.item, term);
+                if (priorityA !== priorityB) return priorityA - priorityB;
+
                 // Priority 1: Items with stock first
                 const stockA = a.item.stock || 0;
                 const stockB = b.item.stock || 0;
@@ -1343,6 +1370,35 @@ const POS = forwardRef<any, POSProps>(({
             })
             .slice(0, 30);
     }, [modalSearchTerm, inventory, medicines]);
+
+    const tryAutoPickByBarcode = useCallback((rawValue: string): boolean => {
+        const token = normalizeLookupToken(rawValue);
+        if (!token) return false;
+
+        const exactMatches = deduplicatedSearchInventory.filter(wrapper => {
+            const itemBarcode = normalizeLookupToken(wrapper.item.barcode);
+            const batchBarcodeMatch = wrapper.batches.some(batch => normalizeLookupToken(batch.barcode) === token);
+            return itemBarcode === token || batchBarcodeMatch;
+        });
+
+        if (exactMatches.length === 1) {
+            triggerBatchSelection(exactMatches[0]);
+            return true;
+        }
+
+        if (exactMatches.length > 1) {
+            addNotification('Duplicate barcode found. Please select product manually.', 'warning');
+            return true;
+        }
+
+        return false;
+    }, [addNotification, deduplicatedSearchInventory]);
+
+    useEffect(() => {
+        if (!isSearchModalOpen) return;
+        if (!modalSearchTerm.trim()) return;
+        tryAutoPickByBarcode(modalSearchTerm);
+    }, [isSearchModalOpen, modalSearchTerm, tryAutoPickByBarcode]);
 
     const activeIntelItem = useMemo(() => {
         if (isSearchModalOpen && deduplicatedSearchInventory.length > 0) {
@@ -1569,8 +1625,8 @@ const POS = forwardRef<any, POSProps>(({
 
         setTimeout(() => {
             const firstEditableField =
-                document.getElementById(`expiry-${newItemId}`) ||
-                document.getElementById(`qty-p-${newItemId}`);
+                document.getElementById(`qty-p-${newItemId}`) ||
+                document.getElementById(`expiry-${newItemId}`);
 
             if (firstEditableField) {
                 firstEditableField.focus();
@@ -2525,6 +2581,11 @@ const POS = forwardRef<any, POSProps>(({
                                                     } else {
                                                         openSearchModal(activeRowIdRef.current, val);
                                                     }
+                                                    if (val.trim()) {
+                                                        setTimeout(() => {
+                                                            tryAutoPickByBarcode(val);
+                                                        }, 0);
+                                                    }
                                                 }}
                                                 onFocus={(e) => {
                                                     const val = e.target.value;
@@ -2753,7 +2814,10 @@ const POS = forwardRef<any, POSProps>(({
                                     ref={modalSearchInputRef}
                                     type="text"
                                     value={modalSearchTerm}
-                                    onChange={e => setModalSearchTerm(e.target.value)}
+                                    onChange={e => {
+                                        setModalSearchTerm(e.target.value);
+                                        setSelectedSearchIndex(0);
+                                    }}
                                     onFocus={() => setIsKeywordFocused(true)}
                                     onBlur={() => setIsKeywordFocused(false)}
                                     placeholder="Type medicine name or code..."
