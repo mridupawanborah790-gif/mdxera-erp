@@ -1409,6 +1409,13 @@ const App: React.FC = () => {
 
     const handleAddMedicineMaster = async (med: Omit<Medicine, 'id'>) => {
         if (!currentUser) throw new Error("Unauthorized");
+        const normalizedBarcode = (med.barcode || '').trim().toLowerCase();
+        if (normalizedBarcode) {
+            const duplicateBarcode = medicines.find(existing => (existing.barcode || '').trim().toLowerCase() === normalizedBarcode);
+            if (duplicateBarcode) {
+                throw new Error(`Barcode "${med.barcode}" is already used in Material Master (${duplicateBarcode.name}).`);
+            }
+        }
         const saved = await storage.saveData('material_master', med, currentUser);
         await loadData(currentUser, 'background');
         return saved;
@@ -1418,6 +1425,17 @@ const App: React.FC = () => {
         if (!currentUser) throw new Error("Unauthorized");
         setIsOperationLoading(true);
         try {
+            const normalizedBarcode = (updatedMedicine.barcode || '').trim().toLowerCase();
+            if (normalizedBarcode) {
+                const duplicateBarcode = medicines.find(existing =>
+                    existing.id !== updatedMedicine.id &&
+                    (existing.barcode || '').trim().toLowerCase() === normalizedBarcode
+                );
+                if (duplicateBarcode) {
+                    throw new Error(`Barcode "${updatedMedicine.barcode}" is already used in Material Master (${duplicateBarcode.name}).`);
+                }
+            }
+
             const updatedPack = (updatedMedicine.pack || '').trim();
             const inferredUnitsPerPack = resolveUnitsPerStrip(extractPackMultiplier(updatedPack) ?? 1, updatedPack);
             
