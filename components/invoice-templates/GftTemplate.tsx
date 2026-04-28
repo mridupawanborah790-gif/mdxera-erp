@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
-import { calculateBillingTotals, getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode } from '../../utils/billing';
+import { getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -18,17 +18,9 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const showTradeDiscountColumn = (bill.items || []).some(item => (item.discountPercent || 0) > 0);
   const showSchemeColumn = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
   const showRateColumn = isRateFieldAvailable(bill.configurations);
+  const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
+  const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
   
-  const computedBillTotals = useMemo(() => calculateBillingTotals({
-    items: bill.items || [],
-    billDiscount: bill.schemeDiscount || 0,
-    adjustment: bill.adjustment || 0,
-    isNonGst,
-    configurations: bill.configurations,
-    organizationType: bill.pharmacy?.organization_type,
-    pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
-
   const billDetails = useMemo(() => {
     let subtotal = 0;
     let totalCgst = 0;
@@ -40,7 +32,13 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
         const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
         const unitsPerPack = item.unitsPerPack || 1;
         const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-        const finalAmount = billedQty * rate;
+        const grossAmount = billedQty * rate;
+        const tradeDiscountAmount = grossAmount * ((item.discountPercent || 0) / 100);
+        const schemeDiscountAmount = item.schemeDiscountAmount || 0;
+        const flatDiscountAmount = item.itemFlatDiscount || 0;
+        const finalAmount = isIncludingDiscountMode
+          ? Math.max(0, grossAmount - tradeDiscountAmount - schemeDiscountAmount - flatDiscountAmount)
+          : Math.max(0, grossAmount);
 
         const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
         const isInclusive = effectivePricingMode === 'mrp';
@@ -83,16 +81,15 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
     const billDiscount = bill.schemeDiscount || 0;
-    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
-    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
-    const subtotalFromBill = computedBillTotals.taxableValue + (isNonGst ? 0 : computedBillTotals.tax);
-    const totalTaxFromBill = isNonGst ? 0 : computedBillTotals.tax;
+    const roundOff = bill.roundOff || 0;
+    const adjustment = bill.adjustment || 0;
+    const totalTaxFromBill = isNonGst ? 0 : (bill.totalGst || 0);
     const grandTotal = bill.total || 0;
 
-    const tradeDiscount = computedBillTotals.tradeDiscount || 0;
-    const schemeDiscount = computedBillTotals.schemeTotal || 0;
-    return { items: itemsWithCalculations, itemChunks, subtotal: subtotalFromBill, totalCgst, totalSgst, totalTaxFromBill, tradeDiscount, schemeDiscount, billDiscount, adjustment, roundOff, grandTotal };
-  }, [bill, isNonGst, computedBillTotals]);
+    const tradeDiscount = bill.totalItemDiscount || 0;
+    const schemeDiscount = (bill.items || []).reduce((sum, item) => sum + Number(item.schemeDiscountAmount || 0), 0);
+    return { items: itemsWithCalculations, itemChunks, subtotal, totalCgst, totalSgst, totalTaxFromBill, tradeDiscount, schemeDiscount, billDiscount, adjustment, roundOff, grandTotal };
+  }, [bill, isNonGst, isIncludingDiscountMode]);
 
   const termsList = bill.pharmacy.terms_and_conditions 
     ? bill.pharmacy.terms_and_conditions.split('\n').filter(t => t.trim() !== '')
@@ -188,6 +185,8 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
                     <div className="p-1 pl-2 border-b border-black font-semibold flex items-center">{bill.invoiceNumber || bill.id}</div>
                     <div className="p-1 pl-2 border-b border-r border-black font-bold flex items-center bg-gray-50">Invoice Date</div>
                     <div className="p-1 pl-2 border-b border-black flex items-center">{new Date(bill.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric'})}</div>
+                    <div className="p-1 pl-2 border-r border-black font-bold flex items-center bg-gray-50">Calculation Mode</div>
+                    <div className="p-1 pl-2 flex items-center">{isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</div>
                 </div>
             </div>
         </div>
@@ -294,7 +293,7 @@ const GftTemplate: React.FC<TemplateProps> = ({ bill }) => {
             <div className="w-1/3 flex flex-col">
                 <div className="p-2 space-y-1 text-xs">
                     <div className="flex justify-between"><span>Total Amount (MRP):</span> <span className="font-bold">{(billDetails.subtotal || 0).toFixed(2)}</span></div>
-                    {billDetails.tradeDiscount > 0 && <div className="flex justify-between text-indigo-700"><span>Trade Discount (₹):</span> <span>-{(billDetails.tradeDiscount).toFixed(2)}</span></div>}
+                    {!isIncludingDiscountMode && billDetails.tradeDiscount > 0 && <div className="flex justify-between text-indigo-700"><span>Trade Discount (₹):</span> <span>-{(billDetails.tradeDiscount).toFixed(2)}</span></div>}
                     {billDetails.schemeDiscount > 0 && <div className="flex justify-between text-emerald-700"><span>Scheme Discount (₹):</span> <span>-{(billDetails.schemeDiscount).toFixed(2)}</span></div>}
                     {billDetails.billDiscount > 0 && <div className="flex justify-between text-green-700"><span>Less Bill Discount:</span> <span>-{(billDetails.billDiscount).toFixed(2)}</span></div>}
                     {!isNonGst && (

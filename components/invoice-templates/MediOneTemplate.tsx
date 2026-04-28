@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
-import { calculateBillingTotals, resolveEffectivePricingMode } from '../../utils/billing';
+import { resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -19,16 +19,8 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
   const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
   const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
   const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
-
-  const computedBillTotals = useMemo(() => calculateBillingTotals({
-    items: bill.items || [],
-    billDiscount: bill.schemeDiscount || 0,
-    adjustment: bill.adjustment || 0,
-    isNonGst,
-    configurations: bill.configurations,
-    organizationType: bill.pharmacy?.organization_type,
-    pricingMode: bill.pricingMode
-  }), [bill.items, bill.schemeDiscount, bill.adjustment, bill.configurations, isNonGst, bill.pharmacy?.organization_type, bill.pricingMode]);
+  const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
+  const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
@@ -42,7 +34,13 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
       const rate = effectivePricingMode === 'mrp' ? (item.mrp ?? 0) : (item.rate ?? item.mrp ?? 0);
       const unitsPerPack = item.unitsPerPack || 1;
       const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-      const lineAmount = billedQty * rate;
+      const grossAmount = billedQty * rate;
+      const tradeDiscountAmount = grossAmount * ((item.discountPercent || 0) / 100);
+      const schemeDiscountAmount = item.schemeDiscountAmount || 0;
+      const flatDiscountAmount = item.itemFlatDiscount || 0;
+      const lineAmount = isIncludingDiscountMode
+        ? Math.max(0, grossAmount - tradeDiscountAmount - schemeDiscountAmount - flatDiscountAmount)
+        : Math.max(0, grossAmount);
       
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
       const isInclusive = effectivePricingMode === 'mrp';
@@ -80,12 +78,12 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
     const itemChunks = chunks.length > 0 ? chunks : [[]];
 
     const billDiscount = bill.schemeDiscount || 0;
-    const roundOff = bill.roundOff || computedBillTotals.autoRoundOff || 0;
-    const adjustment = bill.adjustment || computedBillTotals.adjustment || 0;
+    const roundOff = bill.roundOff || 0;
+    const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
 
-    return { items, itemChunks, subtotalValue: computedBillTotals.taxableValue, totalGst: (isNonGst ? 0 : computedBillTotals.tax), billDiscount, adjustment, roundOff, grandTotal };
-  }, [bill, isNonGst, computedBillTotals]);
+    return { items, itemChunks, subtotalValue, totalGst: (isNonGst ? 0 : (bill.totalGst || 0)), billDiscount, adjustment, roundOff, grandTotal };
+  }, [bill, isNonGst, isIncludingDiscountMode]);
 
   return (
     <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased border border-gray-200" style={{ fontSize: '8.25pt', fontWeight: 400 }}>
@@ -151,6 +149,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
                 <div className="mt-2 text-[8pt] font-bold">
                     <p>INV NO: <span className="font-mono text-blue-900">{bill.invoiceNumber || bill.id}</span></p>
                     <p>DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</p>
+                    <p>CALC: {isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</p>
                 </div>
             </div>
           </div>
