@@ -5,6 +5,7 @@ import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
 import { resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -19,6 +20,9 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
   const companyPhone = String(bill.pharmacy.mobile || '-').trim().toUpperCase();
   const companyGstin = String(bill.pharmacy.gstin || '-').trim().toUpperCase();
   const companyDrugLicense = String((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-').trim().toUpperCase();
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
   const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
   const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
 
@@ -86,9 +90,11 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
   }, [bill, isNonGst, isIncludingDiscountMode]);
 
   return (
-    <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased border border-gray-200" style={{ fontSize: '8.25pt', fontWeight: 400 }}>
+    <div className="invoice-container bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased border border-gray-200" style={{ fontSize: '8.25pt', fontWeight: 400 }}>
       <style>{`
         @media print {
+          .invoice-container { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
           @page { 
             margin: 0mm !important; 
             size: A5 ${orientation}; 
@@ -97,12 +103,13 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
           .medi-page {
             page-break-after: always;
             width: ${isLandscape ? '210mm' : '148mm'};
-            height: ${isLandscape ? '148mm' : '210mm'};
+            min-height: ${isLandscape ? '148mm' : '210mm'};
+            height: auto;
             padding: 5mm !important;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow: visible;
             background: white !important;
             border: 0 !important;
           }
@@ -113,12 +120,13 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
         @media screen {
           .medi-page {
             width: ${isLandscape ? '210mm' : '148mm'};
-            height: ${isLandscape ? '148mm' : '210mm'};
+            min-height: ${isLandscape ? '148mm' : '210mm'};
+            height: auto;
             padding: 5mm;
             background: white;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
             margin: 10px auto;
-            overflow: hidden;
+            overflow: visible;
           }
         }
         .med-table { border-collapse: collapse; width: 100%; border: 1px solid black; }
@@ -127,6 +135,9 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
         .med-table tfoot td { border-top: 1px solid black; font-weight: 600; }
         .border-top { border-top: 1px solid black; }
         .border-bottom { border-bottom: 1px solid black; }
+        .invoice-container { padding-bottom: 20px; min-height: 100%; height: auto; overflow: visible; }
+        .invoice-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
+        .amount-in-words, .bank-details, .invoice-footer { page-break-inside: avoid; break-inside: avoid; }
       `}</style>
 
       {calculations.itemChunks.map((chunk, pageIdx) => (
@@ -149,7 +160,6 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
                 <div className="mt-2 text-[8pt] font-bold">
                     <p>INV NO: <span className="font-mono text-blue-900">{bill.invoiceNumber || bill.id}</span></p>
                     <p>DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</p>
-                    <p>CALC: {isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</p>
                 </div>
             </div>
           </div>
@@ -218,10 +228,16 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
           </table>
 
           {/* Footer */}
-          <div className="mt-2 flex flex-col">
-              <div className="flex justify-between items-start border border-black p-2 bg-gray-50">
+          <div className="invoice-footer mt-2 flex flex-col">
+              <div className="invoice-bottom border border-black p-2 bg-gray-50">
                   <div className="flex-1">
-                      <p className="text-[7.5pt] font-semibold uppercase italic leading-tight">
+                      <BankDetailsInline
+                        bankName={companyBankName}
+                        accountNumber={companyAccountNumber}
+                        ifscCode={companyIfscCode}
+                        className="bank-details text-[7pt] text-gray-700 mb-1 leading-tight"
+                      />
+                      <p className="amount-in-words text-[7.5pt] font-semibold uppercase italic leading-tight">
                         {numberToWords(calculations.grandTotal)}
                       </p>
                       <div className="mt-4 text-[7pt] text-gray-500 italic">

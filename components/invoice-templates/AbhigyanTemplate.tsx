@@ -3,6 +3,7 @@ import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -12,6 +13,9 @@ const ITEMS_PER_PAGE = 10;
 
 const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
   const showRateColumn = isRateFieldAvailable(bill.configurations);
   const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
   const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
@@ -143,8 +147,6 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
               <div className="p-1">
                   <p className="text-[7pt] font-bold text-gray-500 uppercase leading-none">Mode of Pay</p>
                   <p className="font-bold text-[8.5pt]">{bill.paymentMode}</p>
-                  <p className="text-[7pt] font-bold text-gray-500 uppercase leading-none mt-1">Calculation Mode</p>
-                  <p className="font-bold text-[8.5pt]">{isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</p>
               </div>
           </div>
       </div>
@@ -252,6 +254,12 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
 
       {/* Amount in words */}
       <div className="border border-black border-t-0 p-1">
+          <BankDetailsInline
+            bankName={companyBankName}
+            accountNumber={companyAccountNumber}
+            ifscCode={companyIfscCode}
+            className="text-[7pt] text-gray-700 leading-none mb-0.5"
+          />
           <p className="text-[7pt] text-gray-500 font-bold uppercase leading-none">Amount Chargeable (in words)</p>
           <p className="font-bold uppercase text-[8pt] italic">{numberToWords(calculations.grandTotal)}</p>
       </div>

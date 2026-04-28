@@ -5,6 +5,7 @@ import { numberToWords } from '../../utils/numberToWords';
 import { getDisplaySchemePercent, hasLineLevelSchemeDiscount, isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 import { calculateCustomerReceivableBreakdown } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -122,6 +123,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const companyPhone = toUpperDisplay(bill.pharmacy.mobile || '-');
   const companyGstin = toUpperDisplay(bill.pharmacy.gstin || '-');
   const companyDrugLicense = toUpperDisplay((bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-');
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
   const isCreditBill = String(bill.paymentMode || '').trim().toLowerCase() === 'credit';
   const hasSelectedCustomer = Boolean(bill.customerDetails?.id);
   const netOutstandingReceivable = hasSelectedCustomer
@@ -141,9 +145,29 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     : 0;
 
   return (
-    <div className="bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased" style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}>
+    <div className="invoice-container bg-white text-black font-sans w-full mx-auto leading-tight min-h-full flex flex-col antialiased" style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}>
       <style>{`
         @media print {
+          .invoice-container { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer-block {
+            page-break-inside: avoid;
+            break-inside: avoid;
+            margin-top: 5px;
+            display: block;
+          }
+          table, tr, td {
+            page-break-inside: avoid;
+          }
+          .invoice-table tr {
+            page-break-inside: avoid;
+          }
+          .invoice-table td {
+            padding: 2px 4px;
+          }
+          .invoice-header {
+            margin-bottom: 4px;
+          }
           @page { 
             margin: 0mm !important; 
             size: A5 ${orientation}; 
@@ -152,12 +176,13 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           .marg-page {
             page-break-after: always;
             width: ${isLandscape ? '210mm' : '148mm'};
-            height: ${isLandscape ? '148mm' : '210mm'};
+            min-height: ${isLandscape ? '148mm' : '210mm'};
+            height: auto;
             padding: 4mm !important;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow: visible;
             background: white !important;
             border: 0 !important;
           }
@@ -168,12 +193,13 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         @media screen {
           .marg-page {
             width: ${isLandscape ? '210mm' : '148mm'};
-            height: ${isLandscape ? '148mm' : '210mm'};
+            min-height: ${isLandscape ? '148mm' : '210mm'};
+            height: auto;
             padding: 4mm;
             background: white;
             box-shadow: 0 0 5px rgba(0,0,0,0.1);
             margin-bottom: 10px;
-            overflow: hidden;
+            overflow: visible;
           }
         }
         .erp-table { border: 1px solid black; }
@@ -211,7 +237,27 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         }
         .font-mono-erp { font-family: 'Courier New', Courier, monospace; }
         .footer-border { border: 1px solid black; border-top: 0; }
-        .row-height { height: 18px; }
+        .row-height { height: 17px; }
+        .invoice-container { padding-bottom: 20px; min-height: 100%; height: auto; overflow: visible; }
+        .invoice-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
+        .amount-in-words, .bank-details, .invoice-footer { page-break-inside: avoid; break-inside: avoid; }
+        .invoice-header-right {
+          width: 100%;
+          display: flex;
+          justify-content: flex-end;
+        }
+        .invoice-meta {
+          display: flex;
+          justify-content: flex-end;
+          align-items: center;
+          gap: 6px;
+          font-size: 11px;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .invoice-meta span {
+          white-space: nowrap;
+        }
       `}</style>
 
       {calculations.itemChunks.map((chunk, pageIdx) => {
@@ -220,6 +266,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
         return (
         <div key={pageIdx} className="marg-page">
+          <div className="invoice-header">
           <div className="grid grid-cols-3 border-t border-x border-black">
             <div className="p-1.5 border-r border-black">
               <h1 className="text-base font-black uppercase text-blue-900 mb-0.5 leading-none">{bill.pharmacy.pharmacy_name}</h1>
@@ -249,22 +296,27 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                  {customerGstin ? <p>GSTIN: {customerGstin}</p> : (bill.customerDetails?.panNumber ? <p>PAN: {toUpperDisplay(bill.customerDetails.panNumber)}</p> : null)}
                  {customerDrugLicense && <p>DL NO: {customerDrugLicense}</p>}
                </div>
-            </div>
+              </div>
           </div>
 
           <div className="grid grid-cols-3 border-y border-x border-black bg-gray-100">
               <div className="col-span-2 py-0.5 flex items-center justify-center border-r border-black">
                   <h2 className="text-lg font-black uppercase tracking-[0.2em] text-gray-900 leading-none">{isNonGst ? 'ESTIMATE' : 'GST INVOICE'}</h2>
               </div>
-              <div className="p-0.5 pl-2 flex flex-col justify-center text-[8pt]">
-                  <p className="font-bold leading-none">INV: <span className="font-mono font-black text-blue-900">{bill.invoiceNumber || bill.id}</span></p>
-                  <p className="font-bold uppercase text-[6.5pt] mt-0.5">DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</p>
-                  <p className="font-bold uppercase text-[6.5pt] mt-0.5">CALC: {isIncludingDiscountMode ? 'Including Discount' : 'Excluding Discount'}</p>
+              <div className="p-0.5 pl-2 flex items-center">
+                  <div className="invoice-header-right">
+                    <div className="invoice-meta">
+                      <span>INV: <span className="font-mono font-black text-blue-900">{bill.invoiceNumber || bill.id}</span></span>
+                      <span>|</span>
+                      <span>DATE: {new Date(bill.date).toLocaleDateString('en-GB')}</span>
+                    </div>
+                  </div>
               </div>
+          </div>
           </div>
 
           <div className="flex flex-col">
-          <table className="w-full erp-table items-table invoice-items border-collapse bg-white">
+          <table className="invoice-table w-full erp-table items-table invoice-items border-collapse bg-white">
             <thead>
               <tr className="bg-gray-100 text-[7pt] font-semibold uppercase border-b border-black">
                 <th className="w-[4%]">#</th>
@@ -346,7 +398,8 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           </div>
 
           {isLastPage && (
-          <div className="grid grid-cols-2 footer-border flex-shrink-0 bg-white">
+          <div className="invoice-footer-block">
+          <div className="invoice-footer grid grid-cols-2 footer-border flex-shrink-0 bg-white">
                 <div className="border-r border-black p-1.5 flex flex-col justify-between">
                   {!isNonGst && (
                     <table className="w-full text-[6.5pt] border-collapse erp-table mb-1">
@@ -377,10 +430,16 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
                   <div className="mt-1">
                     <>
-                      <p className="text-[7.5pt] font-black uppercase text-gray-950 border-b border-dashed border-gray-300 pb-1 mb-1 leading-tight">
+                      <BankDetailsInline
+                        bankName={companyBankName}
+                        accountNumber={companyAccountNumber}
+                        ifscCode={companyIfscCode}
+                        className="bank-details text-[7pt] text-gray-700 mb-1.5 leading-tight"
+                      />
+                      <p className="amount-in-words text-[7.5pt] font-black uppercase text-gray-950 border-b border-dashed border-gray-300 pb-1 mb-1 leading-tight">
                         {numberToWords(calculations.grandTotal)}
                       </p>
-                      <div className="mt-2 flex justify-between items-end">
+                      <div className="invoice-bottom mt-2">
                           <div>
                               {hasSelectedCustomer && (
                                 <div className="space-y-0.5">
@@ -439,6 +498,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     </div>
                   </>
                 </div>
+            </div>
             </div>
           )}
         </div>

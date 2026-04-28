@@ -3,6 +3,7 @@ import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
 import { calculateBillingTotals } from '../../utils/billing';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -10,6 +11,9 @@ interface TemplateProps {
 
 const PharmaWorldTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
   const isCredit = bill.paymentMode === 'Credit';
 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
@@ -167,6 +171,12 @@ const PharmaWorldTemplate: React.FC<TemplateProps> = ({ bill }) => {
       <div className="flex items-start justify-between mt-1 border-t-2 border-black pt-1">
           <div className="w-8/12 pr-4">
               <div className="border-b-2 border-black pb-1">
+                  <BankDetailsInline
+                    bankName={companyBankName}
+                    accountNumber={companyAccountNumber}
+                    ifscCode={companyIfscCode}
+                    className="text-[9px] text-gray-700 mb-0.5 leading-tight"
+                  />
                   <p><strong>Amount in Words:</strong> {numberToWords(bill.total || 0)}</p>
               </div>
               {!isNonGst && (

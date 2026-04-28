@@ -180,7 +180,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
       role="dialog"
       aria-modal="true"
     >
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl transform transition-all flex flex-col max-h-[95vh] overflow-hidden print:max-h-none print:overflow-visible print:shadow-none print:rounded-none">
+      <div className="preview-modal bg-white rounded-lg shadow-xl w-full max-w-6xl transform transition-all flex flex-col max-h-[90vh] overflow-y-auto print:max-h-none print:overflow-visible print:shadow-none print:rounded-none">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border-b no-print bg-white z-10 relative gap-4">
           <div className="flex flex-col gap-2">
             <h3 className="text-lg font-semibold text-gray-800 leading-none">Invoice Preview</h3>
@@ -223,7 +223,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
             <div
               id="print-area"
-              className={`p-0 text-black bg-white shadow-lg mx-auto overflow-hidden print:shadow-none print:mx-0 ${isThermal ? 'w-[76mm]' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]')} ${template === 'medi-3' || isThermal ? 'h-auto overflow-visible' : ''}`}
+              className={`invoice-container p-0 text-black bg-white shadow-lg mx-auto overflow-visible print:shadow-none print:mx-0 ${isThermal ? 'w-[76mm]' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]')} ${template === 'medi-3' || isThermal ? 'h-auto overflow-visible' : ''}`}
             >
                 {renderTemplate()}
             </div>
@@ -251,6 +251,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
       <style>{`
         @media print {
+          .invoice-container { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
           @page {
             margin: 0;
             size: ${isThermal ? '76mm auto' : `A5 ${effectiveOrientation}`};
@@ -288,7 +290,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             max-width: none !important;
             max-height: none !important;
             height: auto !important;
-            overflow: hidden !important;
+            overflow: visible !important;
             border-radius: 0 !important;
             box-shadow: none !important;
             visibility: visible !important;

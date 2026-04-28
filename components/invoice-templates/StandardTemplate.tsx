@@ -5,6 +5,7 @@ import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types
 import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { calculateBillingTotals } from '../../utils/billing';
+import BankDetailsInline from './BankDetailsInline';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -12,6 +13,9 @@ interface TemplateProps {
 
 const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
   const isNonGst = bill.billType === 'non-gst';
+  const companyBankName = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
+  const companyIfscCode = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
 
   const computedBillTotals = useMemo(() => calculateBillingTotals({
     items: bill.items || [],
@@ -133,6 +137,12 @@ const StandardTemplate: React.FC<TemplateProps> = ({ bill }) => {
         <div className="flex justify-between items-start">
           <div className="w-2/3">
             <p className="text-[10pt] font-black uppercase text-gray-400 mb-2 tracking-widest">Amount in Words</p>
+            <BankDetailsInline
+              bankName={companyBankName}
+              accountNumber={companyAccountNumber}
+              ifscCode={companyIfscCode}
+              className="text-[9.5pt] text-gray-700 mb-1 leading-tight"
+            />
             <p className="text-[11pt] font-bold italic text-gray-800">{numberToWords(bill.total || 0)}</p>
             
             <div className="mt-10 text-[9pt] text-gray-500 max-w-sm">
