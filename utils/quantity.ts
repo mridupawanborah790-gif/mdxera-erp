@@ -8,20 +8,15 @@ export const formatPackLooseQuantity = (
   looseQty?: number | null,
   freeQty?: number | null
 ): string => {
-  const packs = Number(packQty || 0);
-  const loose = Number(looseQty || 0);
-  const free = Number(freeQty || 0);
-  const parts: string[] = [];
+  const qty = Number(packQty ?? 0);
+  const loose = Number(looseQty ?? 0);
+  const free = Number(freeQty ?? 0);
 
-  if (packs > 0) {
-    parts.push(`${formatQtyValue(packs)}(P)`);
-  }
   if (loose > 0) {
-    parts.push(`${formatQtyValue(loose)}(L)`);
+    return `${formatQtyValue(qty)}:${formatQtyValue(loose)}`;
   }
   if (free > 0) {
-    parts.push(`${formatQtyValue(free)}(F)`);
+    return `${formatQtyValue(qty)}+${formatQtyValue(free)}`;
   }
-
-  return parts.length > 0 ? parts.join(' + ') : '0';
+  return formatQtyValue(qty);
 };
