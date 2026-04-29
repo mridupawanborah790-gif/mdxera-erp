@@ -244,7 +244,7 @@ const Reports: React.FC<ReportsProps> = ({
       }
 
       case 'doctorsSalesDetailedReport': {
-        reportHeaders = ['Doctor Name', 'Sales Bill No', 'Sales Bill Date', 'Product Name', 'Quantity', 'Product MFR', 'MRP', 'Sales Rate', 'Discount', 'Profit Margin', 'Amount'];
+        reportHeaders = ['Doctor Name', 'Sales Bill No', 'Sales Bill Date', 'Product Name', 'Quantity', 'Product MFR', 'MRP', 'Sales Rate', 'Purchase Rate', 'Discount', 'Profit Margin', 'Amount', 'Status'];
         rows = completedSales.flatMap(tx => {
           const doctorFromId = tx.doctorId ? doctorById.get(tx.doctorId) : undefined;
           const doctorFromName = !doctorFromId ? doctorByName.get((tx.referredBy || '').trim().toLowerCase()) : undefined;
@@ -262,7 +262,8 @@ const Reports: React.FC<ReportsProps> = ({
             const amount = (qty * salesRate) - lineDiscount;
             const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
             const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
-            const marginValue = purchaseRate > 0 ? ((salesRate - purchaseRate) / purchaseRate) * 100 : 0;
+            const marginPerUnit = purchaseRate > 0 ? (salesRate - purchaseRate) : 0;
+            const totalProfitMargin = qty > 1 ? (marginPerUnit * qty) : marginPerUnit;
 
             return {
               'Doctor Name': doctorName,
@@ -273,9 +274,11 @@ const Reports: React.FC<ReportsProps> = ({
               'Product MFR': item.manufacturer || inv?.manufacturer || 'N/A',
               'MRP': round2(Number(item.mrp ?? inv?.mrp ?? 0)),
               'Sales Rate': round2(salesRate),
+              'Purchase Rate': purchaseRate > 0 ? round2(purchaseRate) : 'N/A',
               'Discount': round2(lineDiscount),
-              'Profit Margin': purchaseRate > 0 ? round2(marginValue) : 'N/A',
-              'Amount': round2(amount),
+              'Profit Margin': purchaseRate > 0 ? round2(totalProfitMargin) : 0,
+              'Amount': round2(Number(item.finalAmount ?? item.amount ?? amount ?? 0)),
+              'Status': 'Completed',
               '_sortDoctor': doctorName.toLowerCase(),
               '_sortDate': new Date(tx.date).getTime(),
               '_doctorBillKey': `${doctorName.toLowerCase()}|${tx.invoiceNumber || tx.id}`,
@@ -530,15 +533,7 @@ const Reports: React.FC<ReportsProps> = ({
     const doctorRows = filteredData.filter(row => String(row['Doctor Name'] || '').trim() === doctorName);
     const totalSales = round2(doctorRows.reduce((sum, row) => sum + Number(row['Amount'] || 0), 0));
     const totalDiscount = round2(doctorRows.reduce((sum, row) => sum + Number(row['Discount'] || 0), 0));
-    const totalProfit = round2(doctorRows.reduce((sum, row) => {
-      const amount = Number(row['Amount'] || 0);
-      const salesRate = Number(row['Sales Rate'] || 0);
-      const margin = Number(row['Profit Margin'] || 0);
-      if (!Number.isFinite(margin) || salesRate <= 0) return sum;
-      const purchaseRate = salesRate / (1 + (margin / 100));
-      const qty = amount / Math.max(salesRate, 1);
-      return sum + ((salesRate - purchaseRate) * qty);
-    }, 0));
+    const totalProfit = round2(doctorRows.reduce((sum, row) => sum + Number(row['Profit Margin'] || 0), 0));
     const totalBills = new Set(doctorRows.map(row => String(row['Sales Bill No'] || ''))).size;
 
     return { doctorName, totalSales, totalBills, totalDiscount, totalProfit };
