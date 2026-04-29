@@ -57,32 +57,99 @@ const ExportSalesModal: React.FC<ExportSalesModalProps> = ({ isOpen, onClose, da
             return;
         }
 
+        const formatDate = (value?: string | Date) => {
+            if (!value) return '-';
+            return new Date(value).toLocaleDateString('en-GB');
+        };
+
+        const printTime = new Date().toLocaleString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+        });
+
+        const periodStart = data.length ? new Date(Math.min(...data.map(tx => new Date(tx.date).getTime()))) : undefined;
+        const periodEnd = data.length ? new Date(Math.max(...data.map(tx => new Date(tx.date).getTime()))) : undefined;
+        const netTotal = data.reduce((sum, tx) => sum + (tx.status !== 'cancelled' ? (tx.total || 0) : 0), 0);
+
         const element = document.createElement('div');
-        element.style.padding = '20px';
+        element.style.padding = '16px';
         element.style.fontFamily = 'Arial, sans-serif';
         element.innerHTML = `
-            <div style="text-align: center; margin-bottom: 20px;">
-                <h1 style="margin: 0; text-transform: uppercase;">${pharmacyName}</h1>
-                <h2 style="margin: 5px 0; color: #666;">SALES REGISTER (OUTWARD)</h2>
-                <p style="font-size: 10px; color: #999;">Generated on: ${new Date().toLocaleString()}</p>
-            </div>
-            <table style="width: 100%; border-collapse: collapse; font-size: 9px;">
+            <style>
+                .mis-print-page { color: #111827; font-size: 10px; }
+                .mis-report-header { text-align: center; margin-bottom: 10px; border-bottom: 1px solid #d1d5db; padding-bottom: 8px; }
+                .company-name { font-size: 18px; font-weight: 700; text-transform: uppercase; }
+                .company-address, .company-meta { font-size: 10px; margin-top: 2px; }
+                .report-title { margin-top: 8px; font-size: 13px; font-weight: 700; letter-spacing: 0.05em; }
+                .report-meta, .print-meta { margin-top: 5px; display: flex; justify-content: space-between; gap: 10px; font-size: 9px; }
+                .mis-report-table { width: 100%; border-collapse: collapse; font-size: 9px; }
+                .mis-report-table th, .mis-report-table td { border: 1px solid #9ca3af; padding: 5px; }
+                .mis-report-table thead tr { background: #f3f4f6; }
+                .mis-report-table tfoot tr { background: #f9fafb; font-weight: 700; }
+                .right { text-align: right; }
+            </style>
+            <div class="mis-print-page">
+              <div class="mis-report-header">
+                <div class="company-name">${pharmacyName}</div>
+                <div class="company-address">-</div>
+                <div class="company-meta">GSTIN: - &nbsp; | &nbsp; DL: -</div>
+                <div class="report-title">SALES REGISTER (PRINT)</div>
+                <div class="report-meta">
+                  <span>Period: ${formatDate(periodStart)} to ${formatDate(periodEnd)}</span>
+                  <span>Filters: From: ${formatDate(periodStart)} | To: ${formatDate(periodEnd)}</span>
+                </div>
+                <div class="print-meta">
+                  <span>Printed: ${printTime}</span>
+                  <span>Page 1 of 1</span>
+                </div>
+              </div>
+              <table class="mis-report-table">
                 <thead>
-                    <tr style="background-color: #004242; color: white;">
-                        ${headers.map(h => `<th style="border: 1px solid #003333; padding: 6px; text-align: left;">${h}</th>`).join('')}
-                    </tr>
+                  <tr>
+                    <th>Bill No</th>
+                    <th>Bill Date</th>
+                    <th>Customer Name</th>
+                    <th>GSTIN</th>
+                    <th>Billing Category</th>
+                    <th>Taxable Amount</th>
+                    <th>GST Amount</th>
+                    <th>Discount</th>
+                    <th>Net Amount</th>
+                    <th>Status</th>
+                  </tr>
                 </thead>
                 <tbody>
-                    ${getExportData().map(row => `
-                        <tr>
-                            ${row.map(cell => `<td style="border: 1px solid #eee; padding: 5px;">${cell}</td>`).join('')}
-                        </tr>
-                    `).join('')}
+                  ${data.map(tx => `
+                    <tr>
+                      <td>${tx.id ?? '-'}</td>
+                      <td>${formatDate(tx.date)}</td>
+                      <td>${tx.customerName ?? '-'}</td>
+                      <td>-</td>
+                      <td>Retail</td>
+                      <td class="right">₹ ${(tx.subtotal || tx.total || 0).toFixed(2)}</td>
+                      <td class="right">₹ ${(tx.totalGst || 0).toFixed(2)}</td>
+                      <td class="right">₹ ${(tx.totalItemDiscount || 0).toFixed(2)}</td>
+                      <td class="right">₹ ${(tx.total || 0).toFixed(2)}</td>
+                      <td>${(tx.status || '-').toString().toUpperCase()}</td>
+                    </tr>
+                  `).join('')}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="5">TOTAL</td>
+                    <td class="right">₹ ${data.reduce((sum, tx) => sum + (tx.subtotal || tx.total || 0), 0).toFixed(2)}</td>
+                    <td class="right">₹ ${data.reduce((sum, tx) => sum + (tx.totalGst || 0), 0).toFixed(2)}</td>
+                    <td class="right">₹ ${data.reduce((sum, tx) => sum + (tx.totalItemDiscount || 0), 0).toFixed(2)}</td>
+                    <td class="right">₹ ${netTotal.toFixed(2)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
             </table>
-            <div style="margin-top: 20px; text-align: right; font-size: 10px; font-weight: bold;">
-                Total Sales Value: ₹${data.reduce((s, i) => s + (i.status !== 'cancelled' ? i.total : 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
+          </div>
         `;
 
         const opt = {
