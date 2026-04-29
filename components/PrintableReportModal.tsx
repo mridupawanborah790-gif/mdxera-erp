@@ -97,6 +97,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   const [selectedFilterFields, setSelectedFilterFields] = useState<string[]>([]);
   const [draftStructuredFilters, setDraftStructuredFilters] = useState<Record<string, StructuredFilter>>({});
   const [doctorViewMode, setDoctorViewMode] = useState<'summary' | 'item'>('summary');
+  const [paperSize, setPaperSize] = useState<'A4' | 'A5'>('A4');
   const columnDropdownRef = useRef<HTMLDivElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
   const effectiveHeaders = isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemHeaders : doctorSummaryHeaders;
@@ -504,6 +505,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   })];
   const estimatedLandscape = visibleHeaders.length > 9 || visibleHeaders.some(header => header.length > 16);
   const printOrientation = estimatedLandscape ? 'landscape' : 'portrait';
+  const printSizeClass = paperSize === 'A5' ? 'print-a5' : 'print-a4';
   const generatedAt = useMemo(() => new Date(), []);
   const generatedDate = generatedAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   const generatedTime = generatedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -522,8 +524,14 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       <style>{`
         @media print {
             @page { 
-              size: A4 ${printOrientation};
-              margin: 10mm 8mm;
+              size: ${paperSize} ${printOrientation};
+              margin: ${paperSize === 'A5' ? '6mm' : '10mm 8mm'};
+            }
+            @media print and (max-width: 148mm) {
+              @page {
+                size: A5 ${printOrientation};
+                margin: 6mm;
+              }
             }
             html, body {
               margin: 0 !important;
@@ -595,7 +603,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             th, td {
               border: 0.35pt solid #111 !important;
               padding: 3pt 5pt !important;
-              font-size: ${estimatedLandscape ? '8.2pt' : '9pt'} !important;
+              font-size: ${paperSize === 'A5' ? (estimatedLandscape ? '7.5pt' : '8pt') : (estimatedLandscape ? '8.2pt' : '9pt')} !important;
               line-height: 1.25 !important;
               color: #000 !important;
               vertical-align: top !important;
@@ -630,38 +638,34 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               padding: 0 0 3pt 0 !important;
               text-transform: none !important;
             }
-            .print-meta-block {
-              display: flex !important;
-              align-items: flex-start !important;
-              justify-content: space-between !important;
-              gap: 8pt !important;
+            .report-header {
+              text-align: center !important;
+              margin-bottom: 10px !important;
               border-bottom: 1pt solid #111 !important;
-              padding-bottom: 5pt !important;
-              margin-bottom: 2pt !important;
+              padding-bottom: 6pt !important;
             }
-            .print-meta-company h1 {
-              margin: 0 !important;
-              font-size: 12.5pt !important;
-              font-weight: 900 !important;
+            .report-header .company-name {
+              font-size: ${paperSize === 'A5' ? '13pt' : '16pt'} !important;
+              font-weight: 800 !important;
+              letter-spacing: 1px !important;
               text-transform: uppercase !important;
             }
-            .print-meta-company p {
-              margin: 1pt 0 !important;
-              font-size: 8pt !important;
+            .report-header .company-details {
+              font-size: ${paperSize === 'A5' ? '8pt' : '11px'} !important;
               line-height: 1.35 !important;
             }
-            .print-meta-report {
-              text-align: right !important;
-              font-size: 8pt !important;
-              line-height: 1.35 !important;
-              min-width: 45% !important;
-            }
-            .print-meta-report-title {
-              font-size: 10pt !important;
-              font-weight: 900 !important;
+            .report-header .report-title {
+              font-size: ${paperSize === 'A5' ? '11pt' : '14px'} !important;
+              font-weight: 800 !important;
+              margin-top: 5px !important;
               text-transform: uppercase !important;
-              margin-bottom: 2pt !important;
             }
+            .report-header .report-meta {
+              font-size: ${paperSize === 'A5' ? '7.5pt' : '10px'} !important;
+              margin-top: 4px !important;
+              line-height: 1.3 !important;
+            }
+
             .print-page-number::after {
               content: "Page " counter(page) " of " counter(pages);
               font-weight: 800 !important;
@@ -686,6 +690,12 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
           margin: 0.75rem auto;
           color: #000;
         }
+        .report-content.print-a5 {
+          width: min(100%, 148mm);
+          max-width: 148mm;
+          padding: 6mm;
+          font-size: 11px;
+        }
 
         .report-content[data-print-orientation="landscape"] {
           width: min(100%, 297mm);
@@ -693,6 +703,8 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
         }
         
         .report-table { width: 100%; table-layout: auto; }
+        .print-a5 .report-table { table-layout: fixed; }
+        .print-a5 .report-table th, .print-a5 .report-table td { padding: 2pt 3pt !important; }
         .report-table td { white-space: pre-line; }
       `}</style>
       
@@ -700,6 +712,10 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
           <div className="flex items-center space-x-4">
               <h2 className="text-sm font-bold uppercase tracking-widest">{title}</h2>
               <span className="px-2 py-1 text-[9px] font-black uppercase rounded bg-blue-900/60 border border-blue-700">Preview</span>
+              <select value={paperSize} onChange={(e) => setPaperSize(e.target.value as 'A4' | 'A5')} className="px-2 py-1 text-[10px] font-bold bg-gray-800 border border-gray-700 rounded">
+                <option value="A4">A4</option>
+                <option value="A5">A5</option>
+              </select>
               {isDoctorWiseSalesReport && (
                   <div className="flex items-center bg-gray-800 rounded border border-gray-700 overflow-hidden text-[10px] font-bold">
                       <button
@@ -844,7 +860,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       </div>
 
       <div className="flex-1 overflow-auto bg-gray-100 custom-scrollbar pb-10 print-scroll-root">
-          <div id="print-area" data-print-orientation={printOrientation} className="report-content shadow-2xl border border-gray-200">
+          <div id="print-area" data-print-orientation={printOrientation} className={`report-content ${printSizeClass} shadow-2xl border border-gray-200`}>
               
               <div className="flex justify-between items-center mb-8 border-b-2 border-black pb-4 gap-4 no-print">
                   <div className="flex-1 text-left">
@@ -904,20 +920,16 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                   <thead className="sticky top-0 z-10">
                       <tr className="print-only print-meta-row">
                         <th colSpan={Math.max(visibleHeaders.length, 1)}>
-                          <div className="print-meta-block">
-                            <div className="print-meta-company">
-                              <h1>{pharmacyDetails.pharmacy_name}</h1>
-                              <p>{pharmacyDetails.address || '-'}</p>
-                              <p>GSTIN: {pharmacyDetails.gstin || '-'}</p>
-                              <p>DL: {pharmacyDetails.drug_license || '-'}</p>
-                            </div>
-                            <div className="print-meta-report">
-                              <div className="print-meta-report-title">{title}</div>
-                              <div>Period: {reportPeriodLabel}</div>
-                              <div>Filters: {printFilterSummary}</div>
-                              <div>Printed: {generatedDate} {generatedTime}</div>
-                              <div className="print-page-number" />
-                            </div>
+                          <div className="report-header">
+                            <div className="company-name">{pharmacyDetails.pharmacy_name}</div>
+                            <div className="company-details">{pharmacyDetails.address || '-'}</div>
+                            <div className="company-details">GSTIN: {(pharmacyDetails.gstin || '-').toUpperCase()}</div>
+                            <div className="company-details">DL No: {pharmacyDetails.drug_license || '-'}</div>
+                            <div className="report-title">{title}</div>
+                            <div className="report-meta">Period: {reportPeriodLabel}</div>
+                            <div className="report-meta">Filters: {printFilterSummary}</div>
+                            <div className="report-meta">Printed On: {generatedDate} {generatedTime}</div>
+                            <div className="report-meta print-page-number" />
                           </div>
                         </th>
                       </tr>
