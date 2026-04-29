@@ -3,6 +3,7 @@ import Modal from '../components/Modal';
 import type { InventoryItem, Transaction, Purchase, Distributor, Customer, SalesReturn, PurchaseReturn, ModuleConfig, DoctorMaster } from '../types';
 import { getOutstandingBalance } from '../utils/helpers';
 import { getStockBreakup } from '../utils/stock';
+import { formatPackLooseQuantity } from '../utils/quantity';
 
 interface ReportsProps {
   inventory: InventoryItem[];
@@ -34,6 +35,7 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'dateWiseSales', name: 'Date-wise Sales', group: 'Sales Reports' },
   { id: 'partyWiseSales', name: 'Party-wise Sales', group: 'Sales Reports' },
   { id: 'doctorWiseSales', name: 'Doctor-wise Sales', group: 'Sales Reports' },
+  { id: 'doctorsSalesDetailedReport', name: 'Doctors Sales Detailed Report', group: 'Sales Reports' },
   { id: 'itemWiseSales', name: 'Item-wise Sales', group: 'Sales Reports' },
   { id: 'categoryWiseSales', name: 'Category-wise Sales', group: 'Sales Reports' },
   { id: 'areaWiseSales', name: 'Area-wise Sales', group: 'Sales Reports' },
@@ -240,6 +242,52 @@ const Reports: React.FC<ReportsProps> = ({
         rows = Array.from(map.values()).map((value: any) => ({ 'Doctor Name': value.doctorName, 'Doctor Code': value.doctorCode, 'Specialization': value.specialization, 'Mobile': value.mobile, 'Area': value.area, 'Number of Bills': value.bills, 'Number of Customers': value.customers.size, 'Total Sales Amount': round2(value.sales), 'Total Discount': round2(value.discount), 'Total GST': round2(value.gst), 'Net Sales Value': round2(value.net) }));
         break;
       }
+
+      case 'doctorsSalesDetailedReport': {
+        reportHeaders = ['Doctor Name', 'Sales Bill No', 'Sales Bill Date', 'Product Name', 'Quantity', 'Product MFR', 'MRP', 'Sales Rate', 'Purchase Rate', 'Discount', 'Profit Margin', 'Amount', 'Status'];
+        rows = completedSales.flatMap(tx => {
+          const doctorFromId = tx.doctorId ? doctorById.get(tx.doctorId) : undefined;
+          const doctorFromName = !doctorFromId ? doctorByName.get((tx.referredBy || '').trim().toLowerCase()) : undefined;
+          const doctor = doctorFromId || doctorFromName;
+          const doctorName = (doctor?.name || tx.referredBy || '').trim();
+          if (!doctorName) return [];
+
+          return (tx.items || []).map((item: any) => {
+            const qty = Number(item.quantity || 0);
+            const freeQty = Number(item.freeQuantity || 0);
+            const salesRate = Number(item.rate ?? item.mrp ?? 0);
+            const lineDiscount = Number(item.itemFlatDiscount || 0)
+              + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
+              + Number(item.schemeDiscountAmount || 0);
+            const amount = (qty * salesRate) - lineDiscount;
+            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
+            const marginPerUnit = purchaseRate > 0 ? (salesRate - purchaseRate) : 0;
+            const totalProfitMargin = qty > 1 ? (marginPerUnit * qty) : marginPerUnit;
+
+            return {
+              'Doctor Name': doctorName,
+              'Sales Bill No': tx.invoiceNumber || tx.id,
+              'Sales Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
+              'Product Name': item.name || 'N/A',
+              'Quantity': formatPackLooseQuantity(qty, Number(item.looseQuantity || 0), freeQty),
+              'Product MFR': item.manufacturer || inv?.manufacturer || 'N/A',
+              'MRP': round2(Number(item.mrp ?? inv?.mrp ?? 0)),
+              'Sales Rate': round2(salesRate),
+              'Purchase Rate': purchaseRate > 0 ? round2(purchaseRate) : 'N/A',
+              'Discount': round2(lineDiscount),
+              'Profit Margin': purchaseRate > 0 ? round2(totalProfitMargin) : 0,
+              'Amount': round2(Number(item.finalAmount ?? item.amount ?? amount ?? 0)),
+              'Status': 'Completed',
+              '_sortDoctor': doctorName.toLowerCase(),
+              '_sortDate': new Date(tx.date).getTime(),
+              '_doctorBillKey': `${doctorName.toLowerCase()}|${tx.invoiceNumber || tx.id}`,
+            };
+          });
+        }).sort((a, b) => a._sortDoctor.localeCompare(b._sortDoctor) || b._sortDate - a._sortDate);
+        break;
+      }
+
       case 'itemWiseSales': {
         reportHeaders = ['Item Name', 'HSN', 'Quantity Sold', 'Free Qty', 'Gross Value', 'Discount', 'GST', 'Net Value'];
         const map = new Map<string, any>();
@@ -477,6 +525,20 @@ const Reports: React.FC<ReportsProps> = ({
 
   const selectedRow = selectedRowIndex >= 0 ? filteredData[selectedRowIndex] : null;
 
+  const doctorDetailSummary = useMemo(() => {
+    if (activeReportId !== 'doctorsSalesDetailedReport' || !selectedRow) return null;
+    const doctorName = String(selectedRow['Doctor Name'] || '').trim();
+    if (!doctorName) return null;
+
+    const doctorRows = filteredData.filter(row => String(row['Doctor Name'] || '').trim() === doctorName);
+    const totalSales = round2(doctorRows.reduce((sum, row) => sum + Number(row['Amount'] || 0), 0));
+    const totalDiscount = round2(doctorRows.reduce((sum, row) => sum + Number(row['Discount'] || 0), 0));
+    const totalProfit = round2(doctorRows.reduce((sum, row) => sum + Number(row['Profit Margin'] || 0), 0));
+    const totalBills = new Set(doctorRows.map(row => String(row['Sales Bill No'] || ''))).size;
+
+    return { doctorName, totalSales, totalBills, totalDiscount, totalProfit };
+  }, [activeReportId, filteredData, selectedRow]);
+
   const activeFilterChips = useMemo(() => {
     return Object.entries(activeFilters).flatMap(([field, values]) => values.map(value => ({ field, value })));
   }, [activeFilters]);
@@ -652,9 +714,17 @@ const Reports: React.FC<ReportsProps> = ({
         </section>
 
         <section className="border border-gray-300 bg-white min-h-0 flex flex-col">
-          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">Detail Preview</div>
+          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">{activeReportId === 'doctorsSalesDetailedReport' ? 'Doctor Summary' : 'Detail Preview'}</div>
           <div className="min-h-0 overflow-auto p-2 text-[11px] space-y-1">
-            {!selectedRow ? (
+            {activeReportId === 'doctorsSalesDetailedReport' && doctorDetailSummary ? (
+              <div className="space-y-1">
+                <div className="text-xs font-bold text-primary">{doctorDetailSummary.doctorName}</div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Sales</div><div>{doctorDetailSummary.totalSales}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Bills</div><div>{doctorDetailSummary.totalBills}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>{doctorDetailSummary.totalDiscount}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>{doctorDetailSummary.totalProfit}</div></div>
+              </div>
+            ) : !selectedRow ? (
               <div className="text-gray-500">Select a row to view details.</div>
             ) : (
               <>
