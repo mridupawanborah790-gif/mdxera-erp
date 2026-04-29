@@ -267,7 +267,7 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
     ];
 
     const isValidUuid = (value: any): boolean => 
-        typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+        typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
     // Standardize Primary Keys to 'id' for all tables.
     // This aligns with the migration_proper_fix.sql and avoids collisions with Owner IDs.
@@ -394,8 +394,11 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
         delete sanitized.sync_status;
         delete sanitized.record_uuid;
         
-        // Explicitly remove remarks to prevent schema errors if not supported by backend
-        delete sanitized.remarks;
+        // Explicitly remove remarks for tables that don't support it in the DB schema.
+        // purchase_orders has a valid 'remarks' column, so we must NOT strip it there.
+        if (tableName !== 'purchase_orders') {
+            delete sanitized.remarks;
+        }
         
         // RE-APPLY NARATION AND ADJUSTMENT AT THE END TO PREVENT ACCIDENTAL DELETION
         if (tableName === 'sales_bill' || tableName === 'sales_challans') {
