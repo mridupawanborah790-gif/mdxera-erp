@@ -12,12 +12,12 @@ interface TemplateProps {
 }
 
 // ─── Calibrated Page Capacity Constants ─────────────────────────────────────
-// Properly tuned to the physical dimensions of the A5 paper size in CSS.
+// Accurately tuned to the physical dimensions of the A5 paper size.
 const REGULAR_CAP_PORTRAIT  = 28; // Max items when page has the small continuation footer
-const LAST_CAP_PORTRAIT     = 18; // Max items when page has the large main footer
+const LAST_CAP_PORTRAIT     = 20; // Max items when page has the large main footer
 
 const REGULAR_CAP_LANDSCAPE = 16;
-const LAST_CAP_LANDSCAPE    = 6;
+const LAST_CAP_LANDSCAPE    = 11; // Increased safely so 8-11 items won't force a page split!
 
 const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
   const isNonGst = bill.billType === 'non-gst';
