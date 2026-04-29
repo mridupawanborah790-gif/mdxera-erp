@@ -29,6 +29,10 @@ type StructuredFilter = {
 
 const normalizeText = (value: unknown) => String(value ?? '').trim().toLowerCase();
 const NUMERIC_HEADER_PATTERN = /(amount|amt|total|net|tax|gst|cgst|sgst|igst|rate|price|value|qty|quantity|discount|margin|profit|balance|debit|credit|closing|opening|stock|free)/i;
+const DATE_HEADER_PATTERN = /(date)/i;
+const BILL_NO_PATTERN = /(bill\s*no|invoice\s*no|voucher\s*no)/i;
+const CUSTOMER_PATTERN = /(customer|party|name)/i;
+const STATUS_PATTERN = /(status)/i;
 
 const normalizeDateValue = (value: unknown): number | null => {
   if (value === null || value === undefined) return null;
@@ -53,6 +57,7 @@ const normalizeDateValue = (value: unknown): number | null => {
 
   return null;
 };
+const toProperCase = (value: string) => value.replace(/\w\S*/g, txt => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
 
 const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   isOpen,
@@ -516,13 +521,32 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     typeof value === 'number' ||
     (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value.replace(/,/g, ''))))
   );
+  const formatCellValue = (header: string, value: unknown) => {
+    if (value === null || value === undefined || value === '') return '-';
+    const text = String(value).trim();
+    const lowerHeader = header.toLowerCase();
+    const numeric = Number(text.replace(/,/g, ''));
+
+    if (DATE_HEADER_PATTERN.test(lowerHeader)) {
+      const parsed = normalizeDateValue(value);
+      if (parsed !== null) return new Date(parsed).toLocaleDateString('en-GB').replace(/\//g, '-');
+    }
+    if (CUSTOMER_PATTERN.test(lowerHeader)) return toProperCase(text);
+    if (STATUS_PATTERN.test(lowerHeader)) return toProperCase(text);
+    if (isNumericColumn(header, value) && Number.isFinite(numeric)) {
+      const moneyLike = /(amount|gst|discount|tax|total|net|rate|price|value)/i.test(lowerHeader);
+      const numberText = numeric.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return moneyLike ? `₹ ${numberText}` : numberText;
+    }
+    return text;
+  };
 
   return (
     <div id="print-report-modal-container" className="fixed inset-0 bg-white z-[100] flex flex-col animate-in fade-in duration-200 text-xs">
       <style>{`
         @media print {
             @page { 
-              size: A4 ${printOrientation};
+              size: ${printOrientation === 'landscape' ? 'A4 landscape' : 'A4'};
               margin: 10mm 8mm;
             }
             html, body {
@@ -594,9 +618,9 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             }
             th, td {
               border: 0.35pt solid #111 !important;
-              padding: 3pt 5pt !important;
+              padding: 4pt 6pt !important;
               font-size: ${estimatedLandscape ? '8.2pt' : '9pt'} !important;
-              line-height: 1.25 !important;
+              line-height: 1.35 !important;
               color: #000 !important;
               vertical-align: top !important;
               white-space: normal !important;
@@ -606,6 +630,9 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               font-weight: 800 !important;
               text-transform: uppercase !important;
               background: #f2f2f2 !important;
+            }
+            tbody tr:nth-child(even) td {
+              background: #fafafa !important;
             }
             td[data-align="right"], th[data-align="right"] {
               text-align: right !important;
@@ -631,30 +658,34 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               text-transform: none !important;
             }
             .print-meta-block {
-              display: flex !important;
-              align-items: flex-start !important;
-              justify-content: space-between !important;
+              display: block !important;
               gap: 8pt !important;
-              border-bottom: 1pt solid #111 !important;
+              border-bottom: 1.5pt solid #111 !important;
+              border-top: 1.5pt solid #111 !important;
+              padding-top: 5pt !important;
               padding-bottom: 5pt !important;
               margin-bottom: 2pt !important;
+              text-align: center !important;
             }
             .print-meta-company h1 {
               margin: 0 !important;
               font-size: 12.5pt !important;
               font-weight: 900 !important;
               text-transform: uppercase !important;
+              text-align: center !important;
             }
             .print-meta-company p {
               margin: 1pt 0 !important;
               font-size: 8pt !important;
               line-height: 1.35 !important;
+              text-align: center !important;
             }
             .print-meta-report {
-              text-align: right !important;
+              text-align: center !important;
               font-size: 8pt !important;
               line-height: 1.35 !important;
-              min-width: 45% !important;
+              min-width: 100% !important;
+              margin-top: 3pt !important;
             }
             .print-meta-report-title {
               font-size: 10pt !important;
@@ -665,6 +696,11 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             .print-page-number::after {
               content: "Page " counter(page) " of " counter(pages);
               font-weight: 800 !important;
+            }
+            .continued-note::after {
+              content: "Continued on next page...";
+              font-size: 8pt;
+              font-style: italic;
             }
             tr, td, th { 
               page-break-inside: avoid !important; 
@@ -923,7 +959,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                       </tr>
                       <tr className="bg-gray-100">
                           {visibleHeaders.map(header => (
-                              <th key={header} data-align={isNumericColumn(header, undefined) ? 'right' : 'left'} className={`p-2 font-black uppercase tracking-wider text-[8pt] ${isNumericColumn(header, undefined) ? 'text-right' : 'text-left'}`}>
+                              <th key={header} data-align={isNumericColumn(header, undefined) ? 'right' : (BILL_NO_PATTERN.test(header.toLowerCase()) || DATE_HEADER_PATTERN.test(header.toLowerCase()) ? 'center' : 'left')} className={`p-2 font-black uppercase tracking-wider text-[8pt] ${isNumericColumn(header, undefined) ? 'text-right' : (BILL_NO_PATTERN.test(header.toLowerCase()) || DATE_HEADER_PATTERN.test(header.toLowerCase()) ? 'text-center' : 'text-left')}`}>
                                   <div className="flex flex-col space-y-2">
                                       <div 
                                           className="flex items-center justify-between cursor-pointer group no-print"
@@ -963,12 +999,11 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                               {visibleHeaders.map(header => {
                                   const val = row[header];
                                   const isNumeric = isNumericColumn(header, val);
+                                  const isCenter = BILL_NO_PATTERN.test(header.toLowerCase()) || DATE_HEADER_PATTERN.test(header.toLowerCase());
                                   const numericValue = typeof val === 'number' ? val : Number(typeof val === 'string' ? val.replace(/,/g, '') : val);
                                   return (
-                                      <td key={header} data-align={isNumeric ? 'right' : 'left'} className={`p-2 text-[9pt] ${isNumeric ? 'text-right font-mono' : ''}`}>
-                                          {isNumeric && Number.isFinite(numericValue)
-                                            ? numericValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                                            : (val ?? '-')}
+                                      <td key={header} data-align={isNumeric ? 'right' : (isCenter ? 'center' : 'left')} className={`p-2 text-[9pt] ${isNumeric ? 'text-right font-mono' : (isCenter ? 'text-center' : '')}`}>
+                                          {isNumeric && Number.isFinite(numericValue) ? formatCellValue(header, numericValue) : formatCellValue(header, val)}
                                       </td>
                                   );
                               })}
@@ -995,15 +1030,14 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               </table>
               </div>
 
-              <div className="mt-12 flex justify-between items-end border-t border-gray-200 pt-8 report-footer-signature">
-                  <div className="text-[8pt] text-gray-500 font-bold uppercase italic">
-                      <p>This is a system generated report from <strong>MDXERA ERP</strong>.</p>
-                      <p>E. & O. E.</p>
+              <div className="mt-8 border-t-2 border-black pt-4 report-footer-signature">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[9pt] font-bold">
+                    <p>TOTAL RECORDS: {processedData.length}</p>
+                    <p className="text-right">GRAND TOTAL: {Object.values(columnTotals).length ? `₹ ${Object.values(columnTotals).reduce((a, b) => a + b, 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '₹ 0.00'}</p>
+                    <p>TOTAL GST: ₹ {(Object.entries(columnTotals).filter(([k]) => /gst/i.test(k)).reduce((sum, [, v]) => sum + v, 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    <p className="text-right">TOTAL DISCOUNT: ₹ {(Object.entries(columnTotals).filter(([k]) => /discount/i.test(k)).reduce((sum, [, v]) => sum + v, 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                   </div>
-                  <div className="text-center w-64 border-t-2 border-black pt-2">
-                      <p className="text-[9pt] font-black uppercase">{pharmacyDetails.authorized_signatory}</p>
-                      <p className="text-[7pt] text-gray-500 font-bold uppercase tracking-wider">Authorized Signatory</p>
-                  </div>
+                  <p className="mt-2 text-[8pt] text-gray-600 font-semibold">TOTAL TAXABLE: ₹ {(Object.entries(columnTotals).filter(([k]) => /taxable/i.test(k)).reduce((sum, [, v]) => sum + v, 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               </div>
           </div>
       </div>
