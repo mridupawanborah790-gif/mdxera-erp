@@ -11,35 +11,102 @@ interface TemplateProps {
   orientation?: 'portrait' | 'landscape';
 }
 
-// ─── Calibrated Page Capacity Constants ─────────────────────────────────────
-// Accurately tuned to the physical dimensions of the A5 paper size.
-const REGULAR_CAP_PORTRAIT  = 28; // Max items when page has the small continuation footer
-const LAST_CAP_PORTRAIT     = 20; // Max items when page has the large main footer
+// ─── Page Capacity Constants ──────────────────────────────────────────────────
+// These represent the maximum number of item rows that fit on each page type.
+// "REGULAR" = a continuation page (smaller footer: just "page total" bar).
+// "LAST"    = the final page (larger footer: GST table, bank details, totals).
+//
+// TUNING GUIDE:
+//   - Increase LAST_CAP if the last page has too much empty space.
+//   - Decrease LAST_CAP if the footer is getting clipped.
+//   - At ~17px per row (row-height class) on A5:
+//       Portrait  usable ≈ 148mm × (96/25.4) px/mm ≈ 560px for items area
+//       Landscape usable ≈ 210mm × (96/25.4) px/mm ≈ 793px for items area
+//   - Header ≈ 58mm portrait / 45mm landscape
+//   - Main footer ≈ 55mm portrait / 42mm landscape
+//   - Continuation footer ≈ 10mm
 
-const REGULAR_CAP_LANDSCAPE = 16;
-const LAST_CAP_LANDSCAPE    = 11; // Increased safely so 8-11 items won't force a page split!
+const PORTRAIT_REGULAR_CAP  = 26;   // items on a mid page (portrait)
+const PORTRAIT_LAST_CAP     = 18;   // items on the final page (portrait)
+
+const LANDSCAPE_REGULAR_CAP = 15;   // items on a mid page (landscape)
+const LANDSCAPE_LAST_CAP    = 10;   // items on the final page (landscape)
+
+// ─── Smart chunking ───────────────────────────────────────────────────────────
+// Splits `items` into pages such that:
+//   • every page except the last uses at most REGULAR_CAP rows
+//   • the last page uses at most LAST_CAP rows
+//   • we never create an empty final page
+//   • we never under-fill a mid-page when the remaining items would all fit
+//     on the last page anyway
+function chunkItems<T>(
+  items: T[],
+  regularCap: number,
+  lastCap: number,
+): T[][] {
+  const chunks: T[][] = [];
+  let idx = 0;
+  const total = items.length;
+
+  // Edge-case: 0 items → one empty page so the footer still renders
+  if (total === 0) return [[]];
+
+  while (idx < total) {
+    const remaining = total - idx;
+
+    // If everything remaining fits on the last page, grab it all and stop.
+    if (remaining <= lastCap) {
+      chunks.push(items.slice(idx));
+      break;
+    }
+
+    // If remaining items fit on ONE more regular page but won't leave enough
+    // for a proper final page, split smartly: fill this page leaving at least
+    // 1 item (ideally ≈ lastCap/2) for the final page to look balanced.
+    if (remaining <= regularCap + lastCap) {
+      // How many should go on the final page?
+      const wantOnLast = Math.max(1, Math.min(lastCap, Math.ceil(remaining / 2)));
+      const takeNow    = remaining - wantOnLast;
+
+      // Only push a regular page if takeNow > 0
+      if (takeNow > 0) {
+        chunks.push(items.slice(idx, idx + takeNow));
+        idx += takeNow;
+      }
+      // The remaining wantOnLast items will be caught by the first `if` in the
+      // next iteration.
+      continue;
+    }
+
+    // Normal case: plenty of items left — fill this page completely.
+    chunks.push(items.slice(idx, idx + regularCap));
+    idx += regularCap;
+  }
+
+  return chunks;
+}
 
 const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' }) => {
-  const isNonGst = bill.billType === 'non-gst';
+  const isNonGst   = bill.billType === 'non-gst';
   const isLandscape = orientation === 'landscape';
 
-  const REGULAR_CAP = isLandscape ? REGULAR_CAP_LANDSCAPE : REGULAR_CAP_PORTRAIT;
-  const LAST_CAP    = isLandscape ? LAST_CAP_LANDSCAPE    : LAST_CAP_PORTRAIT;
+  const REGULAR_CAP = isLandscape ? LANDSCAPE_REGULAR_CAP : PORTRAIT_REGULAR_CAP;
+  const LAST_CAP    = isLandscape ? LANDSCAPE_LAST_CAP    : PORTRAIT_LAST_CAP;
 
-  const displayOptions = bill.configurations?.displayOptions || {};
-  const showBillDiscount = displayOptions.showBillDiscountOnPrint !== false;
-  const isMode8 = displayOptions.calculationMode === '8';
-  const showItemWiseDisc = displayOptions.showItemWiseDiscountOnPrint !== false;
-  const showTradeDiscountColumn = showItemWiseDisc && (bill.items || []).some(item => (item.discountPercent || 0) > 0);
-  const showSchemeColumn = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
-  const showRateColumn = isRateFieldAvailable(bill.configurations);
-  const posLineAmountMode = resolvePosLineAmountCalculationMode(bill.configurations);
-  const isIncludingDiscountMode = posLineAmountMode === 'including_discount';
+  const displayOptions           = bill.configurations?.displayOptions || {};
+  const showBillDiscount         = displayOptions.showBillDiscountOnPrint !== false;
+  const isMode8                  = displayOptions.calculationMode === '8';
+  const showItemWiseDisc         = displayOptions.showItemWiseDiscountOnPrint !== false;
+  const showTradeDiscountColumn  = showItemWiseDisc && (bill.items || []).some(item => (item.discountPercent || 0) > 0);
+  const showSchemeColumn         = (bill.items || []).some(item => hasLineLevelSchemeDiscount(item));
+  const showRateColumn           = isRateFieldAvailable(bill.configurations);
+  const posLineAmountMode        = resolvePosLineAmountCalculationMode(bill.configurations);
+  const isIncludingDiscountMode  = posLineAmountMode === 'including_discount';
 
   const calculations = useMemo(() => {
     let subtotalValue = 0;
-    let totalSgst = 0;
-    let totalCgst = 0;
+    let totalSgst     = 0;
+    let totalCgst     = 0;
 
     const effectivePricingMode = resolveEffectivePricingMode(
       bill.pharmacy?.organization_type,
@@ -50,22 +117,22 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     const items = (bill.items || []).map(item => {
       const inventoryItem = bill.inventory?.find(inv => inv.id === item.inventoryItemId);
 
-      const rate = effectivePricingMode === 'mrp'
+      const rate        = effectivePricingMode === 'mrp'
         ? (item.mrp ?? 0)
         : (item.rate ?? item.mrp ?? 0);
       const unitsPerPack = item.unitsPerPack || 1;
-      const billedQty = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
-      const itemGross = billedQty * rate;
-      const tradeDiscount = itemGross * ((item.discountPercent || 0) / 100);
-      const lineManualFlat = item.itemFlatDiscount || 0;
-      const schemeDiscount = item.schemeDiscountAmount || 0;
+      const billedQty    = (item.quantity || 0) + ((item.looseQuantity || 0) / unitsPerPack);
+      const itemGross    = billedQty * rate;
+      const tradeDiscount    = itemGross * ((item.discountPercent || 0) / 100);
+      const lineManualFlat   = item.itemFlatDiscount || 0;
+      const schemeDiscount   = item.schemeDiscountAmount || 0;
 
       const lineAmount = isIncludingDiscountMode
         ? Math.max(0, itemGross - tradeDiscount - schemeDiscount - lineManualFlat)
         : Math.max(0, itemGross);
 
       const effectiveGst = isNonGst ? 0 : (item.gstPercent || 0);
-      const isInclusive = effectivePricingMode === 'mrp';
+      const isInclusive  = effectivePricingMode === 'mrp';
 
       const taxableVal = isInclusive && effectiveGst > 0
         ? lineAmount / (1 + (effectiveGst / 100))
@@ -75,8 +142,8 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         : (taxableVal * (effectiveGst / 100));
 
       subtotalValue += lineAmount;
-      totalSgst += gstAmt / 2;
-      totalCgst += gstAmt / 2;
+      totalSgst     += gstAmt / 2;
+      totalCgst     += gstAmt / 2;
 
       return {
         ...item,
@@ -100,48 +167,20 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
       };
     });
 
+    // ── GST summary per rate ──────────────────────────────────────────────────
     const gstSummary: { [rate: number]: { taxable: number; sgst: number; cgst: number } } = {};
     items.forEach(item => {
       const r = item.gstPercent || 0;
       if (!gstSummary[r]) gstSummary[r] = { taxable: 0, sgst: 0, cgst: 0 };
       gstSummary[r].taxable += item.taxableVal;
-      gstSummary[r].sgst += item.gstAmt / 2;
-      gstSummary[r].cgst += item.gstAmt / 2;
+      gstSummary[r].sgst    += item.gstAmt / 2;
+      gstSummary[r].cgst    += item.gstAmt / 2;
     });
 
-    // ─── Smart Balance Chunking ───────────────────────────────────────────
-    const chunks: (typeof items)[] = [];
-    let idx = 0;
-    const total = items.length;
+    // ── Page chunking ─────────────────────────────────────────────────────────
+    const chunks = chunkItems(items, REGULAR_CAP, LAST_CAP);
 
-    while (idx < total) {
-      const remaining = total - idx;
-
-      // 1. If everything left fits easily with the large main footer, we are done.
-      if (remaining <= LAST_CAP) {
-        chunks.push(items.slice(idx));
-        break;
-      }
-
-      // 2. If the remaining items fit on the current page, BUT won't leave room for the footer,
-      //    we must spill over. To prevent a 0-item final page, we calculate a smart portion
-      //    of items to hold back for the final page to balance the look.
-      if (remaining <= REGULAR_CAP) {
-        const leaveForLastPage = Math.min(LAST_CAP, Math.max(1, Math.floor(remaining / 2)));
-        const takeNow = remaining - leaveForLastPage;
-
-        chunks.push(items.slice(idx, idx + takeNow));
-        idx += takeNow;
-      } else {
-        // 3. We have plenty of items. Safely pack this page to the absolute maximum.
-        chunks.push(items.slice(idx, idx + REGULAR_CAP));
-        idx += REGULAR_CAP;
-      }
-    }
-
-    if (chunks.length === 0) chunks.push([]); // Fallback for 0-item invoices
-
-    // Cumulative offset for continuous item numbering
+    // Cumulative serial offsets for continuous numbering across pages
     const chunkStartSerials = chunks.map((_, i) =>
       chunks.slice(0, i).reduce((sum, c) => sum + c.length, 0)
     );
@@ -165,17 +204,19 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     };
   }, [bill, isNonGst, showBillDiscount, isIncludingDiscountMode, REGULAR_CAP, LAST_CAP]);
 
+  // ── Address / contact helpers ─────────────────────────────────────────────
   const toUpperDisplay = (value?: string | null) =>
     (value || '').toString().trim().toUpperCase();
 
-  const customerAddressLine1  = toUpperDisplay(bill.customerDetails?.address_line1 || bill.customerDetails?.address);
-  const customerDistrict      = toUpperDisplay(bill.customerDetails?.district);
-  const customerState         = toUpperDisplay(bill.customerDetails?.state);
-  const customerPincode       = toUpperDisplay(bill.customerDetails?.pincode);
-  const customerAddressParts  = [customerAddressLine1, customerDistrict, customerState].filter(Boolean);
+  const customerAddressLine1   = toUpperDisplay(bill.customerDetails?.address_line1 || bill.customerDetails?.address);
+  const customerDistrict       = toUpperDisplay(bill.customerDetails?.district);
+  const customerState          = toUpperDisplay(bill.customerDetails?.state);
+  const customerPincode        = toUpperDisplay(bill.customerDetails?.pincode);
+  const customerAddressParts   = [customerAddressLine1, customerDistrict, customerState].filter(Boolean);
   const customerAddressCompact = customerAddressParts.length > 0
     ? `${customerAddressParts.join(', ')}${customerPincode ? ` - ${customerPincode}` : ''}`
     : (customerPincode || '');
+
   const customerPhone       = toUpperDisplay(bill.customerPhone || bill.customerDetails?.phone);
   const customerGstin       = toUpperDisplay(bill.customerDetails?.gstNumber);
   const customerDrugLicense = toUpperDisplay(bill.customerDetails?.drugLicense);
@@ -188,12 +229,13 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
   const companyIfscCode      = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
 
-  const isCreditBill           = String(bill.paymentMode || '').trim().toLowerCase() === 'credit';
-  const hasSelectedCustomer    = Boolean(bill.customerDetails?.id);
+  // ── Balance calculations ───────────────────────────────────────────────────
+  const isCreditBill             = String(bill.paymentMode || '').trim().toLowerCase() === 'credit';
+  const hasSelectedCustomer      = Boolean(bill.customerDetails?.id);
   const netOutstandingReceivable = hasSelectedCustomer
     ? calculateCustomerReceivableBreakdown(bill.customerDetails).netOutstanding
     : 0;
-  const capturedPreviousBalance  = Number(bill.previousBalanceBeforeBill);
+  const capturedPreviousBalance    = Number(bill.previousBalanceBeforeBill);
   const hasCapturedPreviousBalance = Number.isFinite(capturedPreviousBalance);
   const previousBalance = hasSelectedCustomer
     ? (hasCapturedPreviousBalance
@@ -208,69 +250,101 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         : Number(previousBalance.toFixed(2)))
     : 0;
 
+  // ── Page dimensions ───────────────────────────────────────────────────────
+  const pageW = isLandscape ? '210mm' : '148mm';
+  const pageH = isLandscape ? '148mm' : '210mm';
+
   return (
     <div
       className="invoice-container bg-white text-black font-sans w-full mx-auto leading-tight antialiased"
       style={{ fontSize: isLandscape ? '8pt' : '8.5pt' }}
     >
       <style>{`
-        /* ── Print: each .marg-page = one physical A5 page ── */
+        /* ═══════════════════════════════════════════════════════════════════
+           PRINT STYLES
+           Key insight: each .marg-page is exactly one physical A5 page.
+           We use flexbox with flex-direction:column so the items wrapper
+           (flex:1 1 0) absorbs all leftover vertical space, pushing the
+           footer to the physical bottom of the page every time.
+           overflow:hidden on the wrapper ensures rows never bleed past the
+           page boundary — the cap constants control actual row count.
+        ═══════════════════════════════════════════════════════════════════ */
         @media print {
           @page {
             margin: 0mm !important;
-            size: A5 ${orientation};
+            size: ${pageW} ${pageH};
           }
           body { margin: 0; padding: 0; }
 
+          /* Each page = exact physical sheet */
           .marg-page {
-            page-break-after: always;
-            break-after: always;
-            page-break-inside: avoid;
-            break-inside: avoid;
-            width:  ${isLandscape ? '210mm' : '148mm'};
-            height: ${isLandscape ? '148mm' : '210mm'};
+            width:  ${pageW};
+            height: ${pageH};
             padding: 4mm !important;
             box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
+
+            /* Flex column → header | items(flex:1) | footer */
+            display: flex !important;
+            flex-direction: column !important;
+
             overflow: hidden;
             background: white !important;
+
+            page-break-after:  always;
+            break-after:       always;
+            page-break-inside: avoid;
+            break-inside:      avoid;
           }
           .marg-page:last-child {
             page-break-after: auto;
             break-after: auto;
           }
 
-          /* On print, items table fills remaining space so footer is always at bottom */
+          /* Items section fills all remaining space */
           .marg-items-wrapper {
-            flex: 1;
-            overflow: hidden;
+            flex: 1 1 0 !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+            display: flex !important;
+            flex-direction: column !important;
           }
 
-          .invoice-items tr { page-break-inside: avoid; break-inside: avoid; }
-          .invoice-footer-block { page-break-inside: avoid; break-inside: avoid; }
+          /* Items table fills the wrapper height */
+          .marg-items-wrapper .invoice-items {
+            flex: 1 1 0 !important;
+          }
+
+          /* Prevent rows / footer from splitting across pages */
+          .invoice-items tr           { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-footer-block       { page-break-inside: avoid; break-inside: avoid; flex-shrink: 0; }
+          .marg-continuation-footer   { flex-shrink: 0; }
+          .marg-header                { flex-shrink: 0; }
         }
 
-        /* ── Screen: mimic A5 pages visually but shrink to content ── */
+        /* ═══════════════════════════════════════════════════════════════════
+           SCREEN STYLES
+           Use block layout so each card auto-sizes to its content.
+           min-height gives a visual A5 feel without forcing exact height.
+        ═══════════════════════════════════════════════════════════════════ */
         @media screen {
           .marg-page {
-            width:  ${isLandscape ? '210mm' : '148mm'};
-            min-height: ${isLandscape ? '148mm' : '210mm'}; /* min-height so footer follows content */
-            padding: 4mm;
+            width:     ${pageW};
+            min-height: ${pageH};
+            padding:   4mm;
             background: white;
             box-shadow: 0 2px 8px rgba(0,0,0,0.12);
             margin-bottom: 12px;
-            display: block; /* block on screen so height wraps content */
+            display: block;
             box-sizing: border-box;
           }
-
-          /* On screen, items wrapper is just a normal block — no flex stretching */
           .marg-items-wrapper {
             display: block;
           }
         }
 
-        /* ── Shared table styles ── */
+        /* ═══════════════════════════════════════════════════════════════════
+           SHARED TABLE STYLES
+        ═══════════════════════════════════════════════════════════════════ */
         .erp-table { border: 1px solid black; border-collapse: collapse; }
         .erp-table th {
           border: 1px solid black;
@@ -286,7 +360,6 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           font-weight: 500;
         }
 
-        /* ── Items table ── */
         .items-table th,
         .items-table td {
           line-height: 1.05;
@@ -297,30 +370,32 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           vertical-align: middle;
         }
 
+        /* Main items table */
         .invoice-items {
           width: 100%;
           border-collapse: collapse;
+          table-layout: fixed;
         }
         .invoice-items thead th {
           border: 1px solid #000;
           background: #f3f4f6;
         }
         .invoice-items tbody td {
-          border-left:  1px solid #000;
-          border-right: 1px solid #000;
-          border-bottom: 1px solid #e5e7eb; /* light divider between rows */
+          border-left:   1px solid #000;
+          border-right:  1px solid #000;
+          border-bottom: 1px solid #e5e7eb;
         }
-        /* Bottom border on the last data row to seal the table gracefully */
+        /* Seal the last row */
         .invoice-items tbody tr:last-child td {
           border-bottom: 1px solid #000;
         }
-        /* Row height */
+        /* Fixed row height — critical for cap accuracy */
         .row-height { height: 17px; }
 
-        /* ── Footer ── */
+        /* Footer outer border */
         .footer-border { border: 1px solid black; border-top: 0; }
 
-        /* ── Misc ── */
+        /* Misc layout */
         .invoice-bottom {
           display: flex;
           justify-content: space-between;
@@ -346,12 +421,13 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         const isLastPage  = pageIdx === calculations.chunks.length - 1;
         const startSerial = calculations.chunkStartSerials[pageIdx];
         const pageTotal   = chunk.reduce((acc, item) => acc + (item.displayAmount || 0), 0);
+        const totalPages  = calculations.chunks.length;
 
         return (
           <div key={pageIdx} className="marg-page">
 
-            {/* ── HEADER (every page) ── */}
-            <div className="invoice-header">
+            {/* ── HEADER (every page) ───────────────────────────────────── */}
+            <div className="marg-header invoice-header">
               <div className="grid grid-cols-3 border-t border-x border-black">
                 {/* Left: pharmacy info */}
                 <div className="p-1.5 border-r border-black">
@@ -431,12 +507,17 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                 </div>
               </div>
             </div>
+            {/* ── END HEADER ───────────────────────────────────────────── */}
 
-            {/* ── ITEMS TABLE ── */}
-            {/* Uses .marg-items-wrapper: flex:1 on print (footer pinned to bottom),
-                display:block on screen (footer follows content naturally) */}
+            {/* ── ITEMS TABLE WRAPPER ───────────────────────────────────── */}
+            {/* On print: flex:1 so it expands to fill all space between
+                header and footer, keeping footer pinned to the page bottom.
+                On screen: display:block so it auto-sizes to content.     */}
             <div className="marg-items-wrapper">
-              <table className="invoice-items erp-table items-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table
+                className="invoice-items erp-table items-table"
+                style={{ width: '100%', borderCollapse: 'collapse' }}
+              >
                 <thead>
                   <tr className="text-[7pt] font-semibold uppercase">
                     <th style={{ width: '4%' }}>#</th>
@@ -467,7 +548,15 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                       <tr key={item.id} className="row-height">
                         <td className="text-center font-black">{sn}</td>
                         <td className="text-center font-black">{item.displayQty}</td>
-                        <td className="font-black uppercase text-gray-900" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0 }}>
+                        <td
+                          className="font-black uppercase text-gray-900"
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            maxWidth: 0,
+                          }}
+                        >
                           {item.displayName}
                         </td>
                         <td className="text-center">{item.hsn}</td>
@@ -496,13 +585,14 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                 </tbody>
               </table>
             </div>
+            {/* ── END ITEMS TABLE WRAPPER ───────────────────────────────── */}
 
-            {/* ── CONTINUATION FOOTER (non-last pages) ── */}
+            {/* ── CONTINUATION FOOTER (non-last pages) ─────────────────── */}
             {!isLastPage && (
-              <div className="grid grid-cols-2 border-x border-b border-black bg-white">
+              <div className="marg-continuation-footer grid grid-cols-2 border-x border-b border-black bg-white">
                 <div className="border-r border-black p-1.5">
                   <p className="text-[8pt] font-black text-gray-700 uppercase">
-                    Continued on next page… (Page {pageIdx + 1} of {calculations.chunks.length})
+                    Continued on next page… (Page {pageIdx + 1} of {totalPages})
                   </p>
                 </div>
                 <div className="p-1.5 flex justify-between items-center bg-gray-50">
@@ -514,15 +604,20 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               </div>
             )}
 
-            {/* ── MAIN FOOTER (last page only) ── */}
+            {/* ── MAIN FOOTER (last page only) ──────────────────────────── */}
             {isLastPage && (
               <div className="invoice-footer-block">
                 <div className="invoice-footer grid grid-cols-2 footer-border bg-white">
 
-                  {/* Left: GST summary + bank + words + balance */}
+                  {/* LEFT: GST summary + bank + words + balance + signatory */}
                   <div className="border-r border-black p-1.5 flex flex-col justify-between">
+
+                    {/* GST breakdown table (GST bills only) */}
                     {!isNonGst && (
-                      <table className="w-full erp-table" style={{ fontSize: '6.5pt', borderCollapse: 'collapse', marginBottom: 4 }}>
+                      <table
+                        className="w-full erp-table"
+                        style={{ fontSize: '6.5pt', borderCollapse: 'collapse', marginBottom: 4 }}
+                      >
                         <thead className="bg-gray-100 uppercase font-black">
                           <tr>
                             <th className="text-left py-0.5">GST Rate</th>
@@ -615,7 +710,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                     </div>
                   </div>
 
-                  {/* Right: totals breakdown + grand total */}
+                  {/* RIGHT: Totals breakdown + grand total */}
                   <div style={{ display: 'flex', flexDirection: 'column', background: 'rgba(249,250,251,0.8)' }}>
                     <div style={{ padding: 8, flex: 1 }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '8.5pt', fontWeight: 700 }}>
@@ -688,6 +783,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
                 </div>
               </div>
             )}
+            {/* ── END MAIN FOOTER ──────────────────────────────────────── */}
 
           </div>
         );
