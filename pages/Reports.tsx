@@ -37,6 +37,7 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'doctorWiseSales', name: 'Doctor-wise Sales', group: 'Sales Reports' },
   { id: 'doctorsSalesDetailedReport', name: 'Doctors Sales Detailed Report', group: 'Sales Reports' },
   { id: 'mfrWiseSalesDetailedReport', name: 'MFR-wise Sales Detailed Report', group: 'Sales Reports' },
+  { id: 'mfrWiseSalesSummaryReport', name: 'MFR-wise Sales Summary Report', group: 'Sales Reports' },
   { id: 'itemWiseSales', name: 'Item-wise Sales', group: 'Sales Reports' },
   { id: 'categoryWiseSales', name: 'Category-wise Sales', group: 'Sales Reports' },
   { id: 'areaWiseSales', name: 'Area-wise Sales', group: 'Sales Reports' },
@@ -332,6 +333,56 @@ const Reports: React.FC<ReportsProps> = ({
         }).sort((a, b) => a._sortMfr.localeCompare(b._sortMfr) || a._sortProduct.localeCompare(b._sortProduct) || b._sortDate - a._sortDate);
         break;
       }
+      case 'mfrWiseSalesSummaryReport': {
+        reportHeaders = ['MFR Name', 'Number of Bills', 'Total Quantity', 'Total Free Qty', 'Total MRP Value', 'Total Sales Value (Taxable)', 'Total Discount', 'Total GST Amount', 'Net Sales Value', 'Total Profit Margin'];
+        const map = new Map<string, any>();
+        completedOnlySales.forEach(tx => {
+          const billNo = String(tx.invoiceNumber || tx.id);
+          (tx.items || []).forEach((item: any) => {
+            const qty = Number(item.quantity || 0);
+            const freeQty = Number(item.freeQuantity || 0);
+            const salesRate = Number(item.rate ?? item.mrp ?? 0);
+            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const mfrName = item.manufacturer || inv?.manufacturer || 'N/A';
+            const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
+            const lineDiscount = Number(item.itemFlatDiscount || 0)
+              + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
+              + Number(item.schemeDiscountAmount || 0);
+            const taxableAmount = (qty * salesRate) - lineDiscount;
+            const sgst = Number(item.sgstAmount || 0);
+            const cgst = Number(item.cgstAmount || 0);
+            const gstAmount = sgst + cgst || (taxableAmount * (Number(item.gstPercent || 0) / 100));
+            const mrp = Number(item.mrp ?? inv?.mrp ?? salesRate);
+            const profit = (salesRate - purchaseRate) * qty;
+
+            const current = map.get(mfrName) || { mfrName, bills: new Set<string>(), qty: 0, freeQty: 0, mrpValue: 0, taxable: 0, discount: 0, gst: 0, net: 0, profit: 0 };
+            current.bills.add(billNo);
+            current.qty += qty;
+            current.freeQty += freeQty;
+            current.mrpValue += (mrp * qty);
+            current.taxable += taxableAmount;
+            current.discount += lineDiscount;
+            current.gst += gstAmount;
+            current.net += taxableAmount + gstAmount - lineDiscount;
+            current.profit += profit;
+            map.set(mfrName, current);
+          });
+        });
+        rows = Array.from(map.values()).map((value: any) => ({
+          'MFR Name': value.mfrName,
+          'Number of Bills': value.bills.size,
+          'Total Quantity': round2(value.qty),
+          'Total Free Qty': round2(value.freeQty),
+          'Total MRP Value': round2(value.mrpValue),
+          'Total Sales Value (Taxable)': round2(value.taxable),
+          'Total Discount': round2(value.discount),
+          'Total GST Amount': round2(value.gst),
+          'Net Sales Value': round2(value.net),
+          'Total Profit Margin': round2(value.profit),
+        })).sort((a, b) => Number(b['Net Sales Value']) - Number(a['Net Sales Value']));
+        setSortConfig({ column: 'Net Sales Value', direction: 'desc' });
+        break;
+      }
 
       case 'itemWiseSales': {
         reportHeaders = ['Item Name', 'HSN', 'Quantity Sold', 'Free Qty', 'Gross Value', 'Discount', 'GST', 'Net Value'];
@@ -541,7 +592,7 @@ const Reports: React.FC<ReportsProps> = ({
     setHeaders(reportHeaders);
     setBaseData(rows);
     setActiveFilters({});
-    setSortConfig(null);
+    if (reportId !== 'mfrWiseSalesSummaryReport') setSortConfig(null);
     setVisibleColumns(reportHeaders);
     setFilteredData(rows);
     setSelectedRowIndex(rows.length ? 0 : -1);
@@ -599,6 +650,18 @@ const Reports: React.FC<ReportsProps> = ({
 
     return { mfrName, totalSales, totalBills, totalDiscount, totalGst, totalProfit, totalQuantity };
   }, [activeReportId, filteredData, selectedRow]);
+
+  const mfrSummary = useMemo(() => {
+    if (activeReportId !== 'mfrWiseSalesSummaryReport') return null;
+    return {
+      totalMfr: filteredData.length,
+      totalSales: round2(filteredData.reduce((sum, row) => sum + Number(row['Net Sales Value'] || 0), 0)),
+      totalQuantity: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Quantity'] || 0) + Number(row['Total Free Qty'] || 0), 0)),
+      totalDiscount: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Discount'] || 0), 0)),
+      totalGst: round2(filteredData.reduce((sum, row) => sum + Number(row['Total GST Amount'] || 0), 0)),
+      totalProfit: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Profit Margin'] || 0), 0)),
+    };
+  }, [activeReportId, filteredData]);
 
   const activeFilterChips = useMemo(() => {
     return Object.entries(activeFilters).flatMap(([field, values]) => values.map(value => ({ field, value })));
@@ -775,7 +838,7 @@ const Reports: React.FC<ReportsProps> = ({
         </section>
 
         <section className="border border-gray-300 bg-white min-h-0 flex flex-col">
-          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">{activeReportId === 'doctorsSalesDetailedReport' ? 'Doctor Summary' : activeReportId === 'mfrWiseSalesDetailedReport' ? 'MFR Summary' : 'Detail Preview'}</div>
+          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">{activeReportId === 'doctorsSalesDetailedReport' ? 'Doctor Summary' : activeReportId === 'mfrWiseSalesDetailedReport' || activeReportId === 'mfrWiseSalesSummaryReport' ? 'MFR Summary' : 'Detail Preview'}</div>
           <div className="min-h-0 overflow-auto p-2 text-[11px] space-y-1">
             {activeReportId === 'doctorsSalesDetailedReport' && doctorDetailSummary ? (
               <div className="space-y-1">
@@ -794,6 +857,16 @@ const Reports: React.FC<ReportsProps> = ({
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>{mfrDetailSummary.totalDiscount}</div></div>
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total GST</div><div>{mfrDetailSummary.totalGst}</div></div>
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>{mfrDetailSummary.totalProfit}</div></div>
+              </div>
+            ) : activeReportId === 'mfrWiseSalesSummaryReport' && mfrSummary ? (
+              <div className="space-y-1">
+                <div className="text-xs font-bold text-primary">MFR SUMMARY</div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total MFR</div><div>{mfrSummary.totalMfr}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Sales</div><div>₹ {mfrSummary.totalSales}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Quantity</div><div>{mfrSummary.totalQuantity}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>₹ {mfrSummary.totalDiscount}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total GST</div><div>₹ {mfrSummary.totalGst}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>₹ {mfrSummary.totalProfit}</div></div>
               </div>
             ) : !selectedRow ? (
               <div className="text-gray-500">Select a row to view details.</div>
