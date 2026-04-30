@@ -35,6 +35,7 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'dateWiseSales', name: 'Date-wise Sales', group: 'Sales Reports' },
   { id: 'partyWiseSales', name: 'Party-wise Sales', group: 'Sales Reports' },
   { id: 'doctorWiseSales', name: 'Doctor-wise Sales', group: 'Sales Reports' },
+  { id: 'doctorWiseSalesSummaryReport', name: 'Doctor-wise Sales Summary Report', group: 'Sales Reports' },
   { id: 'doctorsSalesDetailedReport', name: 'Doctors Sales Detailed Report', group: 'Sales Reports' },
   { id: 'mfrWiseSalesDetailedReport', name: 'MFR-wise Sales Detailed Report', group: 'Sales Reports' },
   { id: 'mfrWiseSalesSummaryReport', name: 'MFR-wise Sales Summary Report', group: 'Sales Reports' },
@@ -243,6 +244,58 @@ const Reports: React.FC<ReportsProps> = ({
           map.set(key, current);
         });
         rows = Array.from(map.values()).map((value: any) => ({ 'Doctor Name': value.doctorName, 'Doctor Code': value.doctorCode, 'Specialization': value.specialization, 'Mobile': value.mobile, 'Area': value.area, 'Number of Bills': value.bills, 'Number of Customers': value.customers.size, 'Total Sales Amount': round2(value.sales), 'Total Discount': round2(value.discount), 'Total GST': round2(value.gst), 'Net Sales Value': round2(value.net) }));
+        break;
+      }
+      case 'doctorWiseSalesSummaryReport': {
+        reportHeaders = ['Doctor Name', 'Number of Bills', 'Number of Customers', 'Total Quantity', 'Total Free Quantity', 'Total Taxable Value', 'Total Discount', 'Total GST Amount', 'Net Sales Value', 'Total Profit Margin'];
+        const map = new Map<string, any>();
+        completedOnlySales.forEach(tx => {
+          const doctorFromId = tx.doctorId ? doctorById.get(tx.doctorId) : undefined;
+          const doctorFromName = !doctorFromId ? doctorByName.get((tx.referredBy || '').trim().toLowerCase()) : undefined;
+          const doctorName = (doctorFromId?.name || doctorFromName?.name || tx.referredBy || '').trim();
+          if (!doctorName) return;
+          const key = (doctorFromId?.id || doctorFromName?.id || doctorName).toLowerCase();
+          const current = map.get(key) || { doctorName, bills: new Set<string>(), customers: new Set<string>(), qty: 0, freeQty: 0, taxable: 0, discount: 0, gst: 0, net: 0, profit: 0 };
+          current.bills.add(String(tx.invoiceNumber || tx.id));
+          current.customers.add(String(tx.customerId || tx.customerName || 'Walk-in'));
+          (tx.items || []).forEach((item: any) => {
+            const qty = Number(item.quantity || 0);
+            const freeQty = Number(item.freeQuantity || 0);
+            const salesRate = Number(item.rate ?? item.mrp ?? 0);
+            const lineDiscount = Number(item.itemFlatDiscount || 0)
+              + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
+              + Number(item.schemeDiscountAmount || 0);
+            const lineTaxableAmount = Number(item.finalAmount ?? item.amount ?? ((qty * salesRate) - lineDiscount));
+            const sgst = Number(item.sgstAmount || 0);
+            const cgst = Number(item.cgstAmount || 0);
+            const gstAmount = (sgst + cgst) || (lineTaxableAmount * (Number(item.gstPercent || 0) / 100));
+            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
+            const profit = purchaseRate > 0 ? (salesRate - purchaseRate) * qty : 0;
+
+            current.qty += qty;
+            current.freeQty += freeQty;
+            current.taxable += lineTaxableAmount;
+            current.discount += lineDiscount;
+            current.gst += gstAmount;
+            current.net += lineTaxableAmount + gstAmount - lineDiscount;
+            current.profit += profit;
+          });
+          map.set(key, current);
+        });
+        rows = Array.from(map.values()).map((value: any) => ({
+          'Doctor Name': value.doctorName,
+          'Number of Bills': value.bills.size,
+          'Number of Customers': value.customers.size,
+          'Total Quantity': round2(value.qty),
+          'Total Free Quantity': round2(value.freeQty),
+          'Total Taxable Value': round2(value.taxable),
+          'Total Discount': round2(value.discount),
+          'Total GST Amount': round2(value.gst),
+          'Net Sales Value': round2(value.net),
+          'Total Profit Margin': round2(value.profit),
+        })).sort((a, b) => Number(b['Net Sales Value']) - Number(a['Net Sales Value']));
+        setSortConfig({ column: 'Net Sales Value', direction: 'desc' });
         break;
       }
 
@@ -592,7 +645,7 @@ const Reports: React.FC<ReportsProps> = ({
     setHeaders(reportHeaders);
     setBaseData(rows);
     setActiveFilters({});
-    if (reportId !== 'mfrWiseSalesSummaryReport') setSortConfig(null);
+    if (reportId !== 'mfrWiseSalesSummaryReport' && reportId !== 'doctorWiseSalesSummaryReport') setSortConfig(null);
     setVisibleColumns(reportHeaders);
     setFilteredData(rows);
     setSelectedRowIndex(rows.length ? 0 : -1);
@@ -657,6 +710,19 @@ const Reports: React.FC<ReportsProps> = ({
       totalMfr: filteredData.length,
       totalSales: round2(filteredData.reduce((sum, row) => sum + Number(row['Net Sales Value'] || 0), 0)),
       totalQuantity: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Quantity'] || 0) + Number(row['Total Free Qty'] || 0), 0)),
+      totalDiscount: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Discount'] || 0), 0)),
+      totalGst: round2(filteredData.reduce((sum, row) => sum + Number(row['Total GST Amount'] || 0), 0)),
+      totalProfit: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Profit Margin'] || 0), 0)),
+    };
+  }, [activeReportId, filteredData]);
+
+  const doctorSummary = useMemo(() => {
+    if (activeReportId !== 'doctorWiseSalesSummaryReport') return null;
+    return {
+      totalDoctors: filteredData.length,
+      totalBills: filteredData.reduce((sum, row) => sum + Number(row['Number of Bills'] || 0), 0),
+      totalCustomers: filteredData.reduce((sum, row) => sum + Number(row['Number of Customers'] || 0), 0),
+      totalSales: round2(filteredData.reduce((sum, row) => sum + Number(row['Net Sales Value'] || 0), 0)),
       totalDiscount: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Discount'] || 0), 0)),
       totalGst: round2(filteredData.reduce((sum, row) => sum + Number(row['Total GST Amount'] || 0), 0)),
       totalProfit: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Profit Margin'] || 0), 0)),
@@ -806,7 +872,7 @@ const Reports: React.FC<ReportsProps> = ({
                 <thead className="sticky top-0 bg-gray-100 z-10">
                   <tr>
                     {visibleColumns.map(col => (
-                      <th key={col} onClick={() => toggleSort(col)} className="text-left px-2 py-1 border-b border-r whitespace-nowrap cursor-pointer select-none">
+                      <th key={col} onClick={() => toggleSort(col)} className={`px-2 py-1 border-b border-r whitespace-nowrap cursor-pointer select-none ${col === 'Doctor Name' ? 'text-left' : (filteredData.some(row => typeof row[col] === 'number') ? 'text-right' : 'text-left')}`}>
                         {col} {sortConfig?.column === col ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
                       </th>
                     ))}
@@ -820,7 +886,7 @@ const Reports: React.FC<ReportsProps> = ({
                       className={`${selectedRowIndex === idx ? 'bg-primary/20' : idx % 2 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/10 cursor-pointer`}
                     >
                       {visibleColumns.map(col => (
-                        <td key={`${idx}-${col}`} className="px-2 py-1 border-b border-r whitespace-nowrap">{String(row[col] ?? '-')}</td>
+                        <td key={`${idx}-${col}`} className={`px-2 py-1 border-b border-r whitespace-nowrap ${col === 'Doctor Name' ? 'text-left' : (typeof row[col] === 'number' ? 'text-right' : 'text-left')}`}>{String(row[col] ?? '-')}</td>
                       ))}
                     </tr>
                   ))}
@@ -831,14 +897,15 @@ const Reports: React.FC<ReportsProps> = ({
 
           <div className="border-t px-2 py-1 text-[10px] bg-gray-100 flex flex-wrap gap-x-4 gap-y-1">
             <span><strong>Total Records:</strong> {totals.recordCount}</span>
-            {Object.entries(totals.sums).slice(0, 6).map(([key, value]) => (
+            {Object.entries(totals.sums).slice(0, activeReportId === 'doctorWiseSalesSummaryReport' ? 8 : 6).map(([key, value]) => (
               <span key={key}><strong>{key}:</strong> {value}</span>
             ))}
+            {activeReportId === 'doctorWiseSalesSummaryReport' && <span><strong>Grand Total:</strong> {round2((totals.sums['Net Sales Value'] || 0) + (totals.sums['Total GST Amount'] || 0) - (totals.sums['Total Discount'] || 0))}</span>}
           </div>
         </section>
 
         <section className="border border-gray-300 bg-white min-h-0 flex flex-col">
-          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">{activeReportId === 'doctorsSalesDetailedReport' ? 'Doctor Summary' : activeReportId === 'mfrWiseSalesDetailedReport' || activeReportId === 'mfrWiseSalesSummaryReport' ? 'MFR Summary' : 'Detail Preview'}</div>
+          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">{activeReportId === 'doctorsSalesDetailedReport' || activeReportId === 'doctorWiseSalesSummaryReport' ? 'Doctor Summary' : activeReportId === 'mfrWiseSalesDetailedReport' || activeReportId === 'mfrWiseSalesSummaryReport' ? 'MFR Summary' : 'Detail Preview'}</div>
           <div className="min-h-0 overflow-auto p-2 text-[11px] space-y-1">
             {activeReportId === 'doctorsSalesDetailedReport' && doctorDetailSummary ? (
               <div className="space-y-1">
@@ -857,6 +924,17 @@ const Reports: React.FC<ReportsProps> = ({
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>{mfrDetailSummary.totalDiscount}</div></div>
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total GST</div><div>{mfrDetailSummary.totalGst}</div></div>
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>{mfrDetailSummary.totalProfit}</div></div>
+              </div>
+            ) : activeReportId === 'doctorWiseSalesSummaryReport' && doctorSummary ? (
+              <div className="space-y-1">
+                <div className="text-xs font-bold text-primary">DOCTOR SUMMARY</div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Doctors</div><div>{doctorSummary.totalDoctors}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Bills</div><div>{doctorSummary.totalBills}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Customers</div><div>{doctorSummary.totalCustomers}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Sales</div><div>₹ {doctorSummary.totalSales}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>₹ {doctorSummary.totalDiscount}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total GST</div><div>₹ {doctorSummary.totalGst}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>₹ {doctorSummary.totalProfit}</div></div>
               </div>
             ) : activeReportId === 'mfrWiseSalesSummaryReport' && mfrSummary ? (
               <div className="space-y-1">
