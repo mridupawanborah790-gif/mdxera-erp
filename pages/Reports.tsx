@@ -36,6 +36,7 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'partyWiseSales', name: 'Party-wise Sales', group: 'Sales Reports' },
   { id: 'doctorWiseSales', name: 'Doctor-wise Sales', group: 'Sales Reports' },
   { id: 'doctorsSalesDetailedReport', name: 'Doctors Sales Detailed Report', group: 'Sales Reports' },
+  { id: 'mfrWiseSalesDetailedReport', name: 'MFR-wise Sales Detailed Report', group: 'Sales Reports' },
   { id: 'itemWiseSales', name: 'Item-wise Sales', group: 'Sales Reports' },
   { id: 'categoryWiseSales', name: 'Category-wise Sales', group: 'Sales Reports' },
   { id: 'areaWiseSales', name: 'Area-wise Sales', group: 'Sales Reports' },
@@ -152,6 +153,7 @@ const Reports: React.FC<ReportsProps> = ({
 
     const sales = transactions.filter(tx => tx.status !== 'draft' && isDateWithinRange(tx.date, startDate, endDate));
     const completedSales = sales.filter(tx => tx.status !== 'cancelled');
+    const completedOnlySales = sales.filter(tx => String(tx.status || '').toLowerCase() === 'completed');
     const cancelledSales = sales.filter(tx => tx.status === 'cancelled');
     const filteredPurchases = purchases.filter(p => p.status !== 'draft' && isDateWithinRange(p.date, startDate, endDate));
     const completedPurchases = filteredPurchases.filter(p => p.status !== 'cancelled');
@@ -285,6 +287,49 @@ const Reports: React.FC<ReportsProps> = ({
             };
           });
         }).sort((a, b) => a._sortDoctor.localeCompare(b._sortDoctor) || b._sortDate - a._sortDate);
+        break;
+      }
+      case 'mfrWiseSalesDetailedReport': {
+        reportHeaders = ['MFR Name', 'Product Name', 'Sales Bill No', 'Sales Bill Date', 'Customer Name', 'Quantity', 'Free Qty', 'MRP', 'Sales Rate', 'Purchase Rate', 'Discount', 'Taxable Amount', 'GST Amount', 'Profit Margin', 'Net Amount'];
+        rows = completedOnlySales.flatMap(tx => {
+          return (tx.items || []).map((item: any) => {
+            const qty = Number(item.quantity || 0);
+            const freeQty = Number(item.freeQuantity || 0);
+            const salesRate = Number(item.rate ?? item.mrp ?? 0);
+            const lineDiscount = Number(item.itemFlatDiscount || 0)
+              + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
+              + Number(item.schemeDiscountAmount || 0);
+            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
+            const taxableAmount = (qty * salesRate) - lineDiscount;
+            const gstAmount = taxableAmount * (Number(item.gstPercent || 0) / 100);
+            const effectiveQty = qty + freeQty;
+            const profitMargin = (salesRate - purchaseRate) * (effectiveQty > 0 ? effectiveQty : qty);
+
+            return {
+              'MFR Name': item.manufacturer || inv?.manufacturer || 'N/A',
+              'Product Name': item.name || 'N/A',
+              'Sales Bill No': tx.invoiceNumber || tx.id,
+              'Sales Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
+              'Customer Name': tx.customerName || 'Walk-in',
+              'Quantity': formatPackLooseQuantity(qty, Number(item.looseQuantity || 0), freeQty),
+              'Free Qty': round2(freeQty),
+              'MRP': round2(Number(item.mrp ?? inv?.mrp ?? 0)),
+              'Sales Rate': round2(salesRate),
+              'Purchase Rate': purchaseRate > 0 ? round2(purchaseRate) : 0,
+              'Discount': round2(lineDiscount),
+              'Taxable Amount': round2(taxableAmount),
+              'GST Amount': round2(gstAmount),
+              'Profit Margin': round2(profitMargin),
+              'Net Amount': round2(Number(item.finalAmount ?? item.amount ?? (taxableAmount + gstAmount))),
+              '_qty': qty,
+              '_freeQty': freeQty,
+              '_sortMfr': String(item.manufacturer || inv?.manufacturer || 'N/A').toLowerCase(),
+              '_sortProduct': String(item.name || '').toLowerCase(),
+              '_sortDate': new Date(tx.date).getTime(),
+            };
+          });
+        }).sort((a, b) => a._sortMfr.localeCompare(b._sortMfr) || a._sortProduct.localeCompare(b._sortProduct) || b._sortDate - a._sortDate);
         break;
       }
 
@@ -539,6 +584,22 @@ const Reports: React.FC<ReportsProps> = ({
     return { doctorName, totalSales, totalBills, totalDiscount, totalProfit };
   }, [activeReportId, filteredData, selectedRow]);
 
+  const mfrDetailSummary = useMemo(() => {
+    if (activeReportId !== 'mfrWiseSalesDetailedReport' || !selectedRow) return null;
+    const mfrName = String(selectedRow['MFR Name'] || '').trim();
+    if (!mfrName) return null;
+
+    const mfrRows = filteredData.filter(row => String(row['MFR Name'] || '').trim() === mfrName);
+    const totalSales = round2(mfrRows.reduce((sum, row) => sum + Number(row['Net Amount'] || 0), 0));
+    const totalDiscount = round2(mfrRows.reduce((sum, row) => sum + Number(row['Discount'] || 0), 0));
+    const totalGst = round2(mfrRows.reduce((sum, row) => sum + Number(row['GST Amount'] || 0), 0));
+    const totalProfit = round2(mfrRows.reduce((sum, row) => sum + Number(row['Profit Margin'] || 0), 0));
+    const totalQuantity = round2(mfrRows.reduce((sum, row) => sum + Number(row._qty || 0) + Number(row._freeQty || 0), 0));
+    const totalBills = new Set(mfrRows.map(row => String(row['Sales Bill No'] || ''))).size;
+
+    return { mfrName, totalSales, totalBills, totalDiscount, totalGst, totalProfit, totalQuantity };
+  }, [activeReportId, filteredData, selectedRow]);
+
   const activeFilterChips = useMemo(() => {
     return Object.entries(activeFilters).flatMap(([field, values]) => values.map(value => ({ field, value })));
   }, [activeFilters]);
@@ -714,7 +775,7 @@ const Reports: React.FC<ReportsProps> = ({
         </section>
 
         <section className="border border-gray-300 bg-white min-h-0 flex flex-col">
-          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">{activeReportId === 'doctorsSalesDetailedReport' ? 'Doctor Summary' : 'Detail Preview'}</div>
+          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">{activeReportId === 'doctorsSalesDetailedReport' ? 'Doctor Summary' : activeReportId === 'mfrWiseSalesDetailedReport' ? 'MFR Summary' : 'Detail Preview'}</div>
           <div className="min-h-0 overflow-auto p-2 text-[11px] space-y-1">
             {activeReportId === 'doctorsSalesDetailedReport' && doctorDetailSummary ? (
               <div className="space-y-1">
@@ -723,6 +784,16 @@ const Reports: React.FC<ReportsProps> = ({
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Bills</div><div>{doctorDetailSummary.totalBills}</div></div>
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>{doctorDetailSummary.totalDiscount}</div></div>
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>{doctorDetailSummary.totalProfit}</div></div>
+              </div>
+            ) : activeReportId === 'mfrWiseSalesDetailedReport' && mfrDetailSummary ? (
+              <div className="space-y-1">
+                <div className="text-xs font-bold text-primary">{mfrDetailSummary.mfrName}</div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Sales</div><div>{mfrDetailSummary.totalSales}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Bills</div><div>{mfrDetailSummary.totalBills}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Quantity</div><div>{mfrDetailSummary.totalQuantity}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>{mfrDetailSummary.totalDiscount}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total GST</div><div>{mfrDetailSummary.totalGst}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>{mfrDetailSummary.totalProfit}</div></div>
               </div>
             ) : !selectedRow ? (
               <div className="text-gray-500">Select a row to view details.</div>
