@@ -70,6 +70,8 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'dayBook', name: 'Day Book', group: 'Accounting Reports' },
   { id: 'outstandingReceivables', name: 'Outstanding Receivables', group: 'Accounting Reports' },
   { id: 'outstandingPayables', name: 'Outstanding Payables', group: 'Accounting Reports' },
+  { id: 'customerPartyWiseFullStatement', name: 'Customer Party-wise Full Statement', group: 'Accounting Reports' },
+  { id: 'supplierPartyWiseFullStatement', name: 'Supplier Party-wise Full Statement', group: 'Accounting Reports' },
 ];
 
 const isDateWithinRange = (isoDate: string, startIso: string, endIso: string) => {
@@ -91,6 +93,8 @@ const Reports: React.FC<ReportsProps> = ({
   const [periodEndDate, setPeriodEndDate] = useState(todayIso);
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
   const [pendingReportId, setPendingReportId] = useState<string>('salesRegister');
+  const [partyModalOpen, setPartyModalOpen] = useState(false);
+  const [selectedPartyId, setSelectedPartyId] = useState<string>('');
 
   const [activeReportId, setActiveReportId] = useState<string>('salesRegister');
   const [activeReportTitle, setActiveReportTitle] = useState<string>('Sales Register');
@@ -635,6 +639,68 @@ const Reports: React.FC<ReportsProps> = ({
           return { 'Supplier': p.supplier, 'Bill No': p.invoiceNumber, 'Bill Date': new Date(p.date).toLocaleDateString('en-GB'), 'Bill Amount': round2(billAmount), 'Paid Amount': round2(paidAmount), 'Balance Outstanding': round2(Math.max(billAmount - paidAmount, 0)), 'Ageing': Math.max(0, Math.ceil((new Date().getTime() - new Date(p.date).getTime()) / (1000 * 60 * 60 * 24))) };
         }).filter(r => r['Balance Outstanding'] > 0);
         break;
+      case 'customerPartyWiseFullStatement':
+      case 'supplierPartyWiseFullStatement': {
+        const isCustomer = reportId === 'customerPartyWiseFullStatement';
+        const party = isCustomer ? customers.find(c => c.id === selectedPartyId) : distributors.find(d => d.id === selectedPartyId);
+        const partyName = party?.name || 'Selected Party';
+        title = `${title} - ${partyName}`;
+        const ledgerRows = (party?.ledger || []).filter((entry: any) => entry && isDateWithinRange(entry.date, startDate, endDate));
+        reportHeaders = ['Section', 'Date', 'Voucher Type', 'Voucher No', 'Reference Bill No', 'Narration', 'Debit', 'Credit', 'Running Balance', 'Balance Type', 'Status'];
+        const statementRows = ledgerRows.map((entry: any) => {
+          const runningBalance = Number(entry.balance || 0);
+          return {
+            'Section': 'Ledger Statement',
+            'Date': new Date(entry.date).toLocaleDateString('en-GB'),
+            'Voucher Type': entry.type === 'sale' ? 'Sales Invoice' : entry.type === 'purchase' ? 'Purchase Invoice' : entry.type === 'return' ? (isCustomer ? 'Credit Note / Sales Return' : 'Debit Note / Purchase Return') : entry.type === 'openingBalance' ? 'Opening Balance' : (isCustomer ? 'Receipt' : 'Payment'),
+            'Voucher No': entry.journalEntryNumber || entry.id,
+            'Reference Bill No': entry.referenceInvoiceNumber || '-',
+            'Narration': entry.description || '-',
+            'Debit': round2(Number(entry.debit || 0)),
+            'Credit': round2(Number(entry.credit || 0)),
+            'Running Balance': round2(Math.abs(runningBalance)),
+            'Balance Type': runningBalance >= 0 ? (isCustomer ? 'Dr' : 'Cr') : (isCustomer ? 'Cr' : 'Dr'),
+            'Status': entry.status || 'active',
+          };
+        });
+        const billWiseRows = ledgerRows.filter((entry: any) => ['sale', 'purchase'].includes(entry.type)).map((entry: any) => {
+          const billAmount = isCustomer ? Number(entry.debit || 0) : Number(entry.credit || 0);
+          return {
+            'Section': 'Bill-wise Outstanding',
+            'Date': new Date(entry.date).toLocaleDateString('en-GB'),
+            'Voucher Type': isCustomer ? 'Sales Invoice' : 'Purchase Invoice',
+            'Voucher No': entry.journalEntryNumber || entry.id,
+            'Reference Bill No': entry.referenceInvoiceNumber || '-',
+            'Narration': `Bill Amount: ${round2(billAmount)} | Paid/Adjusted: 0 | Outstanding: ${round2(billAmount)} | Due Days: ${Math.max(0, Math.ceil((new Date().getTime() - new Date(entry.date).getTime()) / (1000 * 60 * 60 * 24)))}`,
+            'Debit': 0, 'Credit': 0, 'Running Balance': 0, 'Balance Type': '-', 'Status': entry.status || 'active',
+          };
+        });
+        const paymentRows = ledgerRows.filter((entry: any) => entry.type === 'payment').map((entry: any) => {
+          const amount = isCustomer ? Number(entry.credit || 0) : Number(entry.debit || 0);
+          const adjusted = Number(entry.adjustedAmount || 0);
+          return {
+            'Section': 'Payment History',
+            'Date': new Date(entry.date).toLocaleDateString('en-GB'),
+            'Voucher Type': isCustomer ? 'Receipt' : 'Payment',
+            'Voucher No': entry.journalEntryNumber || entry.id,
+            'Reference Bill No': entry.referenceInvoiceNumber || '-',
+            'Narration': `Mode: ${entry.paymentMode || '-'} | A/C: ${entry.bankName || 'Cash'} | Amount: ${round2(amount)} | Adjusted: ${round2(adjusted)} | Unadjusted: ${round2(Math.max(amount - adjusted, 0))} | ${entry.description || '-'}`,
+            'Debit': 0, 'Credit': 0, 'Running Balance': 0, 'Balance Type': '-', 'Status': entry.status || 'active',
+          };
+        });
+        const totalDebit = round2(statementRows.reduce((sum: number, row: any) => sum + Number(row.Debit || 0), 0));
+        const totalCredit = round2(statementRows.reduce((sum: number, row: any) => sum + Number(row.Credit || 0), 0));
+        const openingBalance = round2(Number((party as any)?.opening_balance || 0));
+        const closingBalanceSigned = round2(Number(party?.ledger?.[party.ledger.length - 1]?.balance || openingBalance));
+        const summaryRows = [
+          { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Opening Balance', 'Voucher No': '-', 'Reference Bill No': '-', 'Narration': '', 'Debit': openingBalance > 0 ? openingBalance : 0, 'Credit': openingBalance < 0 ? Math.abs(openingBalance) : 0, 'Running Balance': 0, 'Balance Type': openingBalance >= 0 ? 'Dr' : 'Cr', 'Status': '-' },
+          { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Total Debit', 'Voucher No': '-', 'Reference Bill No': '-', 'Narration': '', 'Debit': totalDebit, 'Credit': 0, 'Running Balance': 0, 'Balance Type': '-', 'Status': '-' },
+          { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Total Credit', 'Voucher No': '-', 'Reference Bill No': '-', 'Narration': '', 'Debit': 0, 'Credit': totalCredit, 'Running Balance': 0, 'Balance Type': '-', 'Status': '-' },
+          { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Closing Balance', 'Voucher No': '-', 'Reference Bill No': '-', 'Narration': '', 'Debit': closingBalanceSigned > 0 ? closingBalanceSigned : 0, 'Credit': closingBalanceSigned < 0 ? Math.abs(closingBalanceSigned) : 0, 'Running Balance': round2(Math.abs(closingBalanceSigned)), 'Balance Type': closingBalanceSigned >= 0 ? (isCustomer ? 'Dr' : 'Cr') : (isCustomer ? 'Cr' : 'Dr'), 'Status': '-' },
+        ];
+        rows = [...statementRows, ...billWiseRows, ...paymentRows, ...summaryRows];
+        break;
+      }
       default:
         reportHeaders = ['Message'];
         rows = [{ Message: 'No report logic configured.' }];
@@ -804,6 +870,10 @@ const Reports: React.FC<ReportsProps> = ({
 
   const onPickReport = (reportId: string) => {
     setPendingReportId(reportId);
+    if (reportId === 'customerPartyWiseFullStatement' || reportId === 'supplierPartyWiseFullStatement') {
+      setPartyModalOpen(true);
+      return;
+    }
     setPeriodModalOpen(true);
   };
 
@@ -976,6 +1046,31 @@ const Reports: React.FC<ReportsProps> = ({
             <button onClick={() => { setPeriodStartDate(firstOfMonthIso); setPeriodEndDate(todayIso); }} className="px-3 py-1 border border-gray-300">Clear</button>
             <button onClick={() => setPeriodModalOpen(false)} className="px-3 py-1 border border-gray-300">Cancel</button>
             <button onClick={() => { loadReportData(pendingReportId, periodStartDate, periodEndDate); setPeriodModalOpen(false); }} className="px-3 py-1 border border-primary bg-primary text-white">Generate Report</button>
+          </div>
+        </div>
+      </Modal>
+      <Modal isOpen={partyModalOpen} onClose={() => setPartyModalOpen(false)} title="Select Party Name" widthClass="max-w-md">
+        <div className="p-4 space-y-3 text-sm">
+          <div>
+            <label className="text-xs uppercase font-semibold text-gray-600">Party Name</label>
+            <select value={selectedPartyId} onChange={(e) => setSelectedPartyId(e.target.value)} className="w-full border border-gray-300 p-2 mt-1">
+              <option value="">Select Party</option>
+              {(pendingReportId === 'customerPartyWiseFullStatement' ? customers : distributors).map((party) => (
+                <option key={party.id} value={party.id}>{party.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs uppercase font-semibold text-gray-600">From Date</label>
+            <input type="date" value={periodStartDate} onChange={e => setPeriodStartDate(e.target.value)} className="w-full border border-gray-300 p-2 mt-1" />
+          </div>
+          <div>
+            <label className="text-xs uppercase font-semibold text-gray-600">To Date</label>
+            <input type="date" value={periodEndDate} onChange={e => setPeriodEndDate(e.target.value)} className="w-full border border-gray-300 p-2 mt-1" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setPartyModalOpen(false)} className="px-3 py-1 border border-gray-300">Cancel</button>
+            <button disabled={!selectedPartyId} onClick={() => { loadReportData(pendingReportId, periodStartDate, periodEndDate); setPartyModalOpen(false); }} className="px-3 py-1 border border-primary bg-primary text-white disabled:opacity-50">Execute Report</button>
           </div>
         </div>
       </Modal>
