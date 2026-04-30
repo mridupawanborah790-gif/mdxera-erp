@@ -124,12 +124,12 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
       }
 
       // 2. If the remaining items fit on the current page, BUT won't leave room for the footer,
-      //    we must spill over. To prevent a 0-item final page, we calculate a smart portion 
+      //    we must spill over. To prevent a 0-item final page, we calculate a smart portion
       //    of items to hold back for the final page to balance the look.
       if (remaining <= REGULAR_CAP) {
         const leaveForLastPage = Math.min(LAST_CAP, Math.max(1, Math.floor(remaining / 2)));
         const takeNow = remaining - leaveForLastPage;
-        
+
         chunks.push(items.slice(idx, idx + takeNow));
         idx += takeNow;
       } else {
@@ -184,9 +184,9 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const companyDrugLicense  = toUpperDisplay(
     (bill.pharmacy as any).drug_license || (bill.pharmacy as any).drugLicense || '-'
   );
-  const companyBankName     = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
+  const companyBankName      = (bill.pharmacy as any).bank_account_name || (bill.pharmacy as any).bank_name;
   const companyAccountNumber = (bill.pharmacy as any).bank_account_number || (bill.pharmacy as any).account_number;
-  const companyIfscCode     = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
+  const companyIfscCode      = (bill.pharmacy as any).bank_ifsc_code || (bill.pharmacy as any).ifsc_code;
 
   const isCreditBill           = String(bill.paymentMode || '').trim().toLowerCase() === 'credit';
   const hasSelectedCustomer    = Boolean(bill.customerDetails?.id);
@@ -241,22 +241,32 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
             break-after: auto;
           }
 
+          /* On print, items table fills remaining space so footer is always at bottom */
+          .marg-items-wrapper {
+            flex: 1;
+            overflow: hidden;
+          }
+
           .invoice-items tr { page-break-inside: avoid; break-inside: avoid; }
           .invoice-footer-block { page-break-inside: avoid; break-inside: avoid; }
         }
 
-        /* ── Screen: mimic A5 pages visually ── */
+        /* ── Screen: mimic A5 pages visually but shrink to content ── */
         @media screen {
           .marg-page {
             width:  ${isLandscape ? '210mm' : '148mm'};
-            height: ${isLandscape ? '148mm' : '210mm'}; /* STRICT HEIGHT prevents collapsing */
+            min-height: ${isLandscape ? '148mm' : '210mm'}; /* min-height so footer follows content */
             padding: 4mm;
             background: white;
             box-shadow: 0 2px 8px rgba(0,0,0,0.12);
             margin-bottom: 12px;
-            display: flex;
-            flex-direction: column;
+            display: block; /* block on screen so height wraps content */
             box-sizing: border-box;
+          }
+
+          /* On screen, items wrapper is just a normal block — no flex stretching */
+          .marg-items-wrapper {
+            display: block;
           }
         }
 
@@ -341,7 +351,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
           <div key={pageIdx} className="marg-page">
 
             {/* ── HEADER (every page) ── */}
-            <div className="invoice-header" style={{ flexShrink: 0 }}>
+            <div className="invoice-header">
               <div className="grid grid-cols-3 border-t border-x border-black">
                 {/* Left: pharmacy info */}
                 <div className="p-1.5 border-r border-black">
@@ -422,8 +432,10 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               </div>
             </div>
 
-            {/* ── ITEMS TABLE ── flex: 1 expands to push everything else down */}
-            <div style={{ flex: 1, overflow: 'hidden' }}>
+            {/* ── ITEMS TABLE ── */}
+            {/* Uses .marg-items-wrapper: flex:1 on print (footer pinned to bottom),
+                display:block on screen (footer follows content naturally) */}
+            <div className="marg-items-wrapper">
               <table className="invoice-items erp-table items-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr className="text-[7pt] font-semibold uppercase">
@@ -487,10 +499,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
             {/* ── CONTINUATION FOOTER (non-last pages) ── */}
             {!isLastPage && (
-              <div
-                className="grid grid-cols-2 border-x border-b border-black bg-white"
-                style={{ flexShrink: 0 }}
-              >
+              <div className="grid grid-cols-2 border-x border-b border-black bg-white">
                 <div className="border-r border-black p-1.5">
                   <p className="text-[8pt] font-black text-gray-700 uppercase">
                     Continued on next page… (Page {pageIdx + 1} of {calculations.chunks.length})
@@ -507,7 +516,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
             {/* ── MAIN FOOTER (last page only) ── */}
             {isLastPage && (
-              <div className="invoice-footer-block" style={{ flexShrink: 0 }}>
+              <div className="invoice-footer-block">
                 <div className="invoice-footer grid grid-cols-2 footer-border bg-white">
 
                   {/* Left: GST summary + bank + words + balance */}
