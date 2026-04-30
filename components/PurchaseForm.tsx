@@ -679,7 +679,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                 gstPercent: foundMed.gstRate || item.gstPercent,
                 manufacturer: resolveManufacturer(foundMed.manufacturer, item.manufacturer),
                 brand: foundMed.brand || item.brand,
-                mrp: Number(foundMed.mrp || item.mrp)
+                mrp: Number(foundMed.mrp || item.mrp),
+                discountPercent: Number(foundMed.productDiscount ?? item.discountPercent ?? 0)
             });
 
             if (targetsupplier) {
@@ -1384,6 +1385,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
         const targetRowId = activeRowId || crypto.randomUUID();
+        const linkedMedicine = medicines.find((med) => med.id === batch.id || (med.materialCode || '').trim().toLowerCase() === (batch.code || '').trim().toLowerCase());
         const newItem: PurchaseItem = {
             id: targetRowId,
             inventoryItemId: batch.id,
@@ -1406,7 +1408,7 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             gstPercent: batch.gstPercent || 5,
             hsnCode: batch.hsnCode || '',
             materialCode: batch.code,
-            discountPercent: 0,
+            discountPercent: Number(linkedMedicine?.productDiscount ?? 0),
             schemeDiscountPercent: 0,
             schemeDiscountAmount: 0,
             matchStatus: 'matched'
