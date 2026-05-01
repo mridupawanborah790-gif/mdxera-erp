@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Modal from '../components/Modal';
 import type { InventoryItem, Transaction, Purchase, Distributor, Customer, SalesReturn, PurchaseReturn, ModuleConfig, DoctorMaster } from '../types';
-import { getOutstandingBalance } from '../utils/helpers';
+import { calculateCustomerReceivableBreakdown, calculateSupplierPayableBreakdown, getCustomerInvoiceOutstandingTotalFromTransactions, getOutstandingBalance, getSupplierInvoiceOutstandingTotalFromPurchases } from '../utils/helpers';
 import { getStockBreakup } from '../utils/stock';
 import { formatPackLooseQuantity } from '../utils/quantity';
 
@@ -25,6 +25,8 @@ interface ReportDefinition {
 }
 
 type SortDirection = 'asc' | 'desc';
+type MfrSalesViewMode = 'detailed' | 'productSummary';
+type StockMovementViewMode = 'detailed' | 'productSummary';
 
 const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
 
@@ -35,7 +37,10 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'dateWiseSales', name: 'Date-wise Sales', group: 'Sales Reports' },
   { id: 'partyWiseSales', name: 'Party-wise Sales', group: 'Sales Reports' },
   { id: 'doctorWiseSales', name: 'Doctor-wise Sales', group: 'Sales Reports' },
+  { id: 'doctorWiseSalesSummaryReport', name: 'Doctor-wise Sales Summary Report', group: 'Sales Reports' },
   { id: 'doctorsSalesDetailedReport', name: 'Doctors Sales Detailed Report', group: 'Sales Reports' },
+  { id: 'mfrWiseSalesDetailedReport', name: 'MFR-wise Sales Detailed Report', group: 'Sales Reports' },
+  { id: 'mfrWiseSalesSummaryReport', name: 'MFR-wise Sales Summary Report', group: 'Sales Reports' },
   { id: 'itemWiseSales', name: 'Item-wise Sales', group: 'Sales Reports' },
   { id: 'categoryWiseSales', name: 'Category-wise Sales', group: 'Sales Reports' },
   { id: 'areaWiseSales', name: 'Area-wise Sales', group: 'Sales Reports' },
@@ -62,11 +67,14 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'expiredStockReport', name: 'Expired Stock Report', group: 'Inventory Reports' },
   { id: 'negativeStock', name: 'Negative Stock Report', group: 'Inventory Reports' },
   { id: 'reorderLevelReport', name: 'Reorder Level Report', group: 'Inventory Reports' },
+  { id: 'stockMovementSummary', name: 'Stock Movement Summary', group: 'Inventory Reports' },
 
   { id: 'ledgerReport', name: 'Account Ledger', group: 'Accounting Reports' },
   { id: 'dayBook', name: 'Day Book', group: 'Accounting Reports' },
   { id: 'outstandingReceivables', name: 'Outstanding Receivables', group: 'Accounting Reports' },
   { id: 'outstandingPayables', name: 'Outstanding Payables', group: 'Accounting Reports' },
+  { id: 'customerPartyWiseFullStatement', name: 'Customer Party-wise Full Statement', group: 'Accounting Reports' },
+  { id: 'supplierPartyWiseFullStatement', name: 'Supplier Party-wise Full Statement', group: 'Accounting Reports' },
 ];
 
 const isDateWithinRange = (isoDate: string, startIso: string, endIso: string) => {
@@ -88,6 +96,8 @@ const Reports: React.FC<ReportsProps> = ({
   const [periodEndDate, setPeriodEndDate] = useState(todayIso);
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
   const [pendingReportId, setPendingReportId] = useState<string>('salesRegister');
+  const [partyModalOpen, setPartyModalOpen] = useState(false);
+  const [selectedPartyId, setSelectedPartyId] = useState<string>('');
 
   const [activeReportId, setActiveReportId] = useState<string>('salesRegister');
   const [activeReportTitle, setActiveReportTitle] = useState<string>('Sales Register');
@@ -100,6 +110,8 @@ const Reports: React.FC<ReportsProps> = ({
   const [sortConfig, setSortConfig] = useState<{ column: string; direction: SortDirection } | null>(null);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [columnModalOpen, setColumnModalOpen] = useState(false);
+  const [mfrSalesViewMode, setMfrSalesViewMode] = useState<MfrSalesViewMode>('detailed');
+  const [stockMovementViewMode, setStockMovementViewMode] = useState<StockMovementViewMode>('detailed');
 
   const reportById = useMemo(() => new Map(REPORT_LIST.map(r => [r.id, r])), []);
   const groupedReports = useMemo(() => {
@@ -152,6 +164,7 @@ const Reports: React.FC<ReportsProps> = ({
 
     const sales = transactions.filter(tx => tx.status !== 'draft' && isDateWithinRange(tx.date, startDate, endDate));
     const completedSales = sales.filter(tx => tx.status !== 'cancelled');
+    const completedOnlySales = sales.filter(tx => String(tx.status || '').toLowerCase() === 'completed');
     const cancelledSales = sales.filter(tx => tx.status === 'cancelled');
     const filteredPurchases = purchases.filter(p => p.status !== 'draft' && isDateWithinRange(p.date, startDate, endDate));
     const completedPurchases = filteredPurchases.filter(p => p.status !== 'cancelled');
@@ -242,6 +255,58 @@ const Reports: React.FC<ReportsProps> = ({
         rows = Array.from(map.values()).map((value: any) => ({ 'Doctor Name': value.doctorName, 'Doctor Code': value.doctorCode, 'Specialization': value.specialization, 'Mobile': value.mobile, 'Area': value.area, 'Number of Bills': value.bills, 'Number of Customers': value.customers.size, 'Total Sales Amount': round2(value.sales), 'Total Discount': round2(value.discount), 'Total GST': round2(value.gst), 'Net Sales Value': round2(value.net) }));
         break;
       }
+      case 'doctorWiseSalesSummaryReport': {
+        reportHeaders = ['Doctor Name', 'Number of Bills', 'Number of Customers', 'Total Quantity', 'Total Free Quantity', 'Total Taxable Value', 'Total Discount', 'Total GST Amount', 'Net Sales Value', 'Total Profit Margin'];
+        const map = new Map<string, any>();
+        completedOnlySales.forEach(tx => {
+          const doctorFromId = tx.doctorId ? doctorById.get(tx.doctorId) : undefined;
+          const doctorFromName = !doctorFromId ? doctorByName.get((tx.referredBy || '').trim().toLowerCase()) : undefined;
+          const doctorName = (doctorFromId?.name || doctorFromName?.name || tx.referredBy || '').trim();
+          if (!doctorName) return;
+          const key = (doctorFromId?.id || doctorFromName?.id || doctorName).toLowerCase();
+          const current = map.get(key) || { doctorName, bills: new Set<string>(), customers: new Set<string>(), qty: 0, freeQty: 0, taxable: 0, discount: 0, gst: 0, net: 0, profit: 0 };
+          current.bills.add(String(tx.invoiceNumber || tx.id));
+          current.customers.add(String(tx.customerId || tx.customerName || 'Walk-in'));
+          (tx.items || []).forEach((item: any) => {
+            const qty = Number(item.quantity || 0);
+            const freeQty = Number(item.freeQuantity || 0);
+            const salesRate = Number(item.rate ?? item.mrp ?? 0);
+            const lineDiscount = Number(item.itemFlatDiscount || 0)
+              + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
+              + Number(item.schemeDiscountAmount || 0);
+            const lineTaxableAmount = Number(item.finalAmount ?? item.amount ?? ((qty * salesRate) - lineDiscount));
+            const sgst = Number(item.sgstAmount || 0);
+            const cgst = Number(item.cgstAmount || 0);
+            const gstAmount = (sgst + cgst) || (lineTaxableAmount * (Number(item.gstPercent || 0) / 100));
+            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
+            const profit = purchaseRate > 0 ? (salesRate - purchaseRate) * qty : 0;
+
+            current.qty += qty;
+            current.freeQty += freeQty;
+            current.taxable += lineTaxableAmount;
+            current.discount += lineDiscount;
+            current.gst += gstAmount;
+            current.net += lineTaxableAmount + gstAmount - lineDiscount;
+            current.profit += profit;
+          });
+          map.set(key, current);
+        });
+        rows = Array.from(map.values()).map((value: any) => ({
+          'Doctor Name': value.doctorName,
+          'Number of Bills': value.bills.size,
+          'Number of Customers': value.customers.size,
+          'Total Quantity': round2(value.qty),
+          'Total Free Quantity': round2(value.freeQty),
+          'Total Taxable Value': round2(value.taxable),
+          'Total Discount': round2(value.discount),
+          'Total GST Amount': round2(value.gst),
+          'Net Sales Value': round2(value.net),
+          'Total Profit Margin': round2(value.profit),
+        })).sort((a, b) => Number(b['Net Sales Value']) - Number(a['Net Sales Value']));
+        setSortConfig({ column: 'Net Sales Value', direction: 'desc' });
+        break;
+      }
 
       case 'doctorsSalesDetailedReport': {
         reportHeaders = ['Doctor Name', 'Sales Bill No', 'Sales Bill Date', 'Product Name', 'Quantity', 'Product MFR', 'MRP', 'Sales Rate', 'Purchase Rate', 'Discount', 'Profit Margin', 'Amount', 'Status'];
@@ -285,6 +350,156 @@ const Reports: React.FC<ReportsProps> = ({
             };
           });
         }).sort((a, b) => a._sortDoctor.localeCompare(b._sortDoctor) || b._sortDate - a._sortDate);
+        break;
+      }
+      case 'mfrWiseSalesDetailedReport': {
+        if (mfrSalesViewMode === 'productSummary') {
+          reportHeaders = ['MFR Name', 'Product Name', 'Total Quantity', 'Total Free Qty', 'Average Sales Rate', 'Average Purchase Rate', 'Total Taxable Amount', 'Total GST Amount', 'Total Discount', 'Total Profit Margin', 'Total Net Amount', 'Number of Bills'];
+          const map = new Map<string, any>();
+          completedOnlySales.forEach(tx => {
+            const billNo = String(tx.invoiceNumber || tx.id);
+            (tx.items || []).forEach((item: any) => {
+              const qty = Number(item.quantity || 0);
+              const freeQty = Number(item.freeQuantity || 0);
+              const salesRate = Number(item.rate ?? item.mrp ?? 0);
+              const lineDiscount = Number(item.itemFlatDiscount || 0)
+                + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
+                + Number(item.schemeDiscountAmount || 0);
+              const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+              const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
+              const taxableAmount = (qty * salesRate) - lineDiscount;
+              const sgst = Number(item.sgstAmount || 0);
+              const cgst = Number(item.cgstAmount || 0);
+              const gstAmount = (sgst + cgst) || (taxableAmount * (Number(item.gstPercent || 0) / 100));
+              const netAmount = Number(item.finalAmount ?? item.amount ?? (taxableAmount + gstAmount));
+              const mfrName = item.manufacturer || inv?.manufacturer || 'N/A';
+              const productName = item.name || 'N/A';
+              const key = `${String(mfrName).trim().toLowerCase()}|${String(productName).trim().toLowerCase()}`;
+              const current = map.get(key) || { mfrName, productName, qty: 0, freeQty: 0, salesRateTotal: 0, purchaseRateTotal: 0, lineCount: 0, taxable: 0, gst: 0, discount: 0, profit: 0, net: 0, bills: new Set<string>() };
+
+              current.qty += qty;
+              current.freeQty += freeQty;
+              current.salesRateTotal += salesRate;
+              current.purchaseRateTotal += purchaseRate;
+              current.lineCount += 1;
+              current.taxable += taxableAmount;
+              current.gst += gstAmount;
+              current.discount += lineDiscount;
+              current.profit += (salesRate - purchaseRate) * qty;
+              current.net += netAmount;
+              current.bills.add(billNo);
+              map.set(key, current);
+            });
+          });
+
+          rows = Array.from(map.values()).map((value: any) => ({
+            'MFR Name': value.mfrName,
+            'Product Name': value.productName,
+            'Total Quantity': round2(value.qty),
+            'Total Free Qty': round2(value.freeQty),
+            'Average Sales Rate': round2(value.lineCount ? (value.salesRateTotal / value.lineCount) : 0),
+            'Average Purchase Rate': round2(value.lineCount ? (value.purchaseRateTotal / value.lineCount) : 0),
+            'Total Taxable Amount': round2(value.taxable),
+            'Total GST Amount': round2(value.gst),
+            'Total Discount': round2(value.discount),
+            'Total Profit Margin': round2(value.profit),
+            'Total Net Amount': round2(value.net),
+            'Number of Bills': value.bills.size,
+            '_sortMfr': String(value.mfrName || '').toLowerCase(),
+            '_sortProduct': String(value.productName || '').toLowerCase(),
+          })).sort((a, b) => a._sortMfr.localeCompare(b._sortMfr) || a._sortProduct.localeCompare(b._sortProduct));
+          break;
+        }
+        reportHeaders = ['MFR Name', 'Product Name', 'Sales Bill No', 'Sales Bill Date', 'Customer Name', 'Quantity', 'Free Qty', 'MRP', 'Sales Rate', 'Purchase Rate', 'Discount', 'Taxable Amount', 'GST Amount', 'Profit Margin', 'Net Amount'];
+        rows = completedOnlySales.flatMap(tx => {
+          return (tx.items || []).map((item: any) => {
+            const qty = Number(item.quantity || 0);
+            const freeQty = Number(item.freeQuantity || 0);
+            const salesRate = Number(item.rate ?? item.mrp ?? 0);
+            const lineDiscount = Number(item.itemFlatDiscount || 0)
+              + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
+              + Number(item.schemeDiscountAmount || 0);
+            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
+            const taxableAmount = (qty * salesRate) - lineDiscount;
+            const gstAmount = taxableAmount * (Number(item.gstPercent || 0) / 100);
+            const effectiveQty = qty + freeQty;
+            const profitMargin = (salesRate - purchaseRate) * (effectiveQty > 0 ? effectiveQty : qty);
+
+            return {
+              'MFR Name': item.manufacturer || inv?.manufacturer || 'N/A',
+              'Product Name': item.name || 'N/A',
+              'Sales Bill No': tx.invoiceNumber || tx.id,
+              'Sales Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
+              'Customer Name': tx.customerName || 'Walk-in',
+              'Quantity': formatPackLooseQuantity(qty, Number(item.looseQuantity || 0), freeQty),
+              'Free Qty': round2(freeQty),
+              'MRP': round2(Number(item.mrp ?? inv?.mrp ?? 0)),
+              'Sales Rate': round2(salesRate),
+              'Purchase Rate': purchaseRate > 0 ? round2(purchaseRate) : 0,
+              'Discount': round2(lineDiscount),
+              'Taxable Amount': round2(taxableAmount),
+              'GST Amount': round2(gstAmount),
+              'Profit Margin': round2(profitMargin),
+              'Net Amount': round2(Number(item.finalAmount ?? item.amount ?? (taxableAmount + gstAmount))),
+              '_qty': qty,
+              '_freeQty': freeQty,
+              '_sortMfr': String(item.manufacturer || inv?.manufacturer || 'N/A').toLowerCase(),
+              '_sortProduct': String(item.name || '').toLowerCase(),
+              '_sortDate': new Date(tx.date).getTime(),
+            };
+          });
+        }).sort((a, b) => a._sortMfr.localeCompare(b._sortMfr) || a._sortProduct.localeCompare(b._sortProduct) || b._sortDate - a._sortDate);
+        break;
+      }
+      case 'mfrWiseSalesSummaryReport': {
+        reportHeaders = ['MFR Name', 'Number of Bills', 'Total Quantity', 'Total Free Qty', 'Total MRP Value', 'Total Sales Value (Taxable)', 'Total Discount', 'Total GST Amount', 'Net Sales Value', 'Total Profit Margin'];
+        const map = new Map<string, any>();
+        completedOnlySales.forEach(tx => {
+          const billNo = String(tx.invoiceNumber || tx.id);
+          (tx.items || []).forEach((item: any) => {
+            const qty = Number(item.quantity || 0);
+            const freeQty = Number(item.freeQuantity || 0);
+            const salesRate = Number(item.rate ?? item.mrp ?? 0);
+            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const mfrName = item.manufacturer || inv?.manufacturer || 'N/A';
+            const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
+            const lineDiscount = Number(item.itemFlatDiscount || 0)
+              + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
+              + Number(item.schemeDiscountAmount || 0);
+            const taxableAmount = (qty * salesRate) - lineDiscount;
+            const sgst = Number(item.sgstAmount || 0);
+            const cgst = Number(item.cgstAmount || 0);
+            const gstAmount = sgst + cgst || (taxableAmount * (Number(item.gstPercent || 0) / 100));
+            const mrp = Number(item.mrp ?? inv?.mrp ?? salesRate);
+            const profit = (salesRate - purchaseRate) * qty;
+
+            const current = map.get(mfrName) || { mfrName, bills: new Set<string>(), qty: 0, freeQty: 0, mrpValue: 0, taxable: 0, discount: 0, gst: 0, net: 0, profit: 0 };
+            current.bills.add(billNo);
+            current.qty += qty;
+            current.freeQty += freeQty;
+            current.mrpValue += (mrp * qty);
+            current.taxable += taxableAmount;
+            current.discount += lineDiscount;
+            current.gst += gstAmount;
+            current.net += taxableAmount + gstAmount - lineDiscount;
+            current.profit += profit;
+            map.set(mfrName, current);
+          });
+        });
+        rows = Array.from(map.values()).map((value: any) => ({
+          'MFR Name': value.mfrName,
+          'Number of Bills': value.bills.size,
+          'Total Quantity': round2(value.qty),
+          'Total Free Qty': round2(value.freeQty),
+          'Total MRP Value': round2(value.mrpValue),
+          'Total Sales Value (Taxable)': round2(value.taxable),
+          'Total Discount': round2(value.discount),
+          'Total GST Amount': round2(value.gst),
+          'Net Sales Value': round2(value.net),
+          'Total Profit Margin': round2(value.profit),
+        })).sort((a, b) => Number(b['Net Sales Value']) - Number(a['Net Sales Value']));
+        setSortConfig({ column: 'Net Sales Value', direction: 'desc' });
         break;
       }
 
@@ -441,6 +656,83 @@ const Reports: React.FC<ReportsProps> = ({
         reportHeaders = ['Item', 'Batch', 'Current Stock', 'Location'];
         rows = inventory.filter(i => Number(i.stock || 0) < 0).map(i => ({ 'Item': i.name, 'Batch': i.batch, 'Current Stock': Number(i.stock || 0), 'Location': i.rackNumber || 'N/A' }));
         break;
+
+      case 'stockMovementSummary': {
+        const summaryHeaders = ['Product Name', 'MFR', 'Rate', 'Opening Qty', 'Opening Value', 'Receipt Qty', 'Receipt Value', 'Issue Qty', 'Issue Value', 'Closing Qty', 'Closing Value'];
+        const detailedHeaders = ['Product Name', 'MFR', 'Rate', 'Batch', 'Movement Type', 'Reference No', 'Opening Qty', 'Opening Value', 'Receipt Qty', 'Receipt Value', 'Issue Qty', 'Issue Value', 'Closing Qty', 'Closing Value'];
+        reportHeaders = stockMovementViewMode === 'productSummary' ? summaryHeaders : detailedHeaders;
+
+        const detailedRows: any[] = [];
+        const addDetailedRow = (payload: any) => {
+          const rate = round2(Number(payload.rate || 0));
+          const openingQty = round2(Number(payload.openingQty || 0));
+          const receiptQty = round2(Number(payload.receiptQty || 0));
+          const issueQty = round2(Number(payload.issueQty || 0));
+          const closingQty = round2(openingQty + receiptQty - issueQty);
+          detailedRows.push({
+            'Product Name': payload.name,
+            'MFR': payload.manufacturer || 'N/A',
+            'Rate': rate,
+            'Batch': payload.batch || 'N/A',
+            'Movement Type': payload.movementType,
+            'Reference No': payload.referenceNo || '-',
+            'Opening Qty': openingQty,
+            'Opening Value': round2(openingQty * rate),
+            'Receipt Qty': receiptQty,
+            'Receipt Value': round2(receiptQty * rate),
+            'Issue Qty': issueQty,
+            'Issue Value': round2(issueQty * rate),
+            'Closing Qty': closingQty,
+            'Closing Value': round2(closingQty * rate),
+          });
+        };
+
+        purchases.filter(p => p.status !== 'draft' && p.status !== 'cancelled' && new Date(p.date) < new Date(startDate)).forEach(p => {
+          (p.items || []).forEach((item: any) => {
+            const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || item.brand || '', batch: item.batch, rate: Number(item.purchasePrice || item.ptr || 0), movementType: 'Opening', referenceNo: p.invoiceNumber || p.id, openingQty: qty });
+          });
+        });
+        transactions.filter(tx => tx.status !== 'draft' && tx.status !== 'cancelled' && new Date(tx.date) < new Date(startDate)).forEach(tx => {
+          (tx.items || []).forEach((item: any) => {
+            const inv = inventory.find(i => i.name === item.name && (!item.batch || !i.batch || i.batch === item.batch));
+            const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || inv?.manufacturer || item.brand || '', batch: item.batch || inv?.batch, rate: Number(item.rate ?? item.ptr ?? item.purchasePrice ?? inv?.ptr ?? inv?.purchasePrice ?? 0), movementType: 'Opening Adjustment', referenceNo: tx.invoiceNumber || tx.id, openingQty: -qty });
+          });
+        });
+        purchases.filter(p => p.status !== 'draft' && p.status !== 'cancelled' && isDateWithinRange(p.date, startDate, endDate)).forEach(p => {
+          (p.items || []).forEach((item: any) => {
+            const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || item.brand || '', batch: item.batch, rate: Number(item.purchasePrice || item.ptr || 0), movementType: 'Receipt', referenceNo: p.invoiceNumber || p.id, receiptQty: qty });
+          });
+        });
+        transactions.filter(tx => tx.status !== 'draft' && tx.status !== 'cancelled' && isDateWithinRange(tx.date, startDate, endDate)).forEach(tx => {
+          (tx.items || []).forEach((item: any) => {
+            const inv = inventory.find(i => i.name === item.name && (!item.batch || !i.batch || i.batch === item.batch));
+            const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || inv?.manufacturer || item.brand || '', batch: item.batch || inv?.batch, rate: Number(item.rate ?? item.ptr ?? item.purchasePrice ?? inv?.ptr ?? inv?.purchasePrice ?? 0), movementType: 'Issue', referenceNo: tx.invoiceNumber || tx.id, issueQty: qty });
+          });
+        });
+
+        if (stockMovementViewMode === 'productSummary') {
+          const grouped = new Map<string, any>();
+          detailedRows.forEach((row: any) => {
+            const key = `${String(row['Product Name']).trim().toLowerCase()}|${String(row['MFR']).trim().toLowerCase()}|${Number(row['Rate'] || 0)}`;
+            const current = grouped.get(key) || { ...summaryHeaders.reduce((acc: any, h) => ({ ...acc, [h]: 0 }), {}), 'Product Name': row['Product Name'], 'MFR': row['MFR'], 'Rate': row['Rate'] };
+            current['Opening Qty'] = round2(Number(current['Opening Qty']) + Number(row['Opening Qty']));
+            current['Opening Value'] = round2(Number(current['Opening Value']) + Number(row['Opening Value']));
+            current['Receipt Qty'] = round2(Number(current['Receipt Qty']) + Number(row['Receipt Qty']));
+            current['Receipt Value'] = round2(Number(current['Receipt Value']) + Number(row['Receipt Value']));
+            current['Issue Qty'] = round2(Number(current['Issue Qty']) + Number(row['Issue Qty']));
+            current['Issue Value'] = round2(Number(current['Issue Value']) + Number(row['Issue Value']));
+            grouped.set(key, current);
+          });
+          rows = Array.from(grouped.values()).map((row: any) => ({ ...row, 'Closing Qty': round2(Number(row['Opening Qty']) + Number(row['Receipt Qty']) - Number(row['Issue Qty'])), 'Closing Value': round2((Number(row['Opening Qty']) + Number(row['Receipt Qty']) - Number(row['Issue Qty'])) * Number(row['Rate'])) })).sort((a,b)=>String(a['Product Name']).localeCompare(String(b['Product Name'])));
+        } else {
+          rows = detailedRows.sort((a,b)=>String(a['Product Name']).localeCompare(String(b['Product Name'])));
+        }
+        break;
+      }
       case 'reorderLevelReport':
         reportHeaders = ['Item', 'Current Stock', 'Minimum Limit', 'Required Reorder Qty'];
         rows = inventory.map(i => {
@@ -486,6 +778,238 @@ const Reports: React.FC<ReportsProps> = ({
           return { 'Supplier': p.supplier, 'Bill No': p.invoiceNumber, 'Bill Date': new Date(p.date).toLocaleDateString('en-GB'), 'Bill Amount': round2(billAmount), 'Paid Amount': round2(paidAmount), 'Balance Outstanding': round2(Math.max(billAmount - paidAmount, 0)), 'Ageing': Math.max(0, Math.ceil((new Date().getTime() - new Date(p.date).getTime()) / (1000 * 60 * 60 * 24))) };
         }).filter(r => r['Balance Outstanding'] > 0);
         break;
+      case 'customerPartyWiseFullStatement':
+      case 'supplierPartyWiseFullStatement': {
+        const isCustomer = reportId === 'customerPartyWiseFullStatement';
+        const party = isCustomer ? customers.find(c => c.id === selectedPartyId) : distributors.find(d => d.id === selectedPartyId);
+        const partyName = party?.name || 'Selected Party';
+        title = `${title} - ${partyName}`;
+        const allLedgerRows = (party?.ledger || []).filter((entry: any) => entry && entry.date);
+        const ledgerRows = allLedgerRows.filter((entry: any) => isDateWithinRange(entry.date, startDate, endDate));
+        const normalizedPartyName = String(partyName || '').trim().toLowerCase();
+        const generatedCustomerRows = isCustomer ? transactions
+          .filter(tx => tx.status !== 'draft' && tx.status !== 'cancelled')
+          .filter(tx => isDateWithinRange(tx.date, startDate, endDate))
+          .filter(tx => {
+            const txCustomerName = String(tx.customerName || '').trim().toLowerCase();
+            const txCustomerId = String(tx.customerId || '').trim();
+            return txCustomerName === normalizedPartyName || (selectedPartyId && txCustomerId === selectedPartyId);
+          })
+          .flatMap((tx: any) => {
+            const invoiceNo = tx.invoiceNumber || tx.id;
+            const invoiceAmount = round2(Number(tx.total || 0));
+            const receivedAmount = round2(Number(tx.amountReceived || 0));
+            const rowsForTx: any[] = [{
+              id: `sales-${tx.id}`,
+              date: tx.date,
+              type: 'sale',
+              description: `Sales invoice ${invoiceNo}`,
+              debit: invoiceAmount,
+              credit: 0,
+              paymentMode: tx.paymentMode,
+              referenceInvoiceNumber: invoiceNo,
+              journalEntryNumber: invoiceNo,
+              status: 'active',
+            }];
+            if (receivedAmount > 0) {
+              rowsForTx.push({
+                id: `receipt-${tx.id}`,
+                date: tx.date,
+                type: 'payment',
+                description: String(tx.paymentMode || '').toLowerCase().includes('cash') ? 'Auto receipt against cash sale' : `Receipt against invoice ${invoiceNo}`,
+                debit: 0,
+                credit: receivedAmount,
+                paymentMode: tx.paymentMode,
+                referenceInvoiceNumber: invoiceNo,
+                journalEntryNumber: 'AUTO RECEIPT',
+                status: 'active',
+              });
+            }
+            return rowsForTx;
+          }) : [];
+        const generatedCustomerReturnRows = isCustomer ? salesReturns
+          .filter(ret => isDateWithinRange(ret.date, startDate, endDate))
+          .filter(ret => String(ret.customerName || '').trim().toLowerCase() === normalizedPartyName)
+          .map((ret: any) => ({
+            id: `sales-return-${ret.id}`,
+            date: ret.date,
+            type: 'return',
+            description: ret.remarks || 'Sales return / credit note',
+            debit: 0,
+            credit: round2(Number(ret.totalValue || 0)),
+            referenceInvoiceNumber: ret.originalBillNumber || ret.originalInvoiceNumber || '-',
+            journalEntryNumber: `SR-${ret.id}`,
+            status: 'active',
+          })) : [];
+        const supplierGeneratedRows = !isCustomer ? (() => {
+          const supplierId = String(selectedPartyId || '').trim();
+          const supplierNameNormalized = String(partyName || '').trim().toLowerCase();
+          const purchaseRows = purchases
+            .filter((purchase: any) => purchase && purchase.status !== 'cancelled')
+            .filter((purchase: any) => isDateWithinRange(purchase.date, startDate, endDate))
+            .filter((purchase: any) => {
+              const purchaseSupplierName = String(purchase.supplier || '').trim().toLowerCase();
+              const purchaseSupplierId = String((purchase as any).supplierId || '').trim();
+              return purchaseSupplierName === supplierNameNormalized || (supplierId && purchaseSupplierId === supplierId);
+            })
+            .map((purchase: any) => ({
+              id: `purchase-${purchase.id}`,
+              date: purchase.date,
+              type: 'purchase',
+              description: `Purchase invoice ${purchase.purchaseSerialId || purchase.id}`,
+              debit: 0,
+              credit: round2(Number(purchase.totalAmount || 0)),
+              paymentMode: 'Credit',
+              referenceInvoiceNumber: purchase.invoiceNumber || '-',
+              referenceInvoiceId: purchase.id,
+              journalEntryNumber: purchase.purchaseSerialId || purchase.id,
+              status: String(purchase.status || 'completed').toLowerCase() === 'completed' ? 'completed' : 'active',
+              supplierName: purchase.supplier || partyName,
+            }));
+
+          const supplierReturnRows = purchaseReturns
+            .filter((ret: any) => ret && ret.status !== 'cancelled')
+            .filter((ret: any) => isDateWithinRange(ret.date, startDate, endDate))
+            .filter((ret: any) => {
+              const returnSupplierName = String(ret.supplierName || '').trim().toLowerCase();
+              const returnSupplierId = String((ret as any).supplierId || '').trim();
+              return returnSupplierName === supplierNameNormalized || (supplierId && returnSupplierId === supplierId);
+            })
+            .map((ret: any) => ({
+              id: `purchase-return-${ret.id}`,
+              date: ret.date,
+              type: 'return',
+              description: ret.reason || ret.notes || 'Purchase return / debit note',
+              debit: round2(Number(ret.totalAmount || ret.totalValue || 0)),
+              credit: 0,
+              referenceInvoiceNumber: ret.referenceInvoiceNumber || ret.originalBillNumber || ret.originalInvoiceNumber || '-',
+              journalEntryNumber: ret.debitNoteNumber || `PR-${ret.id}`,
+              status: 'active',
+            }));
+
+          const paymentRows = allLedgerRows
+            .filter((entry: any) => entry.type === 'payment' && entry.status !== 'cancelled')
+            .map((entry: any) => {
+              const amount = round2(Number(entry.credit || entry.debit || 0));
+              const adjustedAmount = round2(Number(entry.adjustedAmount || 0));
+              return {
+                ...entry,
+                debit: amount,
+                credit: 0,
+                adjustedAmount,
+                unadjustedAmount: round2(Math.max(amount - adjustedAmount, 0)),
+              };
+            });
+
+          const openingRaw = Number((party as any)?.opening_balance || (party as any)?.openingBalance || 0);
+          const openingRows = openingRaw !== 0 ? [{
+            id: `opening-${supplierId || supplierNameNormalized || 'supplier'}`,
+            date: startDate,
+            type: 'openingBalance',
+            description: 'Opening balance from supplier master',
+            debit: openingRaw < 0 ? round2(Math.abs(openingRaw)) : 0,
+            credit: openingRaw > 0 ? round2(openingRaw) : 0,
+            referenceInvoiceNumber: '-',
+            journalEntryNumber: 'OPENING',
+            status: 'active',
+          }] : [];
+
+          return [...openingRows, ...purchaseRows, ...supplierReturnRows, ...paymentRows];
+        })() : [];
+        const baseLedgerRows = isCustomer
+          ? (!ledgerRows.length ? [...generatedCustomerRows, ...generatedCustomerReturnRows] : ledgerRows)
+          : supplierGeneratedRows;
+        reportHeaders = ['Section', 'Date', 'Voucher Type', 'Voucher No', 'Reference Bill No', 'Supplier Name', 'Payment Mode', 'Bank/Cash Account', 'Narration', 'Debit', 'Credit', 'Adjusted Amount', 'Unadjusted Amount', 'Running Balance', 'Balance Type', 'Status'];
+        let supplierRunningBalance = 0;
+        let customerRunningBalance = 0;
+        const sortedLedgerRows = [...baseLedgerRows].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const statementRows = sortedLedgerRows.map((entry: any) => {
+          const status = entry.status || 'active';
+          const rawDebit = round2(Number(entry.debit || 0));
+          const rawCredit = round2(Number(entry.credit || 0));
+          const displayDebit = rawDebit;
+          const displayCredit = rawCredit;
+          const movement = round2(displayCredit - displayDebit);
+          const runningBalanceSigned = isCustomer
+            ? round2((customerRunningBalance += round2(displayDebit - displayCredit)))
+            : round2((supplierRunningBalance += movement));
+          return {
+            'Section': 'Ledger Statement',
+            'Date': new Date(entry.date).toLocaleDateString('en-GB'),
+            'Voucher Type': entry.type === 'sale' ? 'Sales Invoice' : entry.type === 'purchase' ? 'Purchase Invoice' : entry.type === 'return' ? (isCustomer ? 'Credit Note / Sales Return' : 'Debit Note / Purchase Return') : entry.type === 'openingBalance' ? 'Opening Balance' : (isCustomer ? 'Receipt / Payment' : 'Payment / Voucher'),
+            'Voucher No': entry.journalEntryNumber || entry.id,
+            'Reference Bill No': entry.referenceInvoiceNumber || '-',
+            'Supplier Name': entry.supplierName || partyName,
+            'Payment Mode': entry.type === 'payment' ? (entry.paymentMode || '-') : '-',
+            'Bank/Cash Account': entry.type === 'payment' ? (entry.bankName || 'Cash') : '-',
+            'Narration': entry.description || '-',
+            'Debit': displayDebit,
+            'Credit': displayCredit,
+            'Adjusted Amount': entry.type === 'payment' ? round2(Number(entry.adjustedAmount || 0)) : 0,
+            'Unadjusted Amount': entry.type === 'payment' ? round2(Number(entry.unadjustedAmount || 0)) : 0,
+            'Running Balance': round2(Math.abs(runningBalanceSigned)),
+            'Balance Type': runningBalanceSigned >= 0 ? 'Dr' : 'Cr',
+            'Status': status,
+          };
+        });
+        const billWiseRows = baseLedgerRows.filter((entry: any) => ['sale', 'purchase'].includes(entry.type) && String(entry.status || '').toLowerCase() !== 'cancelled').map((entry: any) => {
+          const billAmount = isCustomer ? Number(entry.debit || 0) : Number(entry.debit || 0);
+          return {
+            'Section': 'Bill-wise Outstanding',
+            'Date': new Date(entry.date).toLocaleDateString('en-GB'),
+            'Voucher Type': isCustomer ? 'Sales Invoice' : 'Purchase Invoice',
+            'Voucher No': entry.journalEntryNumber || entry.id,
+            'Reference Bill No': entry.referenceInvoiceNumber || '-',
+            'Narration': `Bill Amount: ${round2(billAmount)} | Paid/Adjusted: 0 | Outstanding: ${round2(Math.max(billAmount, 0))} | Due Days: ${Math.max(0, Math.ceil((new Date().getTime() - new Date(entry.date).getTime()) / (1000 * 60 * 60 * 24)))}`,
+            'Supplier Name': partyName, 'Payment Mode': '-', 'Bank/Cash Account': '-', 'Debit': 0, 'Credit': 0, 'Adjusted Amount': 0, 'Unadjusted Amount': 0, 'Running Balance': 0, 'Balance Type': '-', 'Status': entry.status || 'active',
+          };
+        });
+        const paymentRows = baseLedgerRows.filter((entry: any) => entry.type === 'payment' && String(entry.status || '').toLowerCase() !== 'cancelled').map((entry: any) => {
+          const amount = isCustomer ? Number(entry.credit || 0) : (Number(entry.credit || 0) > 0 ? Number(entry.credit || 0) : Number(entry.debit || 0));
+          const adjusted = Number(entry.adjustedAmount || 0);
+          return {
+            'Section': 'Payment History',
+            'Date': new Date(entry.date).toLocaleDateString('en-GB'),
+            'Voucher Type': isCustomer ? 'Receipt' : 'Payment',
+            'Voucher No': entry.journalEntryNumber || entry.id,
+            'Reference Bill No': entry.referenceInvoiceNumber || '-',
+            'Narration': `Mode: ${entry.paymentMode || '-'} | A/C: ${entry.bankName || 'Cash'} | Amount: ${round2(amount)} | Adjusted: ${round2(adjusted)} | Unadjusted: ${round2(Math.max(amount - adjusted, 0))} | ${entry.description || '-'}`,
+            'Supplier Name': partyName, 'Payment Mode': entry.paymentMode || '-', 'Bank/Cash Account': entry.bankName || 'Cash', 'Debit': isCustomer ? 0 : round2(amount), 'Credit': isCustomer ? round2(amount) : 0, 'Adjusted Amount': round2(adjusted), 'Unadjusted Amount': round2(Math.max(amount - adjusted, 0)), 'Running Balance': 0, 'Balance Type': '-', 'Status': entry.status || 'active',
+          };
+        });
+        const activeStatementRows = statementRows.filter((row: any) => String(row.Status || '').toLowerCase() !== 'cancelled');
+        const totalDebit = round2(activeStatementRows.reduce((sum: number, row: any) => sum + Number(row.Debit || 0), 0));
+        const totalCredit = round2(activeStatementRows.reduce((sum: number, row: any) => sum + Number(row.Credit || 0), 0));
+
+        const customerInvoiceOutstanding = isCustomer
+          ? getCustomerInvoiceOutstandingTotalFromTransactions((party as Customer) || null, transactions)
+          : 0;
+        const customerBreakdown = isCustomer
+          ? calculateCustomerReceivableBreakdown((party as Customer) || null, customerInvoiceOutstanding)
+          : null;
+
+        const supplierInvoiceOutstanding = !isCustomer
+          ? getSupplierInvoiceOutstandingTotalFromPurchases((party as Distributor) || null, purchases)
+          : 0;
+        const supplierBreakdown = !isCustomer
+          ? calculateSupplierPayableBreakdown((party as Distributor) || null, supplierInvoiceOutstanding)
+          : null;
+        const openingBalance = round2(isCustomer ? Number(customerBreakdown?.openingBalanceSigned || 0) : Number(supplierBreakdown?.openingBalanceSigned || 0));
+        const closingBalanceSigned = round2(isCustomer ? Number(customerBreakdown?.netOutstanding || 0) : Number(supplierBreakdown?.netOutstanding || 0));
+        const summaryRows = [
+          { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Opening Balance', 'Supplier Name': partyName, 'Voucher No': '-', 'Reference Bill No': '-', 'Payment Mode': '-', 'Bank/Cash Account': '-', 'Narration': '', 'Debit': openingBalance > 0 ? openingBalance : 0, 'Credit': openingBalance < 0 ? Math.abs(openingBalance) : 0, 'Adjusted Amount': 0, 'Unadjusted Amount': 0, 'Running Balance': 0, 'Balance Type': openingBalance >= 0 ? 'Dr' : 'Cr', 'Status': '-' },
+          { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Total Debit', 'Supplier Name': partyName, 'Voucher No': '-', 'Reference Bill No': '-', 'Payment Mode': '-', 'Bank/Cash Account': '-', 'Narration': '', 'Debit': totalDebit, 'Credit': 0, 'Adjusted Amount': 0, 'Unadjusted Amount': 0, 'Running Balance': 0, 'Balance Type': '-', 'Status': '-' },
+          { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Total Credit', 'Supplier Name': partyName, 'Voucher No': '-', 'Reference Bill No': '-', 'Payment Mode': '-', 'Bank/Cash Account': '-', 'Narration': '', 'Debit': 0, 'Credit': totalCredit, 'Adjusted Amount': 0, 'Unadjusted Amount': 0, 'Running Balance': 0, 'Balance Type': '-', 'Status': '-' },
+          ...(isCustomer ? [
+            { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Gross Receivable', 'Supplier Name': partyName, 'Voucher No': '-', 'Reference Bill No': '-', 'Payment Mode': '-', 'Bank/Cash Account': '-', 'Narration': 'Matches Sundry Debtors', 'Debit': round2(Number(customerBreakdown?.grossReceivable || 0)), 'Credit': 0, 'Adjusted Amount': 0, 'Unadjusted Amount': 0, 'Running Balance': 0, 'Balance Type': 'Dr', 'Status': '-' },
+            { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Adjusted Receipt', 'Supplier Name': partyName, 'Voucher No': '-', 'Reference Bill No': '-', 'Payment Mode': '-', 'Bank/Cash Account': '-', 'Narration': 'Receipt adjusted against invoices', 'Debit': 0, 'Credit': round2(Number(customerBreakdown?.adjustedReceipts || 0)), 'Adjusted Amount': 0, 'Unadjusted Amount': 0, 'Running Balance': 0, 'Balance Type': '-', 'Status': '-' },
+            { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Unadjusted Advance', 'Supplier Name': partyName, 'Voucher No': '-', 'Reference Bill No': '-', 'Payment Mode': '-', 'Bank/Cash Account': '-', 'Narration': 'Available customer advance', 'Debit': 0, 'Credit': round2(Number(customerBreakdown?.unadjustedAdvance || 0)), 'Adjusted Amount': 0, 'Unadjusted Amount': 0, 'Running Balance': 0, 'Balance Type': 'Cr', 'Status': '-' },
+          ] : []),
+          { 'Section': 'Summary', 'Date': '-', 'Voucher Type': 'Closing Balance', 'Supplier Name': partyName, 'Voucher No': '-', 'Reference Bill No': '-', 'Payment Mode': '-', 'Bank/Cash Account': '-', 'Narration': '', 'Debit': closingBalanceSigned > 0 ? closingBalanceSigned : 0, 'Credit': closingBalanceSigned < 0 ? Math.abs(closingBalanceSigned) : 0, 'Adjusted Amount': 0, 'Unadjusted Amount': 0, 'Running Balance': round2(Math.abs(closingBalanceSigned)), 'Balance Type': closingBalanceSigned >= 0 ? (isCustomer ? 'Dr' : 'Cr') : (isCustomer ? 'Cr' : 'Dr'), 'Status': '-' },
+        ];
+        rows = [...statementRows, ...billWiseRows, ...paymentRows, ...summaryRows];
+        break;
+      }
       default:
         reportHeaders = ['Message'];
         rows = [{ Message: 'No report logic configured.' }];
@@ -496,7 +1020,7 @@ const Reports: React.FC<ReportsProps> = ({
     setHeaders(reportHeaders);
     setBaseData(rows);
     setActiveFilters({});
-    setSortConfig(null);
+    if (reportId !== 'mfrWiseSalesSummaryReport' && reportId !== 'doctorWiseSalesSummaryReport') setSortConfig(null);
     setVisibleColumns(reportHeaders);
     setFilteredData(rows);
     setSelectedRowIndex(rows.length ? 0 : -1);
@@ -506,6 +1030,18 @@ const Reports: React.FC<ReportsProps> = ({
     loadReportData('salesRegister', periodStartDate, periodEndDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (activeReportId !== 'mfrWiseSalesDetailedReport') return;
+    loadReportData(activeReportId, periodStartDate, periodEndDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mfrSalesViewMode]);
+
+  useEffect(() => {
+    if (activeReportId !== 'stockMovementSummary') return;
+    loadReportData(activeReportId, periodStartDate, periodEndDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockMovementViewMode]);
 
   const filterOptions = useMemo(() => {
     return headers.reduce<Record<string, string[]>>((acc, col) => {
@@ -538,6 +1074,62 @@ const Reports: React.FC<ReportsProps> = ({
 
     return { doctorName, totalSales, totalBills, totalDiscount, totalProfit };
   }, [activeReportId, filteredData, selectedRow]);
+
+  const mfrDetailSummary = useMemo(() => {
+    if (activeReportId !== 'mfrWiseSalesDetailedReport' || !selectedRow) return null;
+    const mfrName = String(selectedRow['MFR Name'] || '').trim();
+    if (!mfrName) return null;
+
+    const mfrRows = filteredData.filter(row => String(row['MFR Name'] || '').trim() === mfrName);
+    const totalSales = round2(mfrRows.reduce((sum, row) => sum + Number(row['Net Amount'] || 0), 0));
+    const totalDiscount = round2(mfrRows.reduce((sum, row) => sum + Number(row['Discount'] || 0), 0));
+    const totalGst = round2(mfrRows.reduce((sum, row) => sum + Number(row['GST Amount'] || 0), 0));
+    const totalProfit = round2(mfrRows.reduce((sum, row) => sum + Number(row['Profit Margin'] || 0), 0));
+    const totalQuantity = round2(mfrRows.reduce((sum, row) => sum + Number(row._qty || 0) + Number(row._freeQty || 0), 0));
+    const totalBills = new Set(mfrRows.map(row => String(row['Sales Bill No'] || ''))).size;
+
+    return { mfrName, totalSales, totalBills, totalDiscount, totalGst, totalProfit, totalQuantity };
+  }, [activeReportId, filteredData, selectedRow]);
+
+  const mfrSummary = useMemo(() => {
+    if (activeReportId !== 'mfrWiseSalesSummaryReport') return null;
+    return {
+      totalMfr: filteredData.length,
+      totalSales: round2(filteredData.reduce((sum, row) => sum + Number(row['Net Sales Value'] || 0), 0)),
+      totalQuantity: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Quantity'] || 0) + Number(row['Total Free Qty'] || 0), 0)),
+      totalDiscount: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Discount'] || 0), 0)),
+      totalGst: round2(filteredData.reduce((sum, row) => sum + Number(row['Total GST Amount'] || 0), 0)),
+      totalProfit: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Profit Margin'] || 0), 0)),
+    };
+  }, [activeReportId, filteredData]);
+
+  const doctorSummary = useMemo(() => {
+    if (activeReportId !== 'doctorWiseSalesSummaryReport') return null;
+    return {
+      totalDoctors: filteredData.length,
+      totalBills: filteredData.reduce((sum, row) => sum + Number(row['Number of Bills'] || 0), 0),
+      totalCustomers: filteredData.reduce((sum, row) => sum + Number(row['Number of Customers'] || 0), 0),
+      totalSales: round2(filteredData.reduce((sum, row) => sum + Number(row['Net Sales Value'] || 0), 0)),
+      totalDiscount: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Discount'] || 0), 0)),
+      totalGst: round2(filteredData.reduce((sum, row) => sum + Number(row['Total GST Amount'] || 0), 0)),
+      totalProfit: round2(filteredData.reduce((sum, row) => sum + Number(row['Total Profit Margin'] || 0), 0)),
+    };
+  }, [activeReportId, filteredData]);
+
+  const stockMovementTotalRow = useMemo(() => {
+    if (activeReportId !== 'stockMovementSummary') return null;
+    const numericKeys = ['Opening Qty', 'Opening Value', 'Receipt Qty', 'Receipt Value', 'Issue Qty', 'Issue Value', 'Closing Qty', 'Closing Value'];
+    const row: Record<string, any> = { 'Product Name': 'TOTAL', 'MFR': '-', 'Rate': '-' };
+    numericKeys.forEach(key => {
+      row[key] = round2(filteredData.reduce((sum, item) => sum + Number(item[key] || 0), 0));
+    });
+    return row;
+  }, [activeReportId, filteredData]);
+
+  const reportDataWithTotalRow = useMemo(() => {
+    if (activeReportId !== 'stockMovementSummary' || !stockMovementTotalRow) return filteredData;
+    return [...filteredData, stockMovementTotalRow];
+  }, [activeReportId, filteredData, stockMovementTotalRow]);
 
   const activeFilterChips = useMemo(() => {
     return Object.entries(activeFilters).flatMap(([field, values]) => values.map(value => ({ field, value })));
@@ -595,25 +1187,29 @@ const Reports: React.FC<ReportsProps> = ({
   };
 
   const exportCsv = () => {
-    const rows = [visibleColumns.join(','), ...filteredData.map(row => visibleColumns.map(col => `"${String(row[col] ?? '').replace(/"/g, '""')}"`).join(','))].join('\n');
+    const rows = [visibleColumns.join(','), ...reportDataWithTotalRow.map(row => visibleColumns.map(col => `"${String(row[col] ?? '').replace(/"/g, '""')}"`).join(','))].join('\n');
     downloadFile(`${activeReportTitle.replace(/\s+/g, '_')}.csv`, rows, 'text/csv;charset=utf-8;');
   };
 
   const exportXlsx = () => {
-    const rows = [visibleColumns.join('\t'), ...filteredData.map(row => visibleColumns.map(col => String(row[col] ?? '')).join('\t'))].join('\n');
+    const rows = [visibleColumns.join('\t'), ...reportDataWithTotalRow.map(row => visibleColumns.map(col => String(row[col] ?? '')).join('\t'))].join('\n');
     downloadFile(`${activeReportTitle.replace(/\s+/g, '_')}.xlsx`, rows, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   };
 
   const handlePreview = () => {
-    onPrintReport({ title: activeReportTitle, data: filteredData, headers: visibleColumns, filters: { startDate: periodStartDate, endDate: periodEndDate, activeFilters } });
+    onPrintReport({ title: activeReportTitle, data: reportDataWithTotalRow, headers: visibleColumns, filters: { startDate: periodStartDate, endDate: periodEndDate, activeFilters } });
   };
 
   const handlePrint = () => {
-    onPrintReport({ title: `${activeReportTitle} (Print)`, data: filteredData, headers: visibleColumns, filters: { startDate: periodStartDate, endDate: periodEndDate, activeFilters } });
+    onPrintReport({ title: `${activeReportTitle} (Print)`, data: reportDataWithTotalRow, headers: visibleColumns, filters: { startDate: periodStartDate, endDate: periodEndDate, activeFilters } });
   };
 
   const onPickReport = (reportId: string) => {
     setPendingReportId(reportId);
+    if (reportId === 'customerPartyWiseFullStatement' || reportId === 'supplierPartyWiseFullStatement') {
+      setPartyModalOpen(true);
+      return;
+    }
     setPeriodModalOpen(true);
   };
 
@@ -653,7 +1249,23 @@ const Reports: React.FC<ReportsProps> = ({
               <div className="text-[11px] font-bold">{activeReportTitle}</div>
               <div className="text-[10px] text-gray-500">Period: {new Date(periodStartDate).toLocaleDateString('en-GB')} to {new Date(periodEndDate).toLocaleDateString('en-GB')}</div>
             </div>
-            <div className="flex gap-1 text-[10px]">
+            <div className="flex gap-1 text-[10px] items-center">
+              {(activeReportId === 'mfrWiseSalesDetailedReport' || activeReportId === 'stockMovementSummary') && (
+                <div className="flex items-center gap-1 mr-2">
+                  <span className="text-gray-600">View Mode:</span>
+                  {activeReportId === 'mfrWiseSalesDetailedReport' ? (
+                    <select value={mfrSalesViewMode} onChange={(e) => setMfrSalesViewMode(e.target.value as MfrSalesViewMode)} className="px-1 py-1 border border-gray-300 bg-white">
+                      <option value="detailed">Detailed View</option>
+                      <option value="productSummary">Product Summary View</option>
+                    </select>
+                  ) : (
+                    <select value={stockMovementViewMode} onChange={(e) => setStockMovementViewMode(e.target.value as StockMovementViewMode)} className="px-1 py-1 border border-gray-300 bg-white">
+                      <option value="detailed">Detailed View</option>
+                      <option value="productSummary">Product Summary View</option>
+                    </select>
+                  )}
+                </div>
+              )}
               <button onClick={() => setFilterModalOpen(true)} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Filter</button>
               <button onClick={() => setColumnModalOpen(true)} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Columns</button>
               <button onClick={handlePreview} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Preview</button>
@@ -682,7 +1294,7 @@ const Reports: React.FC<ReportsProps> = ({
                 <thead className="sticky top-0 bg-gray-100 z-10">
                   <tr>
                     {visibleColumns.map(col => (
-                      <th key={col} onClick={() => toggleSort(col)} className="text-left px-2 py-1 border-b border-r whitespace-nowrap cursor-pointer select-none">
+                      <th key={col} onClick={() => toggleSort(col)} className={`px-2 py-1 border-b border-r whitespace-nowrap cursor-pointer select-none ${col === 'Doctor Name' ? 'text-left' : (filteredData.some(row => typeof row[col] === 'number') ? 'text-right' : 'text-left')}`}>
                         {col} {sortConfig?.column === col ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
                       </th>
                     ))}
@@ -696,25 +1308,35 @@ const Reports: React.FC<ReportsProps> = ({
                       className={`${selectedRowIndex === idx ? 'bg-primary/20' : idx % 2 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/10 cursor-pointer`}
                     >
                       {visibleColumns.map(col => (
-                        <td key={`${idx}-${col}`} className="px-2 py-1 border-b border-r whitespace-nowrap">{String(row[col] ?? '-')}</td>
+                        <td key={`${idx}-${col}`} className={`px-2 py-1 border-b border-r whitespace-nowrap ${col === 'Doctor Name' ? 'text-left' : (typeof row[col] === 'number' ? 'text-right' : 'text-left')}`}>{String(row[col] ?? '-')}</td>
                       ))}
                     </tr>
                   ))}
                 </tbody>
+                {activeReportId === 'stockMovementSummary' && stockMovementTotalRow && (
+                  <tfoot>
+                    <tr className="bg-gray-200 font-bold">
+                      {visibleColumns.map(col => (
+                        <td key={`total-${col}`} className={`px-2 py-1 border-t border-r whitespace-nowrap ${typeof stockMovementTotalRow[col] === 'number' ? 'text-right' : 'text-left'}`}>{String(stockMovementTotalRow[col] ?? '-')}</td>
+                      ))}
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             )}
           </div>
 
           <div className="border-t px-2 py-1 text-[10px] bg-gray-100 flex flex-wrap gap-x-4 gap-y-1">
             <span><strong>Total Records:</strong> {totals.recordCount}</span>
-            {Object.entries(totals.sums).slice(0, 6).map(([key, value]) => (
+            {Object.entries(totals.sums).slice(0, activeReportId === 'doctorWiseSalesSummaryReport' ? 8 : 6).map(([key, value]) => (
               <span key={key}><strong>{key}:</strong> {value}</span>
             ))}
+            {activeReportId === 'doctorWiseSalesSummaryReport' && <span><strong>Grand Total:</strong> {round2((totals.sums['Net Sales Value'] || 0) + (totals.sums['Total GST Amount'] || 0) - (totals.sums['Total Discount'] || 0))}</span>}
           </div>
         </section>
 
         <section className="border border-gray-300 bg-white min-h-0 flex flex-col">
-          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">{activeReportId === 'doctorsSalesDetailedReport' ? 'Doctor Summary' : 'Detail Preview'}</div>
+          <div className="px-2 py-1 border-b text-[10px] font-bold uppercase bg-gray-100">{activeReportId === 'doctorsSalesDetailedReport' || activeReportId === 'doctorWiseSalesSummaryReport' ? 'Doctor Summary' : activeReportId === 'mfrWiseSalesDetailedReport' || activeReportId === 'mfrWiseSalesSummaryReport' ? 'MFR Summary' : 'Detail Preview'}</div>
           <div className="min-h-0 overflow-auto p-2 text-[11px] space-y-1">
             {activeReportId === 'doctorsSalesDetailedReport' && doctorDetailSummary ? (
               <div className="space-y-1">
@@ -723,6 +1345,37 @@ const Reports: React.FC<ReportsProps> = ({
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Bills</div><div>{doctorDetailSummary.totalBills}</div></div>
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>{doctorDetailSummary.totalDiscount}</div></div>
                 <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>{doctorDetailSummary.totalProfit}</div></div>
+              </div>
+            ) : activeReportId === 'mfrWiseSalesDetailedReport' && mfrDetailSummary ? (
+              <div className="space-y-1">
+                <div className="text-xs font-bold text-primary">{mfrDetailSummary.mfrName}</div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Sales</div><div>{mfrDetailSummary.totalSales}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Bills</div><div>{mfrDetailSummary.totalBills}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Quantity</div><div>{mfrDetailSummary.totalQuantity}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>{mfrDetailSummary.totalDiscount}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total GST</div><div>{mfrDetailSummary.totalGst}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>{mfrDetailSummary.totalProfit}</div></div>
+              </div>
+            ) : activeReportId === 'doctorWiseSalesSummaryReport' && doctorSummary ? (
+              <div className="space-y-1">
+                <div className="text-xs font-bold text-primary">DOCTOR SUMMARY</div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Doctors</div><div>{doctorSummary.totalDoctors}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Bills</div><div>{doctorSummary.totalBills}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Customers</div><div>{doctorSummary.totalCustomers}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Sales</div><div>₹ {doctorSummary.totalSales}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>₹ {doctorSummary.totalDiscount}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total GST</div><div>₹ {doctorSummary.totalGst}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>₹ {doctorSummary.totalProfit}</div></div>
+              </div>
+            ) : activeReportId === 'mfrWiseSalesSummaryReport' && mfrSummary ? (
+              <div className="space-y-1">
+                <div className="text-xs font-bold text-primary">MFR SUMMARY</div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total MFR</div><div>{mfrSummary.totalMfr}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Sales</div><div>₹ {mfrSummary.totalSales}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Quantity</div><div>{mfrSummary.totalQuantity}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Discount</div><div>₹ {mfrSummary.totalDiscount}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total GST</div><div>₹ {mfrSummary.totalGst}</div></div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1"><div className="font-semibold text-gray-600">Total Profit</div><div>₹ {mfrSummary.totalProfit}</div></div>
               </div>
             ) : !selectedRow ? (
               <div className="text-gray-500">Select a row to view details.</div>
@@ -754,6 +1407,31 @@ const Reports: React.FC<ReportsProps> = ({
             <button onClick={() => { setPeriodStartDate(firstOfMonthIso); setPeriodEndDate(todayIso); }} className="px-3 py-1 border border-gray-300">Clear</button>
             <button onClick={() => setPeriodModalOpen(false)} className="px-3 py-1 border border-gray-300">Cancel</button>
             <button onClick={() => { loadReportData(pendingReportId, periodStartDate, periodEndDate); setPeriodModalOpen(false); }} className="px-3 py-1 border border-primary bg-primary text-white">Generate Report</button>
+          </div>
+        </div>
+      </Modal>
+      <Modal isOpen={partyModalOpen} onClose={() => setPartyModalOpen(false)} title="Select Party Name" widthClass="max-w-md">
+        <div className="p-4 space-y-3 text-sm">
+          <div>
+            <label className="text-xs uppercase font-semibold text-gray-600">Party Name</label>
+            <select value={selectedPartyId} onChange={(e) => setSelectedPartyId(e.target.value)} className="w-full border border-gray-300 p-2 mt-1">
+              <option value="">Select Party</option>
+              {(pendingReportId === 'customerPartyWiseFullStatement' ? customers : distributors).map((party) => (
+                <option key={party.id} value={party.id}>{party.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs uppercase font-semibold text-gray-600">From Date</label>
+            <input type="date" value={periodStartDate} onChange={e => setPeriodStartDate(e.target.value)} className="w-full border border-gray-300 p-2 mt-1" />
+          </div>
+          <div>
+            <label className="text-xs uppercase font-semibold text-gray-600">To Date</label>
+            <input type="date" value={periodEndDate} onChange={e => setPeriodEndDate(e.target.value)} className="w-full border border-gray-300 p-2 mt-1" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setPartyModalOpen(false)} className="px-3 py-1 border border-gray-300">Cancel</button>
+            <button disabled={!selectedPartyId} onClick={() => { loadReportData(pendingReportId, periodStartDate, periodEndDate); setPartyModalOpen(false); }} className="px-3 py-1 border border-primary bg-primary text-white disabled:opacity-50">Execute Report</button>
           </div>
         </div>
       </Modal>

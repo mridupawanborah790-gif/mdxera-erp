@@ -12,6 +12,8 @@ interface AddMedicineModalProps {
     onMedicineSaved?: (savedMedicine: Medicine) => void;
     initialName?: string; 
     organizationId: string;
+    organizationType?: string | null;
+    existingMedicines?: Medicine[];
 }
 
 const initialState: Omit<Medicine, 'id' | 'created_at' | 'updated_at'> = {
@@ -20,6 +22,8 @@ const initialState: Omit<Medicine, 'id' | 'created_at' | 'updated_at'> = {
     brand: '', 
     pack: '', 
     hsnCode: '', 
+    imei: '',
+    productDiscount: 0,
     composition: '', 
     description: '',
     directions: '',
@@ -43,7 +47,7 @@ const initialState: Omit<Medicine, 'id' | 'created_at' | 'updated_at'> = {
 
 type FormErrors = Partial<Record<keyof typeof initialState, string>>;
 
-const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, onAddMedicine, onMedicineSaved, initialName, organizationId }) => {
+const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, onAddMedicine, onMedicineSaved, initialName, organizationId, organizationType, existingMedicines = [] }) => {
     const [formState, setFormState] = useState(initialState);
     const [errors, setErrors] = useState<FormErrors>({});
     const [showConfirmClose, setShowConfirmClose] = useState(false);
@@ -77,6 +81,21 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
 
         if (!formState.name.trim()) {
             newErrors.name = "Product Name is required.";
+        }
+        const isElectronics = String(organizationType || '').toLowerCase() === 'electronics';
+        if (isElectronics && !String(formState.imei || '').trim()) {
+            newErrors.imei = 'IMEI is required for Electronics sector.';
+        }
+        if (String(formState.imei || '').trim()) {
+            if (!/^[a-z0-9]+$/i.test(String(formState.imei || '').trim())) {
+                newErrors.imei = 'IMEI must be alphanumeric.';
+            }
+            const duplicate = existingMedicines.some(m => String(m.imei || '').trim() && String(m.imei || '').trim().toLowerCase() === String(formState.imei || '').trim().toLowerCase());
+            if (duplicate) newErrors.imei = 'Duplicate IMEI is not allowed.';
+        }
+        const discount = Number(formState.productDiscount ?? 0);
+        if (Number.isNaN(discount) || discount < 0 || discount > 100) {
+            newErrors.productDiscount = 'Product Discount must be between 0 and 100.';
         }
 
         setErrors(newErrors);
@@ -216,6 +235,8 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
                                         </select>
                                     </div>
                                     {renderInput('hsnCode', 'HSN Code')}
+                                    {renderInput('imei', 'IMEI', 'text', String(organizationType || '').toLowerCase() !== 'electronics')}
+                                    {renderInput('productDiscount', 'Product Discount (%)', 'number')}
                                 </div>
                             </div>
 

@@ -22,6 +22,9 @@ const Reports: React.FC<ReportsProps> = ({
 }) => {
     const [reportStartDate, setReportStartDate] = useState('');
     const [reportEndDate, setReportEndDate] = useState('');
+    const [productFilter, setProductFilter] = useState('');
+    const [mfrFilter, setMfrFilter] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('');
 
     const reportModuleConfig = useMemo(() => configurableModules.find(m => m.id === 'reports'), []);
     const availableReports = useMemo(() => {
@@ -157,6 +160,114 @@ const Reports: React.FC<ReportsProps> = ({
                     };
                 }).sort((a: any, b: any) => parseFloat(b['Stock Turnover']) - parseFloat(a['Stock Turnover']));
                 break;
+            case 'stockMovementSummary': {
+                title = 'Stock Movement Summary';
+                headers = [
+                    'Product Name', 'MFR', 'Rate', 'Opening Qty', 'Opening Value', 'Receipt Qty', 'Receipt Value',
+                    'Issue Qty', 'Issue Value', 'Closing Qty', 'Closing Value'
+                ];
+
+                const parseDate = (value: string) => {
+                    const d = new Date(value);
+                    d.setHours(0, 0, 0, 0);
+                    return d;
+                };
+                const startDate = reportStartDate ? parseDate(reportStartDate) : null;
+                const endDate = reportEndDate ? (() => { const d = parseDate(reportEndDate); d.setHours(23, 59, 59, 999); return d; })() : null;
+                const isWithinRange = (value: string) => {
+                    const d = new Date(value);
+                    if (Number.isNaN(d.getTime())) return false;
+                    if (startDate && d < startDate) return false;
+                    if (endDate && d > endDate) return false;
+                    return true;
+                };
+                const isBeforeStart = (value: string) => {
+                    if (!startDate) return false;
+                    const d = new Date(value);
+                    return !Number.isNaN(d.getTime()) && d < startDate;
+                };
+
+                const inventoryByName = new Map(inventory.map(item => [item.name, item]));
+                const mfrOptions = Array.from(new Set(inventory.map(item => item.manufacturer).filter(Boolean)));
+                const categoryOptions = Array.from(new Set(inventory.map(item => item.category).filter(Boolean)));
+                void mfrOptions;
+                void categoryOptions;
+
+                const rows = new Map<string, {
+                    product: string;
+                    mfr: string;
+                    category: string;
+                    rate: number;
+                    openingQty: number;
+                    receiptQty: number;
+                    issueQty: number;
+                }>();
+                const ensureRow = (productName: string, fallback: Partial<InventoryItem> = {}) => {
+                    if (!rows.has(productName)) {
+                        const inv = inventoryByName.get(productName);
+                        rows.set(productName, {
+                            product: productName,
+                            mfr: String(inv?.manufacturer || fallback.manufacturer || ''),
+                            category: String(inv?.category || fallback.category || ''),
+                            rate: Number(inv?.purchasePrice ?? fallback.purchasePrice ?? inv?.ptr ?? 0),
+                            openingQty: 0,
+                            receiptQty: 0,
+                            issueQty: 0,
+                        });
+                    }
+                    return rows.get(productName)!;
+                };
+
+                purchases.forEach((purchase) => {
+                    if (purchase.status === 'cancelled') return;
+                    purchase.items.forEach((item) => {
+                        const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+                        const row = ensureRow(item.name, item);
+                        if (isBeforeStart(purchase.date)) row.openingQty += qty;
+                        else if (isWithinRange(purchase.date)) row.receiptQty += qty;
+                    });
+                });
+
+                transactions.forEach((sale) => {
+                    if (sale.status === 'cancelled') return;
+                    sale.items.forEach((item) => {
+                        const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+                        const row = ensureRow(item.name, item);
+                        if (isBeforeStart(sale.date)) row.openingQty -= qty;
+                        else if (isWithinRange(sale.date)) row.issueQty += qty;
+                    });
+                });
+
+                filteredData = Array.from(rows.values())
+                    .filter((row) => {
+                        if (productFilter && !row.product.toLowerCase().includes(productFilter.toLowerCase())) return false;
+                        if (mfrFilter && row.mfr !== mfrFilter) return false;
+                        if (categoryFilter && row.category !== categoryFilter) return false;
+                        return true;
+                    })
+                    .map((row) => {
+                        const openingValue = row.openingQty * row.rate;
+                        const receiptValue = row.receiptQty * row.rate;
+                        const issueValue = row.issueQty * row.rate;
+                        const closingQty = row.openingQty + row.receiptQty - row.issueQty;
+                        const closingValue = closingQty * row.rate;
+                        return {
+                            'Product Name': row.product,
+                            'MFR': row.mfr,
+                            'Rate': row.rate,
+                            'Opening Qty': row.openingQty,
+                            'Opening Value': openingValue,
+                            'Receipt Qty': row.receiptQty,
+                            'Receipt Value': receiptValue,
+                            'Issue Qty': row.issueQty,
+                            'Issue Value': issueValue,
+                            'Closing Qty': closingQty,
+                            'Closing Value': closingValue
+                        };
+                    })
+                    .sort((a, b) => String(a['Product Name']).localeCompare(String(b['Product Name'])));
+                break;
+            }
             default:
                 title = 'Report Not Implemented';
                 headers = ['Message'];
@@ -186,11 +297,25 @@ const Reports: React.FC<ReportsProps> = ({
                     </div>
                     <div>
                         <button 
-                            onClick={() => { setReportStartDate(''); setReportEndDate(''); }}
+                            onClick={() => { setReportStartDate(''); setReportEndDate(''); setProductFilter(''); setMfrFilter(''); setCategoryFilter(''); }}
                             className="w-full py-2 tally-border bg-white font-bold uppercase text-[10px] hover:bg-gray-50 transition-colors"
                         >
                             Clear Filters
                         </button>
+                    </div>
+                </Card>
+                <Card className="p-3 tally-border !rounded-none grid grid-cols-1 md:grid-cols-3 gap-4 items-end bg-white mb-6">
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Product Name</label>
+                        <input type="text" value={productFilter} onChange={e => setProductFilter(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none" placeholder="Filter product" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">MFR</label>
+                        <input type="text" value={mfrFilter} onChange={e => setMfrFilter(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none" placeholder="Filter MFR" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Category</label>
+                        <input type="text" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="w-full border border-gray-400 p-2 text-sm font-bold outline-none" placeholder="Filter category" />
                     </div>
                 </Card>
 

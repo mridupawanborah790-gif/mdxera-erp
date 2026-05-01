@@ -8,9 +8,11 @@ interface EditMedicineModalProps {
     onClose: () => void;
     onSave: (updatedMedicine: Medicine) => void | Promise<void>;
     medicine: Medicine | null;
+    organizationType?: string | null;
+    existingMedicines?: Medicine[];
 }
 
-const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, onSave, medicine }) => {
+const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, onSave, medicine, organizationType, existingMedicines = [] }) => {
     const [formState, setFormState] = useState<Medicine | null>(null);
     const [errors, setErrors] = useState<Partial<Record<keyof Medicine, string>>>({});
 
@@ -26,6 +28,15 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
         const newErrors: Partial<Record<keyof Medicine, string>> = {};
         if (!formState.name.trim()) newErrors.name = "Product Name is required.";
         if (!formState.materialCode?.trim()) newErrors.materialCode = "Material Code is required.";
+        const isElectronics = String(organizationType || '').toLowerCase() === 'electronics';
+        if (isElectronics && !String(formState.imei || '').trim()) newErrors.imei = 'IMEI is required for Electronics sector.';
+        if (String(formState.imei || '').trim()) {
+            if (!/^[a-z0-9]+$/i.test(String(formState.imei || '').trim())) newErrors.imei = 'IMEI must be alphanumeric.';
+            const duplicate = existingMedicines.some(m => m.id !== formState.id && String(m.imei || '').trim().toLowerCase() === String(formState.imei || '').trim().toLowerCase());
+            if (duplicate) newErrors.imei = 'Duplicate IMEI is not allowed.';
+        }
+        const discount = Number(formState.productDiscount ?? 0);
+        if (Number.isNaN(discount) || discount < 0 || discount > 100) newErrors.productDiscount = 'Product Discount must be between 0 and 100.';
         
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -102,7 +113,6 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
                                 ))}
                             </select>
                         </div>
-                        {renderInput('hsnCode', 'HSN Code')}
                         {renderInput('countryOfOrigin', 'Country of Origin')}
                     </div>
 
@@ -149,6 +159,9 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
                                     <option value={28}>28%</option>
                                 </select>
                             </div>
+                            {renderInput('hsnCode', 'HSN Code')}
+                            {renderInput('imei', 'IMEI', 'text', String(organizationType || '').toLowerCase() !== 'electronics')}
+                            {renderInput('productDiscount', 'Product Discount (%)', 'number')}
                         </div>
                     </div>
 

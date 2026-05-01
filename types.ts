@@ -715,6 +715,8 @@ export interface Medicine {
     description?: string;
     gstRate?: number;
     hsnCode?: string;
+    imei?: string;
+    productDiscount?: number;
     mrp?: string; 
     rateA?: number;
     rateB?: number;

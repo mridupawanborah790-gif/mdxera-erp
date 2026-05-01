@@ -1616,6 +1616,7 @@ const POS = forwardRef<any, POSProps>(({
         }
 
         const activePriceRecord = resolveActivePriceRecord(batch, medicines, invoiceDate);
+        const linkedMedicine = medicines.find((med) => med.id === batch.id || (med.materialCode || '').trim().toLowerCase() === (batch.code || '').trim().toLowerCase());
         const pricingSource = activePriceRecord ? {
             mrp: Number(activePriceRecord.mrp || batch.mrp || 0),
             gstPercent: batch.gstPercent,
@@ -1637,7 +1638,7 @@ const POS = forwardRef<any, POSProps>(({
             freeQuantity: 0,
             unit: 'pack',
             gstPercent: batch.gstPercent,
-            discountPercent: Number(activePriceRecord?.defaultDiscountPercent ?? selectedCustomer?.defaultDiscount ?? 0),
+            discountPercent: Number(activePriceRecord?.defaultDiscountPercent ?? linkedMedicine?.productDiscount ?? selectedCustomer?.defaultDiscount ?? 0),
             itemFlatDiscount: 0,
             taxBasis: batch.taxBasis,
             batch: ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (batch.batch || ''),

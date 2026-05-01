@@ -336,6 +336,8 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     onClose={() => setIsAddModalOpen(false)}
                     onAddMedicine={handleAddMedicineSuccess}
                     organizationId={currentUser?.organization_id || ''}
+                    organizationType={currentUser?.organization_type || null}
+                    existingMedicines={medicines}
                 />
             )}
 
@@ -345,6 +347,8 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     onClose={() => { setIsEditModalOpen(false); setMedicineToEdit(null); }}
                     medicine={medicineToEdit}
                     onSave={onUpdateMedicine}
+                    organizationType={currentUser?.organization_type || null}
+                    existingMedicines={medicines}
                 />
             )}
         </main>
