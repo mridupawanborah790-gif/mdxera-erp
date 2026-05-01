@@ -647,9 +647,66 @@ const Reports: React.FC<ReportsProps> = ({
         title = `${title} - ${partyName}`;
         const allLedgerRows = (party?.ledger || []).filter((entry: any) => entry && entry.date);
         const ledgerRows = allLedgerRows.filter((entry: any) => isDateWithinRange(entry.date, startDate, endDate));
+        const normalizedPartyName = String(partyName || '').trim().toLowerCase();
+        const generatedCustomerRows = isCustomer ? transactions
+          .filter(tx => tx.status !== 'draft' && tx.status !== 'cancelled')
+          .filter(tx => isDateWithinRange(tx.date, startDate, endDate))
+          .filter(tx => {
+            const txCustomerName = String(tx.customerName || '').trim().toLowerCase();
+            const txCustomerId = String(tx.customerId || '').trim();
+            return txCustomerName === normalizedPartyName || (selectedPartyId && txCustomerId === selectedPartyId);
+          })
+          .flatMap((tx: any) => {
+            const invoiceNo = tx.invoiceNumber || tx.id;
+            const invoiceAmount = round2(Number(tx.total || 0));
+            const receivedAmount = round2(Number(tx.amountReceived || 0));
+            const rowsForTx: any[] = [{
+              id: `sales-${tx.id}`,
+              date: tx.date,
+              type: 'sale',
+              description: `Sales invoice ${invoiceNo}`,
+              debit: invoiceAmount,
+              credit: 0,
+              paymentMode: tx.paymentMode,
+              referenceInvoiceNumber: invoiceNo,
+              journalEntryNumber: invoiceNo,
+              status: 'active',
+            }];
+            if (receivedAmount > 0) {
+              rowsForTx.push({
+                id: `receipt-${tx.id}`,
+                date: tx.date,
+                type: 'payment',
+                description: String(tx.paymentMode || '').toLowerCase().includes('cash') ? 'Auto receipt against cash sale' : `Receipt against invoice ${invoiceNo}`,
+                debit: 0,
+                credit: receivedAmount,
+                paymentMode: tx.paymentMode,
+                referenceInvoiceNumber: invoiceNo,
+                journalEntryNumber: 'AUTO RECEIPT',
+                status: 'active',
+              });
+            }
+            return rowsForTx;
+          }) : [];
+        const generatedCustomerReturnRows = isCustomer ? salesReturns
+          .filter(ret => isDateWithinRange(ret.date, startDate, endDate))
+          .filter(ret => String(ret.customerName || '').trim().toLowerCase() === normalizedPartyName)
+          .map((ret: any) => ({
+            id: `sales-return-${ret.id}`,
+            date: ret.date,
+            type: 'return',
+            description: ret.remarks || 'Sales return / credit note',
+            debit: 0,
+            credit: round2(Number(ret.totalValue || 0)),
+            referenceInvoiceNumber: ret.originalBillNumber || ret.originalInvoiceNumber || '-',
+            journalEntryNumber: `SR-${ret.id}`,
+            status: 'active',
+          })) : [];
+        const baseLedgerRows = (isCustomer && !ledgerRows.length) ? [...generatedCustomerRows, ...generatedCustomerReturnRows] : ledgerRows;
         reportHeaders = ['Section', 'Date', 'Voucher Type', 'Voucher No', 'Reference Bill No', 'Supplier Name', 'Narration', 'Debit', 'Credit', 'Running Balance', 'Balance Type', 'Status'];
         let supplierRunningBalance = 0;
-        const sortedLedgerRows = [...ledgerRows].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        let customerRunningBalance = 0;
+        const sortedLedgerRows = [...baseLedgerRows].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
         const statementRows = sortedLedgerRows.map((entry: any) => {
           const status = entry.status || 'active';
           const rawDebit = round2(Number(entry.debit || 0));
@@ -657,7 +714,9 @@ const Reports: React.FC<ReportsProps> = ({
           const displayDebit = rawDebit;
           const displayCredit = rawCredit;
           const movement = round2(displayCredit - displayDebit);
-          const runningBalanceSigned = isCustomer ? round2(Number(entry.balance || 0)) : round2((supplierRunningBalance += movement));
+          const runningBalanceSigned = isCustomer
+            ? round2((customerRunningBalance += round2(displayDebit - displayCredit)))
+            : round2((supplierRunningBalance += movement));
           return {
             'Section': 'Ledger Statement',
             'Date': new Date(entry.date).toLocaleDateString('en-GB'),
@@ -673,7 +732,7 @@ const Reports: React.FC<ReportsProps> = ({
             'Status': status,
           };
         });
-        const billWiseRows = ledgerRows.filter((entry: any) => ['sale', 'purchase'].includes(entry.type) && String(entry.status || '').toLowerCase() !== 'cancelled').map((entry: any) => {
+        const billWiseRows = baseLedgerRows.filter((entry: any) => ['sale', 'purchase'].includes(entry.type) && String(entry.status || '').toLowerCase() !== 'cancelled').map((entry: any) => {
           const billAmount = isCustomer ? Number(entry.debit || 0) : Number(entry.debit || 0);
           return {
             'Section': 'Bill-wise Outstanding',
@@ -685,7 +744,7 @@ const Reports: React.FC<ReportsProps> = ({
             'Supplier Name': partyName, 'Debit': 0, 'Credit': 0, 'Running Balance': 0, 'Balance Type': '-', 'Status': entry.status || 'active',
           };
         });
-        const paymentRows = ledgerRows.filter((entry: any) => entry.type === 'payment' && String(entry.status || '').toLowerCase() !== 'cancelled').map((entry: any) => {
+        const paymentRows = baseLedgerRows.filter((entry: any) => entry.type === 'payment' && String(entry.status || '').toLowerCase() !== 'cancelled').map((entry: any) => {
           const amount = isCustomer ? Number(entry.credit || 0) : (Number(entry.credit || 0) > 0 ? Number(entry.credit || 0) : Number(entry.debit || 0));
           const adjusted = Number(entry.adjustedAmount || 0);
           return {
