@@ -157,6 +157,13 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
                 <p className="text-[7pt] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Billed To:</p>
                 <p className="text-[9pt] font-black uppercase text-gray-900">{bill.customerName}</p>
                 {bill.customerDetails?.address && <p className="text-[7.5pt] font-medium text-gray-600 truncate max-w-[250px]">{bill.customerDetails.address}</p>}
+                {(bill.customerDetails?.drugLicense || bill.customerDetails?.gstNumber || bill.customerDetails?.panNumber) && (
+                    <div className="flex flex-wrap gap-x-2 text-[7pt] font-bold mt-0.5 text-gray-500">
+                        {bill.customerDetails?.drugLicense && <p>DL: {bill.customerDetails.drugLicense}</p>}
+                        {bill.customerDetails?.gstNumber && <p>GSTIN: {bill.customerDetails.gstNumber}</p>}
+                        {bill.customerDetails?.panNumber && !bill.customerDetails?.gstNumber && <p>PAN: {bill.customerDetails.panNumber}</p>}
+                    </div>
+                )}
             </div>
             <div className="text-right">
                 {bill.customerDetails?.phone && <p className="text-[8pt] font-bold">Mob: {bill.customerDetails.phone}</p>}

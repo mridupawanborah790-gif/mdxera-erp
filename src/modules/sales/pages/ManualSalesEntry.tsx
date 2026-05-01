@@ -237,10 +237,15 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
   };
 
   const getRateByTier = (item: InventoryItem): number => {
-    if (defaultRateTier === 'rateA') return Number(item.rateA || item.mrp || 0);
-    if (defaultRateTier === 'rateB') return Number(item.rateB || item.mrp || 0);
-    if (defaultRateTier === 'rateC') return Number(item.rateC || item.mrp || 0);
-    if (defaultRateTier === 'ptr') return Number(item.ptr || item.mrp || 0);
+    const selectedCustomer = customers.find(c => c.id === customerId);
+    const customerTier = selectedCustomer?.defaultRateTier && selectedCustomer.defaultRateTier !== 'none' 
+      ? selectedCustomer.defaultRateTier 
+      : null;
+    const effectiveTier = customerTier || defaultRateTier;
+    if (effectiveTier === 'rateA') return Number(item.rateA || item.mrp || 0);
+    if (effectiveTier === 'rateB') return Number(item.rateB || item.mrp || 0);
+    if (effectiveTier === 'rateC') return Number(item.rateC || item.mrp || 0);
+    if (effectiveTier === 'ptr') return Number(item.ptr || item.mrp || 0);
     return Number(item.mrp || 0);
   };
 
@@ -429,8 +434,32 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
     if (err) return addNotification(err, 'error');
 
     const docNumber = await ensureVoucherNumber();
-    await storage.saveData('sales_bill', buildTransaction('draft', docNumber), currentUser);
+    const transaction = buildTransaction('draft', docNumber);
+    
     try {
+      // 1. Save Transaction
+      const savedTx = await storage.saveData('sales_bill', transaction, currentUser);
+      
+      // 2. Deduct Inventory Stock
+      for (const line of lines) {
+        if (!line.inventoryItemId) continue;
+        
+        const invRows = await db.sql`
+          SELECT * FROM inventory 
+          WHERE id = ${line.inventoryItemId} AND organization_id = ${currentUser!.organization_id}
+          LIMIT 1
+        `;
+        
+        if (invRows && invRows.length > 0) {
+          const invItem = storage.fromDb('inventory', invRows[0]);
+          const stockBefore = Number(invItem.stock || 0);
+          const stockAfter = Math.max(0, stockBefore - Number(line.qty || 0));
+          
+          await storage.saveData('inventory', { ...invItem, stock: stockAfter }, currentUser, true);
+        }
+      }
+
+      // 3. Post Accounting Entries
       await storage.postManualSalesVoucher({
         voucherId: docNumber,
         voucherDate: date,
@@ -445,8 +474,9 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
         customerControlGlId,
         narration,
       }, currentUser!);
+
       setVoucherNo('');
-      addNotification('Manual sales voucher posted successfully.', 'success');
+      addNotification('Manual sales voucher posted successfully and stock updated.', 'success');
       await fetchHistory();
       await onSaved();
     } catch (e: any) {

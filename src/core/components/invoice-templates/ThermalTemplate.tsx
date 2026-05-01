@@ -101,6 +101,18 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
         <span>{new Date(bill.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
       </div>
 
+      <div className="text-[9px] mb-1">
+        <p className="font-bold uppercase">{bill.customerName}</p>
+        <div className="flex flex-wrap gap-x-2">
+          {bill.customerDetails?.drugLicense && <span>DL: {bill.customerDetails.drugLicense}</span>}
+          {bill.customerDetails?.gstNumber ? (
+            <span>GST: {bill.customerDetails.gstNumber}</span>
+          ) : bill.customerDetails?.panNumber ? (
+            <span>PAN: {bill.customerDetails.panNumber}</span>
+          ) : null}
+        </div>
+      </div>
+
       {isCredit && <div className="text-center text-[9px] font-bold uppercase border-b border-dashed border-black pb-0.5 mb-1">CREDIT BILL</div>}
 
       <table className="w-full table-fixed text-[9px]">

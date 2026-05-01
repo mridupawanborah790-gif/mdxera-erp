@@ -162,8 +162,8 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                                     <input 
                                         name="name" 
                                         value={product.name} 
-                                        onChange={handleChange} 
-                                        className="w-full text-2xl font-black uppercase border-b-2 border-primary focus:border-accent outline-none bg-transparent"
+                                        readOnly
+                                        className="w-full text-2xl font-black uppercase border-b-2 border-gray-200 outline-none bg-transparent cursor-not-allowed opacity-80"
                                     />
                                 </div>
                                 <div>
@@ -172,8 +172,9 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                                         name="code" 
                                         value={product.code || ''} 
                                         onChange={handleChange} 
+                                        readOnly={!!productToEdit?.code}
                                         placeholder="Link to Master Code"
-                                        className="w-full text-xl font-mono font-bold uppercase border-b-2 border-gray-300 focus:border-primary outline-none bg-transparent"
+                                        className={`w-full text-xl font-mono font-bold uppercase border-b-2 outline-none bg-transparent ${!!productToEdit?.code ? 'border-gray-200 cursor-not-allowed opacity-80' : 'border-gray-300 focus:border-primary'}`}
                                     />
                                 </div>
                             </div>

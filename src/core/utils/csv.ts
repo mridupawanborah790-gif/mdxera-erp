@@ -528,3 +528,91 @@ export function parseSalesCsv(lines: string[]): Omit<Transaction, 'organization_
 
     return Array.from(transactionsMap.values());
 }
+
+// --- DBF Mapping ---
+
+/**
+ * Normalizes DBF records into a CSV-like line format that existing parsers can consume,
+ * OR maps them directly if preferred. Here we normalize to reuse existing logic.
+ */
+export function mapDbfToImportFormat(dbfRows: any[], type: string): any[] {
+    if (!dbfRows || dbfRows.length === 0) return [];
+
+    // Common pharmaceutical DBF mappings (e.g., Marg ERP)
+    // NOTE: These are typical placeholders. Actual mapping should match user's provided names.
+    const mappings: Record<string, Record<string, string>> = {
+        inventory: {
+            'P_NAME': 'Name',
+            'B_NAME': 'Brand',
+            'STOCK': 'Stock',
+            'BATCH': 'Batch',
+            'EXPIRY': 'Expiry',
+            'PUR_RATE': 'PurchasePrice',
+            'MRP': 'MRP',
+            'GST_PER': 'GSTPercent',
+            'P_CODE': 'MaterialCode'
+        },
+        suppliers: {
+            'S_NAME': 'name',
+            'GSTIN': 'gstNumber',
+            'PHONE': 'phone',
+            'ADDRESS': 'address',
+            'OPEN_BAL': 'openingBalance'
+        }
+    };
+
+    const currentMapping = mappings[type] || {};
+
+    // Transform DBF rows to match the header names expected by CSV parsers
+    const transformedRows = dbfRows.map(row => {
+        const newRow: any = {};
+        Object.entries(row).forEach(([key, value]) => {
+            const targetKey = currentMapping[key] || key;
+            newRow[targetKey] = value;
+        });
+        return newRow;
+    });
+
+    // Instead of converting back to CSV strings, we could refactor parsers to take objects.
+    // For now, to minimize disruption, we simulate the CSV lines approach if needed,
+    // OR we directly map to the target interfaces if the parsers allow it.
+    
+    // Since our parsers take string[], let's convert transformed objects to a format 
+    // that existing logic can handle, or implement direct mapping here.
+
+    switch(type) {
+        case 'inventory':
+            return transformedRows.map(row => ({
+                name: row.Name || row.name || 'UNKNOWN',
+                brand: row.Brand || row.brand || '',
+                category: row.Category || 'General',
+                manufacturer: row.Manufacturer || '',
+                stock: parseNumber(row.Stock || row.stock),
+                unitsPerPack: parseNumber(row.UnitsPerPack || 1),
+                packType: row.PackType || '',
+                batch: row.Batch || row.batch || 'UNSET',
+                expiry: row.Expiry || row.expiry || '',
+                purchasePrice: parseNumber(row.PurchasePrice || row.purchasePrice),
+                ptr: parseNumber(row.PTR || row.ptr),
+                mrp: parseNumber(row.MRP || row.mrp),
+                gstPercent: parseNumber(row.GSTPercent || row.gstPercent),
+                hsnCode: row.HSNCode || '',
+                materialCode: row.MaterialCode || '',
+                is_active: true
+            }));
+        case 'suppliers':
+            return transformedRows.map(row => ({
+                name: row.name || 'UNKNOWN',
+                gst_number: row.gstNumber || '',
+                phone: row.phone || '',
+                payment_details: { upi_id: '', account_number: '', ifsc_code: '' },
+                is_active: true,
+                opening_balance: parseNumber(row.openingBalance),
+                openingBalance: parseNumber(row.openingBalance),
+                asOfDate: new Date().toISOString().split('T')[0]
+            }));
+        default:
+            return transformedRows;
+    }
+}
+

@@ -93,7 +93,7 @@ const HistoryView: React.FC<{
     const [endDate, setEndDate] = useState('');
 
     const completedSessions = useMemo(() => {
-        let filtered = sessions.filter(s => s.status === PhysicalInventoryStatus.COMPLETED);
+        let filtered = sessions.filter(s => s.status === PhysicalInventoryStatus.COMPLETED || (s.status as string) === 'finalized');
 
         if (searchTerm) {
             filtered = filtered.filter(s => 

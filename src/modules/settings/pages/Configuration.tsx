@@ -8,8 +8,10 @@ import {
     downloadMasterTemplate, downloadInventoryTemplate, downloadSupplierTemplate, 
     downloadCustomerTemplate, downloadNomenclatureTemplate, downloadSalesImportTemplate, 
     downloadPurchaseImportTemplate, parseInventoryCsv, parseDistributorCsv, 
-    parseCustomerCsv, parsePurchaseCsv, parseSalesCsv, parseMedicineMasterCsv, parseNomenclatureCsv 
+    parseCustomerCsv, parsePurchaseCsv, parseSalesCsv, parseMedicineMasterCsv, parseNomenclatureCsv,
+    mapDbfToImportFormat
 } from '../../../../src/core/utils/csv';
+import { parseDbf } from '../../../../src/core/services/tauriService';
 import ImportPreviewModal from '../../../../src/core/components/ImportPreviewModal';
 import DistributorImportPreviewModal from '../../../../src/modules/purchases/components/DistributorImportPreviewModal';
 import CustomerImportPreviewModal from '../../../../src/modules/sales/components/CustomerImportPreviewModal';
@@ -623,23 +625,35 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         }
         const file = e.target.files?.[0];
         if (!file) return;
-        const text = await file.text();
-        const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== '');
-        if (lines.length < 2) { addNotification("Empty file or header only", "error"); return; }
 
         setImportType(type);
         try {
-            switch(type) {
-                case 'master': setPreviewData(parseMedicineMasterCsv(lines)); break;
-                case 'inventory': setPreviewData(parseInventoryCsv(lines)); break;
-                case 'suppliers': setPreviewData(parseDistributorCsv(lines)); break;
-                case 'customers': setPreviewData(parseCustomerCsv(lines)); break;
-                case 'nomenclature': setPreviewData(parseNomenclatureCsv(lines)); break;
-                case 'purchases': setPreviewData(parsePurchaseCsv(lines)); break;
-                case 'sales': setPreviewData(parseSalesCsv(lines)); break;
+            if (file.name.toLowerCase().endsWith('.dbf')) {
+                // Tauri backend parsing for DBF
+                // Note: We need the full path. In Tauri v2, if the file is picked via input, 
+                // we might need to use the dialog plugin if path is not directly accessible for security.
+                // For now, assuming the platform allows path access or we use the dialog.
+                
+                // Using a fallback for demonstration: if path is missing, we'd use tauri-plugin-dialog
+                const dbfData = await parseDbf((file as any).path || file.name);
+                setPreviewData(mapDbfToImportFormat(dbfData, type));
+            } else {
+                const text = await file.text();
+                const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== '');
+                if (lines.length < 2) { addNotification("Empty file or header only", "error"); return; }
+
+                switch(type) {
+                    case 'master': setPreviewData(parseMedicineMasterCsv(lines)); break;
+                    case 'inventory': setPreviewData(parseInventoryCsv(lines)); break;
+                    case 'suppliers': setPreviewData(parseDistributorCsv(lines)); break;
+                    case 'customers': setPreviewData(parseCustomerCsv(lines)); break;
+                    case 'nomenclature': setPreviewData(parseNomenclatureCsv(lines)); break;
+                    case 'purchases': setPreviewData(parsePurchaseCsv(lines)); break;
+                    case 'sales': setPreviewData(parseSalesCsv(lines)); break;
+                }
             }
         } catch (err) {
-            const message = err instanceof Error ? err.message : "Failed to parse CSV format";
+            const message = err instanceof Error ? err.message : "Failed to parse file format";
             addNotification(message, "error");
         }
         e.target.value = '';
@@ -859,7 +873,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
                     <Card className="p-8 tally-border bg-white !rounded-none shadow-xl min-h-full flex flex-col">
-                        <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={e => importType && handleFileImport(e, importType)} />
+                        <input type="file" ref={fileInputRef} className="hidden" accept=".csv,.dbf" onChange={e => importType && handleFileImport(e, importType)} />
                         
                         {activeSection === 'general' && (
                             <div className="space-y-8 animate-in fade-in duration-300 max-w-3xl">

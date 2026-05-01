@@ -800,6 +800,33 @@ const POS = forwardRef<any, POSProps>(({
         setCustomerSearch(c.name);
         setCustomerPhone(c.phone || '');
         setIsCustomerSearchModalOpen(false);
+
+        // Reprice existing cart items based on the customer's rate tier and discount
+        const globalDefaultRateTier = configurations?.displayOptions?.defaultRateTier || 'mrp';
+        const customerTier = c.defaultRateTier && c.defaultRateTier !== 'none' ? c.defaultRateTier : globalDefaultRateTier;
+        const customerDiscount = c.defaultDiscount || 0;
+
+        setCartItems(prev => prev.map(item => {
+            if (!item.inventoryItemId || !item.name) return item;
+
+            // Find the inventory item to get tier rates
+            const invItem = inventory.find(inv => inv.id === item.inventoryItemId);
+            if (!invItem) return item;
+
+            let newRate = item.rate;
+            if (customerTier === 'rateA' && invItem.rateA) newRate = invItem.rateA;
+            else if (customerTier === 'rateB' && invItem.rateB) newRate = invItem.rateB;
+            else if (customerTier === 'rateC' && invItem.rateC) newRate = invItem.rateC;
+            else if (customerTier === 'ptr' && invItem.ptr) newRate = invItem.ptr;
+            else newRate = invItem.mrp;
+
+            return {
+                ...item,
+                rate: newRate,
+                discountPercent: resolveProductDiscountPercent(invItem) || customerDiscount || item.discountPercent,
+            };
+        }));
+
         setTimeout(() => {
             phoneInputRef.current?.focus();
         }, 100);

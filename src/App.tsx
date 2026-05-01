@@ -1076,6 +1076,20 @@ const App: React.FC = () => {
 
             const savedTx = await storage.addTransaction(tx, currentUser, isUpdate);
 
+            // Generate Journal Entry
+            await storage.postAutomatedJournal({
+                documentId: savedTx.id,
+                documentNumber: savedTx.invoiceNumber || savedTx.id,
+                documentType: 'SALES',
+                date: savedTx.date,
+                grandTotal: Number(savedTx.total || 0),
+                subTotal: Number(savedTx.subTotal || 0),
+                cgstTotal: Number(savedTx.totalCGST || 0),
+                sgstTotal: Number(savedTx.totalSGST || 0),
+                igstTotal: Number(savedTx.totalIGST || 0),
+                discountTotal: Number(savedTx.discountAmount || 0),
+            }, currentUser);
+
             // Deduct inventory stock for each sold item
             const latestInventoryForSale = await storage.fetchInventory(currentUser);
             for (const item of tx.items || []) {
@@ -1161,6 +1175,21 @@ const App: React.FC = () => {
             }
 
             const savedPurchase = await storage.updatePurchase(p, currentUser);
+
+            // Generate Journal Entry for Purchase Update
+            await storage.postAutomatedJournal({
+                documentId: savedPurchase.id,
+                documentNumber: savedPurchase.invoiceNumber || savedPurchase.id,
+                documentType: 'PURCHASE',
+                date: savedPurchase.date,
+                grandTotal: Number(savedPurchase.grandTotal || 0),
+                subTotal: Number(savedPurchase.subTotal || 0),
+                cgstTotal: Number(savedPurchase.totalCgst || 0),
+                sgstTotal: Number(savedPurchase.totalSgst || 0),
+                igstTotal: Number(savedPurchase.totalIgst || 0),
+                discountTotal: Number(savedPurchase.discountAmount || 0),
+            }, currentUser);
+
             // Immediate local state update
             setPurchases(prev => prev.map(pur => pur.id === savedPurchase.id ? savedPurchase : pur));
 
@@ -1263,6 +1292,20 @@ const App: React.FC = () => {
         try {
             const savedPurchase = await storage.addPurchase(p, currentUser);
 
+            // Generate Journal Entry for Purchase
+            await storage.postAutomatedJournal({
+                documentId: savedPurchase.id,
+                documentNumber: savedPurchase.invoiceNumber || savedPurchase.id,
+                documentType: 'PURCHASE',
+                date: savedPurchase.date,
+                grandTotal: Number(savedPurchase.grandTotal || 0),
+                subTotal: Number(savedPurchase.subTotal || 0),
+                cgstTotal: Number(savedPurchase.totalCgst || 0),
+                sgstTotal: Number(savedPurchase.totalSgst || 0),
+                igstTotal: Number(savedPurchase.totalIgst || 0),
+                discountTotal: Number(savedPurchase.discountAmount || 0),
+            }, currentUser);
+
             // Add inventory stock for each purchased item
             const latestInventoryForPurchase = await storage.fetchInventory(currentUser);
             for (const item of (p.items || [])) {
@@ -1340,6 +1383,10 @@ const App: React.FC = () => {
             await storage.saveData('purchases', cancelledPurchase, currentUser, true);
             await storage.syncPurchaseLedger(cancelledPurchase, currentUser);
             await storage.markVoucherCancelled('purchase-entry', currentUser, cancelledPurchase.purchaseSerialId, cancelledPurchase.id);
+
+            // Also cancel the Journal Entry if it exists
+            await db.sql`UPDATE journal_entry_header SET status = 'Cancelled' WHERE reference_id = ${purchase.id} AND reference_type = 'PURCHASE_BILL'`;
+
 
             // 2. Reverse inventory (decrement stock that was added by this purchase)
             const latestInventory = await storage.fetchInventory(currentUser);
@@ -2058,6 +2105,9 @@ const App: React.FC = () => {
             } catch (error) {
                 console.warn('Unable to log voucher cancellation for invoice', cancelledTx.id, error);
             }
+
+            // Cancel the associated journal entry
+            await db.sql`UPDATE journal_entry_header SET status = 'Cancelled' WHERE reference_id = ${tx.id} AND reference_type = 'SALES_BILL'`;
             const latestInventory = await storage.fetchInventory(currentUser);
             for (const item of tx.items) {
                 const inv = latestInventory.find(i => i.id === item.inventoryItemId);
@@ -2137,7 +2187,7 @@ const App: React.FC = () => {
                         inventory={inventory} purchases={purchases} medicines={medicines} customers={customers}
                         doctors={doctors}
                         onSaveOrUpdateTransaction={handleSaveOrUpdateTransaction}
-                        onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
+                        onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations, customerDetails: customers.find(c => c.id === tx.customerId) } as any); }}
                         currentUser={currentUser} config={config} configurations={configurations}
                         billType={pageId === 'nonGstPos' ? 'non-gst' : 'regular'}
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
@@ -2161,7 +2211,7 @@ const App: React.FC = () => {
                         configurations={configurations}
                         onAddMedicineMaster={handleAddMedicineMaster}
                         onViewDetails={setViewTransaction}
-                        onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); }}
+                        onPrintBill={(tx) => { const billPharmacy = buildBillPharmacy(); if (!billPharmacy) return; setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations, customerDetails: customers.find(c => c.id === tx.customerId) } as any); }}
                         onCancelTransaction={handleCancelTransaction}
                         currentUser={currentUser} onViewSale={setViewTransaction}
                         onEditSale={(tx) => { setEditingSale(tx); handleNavigate(tx.billType === 'non-gst' ? 'nonGstPos' : 'pos'); }}
@@ -2272,24 +2322,104 @@ const App: React.FC = () => {
                         purchaseReturns={purchaseReturns}
                         purchases={purchases}
                         onAddSalesReturn={async (sr) => {
-                            await storage.addSalesReturn(sr, currentUser!);
-                            const savedSalesReturn = await storage.saveData('sales_returns', sr, currentUser!);
-
+                            if (!currentUser) return;
+                            setIsOperationLoading(true);
                             try {
-                                await storage.syncSalesReturnLedger(savedSalesReturn, currentUser!);
-                            } catch (error) {
-                                console.warn('Unable to sync sales return ledger for', savedSalesReturn.id, error);
-                            }
+                                const savedSalesReturn = await storage.saveData('sales_returns', sr, currentUser);
+                                
+                                // Return items to inventory (Stock IN)
+                                const latestInventoryForSR = await storage.fetchInventory(currentUser);
+                                for (const item of (sr.items || [])) {
+                                    if (!item.inventoryItemId) continue;
+                                    const invItem = latestInventoryForSR.find(i => i.id === item.inventoryItemId);
+                                    if (!invItem) continue;
+                                    
+                                    const policy = getInventoryPolicy(invItem, medicines);
+                                    if (!policy.inventorised) continue;
+                                    
+                                    const returnedUnits = Number(item.returnQuantity || 0);
+                                    if (returnedUnits <= 0) continue;
 
-                            await refreshInventoryViews(currentUser!, ['sales_returns']);
-                            await loadData(currentUser!, 'background');
-                            addNotification('Sales return recorded.', 'success');
+                                    const stockBefore = Number(invItem.stock || 0);
+                                    const stockAfter = stockBefore + returnedUnits;
+                                    
+                                    logStockMovement({ 
+                                        transactionType: 'sales-return-inward', 
+                                        voucherId: savedSalesReturn.id, 
+                                        item: invItem.name, 
+                                        batch: invItem.batch || 'UNSET', 
+                                        qty: returnedUnits, 
+                                        qtyIn: returnedUnits, 
+                                        stockBefore, 
+                                        stockAfter, 
+                                        organizationId: currentUser.organization_id, 
+                                        validationResult: 'allowed', 
+                                        mode: resolveStockHandlingConfig(configurations).mode 
+                                    });
+                                    await storage.saveData('inventory', { ...invItem, stock: stockAfter }, currentUser, true);
+                                }
+
+                                try {
+                                    await storage.syncSalesReturnLedger(savedSalesReturn, currentUser);
+                                } catch (error) {
+                                    console.warn('Unable to sync sales return ledger for', savedSalesReturn.id, error);
+                                }
+
+                                await refreshInventoryViews(currentUser, ['sales_returns']);
+                                await loadData(currentUser, 'background');
+                                addNotification('Sales return recorded and stock updated.', 'success');
+                            } catch (error) {
+                                addNotification(parseNetworkAndApiError(error), 'error');
+                            } finally {
+                                setIsOperationLoading(false);
+                            }
                         }}
                         onAddPurchaseReturn={async (pr) => {
-                            await storage.addPurchaseReturn(pr, currentUser!);
-                            await refreshInventoryViews(currentUser!, ['purchase_returns']);
-                            await loadData(currentUser!, 'background');
-                            addNotification('Purchase return recorded.', 'success');
+                            if (!currentUser) return;
+                            setIsOperationLoading(true);
+                            try {
+                                const savedPurchaseReturn = await storage.saveData('purchase_returns', pr, currentUser);
+                                
+                                // Deduct items from inventory (Stock OUT)
+                                const latestInventoryForPR = await storage.fetchInventory(currentUser);
+                                for (const item of (pr.items || [])) {
+                                    if (!item.inventoryItemId) continue;
+                                    const invItem = latestInventoryForPR.find(i => i.id === item.inventoryItemId);
+                                    if (!invItem) continue;
+                                    
+                                    const policy = getInventoryPolicy(invItem, medicines);
+                                    if (!policy.inventorised) continue;
+                                    
+                                    const returnedUnits = Number(item.returnQuantity || 0);
+                                    if (returnedUnits <= 0) continue;
+
+                                    const stockBefore = Number(invItem.stock || 0);
+                                    const stockAfter = Math.max(0, stockBefore - returnedUnits);
+                                    
+                                    logStockMovement({ 
+                                        transactionType: 'purchase-return-outward', 
+                                        voucherId: savedPurchaseReturn.id, 
+                                        item: invItem.name, 
+                                        batch: invItem.batch || 'UNSET', 
+                                        qty: returnedUnits, 
+                                        qtyOut: returnedUnits, 
+                                        stockBefore, 
+                                        stockAfter, 
+                                        organizationId: currentUser.organization_id, 
+                                        validationResult: 'allowed', 
+                                        mode: resolveStockHandlingConfig(configurations).mode 
+                                    });
+                                    await storage.saveData('inventory', { ...invItem, stock: stockAfter }, currentUser, true);
+                                }
+
+                                await refreshInventoryViews(currentUser, ['purchase_returns']);
+                                await loadData(currentUser, 'background');
+                                addNotification('Purchase return recorded and stock updated.', 'success');
+                            } catch (error) {
+                                addNotification(parseNetworkAndApiError(error), 'error');
+                            } finally {
+                                setIsOperationLoading(false);
+                            }
                         }}
                         addNotification={addNotification}
                         defaultTab={pageId === 'salesReturns' ? 'sales' : 'purchase'}
@@ -2993,7 +3123,7 @@ const App: React.FC = () => {
                     onPrintBill={(tx) => { 
                         const billPharmacy = buildBillPharmacy(); 
                         if (!billPharmacy) return; 
-                        setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations } as any); 
+                        setPrintBill({ ...tx, pharmacy: billPharmacy, inventory, configurations, customerDetails: customers.find(c => c.id === tx.customerId) } as any); 
                     }}
                     onProcessReturn={() => { }}
                     currentUser={currentUser}

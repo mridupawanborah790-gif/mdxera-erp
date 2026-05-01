@@ -276,7 +276,8 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                 let updatedValue = value;
                 if (field === 'returnQuantity') {
                     const originalQty = Number((item as any).quantity || 0);
-                    updatedValue = Math.min(originalQty, Math.max(0, parseInt(value, 10) || 0));
+                    const parsed = parseFloat(value);
+                    updatedValue = Math.min(originalQty, Math.max(0, isNaN(parsed) ? 0 : parsed));
                 }
                 return { ...item, [field]: updatedValue };
             }
@@ -286,7 +287,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
 
     const totalReturnRefundValue = useMemo(() => {
         return returnItems.reduce((sum, item) => {
-            const quantity = item.returnQuantity || 0;
+            const quantity = Number(item.returnQuantity || 0);
             if (quantity <= 0) return sum;
 
             let perItemValue = 0;
@@ -306,12 +307,14 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
         }, 0);
     }, [returnItems, activeTab]);
 
+    const itemsToReturn = useMemo(() => returnItems.filter(item => Number(item.returnQuantity || 0) > 0), [returnItems]);
+
     const handleProcessReturn = async () => {
         if (!selectedInvoice || !returnReason.trim()) {
             addNotification("Mandatory: Narration and Selection required.", "error");
             return;
         }
-        const itemsToReturn = returnItems.filter(item => (item.returnQuantity || 0) > 0);
+        
         if (itemsToReturn.length === 0) {
             addNotification("No items selected for return.", "warning");
             return;
@@ -369,8 +372,8 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
             setView('create');
             handleClearSelection();
         },
-        isDirty: view === 'create' && (selectedInvoice !== null || searchInvoiceId !== '' || returnReason !== '' || returnItems.some(i => (i.returnQuantity || 0) > 0))
-    }), [handleProcessReturn, view, selectedInvoice, searchInvoiceId, returnReason, returnItems]);
+        isDirty: view === 'create' && (selectedInvoice !== null || searchInvoiceId !== '' || returnReason !== '' || itemsToReturn.length > 0)
+    }), [handleProcessReturn, view, selectedInvoice, searchInvoiceId, returnReason, itemsToReturn]);
 
     return (
         <main className="flex-1 overflow-hidden flex flex-col bg-app-bg">
@@ -500,7 +503,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                                                                         </div>
                                                                     </td>
                                                                     <td className="p-2 text-right font-black text-gray-500">₹{netRate.toFixed(2)}</td>
-                                                                    <td className="p-2 text-right font-black text-red-600 bg-gray-50/50">₹{((item.returnQuantity || 0) * netRate).toFixed(2)}</td>
+                                                                    <td className="p-2 text-right font-black text-red-600 bg-gray-50/50">₹{(Number(item.returnQuantity || 0) * netRate).toFixed(2)}</td>
                                                                 </tr>
                                                             );
                                                         })}
@@ -518,7 +521,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                                     <div className="space-y-4 font-bold text-xs">
                                         <div className="flex justify-between border-b border-white/10 pb-2">
                                             <span>Impacted Items</span>
-                                            <span>{returnItems.filter(item => (item.returnQuantity || 0) > 0).length}</span>
+                                            <span>{itemsToReturn.length}</span>
                                         </div>
                                         <div className="pt-2">
                                             <span className="text-[9px] uppercase tracking-widest opacity-70 block mb-1">Refund / Adjustment Total</span>
@@ -537,7 +540,7 @@ const Returns = React.forwardRef<any, ReturnsProps>(({
                                             <label className="text-[10px] font-black text-gray-500 uppercase block mb-1 tracking-widest ml-1">Voucher Date</label>
                                             <input type="date" value={returnDate} onChange={e => setReturnDate(e.target.value)} className="w-full p-2 border border-gray-400 p-2 text-sm font-bold focus:bg-yellow-50 outline-none" />
                                         </div>
-                                        <button onClick={handleProcessReturn} disabled={isProcessing || totalReturnRefundValue <= 0 || !returnReason.trim()} className="w-full py-4 tally-button-primary uppercase text-[11px] font-black tracking-[0.2em] shadow-lg flex items-center justify-center gap-2">
+                                        <button onClick={handleProcessReturn} disabled={isProcessing || itemsToReturn.length === 0 || !returnReason.trim()} className="w-full py-4 tally-button-primary uppercase text-[11px] font-black tracking-[0.2em] shadow-lg flex items-center justify-center gap-2">
                                             {isProcessing && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
                                             Accept Voucher (Ent)
                                         </button>

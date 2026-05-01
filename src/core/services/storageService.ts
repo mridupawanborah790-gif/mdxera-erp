@@ -28,10 +28,16 @@ export const toSnake = (obj: any): any => {
     return Object.keys(obj).reduce((acc, key) => {
         if (key.startsWith('_')) return acc;
         
-        // These specific keys MUST remain snake_case for database interaction
+        // These specific keys MUST remain snake_case for database interaction and UI consistency
         const preservedKeys = [
             'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'performed_by_id',
-            'supplier_id', 'master_medicine_id', 'full_name', 'pharmacy_name'
+            'supplier_id', 'master_medicine_id', 'full_name', 'pharmacy_name',
+            'gst_number', 'pan_number', 'drug_license', 'food_license', 'is_active', 'is_blocked',
+            'supplier_group', 'customer_group', 'control_gl_id', 'opening_balance', 'contact_person',
+            'address_line1', 'address_line2', 'created_at', 'updated_at',
+            'credit_limit', 'credit_days', 'credit_status', 'credit_control_mode',
+            'customer_type', 'as_of_date', 'default_discount', 'default_rate_tier',
+            'assigned_staff_name', 'allow_override', 'override_approval_required'
         ];
         
         if (preservedKeys.includes(key)) {
@@ -52,7 +58,14 @@ export const toCamel = (obj: any): any => {
         // These specific keys MUST remain snake_case to match database structure and component expectations
         const preservedKeys = [
             'organization_id', 'user_id', 'created_by_id', 'assigned_staff_id', 'performed_by_id',
-            'supplier_id', 'master_medicine_id', 'full_name', 'pharmacy_name'
+            'supplier_id', 'master_medicine_id', 'full_name', 'pharmacy_name',
+            'gst_number', 'pan_number', 'drug_license', 'food_license', 'is_active', 'is_blocked',
+            'supplier_group', 'control_gl_id', 'opening_balance', 'contact_person',
+            'address_line1', 'address_line2', 'created_at', 'updated_at',
+            // Customer specific fields often used in UI in snake_case or specific camelCase
+            'gstNumber', 'panNumber', 'drugLicense', 'customerGroup', 'controlGlId',
+            'creditLimit', 'creditDays', 'creditStatus', 'creditControlMode',
+            'assignedStaffId', 'assignedStaffName', 'customerType'
         ];
         
         if (preservedKeys.includes(key)) {
@@ -84,7 +97,40 @@ export const fromDb = (tableName: string, payload: Record<string, any>): any => 
             try { processed[col] = JSON.parse(processed[col]); } catch (e) {}
         }
     }
-    return toCamel(processed);
+    const result = toCamel(processed);
+
+    // Customer-specific: The Customer interface uses camelCase for these fields,
+    // but toCamel preserves them as snake_case (because Supplier still needs snake_case).
+    // Remap them here for customers only.
+    if (tableName === 'customers') {
+        const customerRemaps: Record<string, string> = {
+            'gst_number': 'gstNumber',
+            'pan_number': 'panNumber',
+            'drug_license': 'drugLicense',
+            'customer_group': 'customerGroup',
+            'control_gl_id': 'controlGlId',
+            'credit_limit': 'creditLimit',
+            'credit_days': 'creditDays',
+            'credit_status': 'creditStatus',
+            'credit_control_mode': 'creditControlMode',
+            'customer_type': 'customerType',
+            'default_discount': 'defaultDiscount',
+            'default_rate_tier': 'defaultRateTier',
+            'assigned_staff_id': 'assignedStaffId',
+            'assigned_staff_name': 'assignedStaffName',
+            'enable_credit_limit': 'enableCreditLimit',
+            'allow_override': 'allowOverride',
+            'override_approval_required': 'overrideApprovalRequired',
+        };
+        for (const [snakeKey, camelKey] of Object.entries(customerRemaps)) {
+            if (snakeKey in result && !(camelKey in result)) {
+                result[camelKey] = result[snakeKey];
+                delete result[snakeKey];
+            }
+        }
+    }
+
+    return result;
 };
 
 export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null, isUpdate: boolean = false): Promise<any> => {
@@ -310,14 +356,371 @@ export const fetchPhysicalInventory = (user: any) => getData('physical_inventory
 export const fetchEWayBills = (user: any) => getData('ewaybills', [], user);
 
 export const markVoucherCancelled = async (type: string, user: any, serialId: string, id: string) => {};
-export const postManualSalesVoucher = async (args: any, user: any) => {};
+export const postAutomatedJournal = async (
+    params: {
+        documentId: string;
+        documentNumber: string;
+        documentType: 'SALES' | 'PURCHASE';
+        date: string;
+        grandTotal: number;
+        subTotal: number;
+        cgstTotal: number;
+        sgstTotal: number;
+        igstTotal: number;
+        discountTotal: number;
+        companyId?: string;
+    },
+    user: RegisteredPharmacy
+) => {
+    if (!user?.organization_id) throw new Error("Unauthorized");
+
+    try {
+        const orgId = user.organization_id;
+        const bookRows = await db.sql`
+            SELECT id FROM set_of_books 
+            WHERE organization_id = ${orgId} AND active_status = 'Active' 
+            ORDER BY created_at ASC LIMIT 1
+        `;
+        const activeBookId = bookRows?.[0]?.id;
+        if (!activeBookId) return { success: false, reason: 'No active Set of Books' };
+
+        const resolveGl = async (codeMatch: string, defaultName: string) => {
+            const rows = await db.sql`
+                SELECT gl_code, gl_name FROM gl_master 
+                WHERE organization_id = ${orgId} AND set_of_books_id = ${activeBookId} AND gl_code = ${codeMatch} AND active_status = 'Active' LIMIT 1
+            `;
+            if (rows && rows.length > 0) return { code: rows[0].gl_code, name: rows[0].gl_name };
+            return { code: codeMatch, name: defaultName };
+        };
+
+        const jvId = generateUUID();
+        let jvNumber = '';
+        let referenceType = '';
+        const lines: any[] = [];
+        let lineNo = 1;
+
+        const addLine = (glCode: string, glName: string, debit: number, credit: number) => {
+            if (debit <= 0 && credit <= 0) return;
+            lines.push({
+                id: generateUUID(),
+                organization_id: orgId,
+                journal_entry_id: jvId,
+                line_number: lineNo++,
+                gl_code: glCode,
+                gl_name: glName,
+                debit: Number(debit.toFixed(2)),
+                credit: Number(credit.toFixed(2)),
+                reference_document_id: params.documentId,
+                document_type: params.documentType,
+                line_memo: `Auto-generated for ${params.documentType}`
+            });
+        };
+
+        if (params.documentType === 'SALES') {
+            jvNumber = `JV-S-${params.documentId.substring(0, 8).toUpperCase()}`;
+            referenceType = 'SALES_BILL';
+
+            const arGl = await resolveGl('120000', 'Accounts Receivable');
+            const salesGl = await resolveGl('410000', 'Sales Revenue');
+            const cgstGl = await resolveGl('221000', 'Output CGST');
+            const sgstGl = await resolveGl('221001', 'Output SGST');
+            const igstGl = await resolveGl('221002', 'Output IGST');
+            const discGl = await resolveGl('510000', 'Discount Allowed');
+
+            addLine(arGl.code, arGl.name, params.grandTotal, 0);
+            if (params.discountTotal > 0) addLine(discGl.code, discGl.name, params.discountTotal, 0);
+            addLine(salesGl.code, salesGl.name, 0, params.subTotal);
+            if (params.cgstTotal > 0) addLine(cgstGl.code, cgstGl.name, 0, params.cgstTotal);
+            if (params.sgstTotal > 0) addLine(sgstGl.code, sgstGl.name, 0, params.sgstTotal);
+            if (params.igstTotal > 0) addLine(igstGl.code, igstGl.name, 0, params.igstTotal);
+
+        } else if (params.documentType === 'PURCHASE') {
+            jvNumber = `JV-P-${params.documentId.substring(0, 8).toUpperCase()}`;
+            referenceType = 'PURCHASE_BILL';
+
+            const apGl = await resolveGl('210000', 'Accounts Payable');
+            const purGl = await resolveGl('500000', 'Purchases');
+            const cgstGl = await resolveGl('121000', 'Input CGST');
+            const sgstGl = await resolveGl('121001', 'Input SGST');
+            const igstGl = await resolveGl('121002', 'Input IGST');
+            const discGl = await resolveGl('420000', 'Discount Received');
+
+            addLine(apGl.code, apGl.name, 0, params.grandTotal);
+            addLine(purGl.code, purGl.name, params.subTotal, 0);
+            if (params.cgstTotal > 0) addLine(cgstGl.code, cgstGl.name, params.cgstTotal, 0);
+            if (params.sgstTotal > 0) addLine(sgstGl.code, sgstGl.name, params.sgstTotal, 0);
+            if (params.igstTotal > 0) addLine(igstGl.code, igstGl.name, params.igstTotal, 0);
+            if (params.discountTotal > 0) addLine(discGl.code, discGl.name, 0, params.discountTotal);
+        }
+
+        const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
+        const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
+
+        await db.sql`DELETE FROM journal_entry_header WHERE reference_id = ${params.documentId} AND reference_type = ${referenceType}`;
+        await db.sql`DELETE FROM journal_entry_lines WHERE reference_document_id = ${params.documentId} AND document_type = ${params.documentType}`;
+
+        const header = {
+            id: jvId,
+            organization_id: orgId,
+            journal_entry_number: jvNumber,
+            posting_date: params.date,
+            status: 'Posted',
+            reference_type: referenceType,
+            reference_id: params.documentId,
+            reference_document_id: params.documentId,
+            document_type: params.documentType,
+            document_reference: params.documentNumber,
+            company_code_id: params.companyId || null,
+            set_of_books_id: activeBookId,
+            narration: `Automated Journal for ${params.documentType} ${params.documentNumber}`,
+            total_debit: totalDebit,
+            total_credit: totalCredit,
+            created_by: user.user_id
+        };
+
+        await saveData('journal_entry_header', header, user, false);
+        for (const l of lines) {
+            await saveData('journal_entry_lines', l, user, false);
+        }
+
+        return { success: true, journalNumber: jvNumber };
+    } catch (error: any) {
+        console.error('postAutomatedJournal error:', error);
+        throw error;
+    }
+};
+
+export const postManualSalesVoucher = async (
+    params: {
+        voucherId: string;
+        voucherDate: string;
+        paymentMode: string;
+        grandTotal: number;
+        taxableValue: number;
+        taxAmount: number;
+        discountAmount: number;
+        salesGlId: string;
+        taxGlId: string;
+        discountGlId: string;
+        customerControlGlId: string;
+        narration: string;
+    },
+    user: RegisteredPharmacy
+) => {
+    if (!user?.organization_id) throw new Error("Unauthorized");
+
+    try {
+        const orgId = user.organization_id;
+        const bookRows = await db.sql`
+            SELECT id FROM set_of_books 
+            WHERE organization_id = ${orgId} AND active_status = 'Active' 
+            ORDER BY created_at ASC LIMIT 1
+        `;
+        const activeBookId = bookRows?.[0]?.id;
+        if (!activeBookId) throw new Error('No active Set of Books found');
+
+        const resolveGlInfo = async (id: string) => {
+            if (!id) return null;
+            const rows = await db.sql`SELECT gl_code, gl_name FROM gl_master WHERE id = ${id} LIMIT 1`;
+            return rows?.[0] || null;
+        };
+
+        const jvId = generateUUID();
+        const jvNumber = `JV-MS-${params.voucherId.substring(0, 8).toUpperCase()}`;
+        const lines: any[] = [];
+        let lineNo = 1;
+
+        const addLine = (glCode: string, glName: string, debit: number, credit: number) => {
+            if (debit <= 0 && credit <= 0) return;
+            lines.push({
+                id: generateUUID(),
+                organization_id: orgId,
+                journal_entry_id: jvId,
+                line_number: lineNo++,
+                gl_code: glCode,
+                gl_name: glName,
+                debit: Number(debit.toFixed(2)),
+                credit: Number(credit.toFixed(2)),
+                reference_document_id: params.voucherId,
+                document_type: 'SALES',
+                line_memo: params.narration || 'Manual Sales Voucher'
+            });
+        };
+
+        // 1. Debit Accounts Receivable (Customer)
+        const arGl = await resolveGlInfo(params.customerControlGlId);
+        if (arGl) addLine(arGl.gl_code, arGl.gl_name, params.grandTotal, 0);
+
+        // 2. Debit Discount Allowed (if any)
+        if (params.discountAmount > 0) {
+            const discGl = await resolveGlInfo(params.discountGlId);
+            if (discGl) addLine(discGl.gl_code, discGl.gl_name, params.discountAmount, 0);
+        }
+
+        // 3. Credit Sales Revenue
+        const salesGl = await resolveGlInfo(params.salesGlId);
+        if (salesGl) addLine(salesGl.gl_code, salesGl.gl_name, 0, params.taxableValue + params.discountAmount); 
+
+        // 4. Credit Output GST
+        if (params.taxAmount > 0) {
+            const taxGl = await resolveGlInfo(params.taxGlId);
+            if (taxGl) addLine(taxGl.gl_code, taxGl.gl_name, 0, params.taxAmount);
+        }
+
+        const header = {
+            id: jvId,
+            organization_id: orgId,
+            journal_entry_number: jvNumber,
+            posting_date: params.voucherDate,
+            status: 'Posted',
+            reference_type: 'SALES_BILL',
+            reference_id: params.voucherId,
+            reference_document_id: params.voucherId,
+            document_type: 'SALES',
+            document_reference: params.voucherId,
+            set_of_books_id: activeBookId,
+            narration: params.narration || `Manual Sales Voucher ${params.voucherId}`,
+            total_debit: lines.reduce((s, l) => s + l.debit, 0),
+            total_credit: lines.reduce((s, l) => s + l.credit, 0),
+            created_by: user.user_id
+        };
+
+        await saveData('journal_entry_header', header, user, false);
+        for (const l of lines) {
+            await saveData('journal_entry_lines', l, user, false);
+        }
+
+        return { success: true, journalNumber: jvNumber };
+    } catch (error: any) {
+        console.error('postManualSalesVoucher error:', error);
+        throw error;
+    }
+};
+
 export const pushPartnerOrder = async (orgId: string, name: string, email: string, payload: any, poId: string) => {};
 export const broadcastSyncMessage = async (sessionId: string, data: any) => {};
 export const listenForSyncMessage = (sessionId: string, callback: any) => ({ unsubscribe: () => {} });
 export const getLatestSyncMessage = (sessionId: string) => null;
 export const updateSalesChallanStatus = async (id: string, status: any, user: any) => {};
 export const updateChallanStatus = async (id: string, status: any, user: any) => {};
-export const finalizePhysicalInventorySession = async (session: any, user: any) => {};
+export const finalizePhysicalInventorySession = async (session: any, user: any) => {
+    if (!user?.organization_id) throw new Error("Unauthorized");
+
+    // 1. Update session status
+    const finalizedSession = {
+        ...session,
+        status: 'completed',
+        endDate: new Date().toISOString()
+    };
+    await saveData('physical_inventory', finalizedSession, user, true);
+
+    let totalVarianceValue = 0;
+
+    // 2. Update inventory stock for each item
+    for (const item of (session.items || [])) {
+        if (!item.inventoryItemId) continue;
+        
+        const invRows = await db.sql`
+            SELECT * FROM inventory 
+            WHERE id = ${item.inventoryItemId} AND organization_id = ${user.organization_id}
+            LIMIT 1
+        `;
+        
+        if (invRows && invRows.length > 0) {
+            const invItem = fromDb('inventory', invRows[0]);
+            const stockBefore = Number(invItem.stock || 0);
+            const stockAfter = Number(item.physicalCount || 0);
+            const variance = stockAfter - stockBefore;
+            const varianceValue = variance * (item.cost || 0);
+
+            if (variance !== 0) {
+                // Update stock in DB
+                await saveData('inventory', { ...invItem, stock: stockAfter }, user, true);
+                
+                totalVarianceValue += varianceValue;
+            }
+        }
+    }
+
+    // 3. Post Journal Entry for total variance if not zero
+    if (totalVarianceValue !== 0) {
+        try {
+            const orgId = user.organization_id;
+            const bookRows = await db.sql`
+                SELECT id FROM set_of_books 
+                WHERE organization_id = ${orgId} AND active_status = 'Active' 
+                ORDER BY created_at ASC LIMIT 1
+            `;
+            if (bookRows && bookRows.length > 0) {
+                const bookId = bookRows[0].id;
+                const glRows = await db.sql`SELECT * FROM gl_master WHERE organization_id = ${orgId}`;
+                const resolveGL = (rows: any[], code: string, name: string) => {
+                    const found = rows.find(r => r.account_code === code || r.account_name === name);
+                    return found ? found.id : null;
+                };
+
+                const inventoryGl = resolveGL(glRows, '130000', 'Inventory') || resolveGL(glRows, '130000', 'Stock');
+                const varianceGl = resolveGL(glRows, '510000', 'Inventory Adjustment') || resolveGL(glRows, '510000', 'Cost of Goods Sold');
+
+                if (inventoryGl && varianceGl) {
+                    const jvId = generateUUID();
+                    const header = {
+                        id: jvId,
+                        organization_id: orgId,
+                        set_of_books_id: bookId,
+                        journal_number: `JV-AUDIT-${session.id || generateUUID().slice(0, 8)}`,
+                        date: finalizedSession.endDate,
+                        type: 'Standard',
+                        reference_type: 'STOCK_AUDIT',
+                        reference_id: finalizedSession.id,
+                        description: `Stock Audit Variance for ${finalizedSession.reason || 'Manual Audit'}`,
+                        status: 'Draft',
+                        created_by: user.user_id,
+                        created_at: new Date().toISOString()
+                    };
+                    await saveData('journal_entry_header', header, user, true);
+
+                    const lines = [];
+                    const absVariance = Math.abs(totalVarianceValue);
+                    
+                    if (totalVarianceValue > 0) {
+                        // Stock increased: Debit Inventory, Credit Variance
+                        lines.push({
+                            id: generateUUID(), organization_id: orgId, journal_header_id: jvId,
+                            account_id: inventoryGl, line_description: 'Audit Stock Gain',
+                            debit: absVariance, credit: 0, line_order: 1
+                        });
+                        lines.push({
+                            id: generateUUID(), organization_id: orgId, journal_header_id: jvId,
+                            account_id: varianceGl, line_description: 'Audit Stock Gain Offset',
+                            debit: 0, credit: absVariance, line_order: 2
+                        });
+                    } else {
+                        // Stock decreased: Debit Variance, Credit Inventory
+                        lines.push({
+                            id: generateUUID(), organization_id: orgId, journal_header_id: jvId,
+                            account_id: varianceGl, line_description: 'Audit Stock Loss',
+                            debit: absVariance, credit: 0, line_order: 1
+                        });
+                        lines.push({
+                            id: generateUUID(), organization_id: orgId, journal_header_id: jvId,
+                            account_id: inventoryGl, line_description: 'Audit Stock Loss Offset',
+                            debit: 0, credit: absVariance, line_order: 2
+                        });
+                    }
+
+                    for (const l of lines) {
+                        await saveData('journal_entry_lines', l, user, false);
+                    }
+                    
+                    await db.sql`UPDATE journal_entry_header SET status = 'Posted' WHERE id = ${jvId}`;
+                }
+            }
+        } catch (err) {
+            console.error("Failed to post audit variance journal:", err);
+        }
+    }
+};
 
 export const addSalesReturn = async (sr: any, user: any) => saveData('sales_returns', sr, user);
 export const addPurchaseReturn = async (pr: any, user: any) => saveData('purchase_returns', pr, user);

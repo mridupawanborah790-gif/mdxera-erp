@@ -47,8 +47,8 @@ const createInitialState = (initialName?: string, initialPhone?: string) => ({
     gstNumber: '',
     drugLicense: '',
     panNumber: '',
-    openingBalance: 0,
-    asOfDate: new Date().toISOString().split('T')[0],
+    opening_balance: 0,
+    as_of_date: new Date().toISOString().split('T')[0],
     is_active: true,
     defaultDiscount: 0,
     defaultRateTier: 'none' as 'none' | 'rateA' | 'rateB' | 'rateC',
@@ -79,7 +79,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
             formData.phone !== initialState.phone ||
             formData.address !== initialState.address ||
             formData.gstNumber !== initialState.gstNumber ||
-            formData.openingBalance !== initialState.openingBalance
+            formData.opening_balance !== initialState.opening_balance
         );
     }, [formData, initialState]);
 
@@ -153,7 +153,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
             return;
         }
 
-        const { openingBalance, asOfDate, ...customerData } = formData;
+        const { opening_balance, as_of_date, ...customerData } = formData;
         const cleanData = {
             ...customerData,
             organization_id: organizationId,
@@ -163,7 +163,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
             delete (cleanData as any).assignedStaffId;
         }
 
-        onAdd(cleanData, openingBalance, asOfDate);
+        onAdd(cleanData as any, opening_balance, as_of_date);
         onClose();
     };
 
@@ -197,7 +197,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
                             </div>
                             <div>
                                 <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Customer Control GL</label>
-                                <input type="text" readOnly value={effectiveControlGlId ? `Mapped (${effectiveControlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
+                                <input type="text" readOnly value={formData.controlGlId ? `Mapped (${formData.controlGlId})` : 'Auto-map from Company Configuration'} className="w-full border border-gray-400 p-2 text-sm bg-gray-100" />
                             </div>
                             <div className="md:col-span-2">
                                 <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Assign Staff Member</label>
@@ -311,11 +311,11 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, on
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Opening Amount (₹)</label>
-                                <input name="openingBalance" type="number" value={formData.openingBalance} onChange={handleChange} className="w-full border border-gray-400 p-2 font-black text-base text-red-700 outline-none focus:bg-yellow-50" />
+                                <input name="opening_balance" type="number" value={formData.opening_balance} onChange={handleChange} className="w-full border border-gray-400 p-2 font-black text-base text-red-700 outline-none focus:bg-yellow-50" />
                             </div>
                             <div>
                                 <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Opening Date</label>
-                                <input name="asOfDate" type="date" value={formData.asOfDate} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm outline-none" />
+                                <input name="as_of_date" type="date" value={formData.as_of_date} onChange={handleChange} className="w-full border border-gray-400 p-2 font-bold text-sm outline-none" />
                             </div>
                         </div>
                     </section>

@@ -13,8 +13,7 @@ const states = Object.keys(STATE_DISTRICT_MAP).sort();
 const supplierCategories = ["Wholesaler", "Manufacturer", "C&F", "Local Vendor", "Distributor", "Agency"];
 const supplierGroupOptions = ["Sundry Creditors", "Import Vendors", "Service Vendors", "Local Vendors"];
 
-const createInitialState = (): Omit<Supplier, 'ledger' | 'organization_id'> => ({
-    id: generateUUID(),
+const createInitialState = (): Omit<Supplier, 'id' | 'ledger' | 'organization_id'> => ({
     user_id: '',
     name: '',
     contact_person: '',
@@ -53,7 +52,7 @@ const createInitialState = (): Omit<Supplier, 'ledger' | 'organization_id'> => (
 export const AddSupplierModal: React.FC<{
     isOpen: boolean; 
     onClose: () => void; 
-    onAdd: (data: Omit<Supplier, 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<SupplierQuickResult>;
+    onAdd: (data: Omit<Supplier, 'id' | 'ledger' | 'organization_id'>, balance: number, date: string) => Promise<SupplierQuickResult>;
     onDuplicate?: (supplier: Supplier) => void;
     organizationId: string;
     prefillData?: Partial<Supplier>;

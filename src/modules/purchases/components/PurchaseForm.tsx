@@ -2205,7 +2205,9 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
                                                         }}
                                                         onFocus={() => {
                                                             setActiveRowId(p.id);
-                                                            openSearchModal(p.id, p.name);
+                                                            if (!p.name) {
+                                                                openSearchModal(p.id, p.name);
+                                                            }
                                                         }}
                                                         onKeyDown={(e) => handleGridKeyDown(e, p.id, 'name')}
                                                         className={`w-full bg-transparent outline-none ${isActive ? 'text-white placeholder:text-white/50 focus:bg-primary-dark' : 'focus:bg-yellow-100 focus:text-gray-900'} ${uniformTextStyle}`}

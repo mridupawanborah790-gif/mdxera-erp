@@ -1361,6 +1361,26 @@ const POS = forwardRef<any, POSProps>(({
         setCustomerPhone(c.phone || '');
         setIsCustomerSearchModalOpen(false);
 
+        // Reprice existing cart items based on the customer's rate tier and discount
+        const customerTier = c.defaultRateTier && c.defaultRateTier !== 'none' ? c.defaultRateTier : undefined;
+        const customerDiscount = c.defaultDiscount || 0;
+
+        setCartItems(prev => prev.map(item => {
+            if (!item.inventoryItemId || !item.name) return item;
+
+            // Find the inventory item to get tier rates
+            const invItem = inventory.find(inv => inv.id === item.inventoryItemId);
+            if (!invItem) return item;
+
+            const newRate = resolveSalesRate(invItem, customerTier || c.defaultRateTier);
+
+            return {
+                ...item,
+                rate: newRate,
+                discountPercent: customerDiscount || item.discountPercent,
+            };
+        }));
+
         // Move to next field (Phone input)
         setTimeout(() => {
             phoneInputRef.current?.focus();
