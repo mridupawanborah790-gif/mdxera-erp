@@ -66,6 +66,7 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'expiredStockReport', name: 'Expired Stock Report', group: 'Inventory Reports' },
   { id: 'negativeStock', name: 'Negative Stock Report', group: 'Inventory Reports' },
   { id: 'reorderLevelReport', name: 'Reorder Level Report', group: 'Inventory Reports' },
+  { id: 'stockMovementSummary', name: 'Stock Movement Summary', group: 'Inventory Reports' },
 
   { id: 'ledgerReport', name: 'Account Ledger', group: 'Accounting Reports' },
   { id: 'dayBook', name: 'Day Book', group: 'Accounting Reports' },
@@ -653,6 +654,94 @@ const Reports: React.FC<ReportsProps> = ({
         reportHeaders = ['Item', 'Batch', 'Current Stock', 'Location'];
         rows = inventory.filter(i => Number(i.stock || 0) < 0).map(i => ({ 'Item': i.name, 'Batch': i.batch, 'Current Stock': Number(i.stock || 0), 'Location': i.rackNumber || 'N/A' }));
         break;
+
+      case 'stockMovementSummary': {
+        reportHeaders = ['Product Name', 'MFR', 'Rate', 'Opening Qty', 'Opening Value', 'Receipt Qty', 'Receipt Value', 'Issue Qty', 'Issue Value', 'Closing Qty', 'Closing Value'];
+
+        const map = new Map<string, any>();
+        const ensureRow = (name: string, manufacturer: string, category: string, rate: number) => {
+          const key = `${name}__${manufacturer || 'N/A'}`;
+          const existing = map.get(key);
+          if (existing) {
+            if (!existing.Rate && rate) existing.Rate = round2(rate);
+            return existing;
+          }
+          const row = {
+            'Product Name': name,
+            'MFR': manufacturer || 'N/A',
+            'Rate': round2(rate || 0),
+            'Opening Qty': 0,
+            'Opening Value': 0,
+            'Receipt Qty': 0,
+            'Receipt Value': 0,
+            'Issue Qty': 0,
+            'Issue Value': 0,
+            'Closing Qty': 0,
+            'Closing Value': 0,
+            'Category': category || 'N/A',
+          };
+          map.set(key, row);
+          return row;
+        };
+
+        const stockInBefore = purchases
+          .filter(p => p.status !== 'draft' && p.status !== 'cancelled' && new Date(p.date) < new Date(startDate));
+        const stockInPeriod = purchases
+          .filter(p => p.status !== 'draft' && p.status !== 'cancelled' && isDateWithinRange(p.date, startDate, endDate));
+        const stockOutBefore = transactions
+          .filter(tx => tx.status !== 'draft' && tx.status !== 'cancelled' && new Date(tx.date) < new Date(startDate));
+        const stockOutPeriod = transactions
+          .filter(tx => tx.status !== 'draft' && tx.status !== 'cancelled' && isDateWithinRange(tx.date, startDate, endDate));
+
+        stockInBefore.forEach(p => p.items.forEach((item: any) => {
+          const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+          const rate = Number(item.purchasePrice || item.ptr || 0);
+          const row = ensureRow(item.name, item.manufacturer || item.brand || '', item.category || '', rate);
+          row['Opening Qty'] = round2(row['Opening Qty'] + qty);
+        }));
+
+        stockOutBefore.forEach(tx => tx.items.forEach((item: any) => {
+          const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+          const rate = Number(item.rate ?? item.ptr ?? item.purchasePrice ?? 0);
+          const inv = inventory.find(i => i.name === item.name && (!item.batch || !i.batch || i.batch === item.batch));
+          const row = ensureRow(item.name, item.manufacturer || inv?.manufacturer || item.brand || '', item.category || inv?.category || '', rate || Number(inv?.ptr || inv?.purchasePrice || 0));
+          row['Opening Qty'] = round2(row['Opening Qty'] - qty);
+        }));
+
+        stockInPeriod.forEach(p => p.items.forEach((item: any) => {
+          const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+          const rate = Number(item.purchasePrice || item.ptr || 0);
+          const row = ensureRow(item.name, item.manufacturer || item.brand || '', item.category || '', rate);
+          row['Receipt Qty'] = round2(row['Receipt Qty'] + qty);
+        }));
+
+        stockOutPeriod.forEach(tx => tx.items.forEach((item: any) => {
+          const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
+          const rate = Number(item.rate ?? item.ptr ?? item.purchasePrice ?? 0);
+          const inv = inventory.find(i => i.name === item.name && (!item.batch || !i.batch || i.batch === item.batch));
+          const row = ensureRow(item.name, item.manufacturer || inv?.manufacturer || item.brand || '', item.category || inv?.category || '', rate || Number(inv?.ptr || inv?.purchasePrice || 0));
+          row['Issue Qty'] = round2(row['Issue Qty'] + qty);
+        }));
+
+        rows = Array.from(map.values()).map((row: any) => {
+          const rate = Number(row['Rate'] || 0);
+          const openingQty = Number(row['Opening Qty'] || 0);
+          const receiptQty = Number(row['Receipt Qty'] || 0);
+          const issueQty = Number(row['Issue Qty'] || 0);
+          const closingQty = round2(openingQty + receiptQty - issueQty);
+          return {
+            ...row,
+            'Opening Value': round2(openingQty * rate),
+            'Receipt Value': round2(receiptQty * rate),
+            'Issue Value': round2(issueQty * rate),
+            'Closing Qty': closingQty,
+            'Closing Value': round2(closingQty * rate),
+          };
+        })
+          .filter(row => row['Product Name'])
+          .sort((a, b) => String(a['Product Name']).localeCompare(String(b['Product Name'])));
+        break;
+      }
       case 'reorderLevelReport':
         reportHeaders = ['Item', 'Current Stock', 'Minimum Limit', 'Required Reorder Qty'];
         rows = inventory.map(i => {
