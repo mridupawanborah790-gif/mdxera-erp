@@ -489,6 +489,7 @@ export const configurableModules = [
         { id: 'expiredStockReport', name: 'Expired Stock Report' },
         { id: 'negativeStock', name: 'Negative Stock Report' },
         { id: 'reorderLevelReport', name: 'Reorder Level Report' },
+        { id: 'stockMovementSummary', name: 'Stock Movement Summary' },
         { id: 'ledgerReport', name: 'Account Ledger' },
         { id: 'dayBook', name: 'Day Book' },
         { id: 'outstandingReceivables', name: 'Outstanding Receivables' },
