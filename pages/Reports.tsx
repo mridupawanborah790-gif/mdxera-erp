@@ -25,6 +25,7 @@ interface ReportDefinition {
 }
 
 type SortDirection = 'asc' | 'desc';
+type MfrSalesViewMode = 'detailed' | 'productSummary';
 
 const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
 
@@ -107,6 +108,7 @@ const Reports: React.FC<ReportsProps> = ({
   const [sortConfig, setSortConfig] = useState<{ column: string; direction: SortDirection } | null>(null);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [columnModalOpen, setColumnModalOpen] = useState(false);
+  const [mfrSalesViewMode, setMfrSalesViewMode] = useState<MfrSalesViewMode>('detailed');
 
   const reportById = useMemo(() => new Map(REPORT_LIST.map(r => [r.id, r])), []);
   const groupedReports = useMemo(() => {
@@ -348,6 +350,63 @@ const Reports: React.FC<ReportsProps> = ({
         break;
       }
       case 'mfrWiseSalesDetailedReport': {
+        if (mfrSalesViewMode === 'productSummary') {
+          reportHeaders = ['MFR Name', 'Product Name', 'Total Quantity', 'Total Free Qty', 'Average Sales Rate', 'Average Purchase Rate', 'Total Taxable Amount', 'Total GST Amount', 'Total Discount', 'Total Profit Margin', 'Total Net Amount', 'Number of Bills'];
+          const map = new Map<string, any>();
+          completedOnlySales.forEach(tx => {
+            const billNo = String(tx.invoiceNumber || tx.id);
+            (tx.items || []).forEach((item: any) => {
+              const qty = Number(item.quantity || 0);
+              const freeQty = Number(item.freeQuantity || 0);
+              const salesRate = Number(item.rate ?? item.mrp ?? 0);
+              const lineDiscount = Number(item.itemFlatDiscount || 0)
+                + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
+                + Number(item.schemeDiscountAmount || 0);
+              const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+              const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
+              const taxableAmount = (qty * salesRate) - lineDiscount;
+              const sgst = Number(item.sgstAmount || 0);
+              const cgst = Number(item.cgstAmount || 0);
+              const gstAmount = (sgst + cgst) || (taxableAmount * (Number(item.gstPercent || 0) / 100));
+              const netAmount = Number(item.finalAmount ?? item.amount ?? (taxableAmount + gstAmount));
+              const mfrName = item.manufacturer || inv?.manufacturer || 'N/A';
+              const productName = item.name || 'N/A';
+              const key = `${String(mfrName).trim().toLowerCase()}|${String(productName).trim().toLowerCase()}`;
+              const current = map.get(key) || { mfrName, productName, qty: 0, freeQty: 0, salesRateTotal: 0, purchaseRateTotal: 0, lineCount: 0, taxable: 0, gst: 0, discount: 0, profit: 0, net: 0, bills: new Set<string>() };
+
+              current.qty += qty;
+              current.freeQty += freeQty;
+              current.salesRateTotal += salesRate;
+              current.purchaseRateTotal += purchaseRate;
+              current.lineCount += 1;
+              current.taxable += taxableAmount;
+              current.gst += gstAmount;
+              current.discount += lineDiscount;
+              current.profit += (salesRate - purchaseRate) * qty;
+              current.net += netAmount;
+              current.bills.add(billNo);
+              map.set(key, current);
+            });
+          });
+
+          rows = Array.from(map.values()).map((value: any) => ({
+            'MFR Name': value.mfrName,
+            'Product Name': value.productName,
+            'Total Quantity': round2(value.qty),
+            'Total Free Qty': round2(value.freeQty),
+            'Average Sales Rate': round2(value.lineCount ? (value.salesRateTotal / value.lineCount) : 0),
+            'Average Purchase Rate': round2(value.lineCount ? (value.purchaseRateTotal / value.lineCount) : 0),
+            'Total Taxable Amount': round2(value.taxable),
+            'Total GST Amount': round2(value.gst),
+            'Total Discount': round2(value.discount),
+            'Total Profit Margin': round2(value.profit),
+            'Total Net Amount': round2(value.net),
+            'Number of Bills': value.bills.size,
+            '_sortMfr': String(value.mfrName || '').toLowerCase(),
+            '_sortProduct': String(value.productName || '').toLowerCase(),
+          })).sort((a, b) => a._sortMfr.localeCompare(b._sortMfr) || a._sortProduct.localeCompare(b._sortProduct));
+          break;
+        }
         reportHeaders = ['MFR Name', 'Product Name', 'Sales Bill No', 'Sales Bill Date', 'Customer Name', 'Quantity', 'Free Qty', 'MRP', 'Sales Rate', 'Purchase Rate', 'Discount', 'Taxable Amount', 'GST Amount', 'Profit Margin', 'Net Amount'];
         rows = completedOnlySales.flatMap(tx => {
           return (tx.items || []).map((item: any) => {
@@ -892,6 +951,12 @@ const Reports: React.FC<ReportsProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (activeReportId !== 'mfrWiseSalesDetailedReport') return;
+    loadReportData(activeReportId, periodStartDate, periodEndDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mfrSalesViewMode]);
+
   const filterOptions = useMemo(() => {
     return headers.reduce<Record<string, string[]>>((acc, col) => {
       acc[col] = Array.from(new Set(baseData.map(row => String(row[col] ?? '')).filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -1083,7 +1148,16 @@ const Reports: React.FC<ReportsProps> = ({
               <div className="text-[11px] font-bold">{activeReportTitle}</div>
               <div className="text-[10px] text-gray-500">Period: {new Date(periodStartDate).toLocaleDateString('en-GB')} to {new Date(periodEndDate).toLocaleDateString('en-GB')}</div>
             </div>
-            <div className="flex gap-1 text-[10px]">
+            <div className="flex gap-1 text-[10px] items-center">
+              {activeReportId === 'mfrWiseSalesDetailedReport' && (
+                <div className="flex items-center gap-1 mr-2">
+                  <span className="text-gray-600">View Mode:</span>
+                  <select value={mfrSalesViewMode} onChange={(e) => setMfrSalesViewMode(e.target.value as MfrSalesViewMode)} className="px-1 py-1 border border-gray-300 bg-white">
+                    <option value="detailed">Detailed View</option>
+                    <option value="productSummary">Product Summary View</option>
+                  </select>
+                </div>
+              )}
               <button onClick={() => setFilterModalOpen(true)} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Filter</button>
               <button onClick={() => setColumnModalOpen(true)} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Columns</button>
               <button onClick={handlePreview} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Preview</button>
