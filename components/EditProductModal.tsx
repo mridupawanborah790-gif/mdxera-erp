@@ -159,21 +159,23 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div className="md:col-span-2">
                                     <label className="block text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1.5 ml-1">Official Name</label>
-                                    <input 
-                                        name="name" 
-                                        value={product.name} 
-                                        onChange={handleChange} 
-                                        className="w-full text-2xl font-black uppercase border-b-2 border-primary focus:border-accent outline-none bg-transparent"
+                                    <input
+                                        name="name"
+                                        value={product.name}
+                                        onChange={handleChange}
+                                        readOnly
+                                        className="w-full text-2xl font-black uppercase border-b-2 border-gray-100 outline-none bg-transparent text-gray-400 cursor-not-allowed"
                                     />
                                 </div>
                                 <div>
                                     <label className="block text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1.5 ml-1">Product Code</label>
-                                    <input 
-                                        name="code" 
-                                        value={product.code || ''} 
-                                        onChange={handleChange} 
+                                    <input
+                                        name="code"
+                                        value={product.code || ''}
+                                        onChange={handleChange}
+                                        readOnly={!!productToEdit?.code}
                                         placeholder="Link to Master Code"
-                                        className="w-full text-xl font-mono font-bold uppercase border-b-2 border-gray-300 focus:border-primary outline-none bg-transparent"
+                                        className={`w-full text-xl font-mono font-bold uppercase border-b-2 outline-none bg-transparent ${productToEdit?.code ? 'border-gray-100 text-gray-400 cursor-not-allowed' : 'border-gray-300 focus:border-primary'}`}
                                     />
                                 </div>
                             </div>
