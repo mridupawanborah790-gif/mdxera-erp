@@ -702,7 +702,61 @@ const Reports: React.FC<ReportsProps> = ({
             journalEntryNumber: `SR-${ret.id}`,
             status: 'active',
           })) : [];
-        const baseLedgerRows = (isCustomer && !ledgerRows.length) ? [...generatedCustomerRows, ...generatedCustomerReturnRows] : ledgerRows;
+        const supplierGeneratedRows = !isCustomer ? (() => {
+          const supplierId = String(selectedPartyId || '').trim();
+          const supplierNameNormalized = String(partyName || '').trim().toLowerCase();
+          const purchaseRows = purchases
+            .filter((purchase: any) => purchase && purchase.status !== 'cancelled')
+            .filter((purchase: any) => isDateWithinRange(purchase.date, startDate, endDate))
+            .filter((purchase: any) => {
+              const purchaseSupplierName = String(purchase.supplier || '').trim().toLowerCase();
+              const purchaseSupplierId = String((purchase as any).supplierId || '').trim();
+              return purchaseSupplierName === supplierNameNormalized || (supplierId && purchaseSupplierId === supplierId);
+            })
+            .map((purchase: any) => ({
+              id: `purchase-${purchase.id}`,
+              date: purchase.date,
+              type: 'purchase',
+              description: `Purchase invoice ${purchase.invoiceNumber || purchase.id}`,
+              debit: 0,
+              credit: round2(Number(purchase.totalAmount || 0)),
+              paymentMode: 'Credit',
+              referenceInvoiceNumber: purchase.invoiceNumber || purchase.id,
+              referenceInvoiceId: purchase.id,
+              journalEntryNumber: purchase.invoiceNumber || purchase.id,
+              status: 'active',
+            }));
+
+          const supplierReturnRows = purchaseReturns
+            .filter((ret: any) => ret && ret.status !== 'cancelled')
+            .filter((ret: any) => isDateWithinRange(ret.date, startDate, endDate))
+            .filter((ret: any) => {
+              const returnSupplierName = String(ret.supplierName || '').trim().toLowerCase();
+              const returnSupplierId = String((ret as any).supplierId || '').trim();
+              return returnSupplierName === supplierNameNormalized || (supplierId && returnSupplierId === supplierId);
+            })
+            .map((ret: any) => ({
+              id: `purchase-return-${ret.id}`,
+              date: ret.date,
+              type: 'return',
+              description: ret.reason || ret.notes || 'Purchase return / debit note',
+              debit: round2(Number(ret.totalAmount || ret.totalValue || 0)),
+              credit: 0,
+              referenceInvoiceNumber: ret.referenceInvoiceNumber || ret.originalBillNumber || ret.originalInvoiceNumber || '-',
+              journalEntryNumber: ret.debitNoteNumber || `PR-${ret.id}`,
+              status: 'active',
+            }));
+
+          const paymentRows = allLedgerRows
+            .filter((entry: any) => entry.type === 'payment' && entry.status !== 'cancelled')
+            .map((entry: any) => ({ ...entry, debit: round2(Number(entry.credit || entry.debit || 0)), credit: 0 }));
+
+          return [...purchaseRows, ...supplierReturnRows, ...paymentRows];
+        })() : [];
+        const hasSupplierTransactionalRows = !isCustomer && ledgerRows.some((entry: any) => ['purchase', 'payment', 'return', 'openingBalance'].includes(String(entry.type || '')) && String(entry.status || '').toLowerCase() !== 'cancelled');
+        const baseLedgerRows = isCustomer
+          ? (!ledgerRows.length ? [...generatedCustomerRows, ...generatedCustomerReturnRows] : ledgerRows)
+          : (hasSupplierTransactionalRows ? ledgerRows : supplierGeneratedRows);
         reportHeaders = ['Section', 'Date', 'Voucher Type', 'Voucher No', 'Reference Bill No', 'Supplier Name', 'Narration', 'Debit', 'Credit', 'Running Balance', 'Balance Type', 'Status'];
         let supplierRunningBalance = 0;
         let customerRunningBalance = 0;
