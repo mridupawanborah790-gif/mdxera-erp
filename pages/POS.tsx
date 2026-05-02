@@ -145,6 +145,7 @@ const POS = forwardRef<any, POSProps>(({
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [customerSearch, setCustomerSearch] = useState('');
+    const [customerAddress, setCustomerAddress] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
     const billCategorySelectRef = useRef<HTMLSelectElement>(null);
     const customerSearchInputRef = useRef<HTMLInputElement>(null);
@@ -343,12 +344,14 @@ const POS = forwardRef<any, POSProps>(({
         if (transactionToEdit) {
             setSelectedCustomer(customers.find(c => c.id === transactionToEdit.customerId) || null);
             setCustomerSearch(transactionToEdit.customerName || '');
+            setCustomerAddress((transactionToEdit as any).customerAddress || '');
             setCustomerPhone(transactionToEdit.customerPhone || '');
             setReferredBy(transactionToEdit.referredBy || '');
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
             setCartItems(transactionToEdit.items || []);
             setLumpsumDiscount(transactionToEdit.schemeDiscount || 0);
         } else {
+            setCustomerAddress('');
             setTimeout(() => dateInputRef.current?.focus(), 150);
         }
     }, [transactionToEdit, customers]);
@@ -411,6 +414,46 @@ const POS = forwardRef<any, POSProps>(({
     const handleSave = useCallback(async () => {
         if (isSaving || cartItems.length === 0) return;
 
+        const orgType = currentUser?.organization_type;
+        const isRetailOrg = orgType === 'Retail';
+        const isDistributorOrg = orgType === 'Distributor';
+        const isManualCustomer = !selectedCustomer?.id;
+        const hasPrescriptionItem = cartItems.some((item) => {
+            const invItem = inventory.find(i => i.id === item.inventoryItemId) as any;
+            const medicineMatch = medicines.find((m) => m.id === item.inventoryItemId || (m as any).inventoryItemId === item.inventoryItemId) as any;
+            return Boolean(
+                (item as any).requiresPrescription ||
+                (item as any).prescriptionRequired ||
+                (item as any).isPrescription ||
+                invItem?.requiresPrescription ||
+                invItem?.prescriptionRequired ||
+                invItem?.isPrescription ||
+                medicineMatch?.requiresPrescription ||
+                medicineMatch?.prescriptionRequired ||
+                medicineMatch?.isPrescription
+            );
+        });
+
+        if (isDistributorOrg && !selectedCustomer?.id) {
+            addNotification("Customer selection from customer master is required for distributor billing.", "error");
+            return;
+        }
+
+        if (hasPrescriptionItem && isRetailOrg && isManualCustomer) {
+            if (!customerSearch.trim()) {
+                addNotification("Customer Name is required for prescription medicines.", "error");
+                return;
+            }
+            if (!customerAddress.trim()) {
+                addNotification("Customer Address is required for prescription medicines. Please enter address to continue.", "error");
+                return;
+            }
+            if (!customerPhone.trim()) {
+                addNotification("Customer Phone Number is required for prescription medicines.", "error");
+                return;
+            }
+        }
+
         if (shouldPreventNegativeStock) {
             for (const item of cartItems) {
                 const invItem = inventory.find(i => i.id === item.inventoryItemId);
@@ -452,6 +495,7 @@ const POS = forwardRef<any, POSProps>(({
             date: new Date(invoiceDate).toISOString(),
             customerName: selectedCustomer?.name || customerSearch || 'Walking Customer',
             customerId: selectedCustomer?.id,
+            customerAddress: selectedCustomer?.address || customerAddress,
             customerPhone: customerPhone || selectedCustomer?.phone,
             referredBy: referredBy || '',
             items: cartItems,
@@ -477,6 +521,7 @@ const POS = forwardRef<any, POSProps>(({
             setPrescriptions([]);
             setSelectedCustomer(null);
             setCustomerSearch('');
+            setCustomerAddress('');
             setLumpsumDiscount(0);
             setReferredBy('');
             addNotification(`Bill saved successfully. Bill No: ${transaction.invoiceNumber || transaction.id}`, "success");
@@ -487,7 +532,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines, getCustomerInvoiceOutstandingTotal]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerAddress, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines, getCustomerInvoiceOutstandingTotal]);
 
     const focusFirstEditableFieldInRow = useCallback((rowId: string) => {
         const firstEditableField = [
@@ -844,6 +889,7 @@ const POS = forwardRef<any, POSProps>(({
     const handleSelectCustomer = (c: Customer) => {
         setSelectedCustomer(c);
         setCustomerSearch(c.name);
+        setCustomerAddress(c.address || c.address_line1 || '');
         setCustomerPhone(c.phone || '');
         setIsCustomerSearchModalOpen(false);
         setTimeout(() => {
@@ -1255,6 +1301,17 @@ const POS = forwardRef<any, POSProps>(({
                             />
                         </div>
                     )}
+                    <div>
+                        <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Address</label>
+                        <textarea
+                            value={selectedCustomer?.id ? (selectedCustomer?.address || selectedCustomer?.address_line1 || customerAddress) : customerAddress}
+                            onChange={e => setCustomerAddress(e.target.value)}
+                            className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50 resize-none"
+                            placeholder="Enter Customer Address"
+                            rows={2}
+                            disabled={isReadOnly || currentUser?.organization_type === 'Distributor'}
+                        />
+                    </div>
                     {isFieldVisible('colPhone') && (
                         <div>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Phone Number</label>
