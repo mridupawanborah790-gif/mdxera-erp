@@ -294,6 +294,7 @@ const POS = forwardRef<any, POSProps>(({
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [customerSearch, setCustomerSearch] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
+    const [customerAddress, setCustomerAddress] = useState('');
     const billCategorySelectRef = useRef<HTMLSelectElement>(null);
     const customerSearchInputRef = useRef<HTMLInputElement>(null);
     const productSearchInputRef = useRef<HTMLInputElement>(null);
@@ -723,6 +724,7 @@ const POS = forwardRef<any, POSProps>(({
             setSelectedCustomer(customers.find(c => c.id === transactionToEdit.customerId) || null);
             setCustomerSearch(transactionToEdit.customerName || '');
             setCustomerPhone(transactionToEdit.customerPhone || '');
+            setCustomerAddress((transactionToEdit as any).customerAddress || '');
             setReferredBy(transactionToEdit.referredBy || '');
             setDoctorId(transactionToEdit.doctorId || null);
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
@@ -1032,19 +1034,26 @@ const POS = forwardRef<any, POSProps>(({
             const organizationType = currentUser?.organization_type || 'Retail';
             const normalizedName = (customerSearch || selectedCustomer?.name || '').trim();
             const normalizedPhone = (customerPhone || selectedCustomer?.phone || '').trim();
+            const normalizedAddress = (customerAddress || selectedCustomer?.address || '').trim();
 
             if (organizationType === 'Retail') {
-                if (!normalizedName) {
+                const isManualCustomer = !selectedCustomer?.id;
+                if (isManualCustomer && !normalizedName) {
                     addNotification("Customer Name is required for prescription medicines. Please enter the customer's name to proceed.", 'error');
                     setIsSaving(false);
                     return;
                 }
-                if (!normalizedPhone) {
+                if (isManualCustomer && !normalizedAddress) {
+                    addNotification('Customer Address is required for prescription medicines. Please enter address to continue.', 'error');
+                    setIsSaving(false);
+                    return;
+                }
+                if (isManualCustomer && !normalizedPhone) {
                     addNotification('Customer Phone Number is required for prescription medicines. Please enter a valid phone number.', 'error');
                     setIsSaving(false);
                     return;
                 }
-                if (!isValidTenDigitPhone(normalizedPhone)) {
+                if (isManualCustomer && !isValidTenDigitPhone(normalizedPhone)) {
                     addNotification('Please enter a valid 10-digit phone number for prescription medicines.', 'error');
                     setIsSaving(false);
                     return;
@@ -1096,6 +1105,7 @@ const POS = forwardRef<any, POSProps>(({
             customerName: selectedCustomer?.name || customerSearch || 'Walking Customer',
             customerId: selectedCustomer?.id,
             customerPhone: customerPhone || selectedCustomer?.phone,
+            customerAddress: customerAddress || selectedCustomer?.address,
             referredBy: referredBy || '',
             doctorId: doctorId || null,
             items: cartItems,
@@ -1150,7 +1160,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment, getCustomerInvoiceOutstandingTotal, onCancel, fetchStats, hasPrescriptionItem]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, customerAddress, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment, getCustomerInvoiceOutstandingTotal, onCancel, fetchStats, hasPrescriptionItem]);
 
     const resetForm = useCallback(() => {
         setCartItems([]);
@@ -1158,6 +1168,7 @@ const POS = forwardRef<any, POSProps>(({
         setSelectedCustomer(null);
         setCustomerSearch('');
         setCustomerPhone('');
+        setCustomerAddress('');
         setReferredBy('');
         setDoctorId(null);
         setLumpsumDiscount(0);
@@ -1272,7 +1283,7 @@ const POS = forwardRef<any, POSProps>(({
         setCartItems,
         cartItems,
         isDirty: cartItems.length > 0 || customerPhone.trim() !== '' || referredBy.trim() !== ''
-    }), [handleSave, resetForm, cartItems, customerPhone, referredBy]);
+    }), [handleSave, resetForm, cartItems, customerPhone, customerAddress, referredBy]);
 
 
     const handleProcessPrescription = async (fileInput: FileInput, fileName: string) => {
@@ -1612,6 +1623,7 @@ const POS = forwardRef<any, POSProps>(({
         setSelectedCustomer(c);
         setCustomerSearch(c.name);
         setCustomerPhone(c.phone || '');
+        setCustomerAddress(c.address || c.address_line1 || '');
         setIsCustomerSearchModalOpen(false);
 
         // Move to next field (Phone input)
@@ -2257,6 +2269,17 @@ const POS = forwardRef<any, POSProps>(({
                             />
                         </div>
                     )}
+                    <div className="md:col-span-2">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Address</label>
+                        <textarea
+                            value={customerAddress}
+                            onChange={e => setCustomerAddress(e.target.value)}
+                            className="w-full min-h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50 resize-none"
+                            placeholder="Enter Customer Address"
+                            rows={2}
+                            disabled={isReadOnly || (currentUser?.organization_type === 'Distributor' && !!selectedCustomer?.id)}
+                        />
+                    </div>
                     {isFieldVisible('colPhone') && (
                         <div>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Phone Number</label>
