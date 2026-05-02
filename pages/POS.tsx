@@ -145,6 +145,7 @@ const POS = forwardRef<any, POSProps>(({
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [customerSearch, setCustomerSearch] = useState('');
+    const [customerAddress, setCustomerAddress] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
     const billCategorySelectRef = useRef<HTMLSelectElement>(null);
     const customerSearchInputRef = useRef<HTMLInputElement>(null);
@@ -238,6 +239,10 @@ const POS = forwardRef<any, POSProps>(({
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
     const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
     const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+    const isRetailOrg = currentUser?.organization_type === 'Retail';
+    const isDistributorOrg = currentUser?.organization_type === 'Distributor';
+    const hasPrescriptionItem = prescriptions.length > 0;
+    const isManualCustomer = !selectedCustomer;
 
     const activeRowIdRef = useRef<string | null>(null);
 
@@ -259,6 +264,14 @@ const POS = forwardRef<any, POSProps>(({
             return () => clearTimeout(timer);
         }
     }, [selectedSearchIndex, isSearchModalOpen]);
+
+    useEffect(() => {
+        if (!isRetailOrg || selectedCustomer || customerAddress.trim() || customerPhone.trim().length < 6) return;
+        const matchedSale = transactions.find((sale) => (sale.customerPhone || '').trim() === customerPhone.trim() && (sale as any).customerAddress);
+        if (matchedSale) {
+            setCustomerAddress((matchedSale as any).customerAddress || '');
+        }
+    }, [customerPhone, customerAddress, isRetailOrg, selectedCustomer, transactions]);
 
     const isNonGst = billMode === 'EST';
     const canOpenJournalEntry = Boolean(transactionToEdit?.id);
@@ -343,6 +356,7 @@ const POS = forwardRef<any, POSProps>(({
         if (transactionToEdit) {
             setSelectedCustomer(customers.find(c => c.id === transactionToEdit.customerId) || null);
             setCustomerSearch(transactionToEdit.customerName || '');
+            setCustomerAddress((transactionToEdit as any).customerAddress || '');
             setCustomerPhone(transactionToEdit.customerPhone || '');
             setReferredBy(transactionToEdit.referredBy || '');
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
@@ -427,6 +441,26 @@ const POS = forwardRef<any, POSProps>(({
             }
         }
 
+        if (isDistributorOrg && !selectedCustomer) {
+            addNotification('Please select a customer from Customer Master for distributor billing.', "error");
+            return;
+        }
+
+        if (isRetailOrg && hasPrescriptionItem && isManualCustomer) {
+            if (!customerSearch.trim()) {
+                addNotification('Customer Name is required for prescription medicines.', "error");
+                return;
+            }
+            if (!customerAddress.trim()) {
+                addNotification('Customer Address is required for prescription medicines. Please enter address to continue.', "error");
+                return;
+            }
+            if (!customerPhone.trim()) {
+                addNotification('Customer Phone Number is required for prescription medicines.', "error");
+                return;
+            }
+        }
+
         setIsSaving(true);
 
         const generatedId = transactionToEdit
@@ -453,6 +487,7 @@ const POS = forwardRef<any, POSProps>(({
             customerName: selectedCustomer?.name || customerSearch || 'Walking Customer',
             customerId: selectedCustomer?.id,
             customerPhone: customerPhone || selectedCustomer?.phone,
+            customerAddress: customerAddress || selectedCustomer?.address || '',
             referredBy: referredBy || '',
             items: cartItems,
             total: Math.round(totals.baseTotal),
@@ -487,7 +522,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines, getCustomerInvoiceOutstandingTotal]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, customerAddress, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines, getCustomerInvoiceOutstandingTotal, isDistributorOrg, isRetailOrg, hasPrescriptionItem, isManualCustomer]);
 
     const focusFirstEditableFieldInRow = useCallback((rowId: string) => {
         const firstEditableField = [
@@ -844,6 +879,7 @@ const POS = forwardRef<any, POSProps>(({
     const handleSelectCustomer = (c: Customer) => {
         setSelectedCustomer(c);
         setCustomerSearch(c.name);
+        setCustomerAddress(c.address || c.address_line1 || '');
         setCustomerPhone(c.phone || '');
         setIsCustomerSearchModalOpen(false);
         setTimeout(() => {
@@ -1251,6 +1287,19 @@ const POS = forwardRef<any, POSProps>(({
                                 onKeyDown={handleCustomerKeyDown}
                                 autoComplete="off"
                                 placeholder="Enter for selection, Esc to skip..."
+                                disabled={isReadOnly}
+                            />
+                        </div>
+                    )}
+                    {isRetailOrg && (
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Address</label>
+                            <textarea
+                                value={customerAddress}
+                                onChange={e => setCustomerAddress(e.target.value)}
+                                rows={2}
+                                className="w-full border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50 resize-none"
+                                placeholder="Enter Customer Address"
                                 disabled={isReadOnly}
                             />
                         </div>
