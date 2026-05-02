@@ -370,6 +370,7 @@ export const configurableModules = [
     fields: [
       { id: 'colDate', name: 'Date' },
       { id: 'colCustomer', name: 'Particulars (Customer Name)' },
+      { id: 'colAddress', name: 'Address' },
       { id: 'colPhone', name: 'Phone Number' },
       { id: 'colReferred', name: 'Referred By' },
       { id: 'colName', name: 'Name of Item' },

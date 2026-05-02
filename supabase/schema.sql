@@ -110,6 +110,7 @@ CREATE TABLE public.transactions (
     customer_name text NOT NULL,
     customer_id uuid,
     customer_phone text,
+    customer_address text,
     referred_by text,
     items jsonb NOT NULL DEFAULT '[]'::jsonb,
     total numeric(15,2) DEFAULT 0,

@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS public.sales_bill (
     customer_name text NOT NULL,
     customer_id uuid,
     customer_phone text,
+    customer_address text,
     items jsonb NOT NULL DEFAULT '[]'::jsonb,
     subtotal numeric(15,2) DEFAULT 0,
     total_item_discount numeric(15,2) DEFAULT 0,
