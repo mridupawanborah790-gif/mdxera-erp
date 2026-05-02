@@ -3150,42 +3150,64 @@ const POS = forwardRef<any, POSProps>(({
                 initialPhone={customerPhone.trim()}
             />
 
-            <Modal
-                isOpen={isPrescriptionAlertOpen}
-                onClose={() => setIsPrescriptionAlertOpen(false)}
-                title="⚠️ Prescription Required"
-            >
-                <div className="p-4 space-y-3">
-                    <p className="text-xs font-semibold text-gray-800">
-                        This item requires a valid prescription. Please ensure prescription details are verified before billing.
-                    </p>
-                    <div className="text-[10px] font-bold uppercase text-gray-600">
-                        Prescription items require customer details as per compliance rules.
-                    </div>
-                    <div className="pt-2 flex justify-end gap-2">
-                        <button
-                            type="button"
-                            className="px-4 py-2 text-xs font-black uppercase border border-gray-300 text-gray-700"
-                            onClick={() => setIsPrescriptionAlertOpen(false)}
-                        >
-                            Proceed Anyway
-                        </button>
-                        <button
-                            type="button"
-                            className="px-4 py-2 text-xs font-black uppercase bg-red-600 text-white"
-                            onClick={() => {
-                                if (pendingPrescriptionItemId) {
-                                    setCartItems(prev => prev.filter(item => item.id !== pendingPrescriptionItemId));
-                                }
-                                setPendingPrescriptionItemId(null);
-                                setIsPrescriptionAlertOpen(false);
-                            }}
-                        >
-                            Cancel Item
-                        </button>
+            {isPrescriptionAlertOpen && (
+                <div
+                    className="fixed inset-0 z-[220] flex items-center justify-center bg-[rgba(0,0,0,0.45)] px-4"
+                    onClick={() => setIsPrescriptionAlertOpen(false)}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Prescription Required"
+                >
+                    <div
+                        className="w-full max-w-[420px] rounded-xl bg-white shadow-[0_14px_40px_rgba(0,0,0,0.28)] border border-gray-200 overflow-hidden animate-[fadeIn_160ms_ease-out]"
+                        style={{ animation: 'fadeIn 160ms ease-out, zoomIn 160ms ease-out' }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+                            <h3 className="text-sm font-bold text-gray-900">⚠️ Prescription Required</h3>
+                            <button
+                                type="button"
+                                className="text-gray-500 hover:text-gray-700"
+                                onClick={() => setIsPrescriptionAlertOpen(false)}
+                                aria-label="Close"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <p className="text-sm text-gray-800">
+                                This item requires a valid prescription.
+                                Please verify prescription details before billing.
+                            </p>
+                            <p className="text-xs font-medium text-gray-600">
+                                Prescription items require customer details as per compliance rules.
+                            </p>
+                            <div className="pt-2 flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    className="px-4 py-2 text-xs font-semibold border border-gray-300 text-gray-700 rounded-md bg-white"
+                                    onClick={() => setIsPrescriptionAlertOpen(false)}
+                                >
+                                    Proceed Anyway
+                                </button>
+                                <button
+                                    type="button"
+                                    className="px-4 py-2 text-xs font-semibold bg-red-600 text-white rounded-md"
+                                    onClick={() => {
+                                        if (pendingPrescriptionItemId) {
+                                            setCartItems(prev => prev.filter(item => item.id !== pendingPrescriptionItemId));
+                                        }
+                                        setPendingPrescriptionItemId(null);
+                                        setIsPrescriptionAlertOpen(false);
+                                    }}
+                                >
+                                    Cancel Item
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </Modal>
+            )}
 
             <Modal
                 isOpen={isDoctorQuickAddOpen}
