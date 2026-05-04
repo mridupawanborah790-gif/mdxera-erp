@@ -76,34 +76,38 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
     };
   }, [bill, isNonGst, isIncludingDiscountMode]);
 
-  const paginatedItems = useMemo(() => {
-    const rowsWithoutFooter = Math.max(1, Math.floor((PRINTABLE_HEIGHT_PX - HEADER_HEIGHT_PX - TABLE_HEADER_HEIGHT_PX) / ROW_HEIGHT_PX));
-    const rowsWithFooter = Math.max(1, Math.floor((PRINTABLE_HEIGHT_PX - HEADER_HEIGHT_PX - TABLE_HEADER_HEIGHT_PX - FOOTER_HEIGHT_PX) / ROW_HEIGHT_PX));
+  const itemCount = billDetails.items?.length || 0;
+  const dynamicFontSize = itemCount > 40 ? '7px' : itemCount > 20 ? '8px' : '9px';
 
-    const items = billDetails.items || [];
-    if (!items.length) {
-      return [{ items: [], showFooter: true }];
-    }
-
-    const pages: Array<{ items: ComputedItem[]; showFooter: boolean }> = [];
-    let start = 0;
-
-    while (start < items.length) {
-      const remaining = items.length - start;
-      if (remaining <= rowsWithFooter) {
-        pages.push({ items: items.slice(start), showFooter: true });
-        break;
-      }
-
-      const take = Math.min(rowsWithoutFooter, remaining - rowsWithFooter);
-      pages.push({ items: items.slice(start, start + take), showFooter: false });
-      start += take;
-    }
-
-    if (pages.length > 1 && pages[pages.length - 1].items.length === 0) {
-      pages.pop();
-      pages[pages.length - 1].showFooter = true;
-    }
+  return (
+    <div className="invoice-7 w-[100mm] max-w-[100mm] text-black font-mono leading-[1.2] px-1 py-1" style={{ ['--invoice-font' as string]: dynamicFontSize, fontSize: 'var(--invoice-font, 9px)' }}>
+      <style>{`
+        @media print {
+          @page {
+            size: 100mm 150mm;
+            margin: 4mm;
+          }
+          html, body {
+            height: auto !important;
+          }
+          .invoice-7 {
+            width: 100mm !important;
+            max-width: 100mm !important;
+            min-height: auto !important;
+            height: auto !important;
+            page-break-inside: auto;
+            break-inside: auto;
+          }
+          .invoice-7 table {
+            page-break-inside: auto;
+            break-inside: auto;
+          }
+          .invoice-7 tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+        }
+      `}</style>
 
     return pages;
   }, [billDetails.items]);

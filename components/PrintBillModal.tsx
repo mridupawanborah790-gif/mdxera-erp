@@ -80,7 +80,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
     const invoiceNo = bill.invoiceNumber || bill.id;
     document.title = `Invoice_${invoiceNo}_${sanitizedCustomerName}`;
     
-    // Use a tiny delay to ensure title update and template renders are flushed
+    // Delay print to ensure DOM/layout is fully flushed before opening print dialog
     setTimeout(() => {
         window.print();
         
@@ -88,7 +88,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         setTimeout(() => {
             document.title = originalTitle;
         }, 2000);
-    }, 100);
+    }, 300);
   };
 
   const handleDownloadOnly = () => {
@@ -255,7 +255,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
       <style>{`
         @media print {
-          .invoice-container { page-break-inside: avoid; break-inside: avoid; }
+          .invoice-container { page-break-inside: auto; break-inside: auto; }
           .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
           @page {
             margin: 0;
@@ -272,10 +272,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             print-color-adjust: exact !important;
           }
 
-          #root,
-          #chatbot-container,
-          .notification-container {
-            display: none !important;
+          body * {
+            visibility: hidden !important;
           }
 
           #print-bill-modal-container {
@@ -322,6 +320,12 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           #print-area,
           #print-area * {
             visibility: visible !important;
+          }
+
+          #print-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
           }
 
           #print-bill-modal-container .no-print {
