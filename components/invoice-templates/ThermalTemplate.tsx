@@ -82,6 +82,12 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
     return { items, subtotal, totalGst: (isNonGst ? 0 : (bill.totalGst || 0)), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal };
   }, [bill, isNonGst, isIncludingDiscountMode]);
 
+  const formatLine = (label: string, value: string) => `${label.padEnd(15)}${value.padStart(10)}`;
+
+  const billDiscount = Number(bill.schemeDiscount || 0);
+  const taxableAmount = Math.max(0, billDetails.subtotal - billDiscount);
+  const gstAmount = isNonGst ? 0 : Number(billDetails.totalGst || 0);
+
   return (
     <div className="w-[76mm] max-w-[76mm] text-black font-mono text-[10px] leading-tight px-1 py-1">
       <div className="text-center mb-1">
@@ -143,31 +149,16 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
       </table>
 
       <div className="border-t border-dashed border-black mt-1 pt-1 space-y-0.5 text-[9px]">
-        <div className="flex justify-between"><span>Items</span><span>{billDetails.totalQty}</span></div>
-        <div className="flex justify-between"><span>Subtotal</span><span>{billDetails.subtotal.toFixed(2)}</span></div>
-
-        {!isNonGst && (
-          <>
-            {Object.entries(billDetails.gstBreakdown).map(([rate, data]) => {
-              if (parseFloat(rate) === 0) return null;
-              const typedData = data as { taxable: number; tax: number };
-              return (
-                <div key={rate} className="flex justify-between gap-2">
-                  <span className="truncate">GST {rate}% on {typedData.taxable.toFixed(2)}</span>
-                  <span>{typedData.tax.toFixed(2)}</span>
-                </div>
-              );
-            })}
-          </>
-        )}
-
-        {(bill.schemeDiscount || 0) > 0 && <div className="flex justify-between"><span>Bill Disc</span><span>-{bill.schemeDiscount.toFixed(2)}</span></div>}
-        {(bill.roundOff || 0) !== 0 && <div className="flex justify-between"><span>Round Off</span><span>{bill.roundOff > 0 ? '+' : ''}{bill.roundOff.toFixed(2)}</span></div>}
-        {(billDetails.totalDiscountValue + (bill.schemeDiscount || 0)) > 0 && (
-          <div className="flex justify-between font-semibold">
-            <span>Savings</span>
-            <span>{(billDetails.totalDiscountValue + (bill.schemeDiscount || 0)).toFixed(2)}</span>
-          </div>
+        <div className="whitespace-pre">{formatLine('Items', String(billDetails.totalQty))}</div>
+        <div className="whitespace-pre">{formatLine('Subtotal', `₹${billDetails.subtotal.toFixed(2)}`)}</div>
+        {billDiscount > 0 && <div className="whitespace-pre">{formatLine('Discount', `₹${billDiscount.toFixed(2)}`)}</div>}
+        <div className="whitespace-pre">----------------------------</div>
+        <div className="whitespace-pre">{formatLine('Taxable Amount', `₹${taxableAmount.toFixed(2)}`)}</div>
+        {!isNonGst && <div className="whitespace-pre">{formatLine('GST', `₹${gstAmount.toFixed(2)}`)}</div>}
+        <div className="whitespace-pre">----------------------------</div>
+        {(bill.roundOff || 0) !== 0 && <div className="whitespace-pre">{formatLine('Round Off', `${bill.roundOff > 0 ? '+' : ''}₹${bill.roundOff.toFixed(2)}`)}</div>}
+        {(billDetails.totalDiscountValue + billDiscount) > 0 && (
+          <div className="whitespace-pre font-semibold">{formatLine('Savings', `₹${(billDetails.totalDiscountValue + billDiscount).toFixed(2)}`)}</div>
         )}
       </div>
 
