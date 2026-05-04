@@ -344,7 +344,11 @@ export interface BillItem {
     appliedDiscountId?: string;
     appliedDiscountValue?: number;
     appliedDiscountType?: 'flat' | 'percentage';
+    is_rx?: boolean;
+    rx_flag?: boolean;
+    material_id?: string;
 }
+
 
 export interface Transaction {
     id: string;

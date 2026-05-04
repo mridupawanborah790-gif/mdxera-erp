@@ -215,10 +215,6 @@ const Reports: React.FC<ReportsProps> = ({
         break;
       case 'rxMedicineSalesReport': {
         reportHeaders = ['Bill Date', 'Sales Bill Number', 'Product Name', 'Batch', 'Qty', 'Rate', 'Taxable Amount', 'GST Amount', 'Bill Amount (With GST)', 'Without GST Amount', 'Customer Name', 'Phone Number', 'Address', 'Referred By', 'Bill Category', 'User / Operator', 'Bill Number', 'Doctor Name'];
-        const normalize = (value: unknown) => String(value ?? '')
-          .trim()
-          .toLowerCase()
-          .replace(/\s+/g, ' ');
         const inventoryById = new Map(inventory.map(inv => [String(inv.id), inv]));
         const inventoryByCode = new Map(
           inventory
@@ -230,12 +226,6 @@ const Reports: React.FC<ReportsProps> = ({
             .filter(inv => String((inv as any).sku ?? '').trim())
             .map(inv => [String((inv as any).sku).trim().toLowerCase(), inv] as const)
         );
-        const inventoryByName = new Map(
-          inventory
-            .filter(inv => normalize(inv.name))
-            .map(inv => [normalize(inv.name), inv] as const)
-        );
-
         rows = completedSales.flatMap(tx => {
           return (tx.items || [])
             .filter(item => {
@@ -246,13 +236,12 @@ const Reports: React.FC<ReportsProps> = ({
                 (item as any).prescriptionRequired,
               ];
 
-              const linkedInventory = inventoryById.get(String((item as any).inventoryItemId || ''))
+              const linkedInventory = inventoryById.get(String((item as any).material_id || ''))
+                || inventoryById.get(String((item as any).inventoryItemId || ''))
                 || inventoryById.get(String((item as any).product_id || ''))
-                || inventoryById.get(String((item as any).material_id || ''))
                 || inventoryById.get(String((item as any).sku_id || ''))
                 || inventoryBySku.get(String((item as any).sku || '').trim().toLowerCase())
-                || inventoryByCode.get(String((item as any).itemCode || (item as any).code || '').trim().toLowerCase())
-                || inventoryByName.get(normalize((item as any).name));
+                || inventoryByCode.get(String((item as any).itemCode || (item as any).code || '').trim().toLowerCase());
 
               const masterRxSignals = [
                 (linkedInventory as any)?.isPrescriptionRequired,

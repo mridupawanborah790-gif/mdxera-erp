@@ -1705,6 +1705,9 @@ const POS = forwardRef<any, POSProps>(({
         const selectedItem: BillItem = {
             id: newItemId,
             inventoryItemId: batch.id,
+            material_id: batch.id,
+            is_rx: linkedMedicine?.isPrescriptionRequired === true,
+            rx_flag: linkedMedicine?.isPrescriptionRequired === true,
             name: batch.name,
             brand: batch.brand,
             mrp: Number(activePriceRecord?.mrp || batch.mrp),
