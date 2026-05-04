@@ -7,7 +7,6 @@ import Modal from '../components/Modal';
 import AddMedicineModal from '../components/AddMedicineModal';
 import EditMedicineModal from '../components/EditMedicineModal';
 import AddCustomerModal from './AddCustomerModal';
-import SearchableDropdown from './SearchableDropdown';
 import BatchSelectionModal from './BatchSelectionModal';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import CustomerSearchModal from './CustomerSearchModal';
@@ -304,12 +303,16 @@ const POS = forwardRef<any, POSProps>(({
     const dateInputRef = useRef<HTMLInputElement>(null);
     const addressInputRef = useRef<HTMLInputElement>(null);
     const phoneInputRef = useRef<HTMLInputElement>(null);
+    const doctorSearchInputRef = useRef<HTMLInputElement>(null);
 
     const [billCategory, setBillCategory] = useState<'Cash' | 'Credit'>('Cash');
     const [billMode, setBillMode] = useState<'GST' | 'EST'>(billType === 'non-gst' ? 'EST' : 'GST');
     const [referredBy, setReferredBy] = useState('');
     const [doctorId, setDoctorId] = useState<string | null>(null);
     const [isDoctorQuickAddOpen, setIsDoctorQuickAddOpen] = useState(false);
+    const [isDoctorPickerOpen, setIsDoctorPickerOpen] = useState(false);
+    const [doctorSearchTerm, setDoctorSearchTerm] = useState('');
+    const [doctorHighlightedIndex, setDoctorHighlightedIndex] = useState(0);
     const [quickDoctorName, setQuickDoctorName] = useState('');
     const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
     const [cartItems, setCartItems] = useState<BillItem[]>([]);
@@ -331,10 +334,22 @@ const POS = forwardRef<any, POSProps>(({
         [doctors]
     );
 
-    const doctorOptions = useMemo(() => 
-        activeDoctors.map(d => ({ id: d.id, name: d.name })), 
-        [activeDoctors]
-    );
+    const filteredDoctors = useMemo(() => {
+        const term = doctorSearchTerm.trim().toLowerCase();
+        if (!term) return activeDoctors;
+        return activeDoctors.filter((doctor) => {
+            const doctorName = (doctor.name || '').toLowerCase();
+            const mobile = (doctor.mobile || '').toLowerCase();
+            return doctorName.includes(term) || mobile.includes(term);
+        });
+    }, [activeDoctors, doctorSearchTerm]);
+
+    useEffect(() => {
+        if (!isDoctorPickerOpen) return;
+        setDoctorSearchTerm(referredBy || '');
+        setDoctorHighlightedIndex(0);
+        setTimeout(() => doctorSearchInputRef.current?.focus(), 0);
+    }, [isDoctorPickerOpen, referredBy]);
 
     useEffect(() => {
         if (!rateFieldAvailable) {
@@ -2165,6 +2180,11 @@ const POS = forwardRef<any, POSProps>(({
         }
     };
 
+    const handleDoctorSelect = useCallback((doctor: DoctorMaster) => {
+        handleReferredByChange(doctor.name || '', doctor.id);
+        setIsDoctorPickerOpen(false);
+    }, [handleReferredByChange]);
+
     const handleQuickDoctorSave = async () => {
         if (!currentUser || !quickDoctorName.trim()) return;
         const payload: DoctorMaster = {
@@ -2192,13 +2212,7 @@ const POS = forwardRef<any, POSProps>(({
         }
         if (e.key === 'Enter') {
             e.preventDefault();
-            // Start row navigation: focus the first name field if it exists, otherwise search input
-            if (cartItems.length > 0) {
-                const firstId = cartItems[0].id;
-                document.getElementById(`name-${firstId}`)?.focus();
-            } else {
-                productSearchInputRef.current?.focus();
-            }
+            setIsDoctorPickerOpen(true);
         }
     };
 
@@ -2298,13 +2312,16 @@ const POS = forwardRef<any, POSProps>(({
                     {isFieldVisible('colReferred') && (
                         <div style={{ width: '17%', minWidth: '170px', flexGrow: 1 }}>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Referred By</label>
-                            <SearchableDropdown
-                                options={doctorOptions}
+                            <input
+                                type="text"
                                 value={referredBy}
-                                onChange={handleReferredByChange}
+                                onChange={e => handleReferredByChange(e.target.value)}
+                                onClick={() => !isReadOnly && setIsDoctorPickerOpen(true)}
                                 onKeyDown={handleReferredByKeyDown}
                                 placeholder="Doctor Name"
                                 disabled={isReadOnly}
+                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50"
+                                autoComplete="off"
                             />
                         </div>
                     )}
@@ -3232,6 +3249,79 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </div>
             )}
+
+            <Modal
+                isOpen={isDoctorPickerOpen}
+                onClose={() => setIsDoctorPickerOpen(false)}
+                title="Select Doctor"
+                widthClass="max-w-[680px]"
+                heightClass="h-[380px]"
+            >
+                <div className="p-3 bg-white h-full flex flex-col">
+                    <input
+                        ref={doctorSearchInputRef}
+                        type="text"
+                        value={doctorSearchTerm}
+                        onChange={(e) => {
+                            setDoctorSearchTerm(e.target.value);
+                            setDoctorHighlightedIndex(0);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                setDoctorHighlightedIndex(prev => Math.min(prev + 1, Math.max(filteredDoctors.length - 1, 0)));
+                            } else if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                setDoctorHighlightedIndex(prev => Math.max(prev - 1, 0));
+                            } else if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const selectedDoctor = filteredDoctors[doctorHighlightedIndex];
+                                if (selectedDoctor) handleDoctorSelect(selectedDoctor);
+                            } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setIsDoctorPickerOpen(false);
+                            }
+                        }}
+                        placeholder="Search doctor name / mobile..."
+                        className="h-9 w-full border border-gray-300 px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-blue-200"
+                    />
+                    <div className="mt-3 border border-gray-200 rounded shadow-sm overflow-hidden flex-1 min-h-0">
+                        <div className="overflow-auto h-full">
+                            <table className="w-full text-xs">
+                                <thead className="sticky top-0 bg-gray-50 z-10">
+                                    <tr className="text-left text-[11px] font-bold text-gray-600">
+                                        <th className="px-3 py-2 border-b">Doctor Name</th>
+                                        <th className="px-3 py-2 border-b">Mobile</th>
+                                        <th className="px-3 py-2 border-b">Specialization</th>
+                                        <th className="px-3 py-2 border-b">Area</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredDoctors.length > 0 ? filteredDoctors.map((doctor, index) => (
+                                        <tr
+                                            key={doctor.id}
+                                            className={`cursor-pointer ${doctorHighlightedIndex === index ? 'bg-blue-100' : 'bg-white hover:bg-gray-50'}`}
+                                            onMouseEnter={() => setDoctorHighlightedIndex(index)}
+                                            onClick={() => handleDoctorSelect(doctor)}
+                                        >
+                                            <td className="px-3 py-2 border-b">{doctor.name || '-'}</td>
+                                            <td className="px-3 py-2 border-b">{doctor.mobile || '-'}</td>
+                                            <td className="px-3 py-2 border-b">{doctor.specialization || '-'}</td>
+                                            <td className="px-3 py-2 border-b">{doctor.area || '-'}</td>
+                                        </tr>
+                                    )) : (
+                                        <tr>
+                                            <td colSpan={4} className="px-3 py-6 text-center text-gray-500 font-semibold">
+                                                No active doctors found
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </Modal>
 
             <Modal
                 isOpen={isDoctorQuickAddOpen}
