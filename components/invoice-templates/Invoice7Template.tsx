@@ -67,15 +67,33 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
     };
   }, [bill, isNonGst, isIncludingDiscountMode]);
 
+  const itemCount = billDetails.items?.length || 0;
+  const dynamicFontSize = itemCount > 40 ? '7px' : itemCount > 20 ? '8px' : '9px';
+
   return (
-    <div className="invoice-7 w-[100mm] max-w-[100mm] text-black font-mono text-[8px] leading-[1.2] px-1 py-1">
+    <div className="invoice-7 w-[100mm] max-w-[100mm] text-black font-mono leading-[1.2] px-1 py-1" style={{ ['--invoice-font' as string]: dynamicFontSize, fontSize: 'var(--invoice-font, 9px)' }}>
       <style>{`
         @media print {
           @page {
             size: 100mm 150mm;
-            margin: 5mm;
+            margin: 4mm;
           }
-          .invoice-7, .invoice-7 *, .invoice-7 tr {
+          html, body {
+            height: auto !important;
+          }
+          .invoice-7 {
+            width: 100mm !important;
+            max-width: 100mm !important;
+            min-height: auto !important;
+            height: auto !important;
+            page-break-inside: auto;
+            break-inside: auto;
+          }
+          .invoice-7 table {
+            page-break-inside: auto;
+            break-inside: auto;
+          }
+          .invoice-7 tr {
             page-break-inside: avoid;
             break-inside: avoid;
           }
