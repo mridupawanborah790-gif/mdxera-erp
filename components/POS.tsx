@@ -3345,22 +3345,22 @@ const POS = forwardRef<any, POSProps>(({
                                                 <div className="doctor-empty">
                                                     <div className="empty-text">No active doctors found</div>
                                                     {doctorSearchTerm.trim() && (
-                                                        <>
+                                                        <div className="doctor-actions">
                                                             <button
                                                                 type="button"
-                                                                className="btn-use-doctor"
+                                                                className="btn-use"
                                                                 onClick={handleUseTypedDoctorName}
                                                             >
-                                                                👉 Use <b>{doctorSearchTerm.trim()}</b> as entered doctor
+                                                                👉 Use "<b>{doctorSearchTerm.trim()}</b>"
                                                             </button>
                                                             <button
                                                                 type="button"
-                                                                className="btn-add-doctor"
+                                                                className="btn-add"
                                                                 onClick={() => void handleAddTypedDoctorToMaster()}
                                                             >
-                                                                ➕ Add "{doctorSearchTerm.trim()}" to Doctor Master
+                                                                ➕ Add "<b>{doctorSearchTerm.trim()}</b>"
                                                             </button>
-                                                        </>
+                                                        </div>
                                                     )}
                                                 </div>
                                             </td>
