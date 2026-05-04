@@ -78,8 +78,22 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
 
     const adjustment = bill.adjustment || 0;
     const grandTotal = bill.total || 0;
+    const taxableAmount = Number(bill.subtotal || subtotal || 0);
+    const summarySubtotal = Number(taxableAmount + (bill.totalItemDiscount || 0) + (bill.schemeDiscount || 0));
+    const discount = Math.max(0, Number(summarySubtotal - taxableAmount));
 
-    return { items, subtotal, totalGst: (isNonGst ? 0 : (bill.totalGst || 0)), gstBreakdown, totalQty, totalDiscountValue, adjustment, grandTotal };
+    return {
+      items,
+      subtotal: summarySubtotal,
+      taxableAmount,
+      discount,
+      totalGst: (isNonGst ? 0 : (bill.totalGst || 0)),
+      gstBreakdown,
+      totalQty,
+      totalDiscountValue,
+      adjustment,
+      grandTotal
+    };
   }, [bill, isNonGst, isIncludingDiscountMode]);
 
   return (
@@ -144,7 +158,11 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
 
       <div className="border-t border-dashed border-black mt-1 pt-1 space-y-0.5 text-[9px]">
         <div className="flex justify-between"><span>Items</span><span>{billDetails.totalQty}</span></div>
-        <div className="flex justify-between"><span>Subtotal</span><span>{billDetails.subtotal.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span>Subtotal</span><span>₹{billDetails.subtotal.toFixed(2)}</span></div>
+        {billDetails.discount > 0 && (
+          <div className="flex justify-between"><span>Discount</span><span>-₹{billDetails.discount.toFixed(2)}</span></div>
+        )}
+        <div className="flex justify-between"><span>Taxable Amount</span><span>₹{billDetails.taxableAmount.toFixed(2)}</span></div>
 
         {!isNonGst && (
           <>
@@ -154,14 +172,13 @@ const ThermalTemplate: React.FC<TemplateProps> = ({ bill }) => {
               return (
                 <div key={rate} className="flex justify-between gap-2">
                   <span className="truncate">GST {rate}% on {typedData.taxable.toFixed(2)}</span>
-                  <span>{typedData.tax.toFixed(2)}</span>
+                  <span>₹{typedData.tax.toFixed(2)}</span>
                 </div>
               );
             })}
           </>
         )}
 
-        {(bill.schemeDiscount || 0) > 0 && <div className="flex justify-between"><span>Bill Disc</span><span>-{bill.schemeDiscount.toFixed(2)}</span></div>}
         {(bill.roundOff || 0) !== 0 && <div className="flex justify-between"><span>Round Off</span><span>{bill.roundOff > 0 ? '+' : ''}{bill.roundOff.toFixed(2)}</span></div>}
         {(billDetails.totalDiscountValue + (bill.schemeDiscount || 0)) > 0 && (
           <div className="flex justify-between font-semibold">
