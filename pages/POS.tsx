@@ -11,7 +11,7 @@ import ProductInsightsPanel from '../components/ProductInsightsPanel';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { supabase } from '../services/supabaseClient';
-import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput } from '../types';
+import { InventoryItem, Customer, Transaction, BillItem, AppConfigurations, RegisteredPharmacy, Medicine, Purchase, FileInput, DoctorMaster } from '../types';
 import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
@@ -25,6 +25,7 @@ interface POSProps {
     purchases: Purchase[];
     medicines: Medicine[];
     customers: Customer[];
+    doctors: DoctorMaster[];
     transactions?: Transaction[];
     onSaveOrUpdateTransaction: (transaction: Transaction, isUpdate: boolean, nextCounter?: number) => Promise<void>;
     onPrintBill: (transaction: Transaction) => void;
@@ -129,6 +130,7 @@ const POS = forwardRef<any, POSProps>(({
     purchases,
     medicines,
     customers,
+    doctors,
     transactions = [],
     onSaveOrUpdateTransaction,
     onPrintBill,
@@ -239,12 +241,48 @@ const POS = forwardRef<any, POSProps>(({
     const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
     const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
     const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+    const [isDoctorPopupOpen, setIsDoctorPopupOpen] = useState(false);
+    const [doctorSearchTerm, setDoctorSearchTerm] = useState('');
+    const [selectedDoctorIndex, setSelectedDoctorIndex] = useState(0);
+    const doctorSearchInputRef = useRef<HTMLInputElement>(null);
 
     const activeRowIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         setSelectedSearchIndex(0);
     }, [modalSearchTerm]);
+
+    const activeDoctors = useMemo(() => doctors.filter((doc: DoctorMaster) => doc.is_active), [doctors]);
+    const filteredDoctors = useMemo(() => {
+        const term = doctorSearchTerm.trim().toLowerCase();
+        if (!term) return activeDoctors;
+        return activeDoctors.filter((doc: DoctorMaster) =>
+            (doc.name || '').toLowerCase().includes(term) ||
+            (doc.mobile || '').toLowerCase().includes(term) ||
+            (doc.specialization || '').toLowerCase().includes(term)
+        );
+    }, [activeDoctors, doctorSearchTerm]);
+
+    useEffect(() => {
+        setSelectedDoctorIndex(0);
+    }, [doctorSearchTerm, isDoctorPopupOpen]);
+
+    useEffect(() => {
+        if (isDoctorPopupOpen) {
+            setTimeout(() => doctorSearchInputRef.current?.focus(), 20);
+        }
+    }, [isDoctorPopupOpen]);
+
+    const selectDoctor = useCallback((doctor: DoctorMaster) => {
+        setReferredBy(doctor.name || '');
+        setIsDoctorPopupOpen(false);
+        setDoctorSearchTerm('');
+        setTimeout(() => {
+            if (billCategorySelectRef.current) billCategorySelectRef.current.focus();
+            else if (cartItems.length > 0) document.getElementById(`name-${cartItems[0].id}`)?.focus();
+            else productSearchInputRef.current?.focus();
+        }, 0);
+    }, [cartItems]);
 
     useEffect(() => {
         if (isSearchModalOpen && searchResultsRef.current) {
@@ -1195,12 +1233,31 @@ const POS = forwardRef<any, POSProps>(({
     const handleReferredByKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            if (cartItems.length > 0) {
-                const firstId = cartItems[0].id;
-                document.getElementById(`name-${firstId}`)?.focus();
-            } else {
-                productSearchInputRef.current?.focus();
-            }
+            setIsDoctorPopupOpen(true);
+            setDoctorSearchTerm('');
+        }
+    };
+
+    const handleDoctorPopupKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            setIsDoctorPopupOpen(false);
+            return;
+        }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedDoctorIndex((prev) => Math.min(prev + 1, Math.max(filteredDoctors.length - 1, 0)));
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedDoctorIndex((prev) => Math.max(prev - 1, 0));
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const selectedDoctor = filteredDoctors[selectedDoctorIndex];
+            if (selectedDoctor) selectDoctor(selectedDoctor);
         }
     };
 
@@ -1908,6 +1965,57 @@ const POS = forwardRef<any, POSProps>(({
                 onSelect={handleSelectCustomer}
                 initialSearch={customerSearch}
             />
+
+            <Modal
+                isOpen={isDoctorPopupOpen}
+                onClose={() => setIsDoctorPopupOpen(false)}
+                title="Select Doctor"
+            >
+                <div className="w-[760px] max-w-[95vw] p-2 bg-white" onKeyDown={handleDoctorPopupKeyDown}>
+                    <input
+                        ref={doctorSearchInputRef}
+                        type="text"
+                        value={doctorSearchTerm}
+                        onChange={(e) => setDoctorSearchTerm(e.target.value)}
+                        placeholder="Search by Doctor Name / Mobile / Specialization"
+                        className="w-full h-9 border border-gray-400 p-2 text-xs font-bold uppercase outline-none focus:bg-yellow-50"
+                    />
+                    <div className="mt-2 max-h-[340px] overflow-auto border border-gray-300">
+                        {filteredDoctors.length > 0 ? (
+                            <table className="min-w-full border-collapse text-xs">
+                                <thead className="sticky top-0 bg-gray-100 border-b border-gray-300">
+                                    <tr className="text-[10px] font-black uppercase text-gray-600">
+                                        <th className="p-2 text-left border-r">Doctor Name</th>
+                                        <th className="p-2 text-left border-r">Mobile</th>
+                                        <th className="p-2 text-left border-r">Specialization</th>
+                                        <th className="p-2 text-left border-r">Area</th>
+                                        <th className="p-2 text-left">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredDoctors.map((doctor: DoctorMaster, idx: number) => (
+                                        <tr
+                                            key={doctor.id}
+                                            onMouseEnter={() => setSelectedDoctorIndex(idx)}
+                                            onDoubleClick={() => selectDoctor(doctor)}
+                                            onClick={() => selectDoctor(doctor)}
+                                            className={`cursor-pointer ${idx === selectedDoctorIndex ? 'bg-sky-100' : 'hover:bg-gray-50'}`}
+                                        >
+                                            <td className="p-2 border-r">{doctor.name}</td>
+                                            <td className="p-2 border-r">{doctor.mobile || '-'}</td>
+                                            <td className="p-2 border-r">{doctor.specialization || '-'}</td>
+                                            <td className="p-2 border-r">{doctor.area || '-'}</td>
+                                            <td className="p-2">ACTIVE</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <div className="p-6 text-center text-sm font-bold text-gray-500">No active doctors found</div>
+                        )}
+                    </div>
+                </div>
+            </Modal>
 
             {schemeItem && (
                 <SchemeModal
