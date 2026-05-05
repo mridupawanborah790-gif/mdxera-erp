@@ -323,9 +323,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           }
 
           #print-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            position: static !important;
           }
 
           #print-bill-modal-container .no-print {
