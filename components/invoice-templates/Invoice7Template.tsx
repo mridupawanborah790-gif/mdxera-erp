@@ -127,11 +127,8 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
             min-height: 150mm;
             padding: 4mm;
             box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
+            display: block !important;
             page-break-after: always;
-            page-break-before: auto;
             page-break-inside: avoid;
             break-inside: avoid;
           }
@@ -141,10 +138,6 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
           .invoice-page:empty {
             display: none !important;
           }
-          .header { flex: 0 0 auto; }
-          .items { flex: 1 1 auto; }
-          .footer { flex: 0 0 auto; }
-          .invoice-page:empty { display: none !important; }
           .invoice-page:last-child { page-break-after: auto; }
         }
       `}</style>
