@@ -228,22 +228,23 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
             <div className="items">
               <table className="w-full table-fixed text-[8px] leading-[1.2]">
                 <thead>
-                  <tr className="font-bold border-b border-dashed border-black">
-                    <th className="w-[14%] text-center pb-0.5">Qty</th>
-                    <th className="w-[60%] text-left pb-0.5">Item</th>
-                    <th className="w-[26%] text-right pb-0.5">Amt</th>
+                  <tr className="table-header font-bold border-b border-dashed border-black">
+                    <th className="qty w-[15%] text-left pb-0.5">Qty</th>
+                    <th className="item w-[45%] text-left pb-0.5">Item</th>
+                    <th className="gst w-[15%] text-center pb-0.5">GST%</th>
+                    <th className="amt w-[25%] text-right pb-0.5">Amt</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pageItems.map((item: any) => (
                     item.__empty ? null : (
                       <tr key={item.id} className="item-row align-top">
-                        <td className="py-0.5 text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>
-                        <td className="py-0.5 pr-1 break-words">
+                        <td className="qty py-0.5 text-left">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>
+                        <td className="item py-0.5 pr-1 break-words">
                           <div className="font-semibold">{item.name}</div>
-                          <div className="text-[7px] text-gray-700">GST {item.gstPercent || 0}%</div>
                         </td>
-                        <td className="py-0.5 text-right font-semibold">{item.finalPrice.toFixed(2)}</td>
+                        <td className="gst py-0.5 text-center">{item.gst_rate ?? item.gst ?? item.tax ?? item.gstPercent ?? 0}%</td>
+                        <td className="amt py-0.5 text-right font-semibold">{item.finalPrice.toFixed(2)}</td>
                       </tr>
                     )
                   ))}
