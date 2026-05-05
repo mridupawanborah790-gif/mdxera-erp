@@ -186,9 +186,8 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
-            justify-content: flex-start;
+            justify-content: space-between;
             page-break-after: always;
-            page-break-before: auto;
             page-break-inside: avoid;
             break-inside: avoid;
           }
@@ -198,9 +197,15 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
           .invoice-page:empty {
             display: none !important;
           }
-          .header { flex: 0 0 auto; }
-          .items { flex: 1 1 auto; }
-          .footer { flex: 0 0 auto; }
+          .invoice-content { flex: 1 1 auto; }
+          .invoice-footer {
+            flex: 0 0 auto;
+            text-align: center;
+            font-size: 10px;
+            margin-top: 4mm;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
           .invoice-page:last-child { page-break-after: auto; }
         }
       `}</style>
@@ -221,7 +226,7 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
 
         return (
           <div key={`invoice-7-page-${pageIndex}`} className="invoice-page leading-[1.2]">
-            <div className="header">
+            <div className="invoice-content">
               <div className="text-center mb-1">
                 <h1 className="text-[10px] font-bold uppercase tracking-tight">{bill.pharmacy.pharmacy_name}</h1>
                 <p className="text-[8px] leading-[1.2] whitespace-pre-line">{bill.pharmacy.address}</p>
@@ -246,37 +251,36 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
 
               {isCredit && <div className="text-center text-[8px] font-bold uppercase border-b border-dashed border-black pb-0.5 mb-1">CREDIT BILL</div>}
 
-            </div>
-
-            <div className="items">
-              <table className="w-full table-fixed text-[8px] leading-[1.2]">
-                <thead>
-                  <tr className="table-header font-bold border-b border-dashed border-black">
-                    <th className="qty w-[15%] text-left pb-0.5">Qty</th>
-                    <th className="item w-[45%] text-left pb-0.5">Item</th>
-                    <th className="gst w-[15%] text-center pb-0.5">GST%</th>
-                    <th className="amt w-[25%] text-right pb-0.5">Amt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pageItems.map((item: any) => (
-                    item.__empty ? null : (
-                      <tr key={item.id} className="item-row align-top">
-                        <td className="qty py-0.5 text-left">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>
-                        <td className="item py-0.5 pr-1 break-words">
-                          <div className="font-semibold">{item.name}</div>
-                        </td>
-                        <td className="gst py-0.5 text-center">{item.gst_rate ?? item.gst ?? item.tax ?? item.gstPercent ?? 0}%</td>
-                        <td className="amt py-0.5 text-right font-semibold">{item.finalPrice.toFixed(2)}</td>
-                      </tr>
-                    )
-                  ))}
-                </tbody>
-              </table>
+              <div className="items">
+                <table className="w-full table-fixed text-[8px] leading-[1.2]">
+                  <thead>
+                    <tr className="table-header font-bold border-b border-dashed border-black">
+                      <th className="qty w-[15%] text-left pb-0.5">Qty</th>
+                      <th className="item w-[45%] text-left pb-0.5">Item</th>
+                      <th className="gst w-[15%] text-center pb-0.5">GST%</th>
+                      <th className="amt w-[25%] text-right pb-0.5">Amt</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageItems.map((item: any) => (
+                      item.__empty ? null : (
+                        <tr key={item.id} className="item-row align-top">
+                          <td className="qty py-0.5 text-left">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>
+                          <td className="item py-0.5 pr-1 break-words">
+                            <div className="font-semibold">{item.name}</div>
+                          </td>
+                          <td className="gst py-0.5 text-center">{item.gst_rate ?? item.gst ?? item.tax ?? item.gstPercent ?? 0}%</td>
+                          <td className="amt py-0.5 text-right font-semibold">{item.finalPrice.toFixed(2)}</td>
+                        </tr>
+                      )
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {isLastPage && (
-              <div className="footer">
+              <div className="invoice-footer">
                 <div className="border-t border-dashed border-black mt-1 pt-1 space-y-0.5 text-[8px]">
                   <div className="flex justify-between"><span>Subtotal</span><span>₹{billDetails.subtotal.toFixed(2)}</span></div>
                   {billDetails.discount > 0 && <div className="flex justify-between"><span>Discount</span><span>-₹{billDetails.discount.toFixed(2)}</span></div>}
