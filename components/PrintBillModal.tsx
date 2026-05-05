@@ -258,7 +258,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           .invoice-container { page-break-inside: auto; break-inside: auto; }
           .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
           @page {
-            margin: 0;
+            margin: 0mm;
             size: ${isInvoice7 ? '100mm 150mm' : (isThermal ? '76mm auto' : `A5 ${effectiveOrientation}`)};
           }
 
@@ -309,17 +309,36 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             box-shadow: none !important;
             margin: 0 !important;
             padding: 0 !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
             overflow: visible !important;
             visibility: visible !important;
             page-break-before: auto !important;
             page-break-after: auto !important;
             break-before: auto !important;
             break-after: auto !important;
+            transform: none !important;
           }
 
           #print-area,
           #print-area * {
             visibility: visible !important;
+          }
+
+          .invoice-container::before,
+          .invoice-container::after {
+            display: none !important;
+            content: none !important;
+          }
+
+          body {
+            display: block !important;
+          }
+
+          .wrapper, .main, .layout {
+            display: block !important;
+            align-items: unset !important;
+            justify-content: unset !important;
           }
 
           #print-area {
