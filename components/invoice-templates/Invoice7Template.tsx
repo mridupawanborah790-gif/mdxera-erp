@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import type { DetailedBill, InventoryItem, AppConfigurations } from '../../types';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
@@ -93,6 +93,19 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
   const itemCount = billDetails.items?.length || 0;
   const dynamicFontSize = itemCount > 45 ? '7px' : itemCount > 25 ? '8px' : '9px';
 
+
+
+  useEffect(() => {
+    const pages = document.querySelectorAll('.invoice-page');
+
+    if (pages.length > 0) {
+      const firstPage = pages[0] as HTMLElement;
+
+      if (!firstPage.innerText.trim()) {
+        firstPage.remove();
+      }
+    }
+  }, []);
   const paginatedItems = useMemo(() => {
     const allItems = (billDetails.items || []) as BillItem[];
     if (allItems.length === 0) return [];
@@ -139,6 +152,9 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
             page-break-before: auto !important;
           }
           .invoice-page:empty {
+            display: none !important;
+          }
+          .invoice-page:first-child:empty {
             display: none !important;
           }
           .header { flex: 0 0 auto; }
