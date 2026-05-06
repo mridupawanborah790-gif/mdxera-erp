@@ -272,19 +272,20 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             print-color-adjust: exact !important;
           }
 
-          body * {
-            visibility: hidden !important;
+          body > *:not(#print-bill-modal-container) {
+            display: none !important;
           }
 
           #print-bill-modal-container {
-            position: static !important;
-            inset: auto !important;
-            display: block !important;
-            background: white !important;
-            width: auto !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
             height: auto !important;
-            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
             visibility: visible !important;
+            display: block !important;
           }
 
           #print-bill-modal-container > div {
@@ -292,11 +293,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             max-width: none !important;
             max-height: none !important;
             height: auto !important;
-            overflow: visible !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
             visibility: visible !important;
-            background: white !important;
             margin: 0 !important;
             padding: 0 !important;
             display: block !important;
@@ -306,26 +303,15 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             width: ${printWidth} !important;
             min-height: ${printMinHeight} !important;
             height: auto !important;
-            box-shadow: none !important;
+            visibility: visible !important;
+            display: block !important;
             margin: 0 !important;
             padding: 0 !important;
-            overflow: visible !important;
-            visibility: visible !important;
-            page-break-before: auto !important;
-            page-break-after: auto !important;
-            break-before: auto !important;
-            break-after: auto !important;
           }
 
           #print-area,
           #print-area * {
             visibility: visible !important;
-          }
-
-          #print-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
           }
 
           #print-bill-modal-container .no-print {
