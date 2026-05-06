@@ -69,7 +69,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   const isLandscape = effectiveOrientation === 'landscape';
   const isThermal = template === 'thermal';
   const isInvoice7 = template === 'invoice-7';
-  const printWidth = isInvoice7 ? '100mm' : (isThermal ? '80mm' : (isLandscape ? '210mm' : '148mm'));
+  const printWidth = isInvoice7 ? '100mm' : (isThermal ? '76mm' : (isLandscape ? '210mm' : '148mm'));
   const printMinHeight = (isThermal || isInvoice7) ? 'auto' : (template === 'medi-3' ? 'auto' : (isLandscape ? '148mm' : '210mm'));
     
   if (!isOpen || !bill) return null;
@@ -227,7 +227,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
             <div
               id="print-area"
-              className={`invoice-container p-0 text-black bg-white shadow-lg mx-auto overflow-visible print:shadow-none print:mx-0 ${isInvoice7 ? 'w-[100mm] max-w-[100mm]' : (isThermal ? 'w-[80mm] max-w-[80mm] min-h-0' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]'))} ${template === 'medi-3' || isThermal || isInvoice7 ? 'h-auto overflow-visible' : ''}`}
+              className={`invoice-container p-0 text-black bg-white shadow-lg mx-auto overflow-visible print:shadow-none print:mx-0 ${isInvoice7 ? 'w-[100mm] max-w-[100mm]' : (isThermal ? 'w-[76mm]' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]'))} ${template === 'medi-3' || isThermal || isInvoice7 ? 'h-auto overflow-visible' : ''}`}
             >
                 {renderTemplate()}
             </div>
@@ -304,13 +304,17 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
           #print-area {
             width: ${printWidth} !important;
-            min-height: ${isThermal ? '0' : printMinHeight} !important;
+            min-height: ${printMinHeight} !important;
             height: auto !important;
             box-shadow: none !important;
             margin: 0 !important;
             padding: 0 !important;
             overflow: visible !important;
             visibility: visible !important;
+            page-break-before: auto !important;
+            page-break-after: auto !important;
+            break-before: auto !important;
+            break-after: auto !important;
           }
 
           #print-area,
@@ -319,58 +323,15 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           }
 
           #print-area {
-            position: ${isThermal ? 'static' : 'absolute'} !important;
-            left: ${isThermal ? 'auto' : '0'} !important;
-            top: ${isThermal ? 'auto' : '0'} !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
           }
 
           #print-bill-modal-container .no-print {
             display: none !important;
           }
 
-
-          ${isThermal ? `
-          @page {
-            size: 80mm auto;
-            margin: 0;
-          }
-
-          html, body {
-            width: 80mm !important;
-            height: auto !important;
-            min-height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: visible !important;
-          }
-
-          body * {
-            visibility: hidden !important;
-          }
-
-          #invoice-6-print-area,
-          #invoice-6-print-area * {
-            visibility: visible !important;
-          }
-
-          #invoice-6-print-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 80mm !important;
-            max-width: 80mm !important;
-            height: auto !important;
-            min-height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            page-break-before: avoid !important;
-            page-break-after: avoid !important;
-            break-before: avoid !important;
-            break-after: avoid !important;
-            overflow: visible !important;
-            background: #fff !important;
-          }
-          ` : ''}
           #print-bill-modal-container,
           #print-bill-modal-container * {
             -webkit-print-color-adjust: exact !important;
