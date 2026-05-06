@@ -69,7 +69,8 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   const isLandscape = effectiveOrientation === 'landscape';
   const isThermal = template === 'thermal';
   const isInvoice7 = template === 'invoice-7';
-  const printWidth = isInvoice7 ? '100mm' : (isThermal ? '76mm' : (isLandscape ? '210mm' : '148mm'));
+  const thermalPrintWidth = '80mm';
+  const printWidth = isInvoice7 ? '100mm' : (isThermal ? thermalPrintWidth : (isLandscape ? '210mm' : '148mm'));
   const printMinHeight = (isThermal || isInvoice7) ? 'auto' : (template === 'medi-3' ? 'auto' : (isLandscape ? '148mm' : '210mm'));
     
   if (!isOpen || !bill) return null;
@@ -227,7 +228,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
             <div
               id="print-area"
-              className={`invoice-container p-0 text-black bg-white shadow-lg mx-auto overflow-visible print:shadow-none print:mx-0 ${isInvoice7 ? 'w-[100mm] max-w-[100mm]' : (isThermal ? 'w-[76mm]' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]'))} ${template === 'medi-3' || isThermal || isInvoice7 ? 'h-auto overflow-visible' : ''}`}
+              className={`invoice-container p-0 text-black bg-white shadow-lg mx-auto overflow-visible print:shadow-none print:mx-0 ${isInvoice7 ? 'w-[100mm] max-w-[100mm]' : (isThermal ? 'w-[80mm] max-w-[80mm]' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]'))} ${template === 'medi-3' || isThermal || isInvoice7 ? 'h-auto overflow-visible' : ''}`}
             >
                 {renderTemplate()}
             </div>
@@ -259,7 +260,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           .invoice-footer, .amount-in-words, .bank-details { page-break-inside: avoid; break-inside: avoid; }
           @page {
             margin: 0;
-            size: ${isInvoice7 ? '100mm 150mm' : (isThermal ? '76mm auto' : `A5 ${effectiveOrientation}`)};
+            size: ${isInvoice7 ? '100mm 150mm' : (isThermal ? `${thermalPrintWidth} auto` : `A5 ${effectiveOrientation}`)};
           }
 
           html, body {
@@ -322,11 +323,50 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             visibility: visible !important;
           }
 
+          ${isThermal ? `
+          #print-bill-modal-container,
+          #print-bill-modal-container > div,
+          #print-bill-modal-container .flex-1 {
+            display: block !important;
+            background: transparent !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+
+          #print-area {
+            position: static !important;
+            width: ${thermalPrintWidth} !important;
+            min-height: auto !important;
+            height: auto !important;
+            max-height: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          .invoice-6-print {
+            width: ${thermalPrintWidth} !important;
+            max-width: ${thermalPrintWidth} !important;
+            height: auto !important;
+            min-height: auto !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          .invoice-6-print * {
+            page-break-before: auto !important;
+            page-break-after: auto !important;
+            break-before: auto !important;
+            break-after: auto !important;
+          }
+          ` : `
           #print-area {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
           }
+          `}
 
           #print-bill-modal-container .no-print {
             display: none !important;
