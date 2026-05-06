@@ -69,7 +69,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   const isLandscape = effectiveOrientation === 'landscape';
   const isThermal = template === 'thermal';
   const isInvoice7 = template === 'invoice-7';
-  const printWidth = isInvoice7 ? '100mm' : (isThermal ? '76mm' : (isLandscape ? '210mm' : '148mm'));
+  const printWidth = isInvoice7 ? '100mm' : (isThermal ? '80mm' : (isLandscape ? '210mm' : '148mm'));
   const printMinHeight = (isThermal || isInvoice7) ? 'auto' : (template === 'medi-3' ? 'auto' : (isLandscape ? '148mm' : '210mm'));
     
   if (!isOpen || !bill) return null;
@@ -227,7 +227,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         <div className="flex-1 overflow-y-auto bg-gray-100 p-4 print:p-0 print:bg-white print:overflow-visible">
             <div
               id="print-area"
-              className={`invoice-container p-0 text-black bg-white shadow-lg mx-auto overflow-visible print:shadow-none print:mx-0 ${isInvoice7 ? 'w-[100mm] max-w-[100mm]' : (isThermal ? 'w-[76mm]' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]'))} ${template === 'medi-3' || isThermal || isInvoice7 ? 'h-auto overflow-visible' : ''}`}
+              className={`invoice-container p-0 text-black bg-white shadow-lg mx-auto overflow-visible print:shadow-none print:mx-0 ${isInvoice7 ? 'w-[100mm] max-w-[100mm]' : (isThermal ? 'w-[80mm] max-w-[80mm] min-h-0' : (isLandscape ? 'w-[210mm] min-h-[148mm]' : 'w-[148mm] min-h-[210mm]'))} ${template === 'medi-3' || isThermal || isInvoice7 ? 'h-auto overflow-visible' : ''}`}
             >
                 {renderTemplate()}
             </div>
@@ -319,9 +319,9 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           }
 
           #print-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            position: ${isThermal ? 'static' : 'absolute'} !important;
+            left: ${isThermal ? 'auto' : '0'} !important;
+            top: ${isThermal ? 'auto' : '0'} !important;
           }
 
           #print-bill-modal-container .no-print {
@@ -338,21 +338,31 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           html, body {
             width: 80mm !important;
             height: auto !important;
+            min-height: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
             overflow: visible !important;
           }
 
+          body * {
+            display: none !important;
+          }
+
+
+          #print-bill-modal-container,
+          #print-bill-modal-container > div,
+          #print-area {
+            display: block !important;
+          }
+
           .invoice-6-receipt,
           .invoice-6-receipt * {
+            display: block !important;
             visibility: visible !important;
           }
 
           .invoice-6-receipt {
-            display: block !important;
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            position: static !important;
             width: 80mm !important;
             max-width: 80mm !important;
             height: auto !important;
