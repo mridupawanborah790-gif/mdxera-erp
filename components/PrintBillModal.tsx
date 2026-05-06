@@ -303,6 +303,9 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
           }
 
           #print-area {
+            position: relative !important;
+            left: auto !important;
+            top: auto !important;
             width: ${printWidth} !important;
             min-height: ${printMinHeight} !important;
             height: auto !important;
@@ -311,21 +314,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
             padding: 0 !important;
             overflow: visible !important;
             visibility: visible !important;
-            page-break-before: auto !important;
-            page-break-after: auto !important;
-            break-before: auto !important;
-            break-after: auto !important;
-          }
-
-          #print-area,
-          #print-area * {
-            visibility: visible !important;
-          }
-
-          #print-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            display: block !important;
           }
 
           #print-bill-modal-container .no-print {
