@@ -44,14 +44,25 @@ function chunkByCapacity(
   while (start < totalItems) {
     const remaining = totalItems - start;
 
-    // Everything remaining fits on one page (as the final page)
-    if (remaining <= Math.max(regularCap, lastCap)) {
+    // Everything remaining fits on the final page (with full last-page footer)
+    if (remaining <= lastCap) {
       pages.push(Array.from({ length: remaining }, (_, i) => start + i));
       break;
     }
 
-    // How many will remain after filling this regular page?
+    // remaining > lastCap from here — need at least one more page before the last
     const afterFull = remaining - regularCap;
+
+    if (afterFull <= 0) {
+      // All items fit on a regular page (small continuation footer) but NOT on the
+      // last page (large footer). Fill page 1 as much as possible so it looks full;
+      // the last page gets only what remains (minimum 1 item).
+      const firstCount = remaining - 1;
+      pages.push(Array.from({ length: firstCount }, (_, i) => start + i));
+      start += firstCount;
+      pages.push(Array.from({ length: 1 }, (_, i) => start + i));
+      break;
+    }
 
     if (afterFull <= lastCap) {
       // Fill this page fully, the tail goes on the last page
@@ -215,16 +226,13 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   const pagePadPx = mmToPx(PAGE_PADDING_MM) * 2; // top + bottom
 
   // ── Phase 1: measure refs ─────────────────────────────────────────────────
-  // We render ONE invisible probe page with all items + full footer,
-  // then measure header, footer, tbody-row heights.
   const probeRef      = useRef<HTMLDivElement>(null);
   const probeHeadRef  = useRef<HTMLDivElement>(null);
   const probeFootRef  = useRef<HTMLDivElement>(null);
-  const probeCFRef    = useRef<HTMLDivElement>(null); // continuation footer
+  const probeCFRef    = useRef<HTMLDivElement>(null);
   const probeTheadRef = useRef<HTMLTableSectionElement>(null);
   const probeTbodyRef = useRef<HTMLTableSectionElement>(null);
 
-  // Measured caps — null = not yet measured (show probe only)
   const [caps, setCaps] = useState<{ regular: number; last: number } | null>(null);
 
   const measure = useCallback(() => {
@@ -241,16 +249,14 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
     const headH      = head.getBoundingClientRect().height;
     const theadH     = thead.getBoundingClientRect().height;
-    const footH      = foot.getBoundingClientRect().height;      // full last-page footer
-    const cfootH     = cfoot.getBoundingClientRect().height;    // continuation footer
+    const footH      = foot.getBoundingClientRect().height;
+    const cfootH     = cfoot.getBoundingClientRect().height;
 
-    // Average row height from however many rows are in the probe tbody
     const rows = Array.from(tbody.rows);
     const rowH = rows.length > 0
       ? rows.reduce((s, r) => s + r.getBoundingClientRect().height, 0) / rows.length
-      : 14; // fallback ~14px
+      : 14;
 
-    // Available body height for each page type
     const bodyAvailRegular = availH - headH - theadH - cfootH;
     const bodyAvailLast    = availH - headH - theadH - footH;
 
@@ -261,7 +267,6 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
   }, [pageHPx, pagePadPx]);
 
   useLayoutEffect(() => {
-    // Give browser one frame to paint the probe, then measure
     const id = requestAnimationFrame(() => { measure(); });
     return () => cancelAnimationFrame(id);
   }, [measure, orientation, bill]);
@@ -272,6 +277,27 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     const indices = chunkByCapacity(items.length, caps.regular, caps.last);
     return indices.map(idxArr => idxArr.map(i => items[i]));
   }, [caps, items]);
+
+  // ── Column divider positions for the spacer ──────────────────────────────
+  // Mirrors the exact column widths from TableHeader so lines stay aligned.
+  // Uses actual border elements (not background-image) so lines print correctly.
+  const colDividerPositions = useMemo(() => {
+    const rawWidths = [
+      4, 10, 23, 8, 7, 9, 7, 8,
+      ...(showRateColumn          ? [8] : []),
+      ...(showTradeDiscountColumn ? [5] : []),
+      ...(showSchemeColumn        ? [5] : []),
+      5, 11,
+    ];
+    const total = rawWidths.reduce((a, b) => a + b, 0);
+    const positions: number[] = [];
+    let pct = 0;
+    for (let i = 0; i < rawWidths.length - 1; i++) {
+      pct += (rawWidths[i] / total) * 100;
+      positions.push(pct);
+    }
+    return positions;
+  }, [showRateColumn, showTradeDiscountColumn, showSchemeColumn]);
 
   // ── Shared CSS ─────────────────────────────────────────────────────────────
   const sharedStyles = `
@@ -327,15 +353,16 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
     .invoice-items thead tr { background: #f3f4f6; }
     .invoice-items thead th {
       border: none; border-bottom: 1.5px solid #000; border-right: 1px solid #d1d5db;
-      padding: 2px 3px; font-size: 7pt; font-weight: 700; line-height: 1.15;
+      padding: 2px 3px; font-size: 7pt; font-weight: 600; line-height: 1.15;
       vertical-align: middle; white-space: nowrap;
     }
     .invoice-items thead th:last-child { border-right: none; }
     .invoice-items tbody td {
-      border: none !important;
-      padding: 1.5px 3px; font-size: 8pt; font-weight: 500; line-height: 1.2;
+      border: none !important; border-right: 1px solid #d1d5db !important;
+      padding: 1.5px 3px; font-size: 8pt; font-weight: 400; line-height: 1.2;
       vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    .invoice-items tbody td:last-child { border-right: none !important; }
     .invoice-items tbody tr { background: white; }
     .footer-border { border: 1px solid black; }
     .invoice-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
@@ -364,19 +391,19 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
 
   const ItemRow = ({ item, serial }: { item: (typeof items)[0]; serial: number }) => (
     <tr key={item.id}>
-      <td style={{ textAlign: 'center', fontWeight: 900 }}>{serial}</td>
-      <td style={{ textAlign: 'center', fontWeight: 900 }}>{item.displayQty}</td>
-      <td style={{ fontWeight: 900, textTransform: 'uppercase', color: '#111827', maxWidth: 0 }}>{item.displayName}</td>
+      <td style={{ textAlign: 'center' }}>{serial}</td>
+      <td style={{ textAlign: 'center' }}>{item.displayQty}</td>
+      <td style={{ textTransform: 'uppercase', color: '#111827', maxWidth: 0 }}>{item.displayName}</td>
       <td style={{ textAlign: 'center' }}>{item.hsn}</td>
       <td style={{ textAlign: 'center', fontSize: '7pt' }}>{item.pack}</td>
       <td style={{ textAlign: 'center' }}>{item.batch}</td>
       <td style={{ textAlign: 'center', fontSize: '7pt' }}>{item.expiry}</td>
       <td style={{ textAlign: 'right' }}>{(item.mrp || 0).toFixed(2)}</td>
-      {showRateColumn          && <td style={{ textAlign: 'right',  color: '#1e40af', fontWeight: 700 }}>{(item.billedRate || 0).toFixed(2)}</td>}
+      {showRateColumn          && <td style={{ textAlign: 'right',  color: '#1e40af' }}>{(item.billedRate || 0).toFixed(2)}</td>}
       {showTradeDiscountColumn && <td style={{ textAlign: 'center', color: '#dc2626' }}>{item.discountPercent || '0'}</td>}
       {showSchemeColumn        && <td style={{ textAlign: 'center', color: '#059669' }}>{getDisplaySchemePercent(item) > 0 ? getDisplaySchemePercent(item).toFixed(2) : ''}</td>}
       <td style={{ textAlign: 'center' }}>{(item.gstPercent || 0).toFixed(0)}</td>
-      <td style={{ textAlign: 'right', fontWeight: 900, color: '#111827' }}>{(item.displayAmount || 0).toFixed(2)}</td>
+      <td style={{ textAlign: 'right', color: '#111827' }}>{(item.displayAmount || 0).toFixed(2)}</td>
     </tr>
   );
 
@@ -621,8 +648,12 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
               </table>
             </div>
 
-            {/* Spacer keeps footer pinned to bottom */}
-            <div className="marg-spacer" style={{ borderLeft: '1px solid #000', borderRight: '1px solid #000' }} />
+            {/* Spacer keeps footer pinned to bottom; column lines extend through it */}
+            <div className="marg-spacer" style={{ borderLeft: '1px solid #000', borderRight: '1px solid #000', position: 'relative' }}>
+              {colDividerPositions.map((pct, i) => (
+                <div key={i} style={{ position: 'absolute', top: 0, bottom: 0, left: `${pct.toFixed(4)}%`, width: 0, borderLeft: '1px solid #d1d5db', pointerEvents: 'none' }} />
+              ))}
+            </div>
 
             {/* Footer */}
             {isLastPage
