@@ -7,7 +7,6 @@ import Modal from '../components/Modal';
 import AddMedicineModal from '../components/AddMedicineModal';
 import EditMedicineModal from '../components/EditMedicineModal';
 import AddCustomerModal from './AddCustomerModal';
-import SearchableDropdown from './SearchableDropdown';
 import BatchSelectionModal from './BatchSelectionModal';
 import WebcamCaptureModal from './WebcamCaptureModal';
 import CustomerSearchModal from './CustomerSearchModal';
@@ -89,6 +88,8 @@ interface StockValidationIssue {
     reason: 'insufficient' | 'no_stock' | 'batch_missing';
 }
 
+type PrescriptionAlertAction = 'proceed' | 'cancel';
+
 const uniformTextStyle = "text-sm font-bold tracking-tight uppercase leading-tight";
 const matrixRowTextStyle = "text-base font-bold tracking-tight uppercase leading-tight";
 const NO_BATCH_PLACEHOLDERS = new Set(['', 'N/A', 'NA', 'NEW-STOCK', 'NEW-BATCH', 'UNSET', 'NO BATCH', 'NO-BATCH']);
@@ -116,6 +117,7 @@ const parseExpiryForSort = (expiry?: string | null): number => {
 };
 
 const normalizeLookupToken = (value?: string | null): string => (value || '').trim().toLowerCase();
+const isValidTenDigitPhone = (value?: string | null): boolean => /^\d{10}$/.test(String(value || '').trim());
 
 const resolveSearchPriority = (item: InventoryItem, searchTerm: string): number => {
     const term = normalizeLookupToken(searchTerm);
@@ -291,6 +293,7 @@ const POS = forwardRef<any, POSProps>(({
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [customerSearch, setCustomerSearch] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
+    const [customerAddress, setCustomerAddress] = useState('');
     const billCategorySelectRef = useRef<HTMLSelectElement>(null);
     const customerSearchInputRef = useRef<HTMLInputElement>(null);
     const productSearchInputRef = useRef<HTMLInputElement>(null);
@@ -298,13 +301,18 @@ const POS = forwardRef<any, POSProps>(({
     const searchResultsRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dateInputRef = useRef<HTMLInputElement>(null);
+    const addressInputRef = useRef<HTMLInputElement>(null);
     const phoneInputRef = useRef<HTMLInputElement>(null);
+    const doctorSearchInputRef = useRef<HTMLInputElement>(null);
 
     const [billCategory, setBillCategory] = useState<'Cash' | 'Credit'>('Cash');
     const [billMode, setBillMode] = useState<'GST' | 'EST'>(billType === 'non-gst' ? 'EST' : 'GST');
     const [referredBy, setReferredBy] = useState('');
     const [doctorId, setDoctorId] = useState<string | null>(null);
     const [isDoctorQuickAddOpen, setIsDoctorQuickAddOpen] = useState(false);
+    const [isDoctorPickerOpen, setIsDoctorPickerOpen] = useState(false);
+    const [doctorSearchTerm, setDoctorSearchTerm] = useState('');
+    const [doctorHighlightedIndex, setDoctorHighlightedIndex] = useState(0);
     const [quickDoctorName, setQuickDoctorName] = useState('');
     const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
     const [cartItems, setCartItems] = useState<BillItem[]>([]);
@@ -326,10 +334,22 @@ const POS = forwardRef<any, POSProps>(({
         [doctors]
     );
 
-    const doctorOptions = useMemo(() => 
-        activeDoctors.map(d => ({ id: d.id, name: d.name })), 
-        [activeDoctors]
-    );
+    const filteredDoctors = useMemo(() => {
+        const term = doctorSearchTerm.trim().toLowerCase();
+        if (!term) return activeDoctors;
+        return activeDoctors.filter((doctor) => {
+            const doctorName = (doctor.name || '').toLowerCase();
+            const mobile = (doctor.mobile || '').toLowerCase();
+            return doctorName.includes(term) || mobile.includes(term);
+        });
+    }, [activeDoctors, doctorSearchTerm]);
+
+    useEffect(() => {
+        if (!isDoctorPickerOpen) return;
+        setDoctorSearchTerm(referredBy || '');
+        setDoctorHighlightedIndex(0);
+        setTimeout(() => doctorSearchInputRef.current?.focus(), 0);
+    }, [isDoctorPickerOpen, referredBy]);
 
     useEffect(() => {
         if (!rateFieldAvailable) {
@@ -469,6 +489,9 @@ const POS = forwardRef<any, POSProps>(({
     const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
     const [stockValidationIssues, setStockValidationIssues] = useState<StockValidationIssue[]>([]);
     const [isStockIssueModalOpen, setIsStockIssueModalOpen] = useState(false);
+    const [isPrescriptionAlertOpen, setIsPrescriptionAlertOpen] = useState(false);
+    const [prescriptionAlertShown, setPrescriptionAlertShown] = useState(false);
+    const [pendingPrescriptionItemId, setPendingPrescriptionItemId] = useState<string | null>(null);
 
     const activeRowIdRef = useRef<string | null>(null);
     const isProcessingBarcodeRef = useRef(false);
@@ -599,6 +622,17 @@ const POS = forwardRef<any, POSProps>(({
         moduleName: 'POS'
     }), [selectedCustomer, grandTotal, effectiveOpenChallanExposure]);
 
+    const hasPrescriptionItem = useMemo(() => cartItems.some((item) => {
+        const inventoryRow = inventory.find(inv => inv.id === item.inventoryItemId);
+        const inventoryCode = normalizeLookupToken(inventoryRow?.code);
+        const medicine = medicines.find((med) => {
+            if (med.id === item.inventoryItemId) return true;
+            const medCode = normalizeLookupToken(med.materialCode);
+            return !!inventoryCode && !!medCode && inventoryCode === medCode;
+        });
+        return medicine?.isPrescriptionRequired === true;
+    }), [cartItems, inventory, medicines]);
+
 
     const activeBillItem = useMemo(() => {
         if (cartItems.length === 0) return null;
@@ -706,6 +740,7 @@ const POS = forwardRef<any, POSProps>(({
             setSelectedCustomer(customers.find(c => c.id === transactionToEdit.customerId) || null);
             setCustomerSearch(transactionToEdit.customerName || '');
             setCustomerPhone(transactionToEdit.customerPhone || '');
+            setCustomerAddress((transactionToEdit as any).customerAddress || '');
             setReferredBy(transactionToEdit.referredBy || '');
             setDoctorId(transactionToEdit.doctorId || null);
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
@@ -1010,6 +1045,55 @@ const POS = forwardRef<any, POSProps>(({
             return;
         }
 
+        if (hasPrescriptionItem) {
+            addNotification('This bill contains prescription medicines. Customer details are required to continue.', 'warning');
+            const organizationType = currentUser?.organization_type || 'Retail';
+            const normalizedName = (customerSearch || selectedCustomer?.name || '').trim();
+            const normalizedPhone = (customerPhone || selectedCustomer?.phone || '').trim();
+            const normalizedAddress = (customerAddress || (selectedCustomer as any)?.address || '').trim();
+
+            if (organizationType === 'Retail') {
+                if (!normalizedName) {
+                    addNotification("Customer Name is required for prescription medicines. Please enter the customer's name to proceed.", 'error');
+                    setIsSaving(false);
+                    return;
+                }
+                if (!normalizedAddress) {
+                    addNotification('Customer Address is required for prescription medicines. Please enter the customer address to proceed.', 'error');
+                    setIsSaving(false);
+                    return;
+                }
+                if (!normalizedPhone) {
+                    addNotification('Customer Phone Number is required for prescription medicines. Please enter a valid phone number.', 'error');
+                    setIsSaving(false);
+                    return;
+                }
+                if (!isValidTenDigitPhone(normalizedPhone)) {
+                    addNotification('Please enter a valid 10-digit phone number for prescription medicines.', 'error');
+                    setIsSaving(false);
+                    return;
+                }
+            }
+
+            if (organizationType === 'Distributor') {
+                if (!selectedCustomer?.id) {
+                    addNotification('Customer selection is required for prescription medicines. Please select a customer from Customer Master.', 'error');
+                    setIsSaving(false);
+                    return;
+                }
+                if ((customerSearch || '').trim() !== (selectedCustomer.name || '').trim()) {
+                    addNotification('Manual customer entry is not allowed for prescription medicines. Please select a customer from the list.', 'error');
+                    setIsSaving(false);
+                    return;
+                }
+                if (!normalizedPhone) {
+                    addNotification('Customer phone number is missing. Please update the customer details in Customer Master.', 'error');
+                    setIsSaving(false);
+                    return;
+                }
+            }
+        }
+
         if (billCategory === 'Credit' && !selectedCustomer?.id) {
             addNotification('Customer selection is required for Credit bill.', 'error');
             setIsSaving(false);
@@ -1036,6 +1120,7 @@ const POS = forwardRef<any, POSProps>(({
             customerName: selectedCustomer?.name || customerSearch || 'Walking Customer',
             customerId: selectedCustomer?.id,
             customerPhone: customerPhone || selectedCustomer?.phone,
+            customerAddress: customerAddress || (selectedCustomer as any)?.address || '',
             referredBy: referredBy || '',
             doctorId: doctorId || null,
             items: cartItems,
@@ -1090,7 +1175,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment, getCustomerInvoiceOutstandingTotal, onCancel, fetchStats]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment, getCustomerInvoiceOutstandingTotal, onCancel, fetchStats, hasPrescriptionItem]);
 
     const resetForm = useCallback(() => {
         setCartItems([]);
@@ -1098,6 +1183,7 @@ const POS = forwardRef<any, POSProps>(({
         setSelectedCustomer(null);
         setCustomerSearch('');
         setCustomerPhone('');
+        setCustomerAddress('');
         setReferredBy('');
         setDoctorId(null);
         setLumpsumDiscount(0);
@@ -1108,6 +1194,9 @@ const POS = forwardRef<any, POSProps>(({
         setReservedVoucherNumber(null);
         setNextVoucherNumberHint(null);
         lastReservedType.current = null;
+        setPrescriptionAlertShown(false);
+        setIsPrescriptionAlertOpen(false);
+        setPendingPrescriptionItemId(null);
     }, []);
 
     useEffect(() => {
@@ -1528,7 +1617,7 @@ const POS = forwardRef<any, POSProps>(({
         } else if (e.key === 'Escape') {
             // User doesn't want to select customer, move to next field
             e.preventDefault();
-            phoneInputRef.current?.focus();
+            addressInputRef.current?.focus();
         }
     };
 
@@ -1549,11 +1638,12 @@ const POS = forwardRef<any, POSProps>(({
         setSelectedCustomer(c);
         setCustomerSearch(c.name);
         setCustomerPhone(c.phone || '');
+        setCustomerAddress((c as any).address || '');
         setIsCustomerSearchModalOpen(false);
 
         // Move to next field (Phone input)
         setTimeout(() => {
-            phoneInputRef.current?.focus();
+            addressInputRef.current?.focus();
         }, 100);
     };
 
@@ -1654,6 +1744,7 @@ const POS = forwardRef<any, POSProps>(({
         };
 
         const newItem = normalizePackConversion(selectedItem);
+        const isPrescriptionItem = linkedMedicine?.isPrescriptionRequired === true;
 
         setCartItems(prev => {
             const index = prev.findIndex(p => p.id === activeRowIdRef.current);
@@ -1664,6 +1755,11 @@ const POS = forwardRef<any, POSProps>(({
             }
             return [...prev, newItem];
         });
+        if (isPrescriptionItem && !prescriptionAlertShown) {
+            setIsPrescriptionAlertOpen(true);
+            setPrescriptionAlertShown(true);
+            setPendingPrescriptionItemId(newItem.id);
+        }
 
         setSearchTerm('');
         setIsSearchModalOpen(false);
@@ -2084,6 +2180,37 @@ const POS = forwardRef<any, POSProps>(({
         }
     };
 
+    const handleDoctorSelect = useCallback((doctor: DoctorMaster) => {
+        handleReferredByChange(doctor.name || '', doctor.id);
+        setIsDoctorPickerOpen(false);
+    }, [handleReferredByChange]);
+
+    const handleUseTypedDoctorName = useCallback(() => {
+        const typedValue = doctorSearchTerm.trim();
+        if (!typedValue) return;
+        handleReferredByChange(typedValue);
+        setIsDoctorPickerOpen(false);
+    }, [doctorSearchTerm, handleReferredByChange]);
+
+    const handleAddTypedDoctorToMaster = useCallback(async () => {
+        if (!currentUser) return;
+        const typedValue = doctorSearchTerm.trim();
+        if (!typedValue) return;
+        const payload: DoctorMaster = {
+            id: crypto.randomUUID(),
+            organization_id: currentUser.organization_id,
+            doctorCode: '',
+            name: typedValue,
+            mobile: '',
+            specialization: '',
+            is_active: true,
+        };
+        await storage.saveData('doctor_master', payload, currentUser);
+        handleReferredByChange(payload.name, payload.id);
+        setIsDoctorPickerOpen(false);
+        addNotification('Doctor added to master and selected.', 'success');
+    }, [addNotification, currentUser, doctorSearchTerm, handleReferredByChange]);
+
     const handleQuickDoctorSave = async () => {
         if (!currentUser || !quickDoctorName.trim()) return;
         const payload: DoctorMaster = {
@@ -2111,13 +2238,7 @@ const POS = forwardRef<any, POSProps>(({
         }
         if (e.key === 'Enter') {
             e.preventDefault();
-            // Start row navigation: focus the first name field if it exists, otherwise search input
-            if (cartItems.length > 0) {
-                const firstId = cartItems[0].id;
-                document.getElementById(`name-${firstId}`)?.focus();
-            } else {
-                productSearchInputRef.current?.focus();
-            }
+            setIsDoctorPickerOpen(true);
         }
     };
 
@@ -2154,9 +2275,9 @@ const POS = forwardRef<any, POSProps>(({
             </div>
 
             <div className="p-2 flex-1 flex flex-col gap-2 overflow-hidden">
-                <Card className="p-1.5 bg-white dark:bg-card-bg border border-app-border rounded-none grid grid-cols-1 md:grid-cols-6 gap-2 items-end flex-shrink-0">
+                <Card className="p-1.5 bg-white dark:bg-card-bg border border-app-border rounded-none flex flex-nowrap items-end gap-2 w-full overflow-x-auto flex-shrink-0">
                     {isFieldVisible('colDate') && (
-                        <div>
+                        <div style={{ width: '11%', minWidth: '120px' }}>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Date</label>
                             <input
                                 ref={dateInputRef}
@@ -2170,7 +2291,7 @@ const POS = forwardRef<any, POSProps>(({
                         </div>
                     )}
                     {isFieldVisible('colCustomer') && (
-                        <div className="md:col-span-2 relative">
+                        <div className="relative" style={{ width: '24%', minWidth: '220px', flexGrow: 1 }}>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Particulars (Customer Name)</label>
                             <input
                                 ref={customerSearchInputRef}
@@ -2188,8 +2309,20 @@ const POS = forwardRef<any, POSProps>(({
                             />
                         </div>
                     )}
+                    <div className="relative" style={{ width: '22%', minWidth: '180px', flexShrink: 3 }}>
+                        <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Address</label>
+                        <input
+                            ref={addressInputRef}
+                            type="text"
+                            value={customerAddress}
+                            onChange={e => setCustomerAddress(e.target.value)}
+                            className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none focus:bg-yellow-50"
+                            placeholder="Customer Address"
+                            disabled={isReadOnly || ((currentUser?.organization_type || 'Retail') === 'Distributor' && !!selectedCustomer?.id)}
+                        />
+                    </div>
                     {isFieldVisible('colPhone') && (
-                        <div>
+                        <div className="relative" style={{ width: '14%', minWidth: '150px' }}>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Phone Number</label>
                             <input
                                 ref={phoneInputRef}
@@ -2203,19 +2336,22 @@ const POS = forwardRef<any, POSProps>(({
                         </div>
                     )}
                     {isFieldVisible('colReferred') && (
-                        <div>
+                        <div style={{ width: '17%', minWidth: '170px', flexGrow: 1 }}>
                             <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Referred By</label>
-                            <SearchableDropdown
-                                options={doctorOptions}
+                            <input
+                                type="text"
                                 value={referredBy}
-                                onChange={handleReferredByChange}
+                                onChange={e => handleReferredByChange(e.target.value)}
+                                onClick={() => !isReadOnly && setIsDoctorPickerOpen(true)}
                                 onKeyDown={handleReferredByKeyDown}
                                 placeholder="Doctor Name"
                                 disabled={isReadOnly}
+                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold outline-none uppercase focus:bg-yellow-50"
+                                autoComplete="off"
                             />
                         </div>
                     )}
-                    <div>
+                    <div style={{ width: '12%', minWidth: '140px' }}>
                         <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Bill Category</label>
                         <select
                             ref={billCategorySelectRef}
@@ -3080,6 +3216,162 @@ const POS = forwardRef<any, POSProps>(({
                 initialName={customerSearch.trim()}
                 initialPhone={customerPhone.trim()}
             />
+
+            {isPrescriptionAlertOpen && (
+                <div
+                    className="fixed inset-0 z-[220] flex items-center justify-center bg-[rgba(0,0,0,0.45)] px-4"
+                    onClick={() => setIsPrescriptionAlertOpen(false)}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Prescription Required"
+                >
+                    <div
+                        className="w-full max-w-[420px] rounded-xl bg-white shadow-[0_14px_40px_rgba(0,0,0,0.28)] border border-gray-200 overflow-hidden animate-[fadeIn_160ms_ease-out]"
+                        style={{ animation: 'fadeIn 160ms ease-out, zoomIn 160ms ease-out' }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+                            <h3 className="text-sm font-bold text-gray-900">⚠️ Prescription Required</h3>
+                            <button
+                                type="button"
+                                className="text-gray-500 hover:text-gray-700"
+                                onClick={() => setIsPrescriptionAlertOpen(false)}
+                                aria-label="Close"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <p className="text-sm text-gray-800">
+                                This item requires a valid prescription.
+                                Please verify prescription details before billing.
+                            </p>
+                            <p className="text-xs font-medium text-gray-600">
+                                Prescription items require customer details as per compliance rules.
+                            </p>
+                            <div className="pt-2 flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    className="px-4 py-2 text-xs font-semibold border border-gray-300 text-gray-700 rounded-md bg-white"
+                                    onClick={() => setIsPrescriptionAlertOpen(false)}
+                                >
+                                    Proceed Anyway
+                                </button>
+                                <button
+                                    type="button"
+                                    className="px-4 py-2 text-xs font-semibold bg-red-600 text-white rounded-md"
+                                    onClick={() => {
+                                        if (pendingPrescriptionItemId) {
+                                            setCartItems(prev => prev.filter(item => item.id !== pendingPrescriptionItemId));
+                                        }
+                                        setPendingPrescriptionItemId(null);
+                                        setIsPrescriptionAlertOpen(false);
+                                    }}
+                                >
+                                    Cancel Item
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <Modal
+                isOpen={isDoctorPickerOpen}
+                onClose={() => setIsDoctorPickerOpen(false)}
+                title="Select Doctor"
+                widthClass="max-w-[680px]"
+                heightClass="h-[380px]"
+            >
+                <div className="p-3 bg-white h-full flex flex-col">
+                    <input
+                        ref={doctorSearchInputRef}
+                        type="text"
+                        value={doctorSearchTerm}
+                        onChange={(e) => {
+                            setDoctorSearchTerm(e.target.value);
+                            setDoctorHighlightedIndex(0);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                setDoctorHighlightedIndex(prev => Math.min(prev + 1, Math.max(filteredDoctors.length - 1, 0)));
+                            } else if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                setDoctorHighlightedIndex(prev => Math.max(prev - 1, 0));
+                            } else if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const selectedDoctor = filteredDoctors[doctorHighlightedIndex];
+                                if (selectedDoctor) {
+                                    handleDoctorSelect(selectedDoctor);
+                                } else if (filteredDoctors.length === 0) {
+                                    handleUseTypedDoctorName();
+                                }
+                            } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setIsDoctorPickerOpen(false);
+                            }
+                        }}
+                        placeholder="Search doctor name / mobile..."
+                        className="h-9 w-full border border-gray-300 px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-blue-200"
+                    />
+                    <div className="mt-3 border border-gray-200 rounded shadow-sm overflow-hidden flex-1 min-h-0">
+                        <div className="overflow-auto h-full popup-content">
+                            <table className="w-full text-xs">
+                                <thead className="sticky top-0 bg-gray-50 z-10">
+                                    <tr className="text-left text-[11px] font-bold text-gray-600">
+                                        <th className="px-3 py-2 border-b">Doctor Name</th>
+                                        <th className="px-3 py-2 border-b">Mobile</th>
+                                        <th className="px-3 py-2 border-b">Specialization</th>
+                                        <th className="px-3 py-2 border-b">Area</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredDoctors.length > 0 ? filteredDoctors.map((doctor, index) => (
+                                        <tr
+                                            key={doctor.id}
+                                            className={`cursor-pointer ${doctorHighlightedIndex === index ? 'bg-blue-100' : 'bg-white hover:bg-gray-50'}`}
+                                            onMouseEnter={() => setDoctorHighlightedIndex(index)}
+                                            onClick={() => handleDoctorSelect(doctor)}
+                                        >
+                                            <td className="px-3 py-2 border-b">{doctor.name || '-'}</td>
+                                            <td className="px-3 py-2 border-b">{doctor.mobile || '-'}</td>
+                                            <td className="px-3 py-2 border-b">{doctor.specialization || '-'}</td>
+                                            <td className="px-3 py-2 border-b">{doctor.area || '-'}</td>
+                                        </tr>
+                                    )) : (
+                                        <tr>
+                                            <td colSpan={4} className="px-3 py-4 text-gray-500">
+                                                <div className="doctor-empty">
+                                                    <div className="empty-text">No active doctors found</div>
+                                                    {doctorSearchTerm.trim() && (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                className="btn-use-doctor"
+                                                                onClick={handleUseTypedDoctorName}
+                                                            >
+                                                                👉 Use <b>{doctorSearchTerm.trim()}</b> as entered doctor
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="btn-add-doctor"
+                                                                onClick={() => void handleAddTypedDoctorToMaster()}
+                                                            >
+                                                                ➕ Add "{doctorSearchTerm.trim()}" to Doctor Master
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </Modal>
 
             <Modal
                 isOpen={isDoctorQuickAddOpen}

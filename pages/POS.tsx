@@ -145,6 +145,7 @@ const POS = forwardRef<any, POSProps>(({
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [customerSearch, setCustomerSearch] = useState('');
+    const [customerAddress, setCustomerAddress] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
     const billCategorySelectRef = useRef<HTMLSelectElement>(null);
     const customerSearchInputRef = useRef<HTMLInputElement>(null);
@@ -343,6 +344,7 @@ const POS = forwardRef<any, POSProps>(({
         if (transactionToEdit) {
             setSelectedCustomer(customers.find(c => c.id === transactionToEdit.customerId) || null);
             setCustomerSearch(transactionToEdit.customerName || '');
+            setCustomerAddress(transactionToEdit.customerAddress || '');
             setCustomerPhone(transactionToEdit.customerPhone || '');
             setReferredBy(transactionToEdit.referredBy || '');
             setInvoiceDate(transactionToEdit.date.split('T')[0]);
@@ -453,6 +455,7 @@ const POS = forwardRef<any, POSProps>(({
             customerName: selectedCustomer?.name || customerSearch || 'Walking Customer',
             customerId: selectedCustomer?.id,
             customerPhone: customerPhone || selectedCustomer?.phone,
+            customerAddress: customerAddress || selectedCustomer?.address || '',
             referredBy: referredBy || '',
             items: cartItems,
             total: Math.round(totals.baseTotal),
@@ -477,6 +480,7 @@ const POS = forwardRef<any, POSProps>(({
             setPrescriptions([]);
             setSelectedCustomer(null);
             setCustomerSearch('');
+            setCustomerAddress('');
             setLumpsumDiscount(0);
             setReferredBy('');
             addNotification(`Bill saved successfully. Bill No: ${transaction.invoiceNumber || transaction.id}`, "success");
@@ -487,7 +491,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines, getCustomerInvoiceOutstandingTotal]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerAddress, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, medicines, getCustomerInvoiceOutstandingTotal]);
 
     const focusFirstEditableFieldInRow = useCallback((rowId: string) => {
         const firstEditableField = [
@@ -845,6 +849,7 @@ const POS = forwardRef<any, POSProps>(({
         setSelectedCustomer(c);
         setCustomerSearch(c.name);
         setCustomerPhone(c.phone || '');
+        setCustomerAddress(c.address || '');
         setIsCustomerSearchModalOpen(false);
         setTimeout(() => {
             phoneInputRef.current?.focus();
@@ -1247,10 +1252,24 @@ const POS = forwardRef<any, POSProps>(({
                                 onChange={e => {
                                     setCustomerSearch(e.target.value);
                                     setSelectedCustomer(null);
+                                    setCustomerAddress('');
                                 }}
                                 onKeyDown={handleCustomerKeyDown}
                                 autoComplete="off"
                                 placeholder="Enter for selection, Esc to skip..."
+                                disabled={isReadOnly}
+                            />
+                        </div>
+                    )}
+                    {isFieldVisible('colAddress') && (
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-500 uppercase block mb-0.5 ml-0.5">Address</label>
+                            <input
+                                type="text"
+                                value={customerAddress}
+                                onChange={e => setCustomerAddress(e.target.value)}
+                                className="w-full h-8 border border-gray-400 p-1 text-xs font-bold uppercase focus:bg-yellow-50 outline-none"
+                                placeholder="Customer Address"
                                 disabled={isReadOnly}
                             />
                         </div>
