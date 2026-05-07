@@ -217,6 +217,7 @@ export interface AppConfigurations {
         fiscalYearStartDate?: string;
         fiscalYearEndDate?: string;
         currentFiscalYear?: string;
+        useFiscalYearInVoucherNumber?: boolean;
         autoFiscalYearDetection?: boolean;
         allowBackdatedEntry?: boolean;
         lockPreviousFiscalYear?: boolean;
