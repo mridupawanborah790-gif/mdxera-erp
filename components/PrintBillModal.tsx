@@ -126,7 +126,7 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
         html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
         jsPDF: {
           unit: 'mm',
-          format: isInvoice7 ? [150, 100] : (isThermal ? [thermalContentHeightMm, 76] : 'a5'),
+          format: isInvoice7 ? [100, 150] : (isThermal ? [thermalContentHeightMm, 76] : 'a5'),
           orientation: (isThermal || isInvoice7) ? 'portrait' : effectiveOrientation
         }
     };
