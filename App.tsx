@@ -2968,6 +2968,7 @@ const App: React.FC = () => {
                     pharmacyName={currentUser?.pharmacy_name || 'MDXERA'}
                     isSyncing={isReloading || !isRealtimeActive}
                     appEdition={isRealtimeActive ? "Enterprise Edition [Live]" : "Enterprise Edition"}
+                    configurations={configurations}
                 />
             </div>
             <NotificationSystem notifications={notifications} removeNotification={removeNotification} />

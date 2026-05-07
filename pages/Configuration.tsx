@@ -963,6 +963,20 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                         />
                                     </div>
 
+
+                                    <div className="space-y-4 md:col-span-2">
+                                        <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4">Fiscal Year Configuration</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="flex flex-col gap-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Fiscal Year Start Date</label><input type="date" value={localConfigs.fiscalYearConfig?.fiscalYearStartDate || ''} onChange={e => handleConfigChange('fiscalYearConfig', 'fiscalYearStartDate', e.target.value)} className="w-full tally-input !text-sm"/></div>
+                                            <div className="flex flex-col gap-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Fiscal Year End Date</label><input type="date" value={localConfigs.fiscalYearConfig?.fiscalYearEndDate || ''} onChange={e => handleConfigChange('fiscalYearConfig', 'fiscalYearEndDate', e.target.value)} className="w-full tally-input !text-sm"/></div>
+                                            <div className="flex flex-col gap-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Current Fiscal Year</label><input type="text" value={localConfigs.fiscalYearConfig?.currentFiscalYear || ''} onChange={e => handleConfigChange('fiscalYearConfig', 'currentFiscalYear', e.target.value)} placeholder="2024-2025" className="w-full tally-input !text-sm"/></div>
+                                            <div className="flex flex-col gap-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Voucher Numbering Mode</label><select value={localConfigs.fiscalYearConfig?.voucherNumberingMode || 'reset'} onChange={e => handleConfigChange('fiscalYearConfig', 'voucherNumberingMode', e.target.value)} className="w-full tally-input !text-sm"><option value="reset">Reset each fiscal year</option><option value="continue">Continue sequence</option></select></div>
+                                        </div>
+                                        <Toggle label="Auto Fiscal Year Detection" enabled={localConfigs.fiscalYearConfig?.autoFiscalYearDetection ?? true} setEnabled={(v) => handleConfigChange('fiscalYearConfig', 'autoFiscalYearDetection', v)} />
+                                        <Toggle label="Allow Backdated Entry" enabled={localConfigs.fiscalYearConfig?.allowBackdatedEntry ?? true} setEnabled={(v) => handleConfigChange('fiscalYearConfig', 'allowBackdatedEntry', v)} />
+                                        <Toggle label="Lock Previous Fiscal Year" enabled={localConfigs.fiscalYearConfig?.lockPreviousFiscalYear ?? false} setEnabled={(v) => handleConfigChange('fiscalYearConfig', 'lockPreviousFiscalYear', v)} description="Disallow create/update/delete of vouchers in prior fiscal years." />
+                                    </div>
+
                                     <div className="space-y-4 md:col-span-2">
                                         <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4">Invoice Preferences</h3>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4">
