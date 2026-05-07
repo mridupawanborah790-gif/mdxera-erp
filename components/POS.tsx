@@ -12,6 +12,7 @@ import WebcamCaptureModal from './WebcamCaptureModal';
 import CustomerSearchModal from './CustomerSearchModal';
 import JournalEntryViewerModal from './JournalEntryViewerModal';
 import ProductInsightsPanel from './ProductInsightsPanel';
+import { isDateInActiveFiscalYear, resolveFiscalYearConfig } from '../utils/fiscalYear';
 import { extractPrescription } from '../services/geminiService';
 import * as storage from '../services/storageService';
 import { supabase } from '../services/supabaseClient';
@@ -1096,6 +1097,19 @@ const POS = forwardRef<any, POSProps>(({
 
         if (billCategory === 'Credit' && !selectedCustomer?.id) {
             addNotification('Customer selection is required for Credit bill.', 'error');
+            setIsSaving(false);
+            return;
+        }
+
+        if (!isDateInActiveFiscalYear(invoiceDate, configurations)) {
+            addNotification('Selected date is outside the active fiscal year. Please select a valid date or change Fiscal Year Configuration.', 'error');
+            setIsSaving(false);
+            return;
+        }
+
+        const fyConfig = resolveFiscalYearConfig(configurations);
+        if (fyConfig.lockPreviousFiscalYear && invoiceDate < fyConfig.fiscalYearStartDate) {
+            addNotification('Previous fiscal year is locked. Voucher modifications are not allowed for that year.', 'error');
             setIsSaving(false);
             return;
         }

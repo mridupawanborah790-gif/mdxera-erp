@@ -1,15 +1,19 @@
 
 import React, { useState, useEffect } from 'react';
 
+import { AppConfigurations } from '../types';
+import { resolveFiscalYearConfig } from '../utils/fiscalYear';
+
 interface StatusBarProps {
   userName: string;
   isOnline: boolean;
   pharmacyName: string;
   isSyncing?: boolean;
   appEdition?: string;
+  configurations?: AppConfigurations;
 }
 
-const StatusBar: React.FC<StatusBarProps> = ({ userName, isOnline, pharmacyName, isSyncing, appEdition = 'Enterprise Edition' }) => {
+const StatusBar: React.FC<StatusBarProps> = ({ userName, isOnline, pharmacyName, isSyncing, appEdition = 'Enterprise Edition', configurations }) => {
   const [time, setTime] = useState(new Date().toLocaleTimeString());
 
   useEffect(() => {
@@ -18,6 +22,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ userName, isOnline, pharmacyName,
   }, []);
 
   const isLive = appEdition.toLowerCase().includes('[live]');
+  const fy = resolveFiscalYearConfig(configurations).currentFiscalYear;
 
   return (
     <div className="h-8 bg-primary text-white flex items-center px-4 text-[13px] font-bold border-t border-white/10 flex-shrink-0 z-50 shadow-[0_-2px_4px_rgba(0,0,0,0.1)]">
@@ -40,7 +45,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ userName, isOnline, pharmacyName,
         
         <div className="flex items-center gap-2">
             <span className="opacity-60 uppercase text-[10px]">F.Y.:</span>
-            <span className="text-gray-200">2024-2025</span>
+            <span className="text-gray-200">{fy}</span>
         </div>
       </div>
 
