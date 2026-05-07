@@ -111,48 +111,50 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
     const rowHeight = root.querySelector('.measure-row')?.getBoundingClientRect().height ?? (compactMode ? ITEM_ROW_COMPACT_HEIGHT_PX : ITEM_ROW_BASE_HEIGHT_PX);
     const tableHeaderHeight = root.querySelector('.measure-table-head')?.getBoundingClientRect().height ?? TABLE_HEADER_HEIGHT_PX;
 
-    setLayoutMetrics({ headerHeight, footerHeight, rowHeight, tableHeaderHeight });
+    setLayoutMetrics({ 
+      headerHeight: Math.max(headerHeight, 50), 
+      footerHeight: Math.max(footerHeight, 40), 
+      rowHeight: Math.max(rowHeight, 12), 
+      tableHeaderHeight: Math.max(tableHeaderHeight, 15) 
+    });
   }, [bill.id, compactMode, dynamicFontSize, billDetails.items.length]);
 
   const paginatedItems = useMemo(() => {
     const allItems = (billDetails.items || []) as BillItem[];
     if (allItems.length === 0) return [];
 
-    const rowHeightPx = Math.max(1, Math.ceil(layoutMetrics.rowHeight));
-    const headerPx = Math.ceil(layoutMetrics.headerHeight + layoutMetrics.tableHeaderHeight);
-    const footerPx = Math.ceil(layoutMetrics.footerHeight);
-    const availableWithoutFooter = Math.max(1, PAGE_HEIGHT_PX - VERTICAL_PADDING_PX - headerPx);
-    const availableWithFooter = Math.max(1, PAGE_HEIGHT_PX - VERTICAL_PADDING_PX - headerPx - footerPx);
+    const rowHeightPx = Math.max(1, layoutMetrics.rowHeight);
+    const headerPx = layoutMetrics.headerHeight + layoutMetrics.tableHeaderHeight;
+    const footerPx = layoutMetrics.footerHeight;
+    
+    const safePageHeight = PAGE_HEIGHT_PX - VERTICAL_PADDING_PX - 4; 
+
+    const availableWithoutFooter = Math.max(1, safePageHeight - headerPx);
+    const availableWithFooter = Math.max(1, safePageHeight - headerPx - footerPx);
+    
     const rowsWithoutFooter = Math.max(1, Math.floor(availableWithoutFooter / rowHeightPx));
     const rowsWithFooter = Math.max(1, Math.floor(availableWithFooter / rowHeightPx));
 
     const pages: BillItem[][] = [];
     let cursor = 0;
+    
     while (cursor < allItems.length) {
-      pages.push(allItems.slice(cursor, cursor + rowsWithoutFooter));
-      cursor += rowsWithoutFooter;
-    }
-
-    if (pages.length > 0 && pages[0].length === 0) {
-      pages.shift();
+      const remaining = allItems.length - cursor;
+      
+      if (remaining <= rowsWithFooter) {
+        pages.push(allItems.slice(cursor));
+        break;
+      }
+      
+      const take = Math.max(1, Math.min(remaining - 1, rowsWithoutFooter));
+      pages.push(allItems.slice(cursor, cursor + take));
+      cursor += take;
     }
 
     const renderedItems = pages.flat().length;
     if (renderedItems !== allItems.length) {
       console.error('Pagination error: Missing items', { expected: allItems.length, renderedItems });
     }
-
-    console.log({
-      totalItems: allItems.length,
-      rowsPerPage: rowsWithoutFooter,
-      totalPages: pages.length,
-      renderedItems,
-      pageHeight: PAGE_HEIGHT_PX,
-      headerHeight: headerPx,
-      footerHeight: footerPx,
-      rowHeight: rowHeightPx,
-      rowsWithFooter,
-    });
 
     return pages;
   }, [billDetails.items, layoutMetrics]);
@@ -161,9 +163,9 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
     <div className="invoice-7 w-[100mm] max-w-[100mm] text-black font-mono" style={{ ['--invoice-font' as string]: dynamicFontSize, fontSize: 'var(--invoice-font, 9px)' }}>
       <style>{`
         @media print {
-          @page { size: 100mm 150mm; margin: 4mm; }
-          body { margin: 0; }
-          .invoice-7 { width: 100mm !important; max-width: 100mm !important; }
+          @page { size: 100mm 150mm; margin: 0; }
+          body { margin: 0; padding: 0; }
+          .invoice-7 { width: 100mm !important; max-width: 100mm !important; margin: 0 !important; }
           .invoice-page {
             width: 100mm;
             height: 150mm;
@@ -174,6 +176,7 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
             page-break-inside: avoid;
             break-inside: avoid;
             overflow: hidden;
+            box-sizing: border-box;
           }
           .header { flex: 0 0 auto; }
           .items { flex: 1 1 auto; overflow: hidden; }
@@ -184,13 +187,52 @@ const Invoice7Template: React.FC<TemplateProps> = ({ bill }) => {
 
       <div ref={measureRef} className="absolute -left-[9999px] top-0 w-[100mm] pointer-events-none opacity-0" aria-hidden>
         <div className="measure-header text-[8px] leading-[1.2]">
-          <div className="mb-1">Header</div>
-          <div className="mb-1">Meta</div>
-          <div className="mb-1">Customer</div>
+          <div className="text-center mb-1">
+            <h1 className="text-[10px] font-bold uppercase">Pharmacy Name Sample</h1>
+            <p className="whitespace-pre-line">Sample Address Line 1\nSample Address Line 2</p>
+            <div className="mt-0.5">
+              <p>PH: 0000000000</p>
+              <p>GSTIN: 00AAAAAAAAA0A0Z0</p>
+              <p>DL NO: DL-00000-00</p>
+            </div>
+          </div>
+          <div className="border-t border-b border-dashed border-black py-0.5 mb-1 flex justify-between text-[8px]">
+            <span>Bill: INV000</span>
+            <span>01/01/26</span>
+          </div>
+          <div className="text-[8px] border-b border-dashed border-black pb-0.5 mb-1">
+            <p>Customer: Sample Customer Name</p>
+          </div>
         </div>
-        <table className="w-full table-fixed text-[8px] leading-[1.2]"><thead className="measure-table-head"><tr><th className="py-0.5">Qty</th></tr></thead></table>
-        <table className="w-full table-fixed text-[8px] leading-[1.2]"><tbody><tr className="measure-row"><td className="py-0.5">1</td><td className="py-0.5">Item</td><td className="py-0.5">10.00</td></tr></tbody></table>
-        <div className="measure-footer text-[8px] leading-[1.2] mt-1 pt-1">Footer block</div>
+        <table className="w-full table-fixed text-[8px] leading-[1.2]">
+          <thead className="measure-table-head">
+            <tr className="font-bold border-b border-dashed border-black">
+              <th className="w-[14%] pb-0.5">Qty</th>
+              <th className="w-[60%] pb-0.5">Item</th>
+              <th className="w-[26%] pb-0.5">Amt</th>
+            </tr>
+          </thead>
+        </table>
+        <table className="w-full table-fixed text-[8px] leading-[1.2]">
+          <tbody>
+            <tr className="measure-row align-top">
+              <td className="py-0.5 text-center">1</td>
+              <td className="py-0.5 pr-1">Sample Item Name that might wrap to two lines</td>
+              <td className="py-0.5 text-right font-semibold">10.00</td>
+            </tr>
+          </tbody>
+        </table>
+        <div className="measure-footer text-[8px] leading-[1.2] mt-1 pt-1 border-t border-dashed border-black">
+          <div className="space-y-0.5">
+            <div className="flex justify-between"><span>Subtotal</span><span>₹0.00</span></div>
+            <div className="flex justify-between"><span>Taxable</span><span>₹0.00</span></div>
+          </div>
+          <div className="border-t border-b border-dashed border-black mt-1 py-0.5 flex justify-between text-[10px] font-bold">
+            <span>TOTAL</span>
+            <span>₹0.00</span>
+          </div>
+          <p className="text-center mt-1">Thank You</p>
+        </div>
       </div>
 
       {paginatedItems.map((pageItems, pageIndex) => {
