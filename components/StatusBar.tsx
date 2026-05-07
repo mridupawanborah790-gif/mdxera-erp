@@ -7,9 +7,10 @@ interface StatusBarProps {
   pharmacyName: string;
   isSyncing?: boolean;
   appEdition?: string;
+  fiscalYearLabel?: string;
 }
 
-const StatusBar: React.FC<StatusBarProps> = ({ userName, isOnline, pharmacyName, isSyncing, appEdition = 'Enterprise Edition' }) => {
+const StatusBar: React.FC<StatusBarProps> = ({ userName, isOnline, pharmacyName, isSyncing, appEdition = 'Enterprise Edition', fiscalYearLabel = '2024-2025' }) => {
   const [time, setTime] = useState(new Date().toLocaleTimeString());
 
   useEffect(() => {
@@ -40,7 +41,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ userName, isOnline, pharmacyName,
         
         <div className="flex items-center gap-2">
             <span className="opacity-60 uppercase text-[10px]">F.Y.:</span>
-            <span className="text-gray-200">2024-2025</span>
+            <span className="text-gray-200">{fiscalYearLabel}</span>
         </div>
       </div>
 

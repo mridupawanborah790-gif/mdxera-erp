@@ -91,6 +91,21 @@ type PersistedScreenState = {
     activeDashboardMenu?: 'left' | 'right';
 };
 
+const getIsoDate = (value?: string | Date | null) => {
+    if (!value) return '';
+    if (typeof value === 'string') return value.slice(0, 10);
+    return value.toISOString().slice(0, 10);
+};
+
+const resolveFiscalYearLabel = (configurations: AppConfigurations) => {
+    const fiscal = configurations.fiscalYearConfig;
+    if (fiscal?.currentFiscalYear) return fiscal.currentFiscalYear;
+    const start = fiscal?.fiscalYearStartDate;
+    const end = fiscal?.fiscalYearEndDate;
+    if (start && end) return `${new Date(start).getFullYear()}-${new Date(end).getFullYear()}`;
+    return '2024-2025';
+};
+
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
@@ -133,6 +148,7 @@ const App: React.FC = () => {
     const [deliveryChallans, setDeliveryChallans] = useState<DeliveryChallan[]>([]);
     const [salesChallans, setSalesChallans] = useState<SalesChallan[]>([]);
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+
     const [mrpChangeLogs, setMrpChangeLogs] = useState<MrpChangeLogEntry[]>([]);
 
     const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
@@ -144,6 +160,20 @@ const App: React.FC = () => {
     const [businessRoles, setBusinessRoles] = useState<BusinessRole[]>([]);
 
     const [configurations, setConfigurations] = useState<AppConfigurations>({ organization_id: '' });
+    const validateFiscalYearAccess = useCallback((entryDate?: string) => {
+        const fiscal = configurations.fiscalYearConfig;
+        if (!fiscal) return true;
+        const selected = getIsoDate(entryDate);
+        const start = getIsoDate(fiscal.fiscalYearStartDate);
+        const end = getIsoDate(fiscal.fiscalYearEndDate);
+        if (selected && start && end && (selected < start || selected > end)) {
+            throw new Error('Selected date is outside the active fiscal year. Please select a valid date or change Fiscal Year Configuration.');
+        }
+        if (fiscal.lockPreviousFiscalYear && selected && start && selected < start) {
+            throw new Error('Previous fiscal year is locked. You cannot create, edit, or delete vouchers for that fiscal year.');
+        }
+        return true;
+    }, [configurations.fiscalYearConfig]);
     const [defaultCustomerControlGlId, setDefaultCustomerControlGlId] = useState<string>('');
     const [defaultSupplierControlGlId, setDefaultSupplierControlGlId] = useState<string>('');
     const [bankOptions, setBankOptions] = useState<Array<{ id: string; bankName: string; accountName: string; accountNumber: string; linkedBankGlId?: string; defaultBank?: boolean; activeStatus?: string }>>([]);
@@ -979,6 +1009,7 @@ const App: React.FC = () => {
         if (!currentUser) {
             throw new Error("Unauthorized: please log in again.");
         }
+        validateFiscalYearAccess((tx as any).date);
 
         setIsOperationLoading(true);
         try {
@@ -1095,6 +1126,7 @@ const App: React.FC = () => {
 
     const handleUpdatePurchase = async (p: Purchase, supplierGst?: string) => {
         if (!currentUser) return;
+        validateFiscalYearAccess((p as any).date);
 
         setIsOperationLoading(true);
         try {
@@ -1227,6 +1259,7 @@ const App: React.FC = () => {
 
     const handleAddPurchase = async (p: any, supplierGst: string, nextCounter?: number) => {
         if (!currentUser) return;
+        validateFiscalYearAccess((p as any).date);
         setIsOperationLoading(true);
         try {
             const savedPurchase = await storage.addPurchase(p, currentUser);
@@ -1261,6 +1294,7 @@ const App: React.FC = () => {
         try {
             const purchase = purchases.find(p => p.id === purchaseId);
             if (!purchase) return;
+            validateFiscalYearAccess((purchase as any).date);
             if (purchase.status === 'cancelled') {
                 addNotification('This purchase bill is already cancelled.', 'warning');
                 return;
@@ -2968,6 +3002,7 @@ const App: React.FC = () => {
                     pharmacyName={currentUser?.pharmacy_name || 'MDXERA'}
                     isSyncing={isReloading || !isRealtimeActive}
                     appEdition={isRealtimeActive ? "Enterprise Edition [Live]" : "Enterprise Edition"}
+                    fiscalYearLabel={resolveFiscalYearLabel(configurations)}
                 />
             </div>
             <NotificationSystem notifications={notifications} removeNotification={removeNotification} />

@@ -382,6 +382,29 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                             <option value="8">Mode 8 (Auto-Rounding)</option>
                                         </select>
                                     </div>
+
+                                    <div className="pt-2">
+                                        <h3 className="text-sm font-black text-gray-800 uppercase tracking-tight border-b border-gray-200 pb-2">Fiscal Year Configuration</h3>
+                                        <p className="text-[10px] text-gray-500 mt-1 font-bold uppercase">Applies to Sales, Purchase, Inventory, Accounting, Reports & Voucher Numbering.</p>
+                                    </div>
+
+                                    <div className="py-3 border-b border-gray-100 flex items-center justify-between">
+                                        <span className="text-sm font-black text-gray-700 uppercase tracking-tight">Fiscal Year Start Date</span>
+                                        <input type="date" value={localConfigs.fiscalYearConfig?.fiscalYearStartDate || ''} onChange={e => handleConfigChange('fiscalYearConfig' as keyof AppConfigurations, 'fiscalYearStartDate', e.target.value)} className="p-2 border-2 border-gray-400 font-black text-xs uppercase focus:border-primary outline-none" />
+                                    </div>
+                                    <div className="py-3 border-b border-gray-100 flex items-center justify-between">
+                                        <span className="text-sm font-black text-gray-700 uppercase tracking-tight">Fiscal Year End Date</span>
+                                        <input type="date" value={localConfigs.fiscalYearConfig?.fiscalYearEndDate || ''} onChange={e => handleConfigChange('fiscalYearConfig' as keyof AppConfigurations, 'fiscalYearEndDate', e.target.value)} className="p-2 border-2 border-gray-400 font-black text-xs uppercase focus:border-primary outline-none" />
+                                    </div>
+                                    <div className="py-3 border-b border-gray-100 flex items-center justify-between">
+                                        <span className="text-sm font-black text-gray-700 uppercase tracking-tight">Current Fiscal Year</span>
+                                        <input type="text" placeholder="2024-2025" value={localConfigs.fiscalYearConfig?.currentFiscalYear || ''} onChange={e => handleConfigChange('fiscalYearConfig' as keyof AppConfigurations, 'currentFiscalYear', e.target.value)} className="p-2 border-2 border-gray-400 font-black text-xs uppercase focus:border-primary outline-none" />
+                                    </div>
+
+                                    <Toggle label="Auto Fiscal Year Detection" enabled={localConfigs.fiscalYearConfig?.autoFiscalYearDetection ?? true} setEnabled={(v) => handleConfigChange('fiscalYearConfig' as keyof AppConfigurations, 'autoFiscalYearDetection', v)} />
+                                    <Toggle label="Allow Backdated Entry" enabled={localConfigs.fiscalYearConfig?.allowBackdatedEntry ?? true} setEnabled={(v) => handleConfigChange('fiscalYearConfig' as keyof AppConfigurations, 'allowBackdatedEntry', v)} />
+                                    <Toggle label="Lock Previous Fiscal Year" enabled={localConfigs.fiscalYearConfig?.lockPreviousFiscalYear ?? false} setEnabled={(v) => handleConfigChange('fiscalYearConfig' as keyof AppConfigurations, 'lockPreviousFiscalYear', v)} />
+                                    <Toggle label="Reset Voucher Numbering by Fiscal Year" enabled={localConfigs.fiscalYearConfig?.resetVoucherNumberingByFiscalYear ?? true} setEnabled={(v) => handleConfigChange('fiscalYearConfig' as keyof AppConfigurations, 'resetVoucherNumberingByFiscalYear', v)} />
                                 </div>
                             </div>
                         )}

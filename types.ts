@@ -213,6 +213,15 @@ export interface AppConfigurations {
         returnType: 'Sahaj' | 'Sugam' | 'Quarterly (Normal)';
     };
     ewayLoginSetup?: EWayLoginSetupConfig;
+    fiscalYearConfig?: {
+        fiscalYearStartDate?: string;
+        fiscalYearEndDate?: string;
+        currentFiscalYear?: string;
+        autoFiscalYearDetection?: boolean;
+        allowBackdatedEntry?: boolean;
+        lockPreviousFiscalYear?: boolean;
+        resetVoucherNumberingByFiscalYear?: boolean;
+    };
     _isDirty?: boolean;
 }
 
