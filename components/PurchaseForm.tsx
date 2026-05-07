@@ -3,6 +3,7 @@ import Card from './Card';
 import Modal from './Modal';
 import AddMedicineModal from './AddMedicineModal';
 import EditMedicineModal from './EditMedicineModal';
+import { isDateInActiveFiscalYear, resolveFiscalYearConfig } from '../utils/fiscalYear';
 import { AddSupplierModal } from './AddSupplierModal';
 import { extractPurchaseDetailsFromBill } from '../services/geminiService';
 import type { Purchase, InventoryItem, Supplier, PurchaseItem, ModuleConfig, RegisteredPharmacy, PurchaseOrder, PurchaseOrderItem, SupplierProductMap, Medicine, AppConfigurations, FileInput, Transaction, LineAmountCalculationMode } from '../types';
@@ -928,6 +929,20 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             setIsSubmitting(false);
             return null;
         }
+        if (!isDateInActiveFiscalYear(date, configurations)) {
+            addNotification('Selected date is outside the active fiscal year. Please select a valid date or change Fiscal Year Configuration.', 'error');
+            isSubmittingRef.current = false;
+            setIsSubmitting(false);
+            return null;
+        }
+        const fyConfig = resolveFiscalYearConfig(configurations);
+        if (fyConfig.lockPreviousFiscalYear && date < fyConfig.fiscalYearStartDate) {
+            addNotification('Previous fiscal year is locked. Voucher modifications are not allowed for that year.', 'error');
+            isSubmittingRef.current = false;
+            setIsSubmitting(false);
+            return null;
+        }
+
         try {
             console.log('PurchaseForm: Starting submission...', { supplier, invoiceNumber, itemCount: activeItems.length, status: forcedStatus || 'completed' });
             let purchaseSerialId = purchaseToEdit?.purchaseSerialId;

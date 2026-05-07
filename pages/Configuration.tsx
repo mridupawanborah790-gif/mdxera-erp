@@ -96,7 +96,7 @@ const Toggle: React.FC<{ label: string; enabled: boolean; setEnabled: (enabled: 
 );
 
 const getVoucherSchemeDefaults = (): InvoiceNumberConfig => ({
-    fy: getFinancialYearLabel(),
+    fy: '',
     prefix: 'INV',
     startingNumber: 1,
     endNumber: undefined,
@@ -108,16 +108,39 @@ const getVoucherSchemeDefaults = (): InvoiceNumberConfig => ({
 });
 
 
-const buildNumberPreview = (cfg: Partial<InvoiceNumberConfig>, number: number) => {
+const buildNumberPreview = (cfg: Partial<InvoiceNumberConfig>, number: number, fiscalYear?: string) => {
     const prefix = cfg.prefix || '';
-    const fy = cfg.fy || getFinancialYearLabel();
     const padded = String(number).padStart(Math.max(1, Number(cfg.paddingLength) || 1), '0');
-    return `${prefix}${padded}${cfg.useFiscalYear ? `-${fy}` : ''}`;
+    const normalizedFiscalYear = (fiscalYear || '').trim();
+    const shouldAppendFy = Boolean(cfg.useFiscalYear && normalizedFiscalYear);
+    return `${prefix}${padded}${shouldAppendFy ? `-${normalizedFiscalYear}` : ''}`;
 };
 
-function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, configs: AppConfigurations, onChange: (section: keyof AppConfigurations, field: string, value: any) => void, liveSequences: Record<string, { currentNumber: number, documentNumber: string }>, isLoadingLive: boolean) {
+const FY_REGEX = /^(\d{4})$/;
+const FISCAL_YEAR_ERROR_MESSAGE = 'Invalid fiscal year. Please enter only starting fiscal year in YYYY format.';
+
+const toFiscalYearFromDates = (startDate?: string, endDate?: string) => {
+    if (!startDate || !endDate) return null;
+    if (endDate <= startDate) return null;
+    return `${startDate.slice(0, 4)}`;
+};
+
+const toDatesFromFiscalYear = (fiscalYear?: string) => {
+    const match = FY_REGEX.exec((fiscalYear || '').trim());
+    if (!match) return null;
+    const startYear = Number(match[1]);
+    return {
+        fiscalYearStartDate: `${startYear}-04-01`,
+        fiscalYearEndDate: `${startYear + 1}-03-31`,
+        currentFiscalYear: `${startYear}`,
+    };
+};
+
+const resolveConfiguredFiscalYear = (configs: AppConfigurations) => (configs.fiscalYearConfig?.currentFiscalYear || '').trim();
+
+function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, configs: AppConfigurations, onChange: (section: keyof AppConfigurations, field: string, value: any) => void, liveSequences: Record<string, { currentNumber: number, documentNumber: string }>, isLoadingLive: boolean, fiscalYear?: string) {
     const merged = { ...getVoucherSchemeDefaults(), ...(configs[key] as InvoiceNumberConfig || {}) };
-    const systemFy = getFinancialYearLabel();
+    const configuredFiscalYear = (fiscalYear || '').trim();
     
     // Prioritize live data from database if available
     const live = liveSequences[key];
@@ -131,7 +154,7 @@ function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, c
         <div className="p-4 border border-gray-200 bg-gray-50 mb-4">
             <h3 className="text-xs font-black text-primary uppercase tracking-widest mb-3">{label}</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div><label className="text-[9px] font-black text-gray-400 uppercase">FY</label><input type="text" value={systemFy} readOnly className="w-full tally-input uppercase bg-gray-100" placeholder="2025-26"/></div>
+                <div><label className="text-[9px] font-black text-gray-400 uppercase">FY</label><input type="text" value={configuredFiscalYear} readOnly className="w-full tally-input uppercase bg-gray-100" placeholder="From Fiscal Year Configuration"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">Prefix</label><input type="text" value={merged.prefix} onChange={e => onChange(key, 'prefix', e.target.value)} className="w-full tally-input uppercase"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">Start No</label><input type="number" min={1} value={merged.startingNumber} onChange={e => onChange(key, 'startingNumber', parseInt(e.target.value || '1', 10))} className="w-full tally-input"/></div>
                 <div><label className="text-[9px] font-black text-gray-400 uppercase">End No (Optional)</label><input type="number" min={1} value={merged.endNumber ?? ''} onChange={e => onChange(key, 'endNumber', e.target.value ? parseInt(e.target.value, 10) : undefined)} className="w-full tally-input"/></div>
@@ -141,11 +164,12 @@ function renderVoucherSeriesInput(label: string, key: keyof AppConfigurations, c
                 <div className="pt-4"><Toggle label="Use FY in Number" enabled={merged.useFiscalYear} setEnabled={v => onChange(key, 'useFiscalYear', v)} /></div>
             </div>
             <div className="mt-4 p-3 border border-dashed border-gray-300 bg-white text-[10px] uppercase font-black tracking-wide grid grid-cols-1 md:grid-cols-4 gap-2">
-                <div><span className="text-gray-500">Last Used:</span> {displayVal(lastUsedNumber ? buildNumberPreview({ ...merged, fy: systemFy }, lastUsedNumber) : 'None')}</div>
-                <div><span className="text-gray-500">Current Running:</span> {displayVal(buildNumberPreview({ ...merged, fy: systemFy }, currentRunningNumber))}</div>
-                <div><span className="text-gray-500">Preview (Next):</span> {displayVal(buildNumberPreview({ ...merged, fy: systemFy }, currentRunningNumber))}</div>
+                <div><span className="text-gray-500">Last Used:</span> {displayVal(lastUsedNumber ? buildNumberPreview(merged, lastUsedNumber, configuredFiscalYear) : 'None')}</div>
+                <div><span className="text-gray-500">Current Running:</span> {displayVal(buildNumberPreview(merged, currentRunningNumber, configuredFiscalYear))}</div>
+                <div><span className="text-gray-500">Preview (Next):</span> {displayVal(buildNumberPreview(merged, currentRunningNumber, configuredFiscalYear))}</div>
                 <div><span className="text-gray-500">Remaining:</span> {displayVal(remainingCount === null ? 'Unlimited' : remainingCount)}</div>
             </div>
+            {merged.useFiscalYear && !configuredFiscalYear && (<p className="mt-2 text-[10px] font-bold text-amber-700">Fiscal Year not configured. Voucher number will be generated without FY.</p>)}
         </div>
     );
 }
@@ -492,6 +516,22 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                     updatedSectionData.strictStock = !value;
                 }
             }
+
+            if (section === 'fiscalYearConfig') {
+                if (field === 'currentFiscalYear') {
+                    const derivedDates = toDatesFromFiscalYear(String(value || '').trim());
+                    if (derivedDates) {
+                        updatedSectionData = { ...updatedSectionData, ...derivedDates };
+                    }
+                }
+
+                if (field === 'fiscalYearStartDate' || field === 'fiscalYearEndDate') {
+                    const derivedFiscalYear = toFiscalYearFromDates(updatedSectionData.fiscalYearStartDate, updatedSectionData.fiscalYearEndDate);
+                    if (derivedFiscalYear) {
+                        updatedSectionData.currentFiscalYear = derivedFiscalYear;
+                    }
+                }
+            }
             
             return { ...prev, [section]: updatedSectionData, _isDirty: true };
         });
@@ -788,13 +828,13 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
         ];
 
         const seen = new Set<string>();
-        const systemFy = getFinancialYearLabel();
+        const configuredFiscalYear = resolveConfiguredFiscalYear(localConfigs);
         for (const [key, label] of targets) {
             const cfg = { ...getVoucherSchemeDefaults(), ...(localConfigs[key] as InvoiceNumberConfig || {}) };
             if (cfg.endNumber && cfg.endNumber < cfg.startingNumber) return `${label}: End No cannot be less than Start No.`;
             if (cfg.currentNumber < cfg.startingNumber) return `${label}: Current Running No cannot be less than Start No.`;
             if (cfg.endNumber && cfg.currentNumber > cfg.endNumber) return `${label}: Number range exhausted. Increase End No before saving.`;
-            const overlapKey = `${systemFy}|${cfg.prefix || ''}`.toUpperCase();
+            const overlapKey = `${configuredFiscalYear || 'NO-FY'}|${cfg.prefix || ''}`.toUpperCase();
             if (seen.has(overlapKey)) return `${label}: Overlapping configuration detected (same FY + Prefix).`;
             seen.add(overlapKey);
         }
@@ -961,6 +1001,20 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                             setEnabled={(v) => handleConfigChange('displayOptions', 'enableNegativeStock', v)}
                                             description="Allow inventory to drop below zero if needed."
                                         />
+                                    </div>
+
+
+                                    <div className="space-y-4 md:col-span-2">
+                                        <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4">Fiscal Year Configuration</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="flex flex-col gap-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Fiscal Year Start Date</label><input type="date" value={localConfigs.fiscalYearConfig?.fiscalYearStartDate || ''} onChange={e => handleConfigChange('fiscalYearConfig', 'fiscalYearStartDate', e.target.value)} className="w-full tally-input !text-sm"/></div>
+                                            <div className="flex flex-col gap-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Fiscal Year End Date</label><input type="date" value={localConfigs.fiscalYearConfig?.fiscalYearEndDate || ''} onChange={e => handleConfigChange('fiscalYearConfig', 'fiscalYearEndDate', e.target.value)} className="w-full tally-input !text-sm"/></div>
+                                            <div className="flex flex-col gap-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Current Fiscal Year</label><input type="text" value={localConfigs.fiscalYearConfig?.currentFiscalYear || ''} onChange={e => handleConfigChange('fiscalYearConfig', 'currentFiscalYear', e.target.value)} placeholder="2026" className="w-full tally-input !text-sm"/></div>
+                                            <div className="flex flex-col gap-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Voucher Numbering Mode</label><select value={localConfigs.fiscalYearConfig?.voucherNumberingMode || 'reset'} onChange={e => handleConfigChange('fiscalYearConfig', 'voucherNumberingMode', e.target.value)} className="w-full tally-input !text-sm"><option value="reset">Reset each fiscal year</option><option value="continue">Continue sequence</option></select></div>
+                                        </div>
+                                        <Toggle label="Auto Fiscal Year Detection" enabled={localConfigs.fiscalYearConfig?.autoFiscalYearDetection ?? true} setEnabled={(v) => handleConfigChange('fiscalYearConfig', 'autoFiscalYearDetection', v)} />
+                                        <Toggle label="Allow Backdated Entry" enabled={localConfigs.fiscalYearConfig?.allowBackdatedEntry ?? true} setEnabled={(v) => handleConfigChange('fiscalYearConfig', 'allowBackdatedEntry', v)} />
+                                        <Toggle label="Lock Previous Fiscal Year" enabled={localConfigs.fiscalYearConfig?.lockPreviousFiscalYear ?? false} setEnabled={(v) => handleConfigChange('fiscalYearConfig', 'lockPreviousFiscalYear', v)} description="Disallow create/update/delete of vouchers in prior fiscal years." />
                                     </div>
 
                                     <div className="space-y-4 md:col-span-2">
@@ -1443,13 +1497,13 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                         {activeSection === 'invoiceNumbering' && (
                             <div className="space-y-4 animate-in fade-in duration-300">
                                 <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter border-b-2 border-primary pb-2 mb-6">Voucher Numbering Schemes</h2>
-                                {renderVoucherSeriesInput('Sales Bill (GST)', 'invoiceConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive)}
-                                {renderVoucherSeriesInput('Sales Bill (Non-GST)', 'nonGstInvoiceConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive)}
-                                {renderVoucherSeriesInput('Purchase Entry / Supplier Invoice', 'purchaseConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive)}
-                                {renderVoucherSeriesInput('Purchase Order', 'purchaseOrderConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive)}
-                                {renderVoucherSeriesInput('Sales Challan', 'salesChallanConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive)}
-                                {renderVoucherSeriesInput('Delivery Challan', 'deliveryChallanConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive)}
-                                {renderVoucherSeriesInput('Physical Inventory', 'physicalInventoryConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive)}
+                                {renderVoucherSeriesInput('Sales Bill (GST)', 'invoiceConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive, resolveConfiguredFiscalYear(localConfigs))}
+                                {renderVoucherSeriesInput('Sales Bill (Non-GST)', 'nonGstInvoiceConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive, resolveConfiguredFiscalYear(localConfigs))}
+                                {renderVoucherSeriesInput('Purchase Entry / Supplier Invoice', 'purchaseConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive, resolveConfiguredFiscalYear(localConfigs))}
+                                {renderVoucherSeriesInput('Purchase Order', 'purchaseOrderConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive, resolveConfiguredFiscalYear(localConfigs))}
+                                {renderVoucherSeriesInput('Sales Challan', 'salesChallanConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive, resolveConfiguredFiscalYear(localConfigs))}
+                                {renderVoucherSeriesInput('Delivery Challan', 'deliveryChallanConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive, resolveConfiguredFiscalYear(localConfigs))}
+                                {renderVoucherSeriesInput('Physical Inventory', 'physicalInventoryConfig', localConfigs, handleConfigChange, liveSequences, isLoadingLive, resolveConfiguredFiscalYear(localConfigs))}
                             </div>
                         )}
 
@@ -1494,7 +1548,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                     if (!validIds.has(id)) delete sanitizedOrder[id];
                                 });
 
-                                const systemFy = getFinancialYearLabel();
+                                const configuredFiscalYear = resolveConfiguredFiscalYear(localConfigs);
                                 const voucherConfigKeys: Array<keyof AppConfigurations> = ['invoiceConfig', 'nonGstInvoiceConfig', 'purchaseConfig', 'purchaseOrderConfig', 'salesChallanConfig', 'deliveryChallanConfig', 'physicalInventoryConfig'];
                                 const normalizedConfigs = voucherConfigKeys.reduce((acc, configKey) => {
                                     const existing = ((localConfigs[configKey] as InvoiceNumberConfig) || getVoucherSchemeDefaults());
@@ -1503,7 +1557,7 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                         ...acc,
                                         [configKey]: {
                                             ...existing,
-                                            fy: systemFy,
+                                            fy: configuredFiscalYear,
                                             currentNumber: safeCurrent,
                                             resetRule: 'financial-year'
                                         }
@@ -1514,7 +1568,27 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                                     masterShortcutOrder: sanitizedOrder 
                                 } as AppConfigurations);
 
-                                onUpdateConfigurations(normalizeStockHandlingConfig(normalizedConfigs));
+                                const fyConfig = normalizedConfigs.fiscalYearConfig || {};
+                                const derivedFiscalYear = toFiscalYearFromDates(fyConfig.fiscalYearStartDate, fyConfig.fiscalYearEndDate);
+                                const isDatesValid = !!derivedFiscalYear;
+                                const isCurrentYearValid = !!toDatesFromFiscalYear(fyConfig.currentFiscalYear);
+
+                                if (!isDatesValid || !isCurrentYearValid) {
+                                    addNotification(FISCAL_YEAR_ERROR_MESSAGE, 'error');
+                                    return;
+                                }
+
+                                const parsedFiscalYearDates = toDatesFromFiscalYear(fyConfig.currentFiscalYear)!;
+                                const syncedFiscalYearConfig = {
+                                    ...fyConfig,
+                                    ...parsedFiscalYearDates,
+                                    currentFiscalYear: derivedFiscalYear
+                                };
+
+                                onUpdateConfigurations(normalizeStockHandlingConfig({
+                                    ...normalizedConfigs,
+                                    fiscalYearConfig: syncedFiscalYearConfig
+                                }));
                                     addNotification('Accepted Changes and sanitized shortcut list.', 'success');
                             }} className="px-16 py-4 tally-button-primary shadow-2xl uppercase text-[11px] font-black tracking-[0.3em] active:scale-95">Accept (Enter)</button>
                         </div>
