@@ -5,7 +5,7 @@ import POS from '../components/POS';
 import Modal from '../components/Modal';
 import { SalesChallan, BillItem, InventoryItem, Customer, RegisteredPharmacy, AppConfigurations, SalesChallanStatus, Medicine, Purchase } from '../types';
 // Fix: Verified storage service exports include updateSalesChallanStatus and updateChallanStatus
-import { reserveVoucherNumber, updateSalesChallanStatus, updateChallanStatus } from '../services/storageService';
+import { reserveVoucherNumber } from '../services/storageService';
 import { evaluateCustomerCredit, getCustomerOpenChallanExposure } from '../utils/creditControl';
 
 interface SalesChallansProps {
@@ -29,7 +29,7 @@ const SalesChallans = React.forwardRef<any, SalesChallansProps>(({
     salesChallans, inventory, medicines, purchases, customers, currentUser, configurations,
     onAddChallan, onUpdateChallan, onCancelChallan, onConvertToInvoice, addNotification, onAddMedicineMaster
 }, ref) => {
-    const [activeTab, setActiveTab] = useState<'create' | 'list'>('list');
+    const [activeTab, setActiveTab] = useState<'create' | 'list'>('create');
     const [selectedChallanIds, setSelectedChallanIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<SalesChallanStatus | 'all'>(SalesChallanStatus.OPEN);
     const [selectedChallanForView, setSelectedChallanForView] = useState<SalesChallan | null>(null);
@@ -148,15 +148,15 @@ Do you want to continue?`);
     return (
         <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
             <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
-                <span className="text-[10px] font-black uppercase tracking-widest">Sales Challan (Delivery Note)</span>
+                <span className="text-[10px] font-black uppercase tracking-widest">Accounting Voucher Creation (Sales Challan)</span>
                 <span className="text-[10px] font-black uppercase text-accent">Entries: {visibleChallans.length}</span>
             </div>
 
             <div className="p-4 flex-1 flex flex-col gap-4 overflow-hidden">
                 <div className="flex justify-between items-center px-2">
                     <div className="flex items-center space-x-2 bg-white p-1 border border-app-border shadow-sm">
-                        <button onClick={() => { setActiveTab('list'); setSelectedChallanForView(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'list' ? 'bg-primary text-white' : 'text-gray-400 hover:bg-hover'}`}>History</button>
-                        <button onClick={() => { setActiveTab('create'); setSelectedChallanForView(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'create' ? 'bg-primary text-white' : 'text-gray-400 hover:bg-hover'}`}>New Note</button>
+                        <button onClick={() => { setActiveTab('create'); setSelectedChallanForView(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'create' ? 'bg-primary text-white' : 'text-gray-400 hover:bg-hover'}`}>Voucher</button>
+                        <button onClick={() => { setActiveTab('list'); setSelectedChallanForView(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'list' ? 'bg-primary text-white' : 'text-gray-400 hover:bg-hover'}`}>Last 20 Sales / Challans</button>
                     </div>
                     {selectedChallanIds.size > 0 && (
                         <button onClick={handleMergeToPOS} className="px-6 py-2 bg-emerald-600 text-white font-black text-xs uppercase tracking-widest shadow-lg transform active:scale-95">Convert {selectedChallanIds.size} to Sales Bill</button>
