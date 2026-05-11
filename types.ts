@@ -506,6 +506,8 @@ export interface SalesChallan {
     customerName: string;
     customerId?: string | null;
     customerPhone?: string;
+    customerAddress?: string;
+    referredBy?: string;
     date: string;
     items: BillItem[];
     totalAmount: number;
@@ -513,6 +515,7 @@ export interface SalesChallan {
     totalGst: number;
     status: SalesChallanStatus;
     narration?: string;
+    billCategory?: string;
     remarks?: string;
 }
 

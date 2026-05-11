@@ -40,6 +40,7 @@ interface POSProps {
     billType?: 'regular' | 'non-gst';
     addNotification: (message: string, type?: 'success' | 'error' | 'warning') => void;
     transactionToEdit?: Transaction | null;
+    conversionDraft?: Transaction | null;
     isReadOnly?: boolean;
     onCancel?: () => void;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
@@ -278,6 +279,7 @@ const POS = forwardRef<any, POSProps>(({
     billType = 'regular',
     addNotification,
     transactionToEdit,
+    conversionDraft,
     isReadOnly,
     onCancel,
     onAddMedicineMaster,
@@ -737,15 +739,16 @@ const POS = forwardRef<any, POSProps>(({
     }, [billType]);
 
     useEffect(() => {
-        if (transactionToEdit) {
-            setSelectedCustomer(customers.find(c => c.id === transactionToEdit.customerId) || null);
-            setCustomerSearch(transactionToEdit.customerName || '');
-            setCustomerPhone(transactionToEdit.customerPhone || '');
-            setCustomerAddress((transactionToEdit as any).customerAddress || '');
-            setReferredBy(transactionToEdit.referredBy || '');
-            setDoctorId(transactionToEdit.doctorId || null);
-            setInvoiceDate(transactionToEdit.date.split('T')[0]);
-            setCartItems((transactionToEdit.items || []).map(item => {
+        const sourceTx = transactionToEdit || conversionDraft;
+        if (sourceTx) {
+            setSelectedCustomer(customers.find(c => c.id === sourceTx.customerId) || null);
+            setCustomerSearch(sourceTx.customerName || '');
+            setCustomerPhone(sourceTx.customerPhone || '');
+            setCustomerAddress((sourceTx as any).customerAddress || '');
+            setReferredBy(sourceTx.referredBy || '');
+            setDoctorId(sourceTx.doctorId || null);
+            setInvoiceDate(sourceTx.date.split('T')[0]);
+            setCartItems((sourceTx.items || []).map(item => {
                 const normalizedItem = normalizePackConversion(item);
                 if (!isGstInclusiveMrp(normalizedItem.taxBasis)) return normalizedItem;
                 return {
@@ -753,11 +756,11 @@ const POS = forwardRef<any, POSProps>(({
                     rate: calculateRateExcludingGst(normalizedItem.mrp, normalizedItem.gstPercent),
                 };
             }));
-            setLumpsumDiscount(transactionToEdit.schemeDiscount || 0);
-            setAdjustment(transactionToEdit.adjustment || 0);
-            setNarration(transactionToEdit.narration || '');
-            setRoundOff(transactionToEdit.roundOff || 0);
-            setBillCategory(String(transactionToEdit.paymentMode || '').toLowerCase() === 'credit' ? 'Credit' : 'Cash');
+            setLumpsumDiscount(sourceTx.schemeDiscount || 0);
+            setAdjustment(sourceTx.adjustment || 0);
+            setNarration(sourceTx.narration || '');
+            setRoundOff(sourceTx.roundOff || 0);
+            setBillCategory(String(sourceTx.paymentMode || '').toLowerCase() === 'credit' ? 'Credit' : 'Cash');
             setIsRoundOffManuallyEdited(true);
         } else {
             setIsRoundOffManuallyEdited(false);
@@ -768,7 +771,7 @@ const POS = forwardRef<any, POSProps>(({
             // Default focus to Date field as requested
             setTimeout(() => dateInputRef.current?.focus(), 150);
         }
-    }, [transactionToEdit, customers]);
+    }, [transactionToEdit, conversionDraft, customers]);
 
     const currentInvoiceNo = useMemo(() => {
         if (transactionToEdit) return transactionToEdit.id;
@@ -1159,6 +1162,7 @@ const POS = forwardRef<any, POSProps>(({
             prescriptionImages: prescriptions.map(p => p.data),
             previousBalanceBeforeBill: Number(previousBalanceBeforeBill.toFixed(2)),
             balanceAfterBill,
+            linkedChallans: conversionDraft?.linkedChallans || undefined,
         };
 
         try {
