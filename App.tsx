@@ -149,6 +149,7 @@ const App: React.FC = () => {
     const [bankOptions, setBankOptions] = useState<Array<{ id: string; bankName: string; accountName: string; accountNumber: string; linkedBankGlId?: string; defaultBank?: boolean; activeStatus?: string }>>([]);
 
     const [sourceChallansForPurchase, setSourceChallansForPurchase] = useState<{ items: PurchaseItem[], supplier: string, ids: string[] } | null>(null);
+    const [sourceChallansForSales, setSourceChallansForSales] = useState<Transaction | null>(null);
     const [purchaseCopyDraft, setPurchaseCopyDraft] = useState<{ sourceId: string; items: PurchaseItem[]; supplier: string; invoiceNumber: string; date: string } | null>(null);
     const [mobileSyncSessionId, setMobileSyncSessionId] = useState<string | null>(null);
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
@@ -1056,6 +1057,14 @@ const App: React.FC = () => {
             }
 
             const savedTx = await storage.addTransaction(tx, currentUser, isUpdate);
+            if (!isUpdate && tx.linkedChallans?.length) {
+                const openLinkedChallans = salesChallans.filter(ch => tx.linkedChallans?.includes(ch.id) && ch.status === SalesChallanStatus.OPEN);
+                await Promise.all(
+                    openLinkedChallans.map(ch =>
+                        storage.saveData('sales_challans', { ...ch, status: SalesChallanStatus.CONVERTED }, currentUser, true)
+                    )
+                );
+            }
 
             // Synchronize the local configuration state with the next expected number.
             // This ensures that the "Preview" number shown in the UI is consistent with what's in the DB
@@ -1084,6 +1093,7 @@ const App: React.FC = () => {
                 setEditingSale(null);
             } else {
                 setTransactions(prev => [savedTx, ...prev]);
+                setSourceChallansForSales(null);
             }
 
             // Do not block UI success state on background refresh.
@@ -2073,6 +2083,42 @@ const App: React.FC = () => {
     };
 
     const handleConvertToInvoice = (items: BillItem[], customer: Customer, ids: string[]) => {
+        if (!ids.length) {
+            addNotification('Please select at least one challan to convert.', 'error');
+            return;
+        }
+        const selectedChallans = salesChallans.filter(ch => ids.includes(ch.id) && ch.status === SalesChallanStatus.OPEN);
+        if (!selectedChallans.length) {
+            addNotification('Selected challan is already converted/cancelled or unavailable.', 'error');
+            return;
+        }
+        const first = selectedChallans[0];
+        const mergedItems: BillItem[] = [];
+        selectedChallans.forEach(ch => mergedItems.push(...(ch.items || [])));
+
+        setSourceChallansForSales({
+            id: '',
+            organization_id: currentUser?.organization_id || first.organization_id || '',
+            date: first.date,
+            customerName: first.customerName || customer.name,
+            customerId: first.customerId || customer.id,
+            customerPhone: first.customerPhone || customer.phone || '',
+            customerAddress: first.customerAddress || customer.address || '',
+            referredBy: first.referredBy || '',
+            items: mergedItems,
+            total: Number(selectedChallans.reduce((sum, ch) => sum + Number(ch.totalAmount || 0), 0)),
+            itemCount: mergedItems.length,
+            status: 'draft',
+            paymentMode: first.billCategory || 'Cash',
+            billType: 'regular',
+            subtotal: Number(selectedChallans.reduce((sum, ch) => sum + Number(ch.subtotal || 0), 0)),
+            totalItemDiscount: 0,
+            totalGst: Number(selectedChallans.reduce((sum, ch) => sum + Number(ch.totalGst || 0), 0)),
+            schemeDiscount: 0,
+            roundOff: 0,
+            narration: [first.narration, `Converted from Challan: ${selectedChallans.map(ch => ch.challanSerialId).join(', ')}`].filter(Boolean).join('\n'),
+            linkedChallans: selectedChallans.map(ch => ch.id)
+        });
         handleNavigate('pos');
     };
 
@@ -2173,6 +2219,7 @@ const App: React.FC = () => {
                             handleNavigate('salesHistory', true);
                         }}
                         transactionToEdit={editingSale}
+                        conversionDraft={sourceChallansForSales}
                         onRefreshConfig={() => loadData(currentUser!, 'background')}
                         salesChallans={salesChallans}
                     />;
