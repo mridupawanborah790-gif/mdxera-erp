@@ -27,6 +27,7 @@ interface ReportDefinition {
 type SortDirection = 'asc' | 'desc';
 type MfrSalesViewMode = 'detailed' | 'productSummary';
 type StockMovementViewMode = 'detailed' | 'productSummary';
+type InventoryValueViewMode = 'batchWise' | 'productWise';
 
 const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
 
@@ -69,6 +70,7 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'negativeStock', name: 'Negative Stock Report', group: 'Inventory Reports' },
   { id: 'reorderLevelReport', name: 'Reorder Level Report', group: 'Inventory Reports' },
   { id: 'stockMovementSummary', name: 'Stock Movement Summary', group: 'Inventory Reports' },
+  { id: 'inventoryValue', name: 'Inventory Value', group: 'Inventory Reports' },
 
   { id: 'ledgerReport', name: 'Account Ledger', group: 'Accounting Reports' },
   { id: 'accountLedgerCustomer', name: 'Account Ledger for Customer', group: 'Accounting Reports' },
@@ -115,6 +117,7 @@ const Reports: React.FC<ReportsProps> = ({
   const [columnModalOpen, setColumnModalOpen] = useState(false);
   const [mfrSalesViewMode, setMfrSalesViewMode] = useState<MfrSalesViewMode>('detailed');
   const [stockMovementViewMode, setStockMovementViewMode] = useState<StockMovementViewMode>('detailed');
+  const [inventoryValueViewMode, setInventoryValueViewMode] = useState<InventoryValueViewMode>('batchWise');
 
   const reportById = useMemo(() => new Map(REPORT_LIST.map(r => [r.id, r])), []);
   const groupedReports = useMemo(() => {
@@ -738,6 +741,63 @@ const Reports: React.FC<ReportsProps> = ({
         rows = inventory.filter(i => Number(i.stock || 0) < 0).map(i => ({ 'Item': i.name, 'Batch': i.batch, 'Current Stock': Number(i.stock || 0), 'Location': i.rackNumber || 'N/A' }));
         break;
 
+
+      case 'inventoryValue': {
+        reportHeaders = ['Product Name', 'Material Code', 'Batch', 'Expiry', 'Quantity', 'Purchase Rate', 'Value', 'HSN Code', 'MFR', 'Pack', 'GST %', 'Valuation Method', 'Category'];
+        const valuationMethod = String(activeFilters['Valuation Method']?.[0] || 'Moving Average');
+        const shouldShowBatch = inventoryValueViewMode === 'batchWise';
+        const inventoryRows = inventory
+          .map(item => {
+            const breakup = getStockBreakup(item.stock, item.unitsPerPack, item.packType);
+            const qty = Number(breakup.totalUnits || 0);
+            const batchRate = Number(item.ptr || item.purchasePrice || 0);
+            const standardRate = Number(item.purchasePrice || item.ptr || 0);
+            const purchaseRate = valuationMethod === 'Standard' ? standardRate : batchRate;
+            return {
+              'Product Name': item.name,
+              'Material Code': item.code || item.id,
+              'Batch': item.batch || 'N/A',
+              'Expiry': item.expiry ? new Date(item.expiry).toLocaleDateString('en-GB') : 'N/A',
+              'Quantity': qty,
+              'Purchase Rate': round2(purchaseRate),
+              'Value': round2(qty * purchaseRate),
+              'HSN Code': item.hsnCode || 'N/A',
+              'MFR': item.manufacturer || item.brand || 'N/A',
+              'Pack': item.packType || 'N/A',
+              'GST %': round2(Number(item.gstPercent || 0)),
+              'Valuation Method': valuationMethod,
+              'Category': item.category || 'N/A',
+            };
+          })
+          .filter(row => Number(row['Quantity'] || 0) >= 0);
+
+        if (shouldShowBatch) {
+          rows = inventoryRows;
+        } else {
+          const grouped = new Map();
+          inventoryRows.forEach((row:any) => {
+            const key = `${String(row['Product Name']).toLowerCase()}|${String(row['Material Code']).toLowerCase()}`;
+            const current:any = grouped.get(key) || { ...row, 'Batch': '-', 'Expiry': '-', 'Quantity': 0, 'Purchase Rate': 0, 'Value': 0, _weightedAmount: 0, _batches: 0 };
+            current['Quantity'] = round2(Number(current['Quantity']) + Number(row['Quantity']));
+            current['Value'] = round2(Number(current['Value']) + Number(row['Value']));
+            current._weightedAmount = Number(current._weightedAmount) + (Number(row['Quantity']) * Number(row['Purchase Rate']));
+            current._batches = Number(current._batches) + 1;
+            grouped.set(key, current);
+          });
+          rows = Array.from(grouped.values()).map((row:any) => ({
+            ...row,
+            'Purchase Rate': round2(Number(row['Quantity']) ? Number(row._weightedAmount) / Number(row['Quantity']) : 0),
+            'Value': round2(Number(row['Value'])),
+            'Batch': 'Consolidated',
+            'Expiry': '-',
+          }));
+        }
+        if (inventoryValueViewMode !== 'batchWise') {
+          reportHeaders = reportHeaders.filter(h => h !== 'Batch' && h !== 'Expiry');
+        }
+        break;
+      }
+
       case 'stockMovementSummary': {
         const summaryHeaders = ['Product Name', 'MFR', 'Rate', 'Opening Qty', 'Opening Value', 'Receipt Qty', 'Receipt Value', 'Issue Qty', 'Issue Value', 'Closing Qty', 'Closing Value'];
         const detailedHeaders = ['Product Name', 'MFR', 'Rate', 'Batch', 'Movement Type', 'Reference No', 'Opening Qty', 'Opening Value', 'Receipt Qty', 'Receipt Value', 'Issue Qty', 'Issue Value', 'Closing Qty', 'Closing Value'];
@@ -1350,7 +1410,7 @@ const Reports: React.FC<ReportsProps> = ({
               <div className="text-[10px] text-gray-500">Period: {new Date(periodStartDate).toLocaleDateString('en-GB')} to {new Date(periodEndDate).toLocaleDateString('en-GB')}</div>
             </div>
             <div className="flex gap-1 text-[10px] items-center">
-              {(activeReportId === 'mfrWiseSalesDetailedReport' || activeReportId === 'stockMovementSummary') && (
+              {(activeReportId === 'mfrWiseSalesDetailedReport' || activeReportId === 'stockMovementSummary' || activeReportId === 'inventoryValue') && (
                 <div className="flex items-center gap-1 mr-2">
                   <span className="text-gray-600">View Mode:</span>
                   {activeReportId === 'mfrWiseSalesDetailedReport' ? (
@@ -1358,10 +1418,15 @@ const Reports: React.FC<ReportsProps> = ({
                       <option value="detailed">Detailed View</option>
                       <option value="productSummary">Product Summary View</option>
                     </select>
-                  ) : (
+                  ) : activeReportId === 'stockMovementSummary' ? (
                     <select value={stockMovementViewMode} onChange={(e) => setStockMovementViewMode(e.target.value as StockMovementViewMode)} className="px-1 py-1 border border-gray-300 bg-white">
                       <option value="detailed">Detailed View</option>
                       <option value="productSummary">Product Summary View</option>
+                    </select>
+                  ) : (
+                    <select value={inventoryValueViewMode} onChange={(e) => setInventoryValueViewMode(e.target.value as InventoryValueViewMode)} className="px-1 py-1 border border-gray-300 bg-white">
+                      <option value="batchWise">Batch-wise View</option>
+                      <option value="productWise">Product-wise Consolidated</option>
                     </select>
                   )}
                 </div>
