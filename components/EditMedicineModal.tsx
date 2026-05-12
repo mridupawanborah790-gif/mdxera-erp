@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Modal from './Modal';
 import type { InventoryItem, Medicine } from '../types';
 import { getResolvedMedicinePolicy, MATERIAL_TYPE_RULES, type MaterialMasterType } from '../utils/materialType';
@@ -36,6 +36,7 @@ const calculateMovingAverageRate = (medicine: Medicine, inventoryItems: Inventor
 const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, onSave, medicine, organizationType, existingMedicines = [], inventoryItems = [] }) => {
     const [formState, setFormState] = useState<Medicine | null>(null);
     const [errors, setErrors] = useState<Partial<Record<keyof Medicine, string>>>({});
+    const firstEditableInputRef = useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
         if (isOpen && medicine) {
@@ -93,19 +94,30 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
         setFormState(prev => prev ? ({ ...prev, [name]: isNumber ? parseFloat(value) || 0 : value }) : null);
     };
 
+    useEffect(() => {
+        if (!isOpen) return;
+        const timer = window.setTimeout(() => {
+            firstEditableInputRef.current?.focus();
+            firstEditableInputRef.current?.select();
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [isOpen]);
+
     if (!formState) return null;
 
     const materialPolicy = getResolvedMedicinePolicy(formState);
 
-    const renderInput = (name: keyof Medicine, label: string, type = 'text', isOptional = true) => (
+    const renderInput = (name: keyof Medicine, label: string, type = 'text', isOptional = true, isReadOnly = false) => (
         <div>
             <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">{label} {!isOptional && '*'}</label>
-            <input 
-                type={type} 
-                name={name} 
-                value={(formState[name] as string | number) ?? ''} 
-                onChange={handleChange} 
-                className={`mt-1 block w-full p-2 border border-gray-400 font-bold text-sm bg-input-bg text-app-text-primary ${errors[name] ? 'border-red-500' : 'focus:bg-yellow-50 outline-none'}`} 
+            <input
+                ref={name === 'name' ? firstEditableInputRef : undefined}
+                type={type}
+                name={name}
+                value={(formState[name] as string | number) ?? ''}
+                onChange={handleChange}
+                readOnly={isReadOnly}
+                className={`mt-1 block w-full p-2 border border-gray-400 font-bold text-sm text-app-text-primary outline-none ${isReadOnly ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'bg-input-bg focus:bg-yellow-50'} ${errors[name] ? 'border-red-500' : ''}`}
             />
             {errors[name] && <p className="text-[10px] text-red-500 mt-1 uppercase font-bold">{errors[name]}</p>}
         </div>
@@ -113,11 +125,11 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Alter Material Record: ${medicine?.name}`} widthClass="max-w-6xl">
-            <form onSubmit={handleSubmit} className="flex flex-col h-full overflow-hidden">
+            <form onSubmit={handleSubmit} onKeyDownCapture={(e) => { e.stopPropagation(); }} className="flex flex-col h-full overflow-hidden">
                 <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-[var(--modal-bg-light)] dark:bg-[var(--modal-bg-dark)]">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {renderInput('name', 'Product Name', 'text', false)}
-                        {renderInput('materialCode', 'Material Code', 'text', false)}
+                        {renderInput('materialCode', 'Material Code', 'text', false, true)}
                         {renderInput('barcode', 'Barcode')}
                         {renderInput('brand', 'Brand Name')}
                         {renderInput('manufacturer', 'Manufacturer')}
@@ -199,7 +211,7 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
                             </div>
                             <div>
                                 <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Standard Price Rate</label>
-                                <input type="number" step="0.01" name="standardPriceRate" value={Number(formState.standardPriceRate || 0)} onChange={handleChange} disabled={(formState.valuationMethod || 'standard') !== 'standard'} className="w-full p-2 border border-gray-400 font-bold text-sm bg-input-bg disabled:bg-gray-100 disabled:text-gray-500 outline-none" />
+                                <input type="number" step="0.01" name="standardPriceRate" value={Number(formState.standardPriceRate || 0)} onChange={handleChange} className="w-full p-2 border border-gray-400 font-bold text-sm bg-input-bg focus:bg-yellow-50 outline-none" />
                             </div>
                             <div>
                                 <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Moving Average Rate</label>
