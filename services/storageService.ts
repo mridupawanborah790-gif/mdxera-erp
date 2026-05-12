@@ -1394,6 +1394,34 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         }
     };
 
+    const updateMaterialValuationFromPurchase = async (purchaseItem: PurchaseItem, user: RegisteredPharmacy) => {
+        const materialCode = String(purchaseItem.materialCode || '').trim();
+        if (!materialCode) return;
+        const masters = await fetchMedicineMaster(user);
+        const material = masters.find(m => String(m.materialCode || '').trim().toLowerCase() === materialCode.toLowerCase());
+        if (!material) return;
+        if (material.valuationMethod === 'standard') return;
+
+        const purchaseQty = Number(purchaseItem.quantity || 0);
+        const looseQty = Number(purchaseItem.looseQuantity || 0);
+        const unitsPerPack = Number(purchaseItem.unitsPerPack || 1);
+        const totalQty = (purchaseQty * unitsPerPack) + looseQty;
+        const rate = Number(purchaseItem.purchasePrice || 0);
+        if (totalQty <= 0 || rate < 0) return;
+        const purchaseValue = rate * totalQty;
+        const currentValRate = Number(material.valuationPrice || 0);
+        const currentQtyBasis = Number(material.standardValuationPrice || 0);
+        const currentTotalValue = currentValRate * currentQtyBasis;
+        const nextQtyBasis = currentQtyBasis + totalQty;
+        const nextValuationPrice = nextQtyBasis > 0 ? (currentTotalValue + purchaseValue) / nextQtyBasis : rate;
+        await saveData('material_master', {
+            ...material,
+            valuationMethod: material.valuationMethod || 'moving_average',
+            standardValuationPrice: nextQtyBasis,
+            valuationPrice: Number(nextValuationPrice.toFixed(4)),
+        }, user, true);
+    };
+
     export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
         // Posting Context and Accounting validation - only for COMPLETED bills
         try {
@@ -1566,6 +1594,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: existingInv.name, batch: existingInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore, stockAfter: existingInv.stock, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
                     if (change.item.expiry) existingInv.expiry = normalizeImportDate(change.item.expiry) || existingInv.expiry;
                     applyTierRates(existingInv, change.item);
+                    await updateMaterialValuationFromPurchase(change.item, user);
                     await saveData('inventory', existingInv, user, true);
                 } else {
                     const uPP = change.item.unitsPerPack || 1;
@@ -1577,10 +1606,11 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                         gstPercent: change.item.gstPercent || 0, hsnCode: change.item.hsnCode || '', code: change.item.materialCode || '',
                         rateA: change.item.rateA, rateB: change.item.rateB, rateC: change.item.rateC, minStockLimit: 10, is_active: true
                     };
-                    logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: newInv.name, batch: newInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore: 0, stockAfter: change.units, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
-                    await saveData('inventory', newInv, user);
-                }
+                logStockMovement({ transactionType: 'purchase-inward', voucherId: p.id, item: newInv.name, batch: newInv.batch || 'UNSET', qty: change.units, qtyIn: change.units, stockBefore: 0, stockAfter: change.units, organizationId: user.organization_id, validationResult: 'allowed', mode: 'strict' });
+                await updateMaterialValuationFromPurchase(change.item, user);
+                await saveData('inventory', newInv, user);
             }
+        }
             await syncPurchaseLedger(p, user);
             return { ...p, ...res };
         }

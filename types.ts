@@ -751,6 +751,9 @@ export interface Medicine {
     isPurchaseEnabled?: boolean;
     isProductionEnabled?: boolean;
     isInternalIssueEnabled?: boolean;
+    valuationMethod?: 'standard' | 'moving_average';
+    standardValuationPrice?: number;
+    valuationPrice?: number;
     created_at?: string;
     updated_at?: string;
 }

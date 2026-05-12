@@ -40,6 +40,9 @@ const initialState: Omit<Medicine, 'id' | 'created_at' | 'updated_at'> = {
     isPurchaseEnabled: true,
     isProductionEnabled: false,
     isInternalIssueEnabled: false,
+    valuationMethod: 'moving_average',
+    standardValuationPrice: 0,
+    valuationPrice: 0,
     // Renamed isActive to is_active
     is_active: true,
     organization_id: '',
@@ -96,6 +99,9 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
         const discount = Number(formState.productDiscount ?? 0);
         if (Number.isNaN(discount) || discount < 0 || discount > 100) {
             newErrors.productDiscount = 'Product Discount must be between 0 and 100.';
+        }
+        if (formState.valuationMethod === 'standard' && Number(formState.standardValuationPrice || 0) < 0) {
+            newErrors.standardValuationPrice = 'Standard Valuation Price must be 0 or more.';
         }
 
         setErrors(newErrors);
@@ -237,6 +243,19 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, on
                                     {renderInput('hsnCode', 'HSN Code')}
                                     {renderInput('imei', 'IMEI', 'text', String(organizationType || '').toLowerCase() !== 'electronics')}
                                     {renderInput('productDiscount', 'Product Discount (%)', 'number')}
+                                </div>
+                            </div>
+                            <div className="bg-gray-50 p-4 border border-gray-200">
+                                <p className="text-[11px] font-black text-primary uppercase tracking-widest mb-4">Inventory Valuation</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Valuation Method</label>
+                                        <select name="valuationMethod" value={formState.valuationMethod || 'moving_average'} onChange={handleChange} className="w-full p-2 border border-gray-400 font-bold text-sm bg-white outline-none">
+                                            <option value="standard">Standard</option>
+                                            <option value="moving_average">Moving Average</option>
+                                        </select>
+                                    </div>
+                                    {formState.valuationMethod === 'standard' && renderInput('standardValuationPrice', 'Standard Valuation Price', 'number')}
                                 </div>
                             </div>
 
