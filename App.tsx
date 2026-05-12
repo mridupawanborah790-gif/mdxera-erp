@@ -179,7 +179,7 @@ const App: React.FC = () => {
             (pr.items || []).forEach((item: any) => {
                 const code = String(item.materialCode || '').trim().toLowerCase();
                 if (!code) return;
-                const qty = Number(item.quantity || 0) + Number(item.looseQuantity || 0);
+                const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0) + Number(item.looseQuantity || 0);
                 returnQtyByCode.set(code, (returnQtyByCode.get(code) || 0) + qty);
             });
         });
@@ -189,7 +189,7 @@ const App: React.FC = () => {
             p.items.forEach(item => {
                 const code = String(item.materialCode || '').trim().toLowerCase();
                 if (!code) return;
-                const qty = Number(item.quantity || 0) + Number(item.looseQuantity || 0);
+                const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0) + Number(item.looseQuantity || 0);
                 const value = qty * Number(item.purchasePrice || 0);
                 const prev = aggregates.get(code) || { qty: 0, value: 0 };
                 aggregates.set(code, { qty: prev.qty + qty, value: prev.value + value });
