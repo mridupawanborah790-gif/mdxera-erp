@@ -1502,28 +1502,31 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const findMedicineForPurchaseRow = useCallback((row: PurchaseItem): Medicine | null => {
         const rowName = (row.name || '').trim().toLowerCase();
         const rowCode = (row.materialCode || '').trim().toLowerCase();
-        if (!rowName && !rowCode) return null;
-
-        const byCode = rowCode
-            ? medicines.find((med) => (med.materialCode || '').trim().toLowerCase() === rowCode)
-            : undefined;
-        if (byCode) return byCode;
+        if (!rowName && !rowCode && !row.inventoryItemId) return null;
 
         const inventoryItem = row.inventoryItemId ? inventory.find((inv) => inv.id === row.inventoryItemId) : undefined;
         const inventoryCode = (inventoryItem?.code || '').trim().toLowerCase();
-        if (inventoryCode) {
-            const byInventoryCode = medicines.find((med) => (med.materialCode || '').trim().toLowerCase() === inventoryCode);
-            if (byInventoryCode) return byInventoryCode;
-        }
+
+        const scopedMedicines = medicines.filter(med => med.organization_id === organizationId);
+
+        const byCode = rowCode
+            ? scopedMedicines.find((med) => (med.materialCode || '').trim().toLowerCase() === rowCode)
+            : undefined;
+        if (byCode) return byCode;
+
+        const byInventoryCode = inventoryCode
+            ? scopedMedicines.find((med) => (med.materialCode || '').trim().toLowerCase() === inventoryCode)
+            : undefined;
+        if (byInventoryCode) return byInventoryCode;
 
         const rowPack = (row.packType || '').trim().toLowerCase();
-        return medicines.find((med) => {
+        return scopedMedicines.find((med) => {
             const medName = (med.name || '').trim().toLowerCase();
             if (!medName || medName !== rowName) return false;
             if (!rowPack) return true;
             return (med.pack || '').trim().toLowerCase() === rowPack;
         }) || null;
-    }, [inventory, medicines]);
+    }, [inventory, medicines, organizationId]);
 
     const openMaterialEditOrSearch = useCallback((rowId: string) => {
         if (isReadOnly || !supplier.trim()) return;
@@ -1551,12 +1554,18 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
     const handleUpdateMaterialFromPurchase = useCallback(async (updatedMedicine: Medicine) => {
         if (!onUpdateMedicineMaster) {
             addNotification('Material update action is unavailable in this view.', 'warning');
-            return;
+            return false;
         }
         const targetRowId = materialEditRowId;
-        if (!targetRowId) return;
+        if (!targetRowId) return false;
 
-        await onUpdateMedicineMaster(updatedMedicine);
+        try {
+            await onUpdateMedicineMaster(updatedMedicine);
+        } catch (error) {
+            console.error('Material update failed from Purchase voucher.', error);
+            addNotification('Material update failed. Please check required fields and try again.', 'error');
+            return false;
+        }
 
         setItems(prev => prev.map(item => {
             if (item.id !== targetRowId) return item;
@@ -1578,7 +1587,8 @@ const PurchaseForm = forwardRef<any, PurchaseFormProps>(({
             };
         }));
 
-        addNotification('Material Master updated and purchase line refreshed.', 'success');
+        addNotification('Material master updated successfully. Updated details are now available in this voucher.', 'success');
+        return true;
     }, [addNotification, materialEditRowId, onUpdateMedicineMaster]);
 
     const handleUpdateItem = (id: string, field: keyof PurchaseItem, value: any) => {

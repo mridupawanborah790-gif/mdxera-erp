@@ -1943,23 +1943,26 @@ const POS = forwardRef<any, POSProps>(({
 
     const findMedicineForSalesRow = useCallback((row: BillItem): Medicine | null => {
         const rowName = (row.name || '').trim().toLowerCase();
-        if (!rowName) return null;
+        if (!rowName && !row.inventoryItemId) return null;
 
         const inventoryItem = row.inventoryItemId ? inventory.find((inv) => inv.id === row.inventoryItemId) : undefined;
         const inventoryCode = (inventoryItem?.code || '').trim().toLowerCase();
-        if (inventoryCode) {
-            const byInventoryCode = medicines.find((med) => (med.materialCode || '').trim().toLowerCase() === inventoryCode);
-            if (byInventoryCode) return byInventoryCode;
-        }
+
+        const scopedMedicines = medicines.filter(med => !currentUser?.organization_id || med.organization_id === currentUser.organization_id);
+
+        const byCode = inventoryCode
+            ? scopedMedicines.find((med) => (med.materialCode || '').trim().toLowerCase() === inventoryCode)
+            : undefined;
+        if (byCode) return byCode;
 
         const rowPack = (row.packType || '').trim().toLowerCase();
-        return medicines.find((med) => {
+        return scopedMedicines.find((med) => {
             const medName = (med.name || '').trim().toLowerCase();
             if (!medName || medName !== rowName) return false;
             if (!rowPack) return true;
             return (med.pack || '').trim().toLowerCase() === rowPack;
         }) || null;
-    }, [inventory, medicines]);
+    }, [currentUser?.organization_id, inventory, medicines]);
 
     const openMaterialEditOrSearch = useCallback((rowId: string) => {
         if (isReadOnly) return;
@@ -1987,12 +1990,17 @@ const POS = forwardRef<any, POSProps>(({
     const handleUpdateMaterialFromSales = useCallback(async (updatedMedicine: Medicine) => {
         if (!onUpdateMedicineMaster) {
             addNotification('Material update action is unavailable in this view.', 'warning');
-            return;
+            return false;
         }
         const targetRowId = materialEditRowId;
-        if (!targetRowId) return;
+        if (!targetRowId) return false;
 
-        await onUpdateMedicineMaster(updatedMedicine);
+        try {
+            await onUpdateMedicineMaster(updatedMedicine);
+        } catch (error) {
+            addNotification('Material update failed. Please check required fields and try again.', 'error');
+            return false;
+        }
 
         setCartItems(prev => prev.map(item => {
             if (item.id !== targetRowId) return item;
@@ -2019,7 +2027,8 @@ const POS = forwardRef<any, POSProps>(({
             };
         }));
 
-        addNotification('Material Master updated and sales line refreshed.', 'success');
+        addNotification('Material master updated successfully. Updated details are now available in this voucher.', 'success');
+        return true;
     }, [addNotification, materialEditRowId, onUpdateMedicineMaster, selectedCustomer?.defaultRateTier]);
 
     const closeInsightsPanel = useCallback(() => {

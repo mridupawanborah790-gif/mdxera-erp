@@ -6,7 +6,7 @@ import { getResolvedMedicinePolicy, MATERIAL_TYPE_RULES, type MaterialMasterType
 interface EditMedicineModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (updatedMedicine: Medicine) => void | Promise<void>;
+    onSave: (updatedMedicine: Medicine) => boolean | void | Promise<boolean | void>;
     medicine: Medicine | null;
     organizationType?: string | null;
     existingMedicines?: Medicine[];
@@ -68,8 +68,10 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (formState && validate()) {
-            await onSave(formState);
-            onClose();
+            const result = await onSave(formState);
+            if (result !== false) {
+                onClose();
+            }
         }
     };
     
