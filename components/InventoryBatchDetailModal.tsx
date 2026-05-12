@@ -99,7 +99,8 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
         return sortedRows.reduce(
             (acc, row) => {
                 const stock = toNumber(row.stock);
-                const value = toNumber(row.value ?? (stock * toNumber(row.cost || row.ptr)));
+                const purchaseRate = toNumber(row.purchasePrice);
+                const value = toNumber(row.value ?? (stock * purchaseRate));
                 return { stock: acc.stock + stock, value: acc.value + value };
             },
             { stock: 0, value: 0 },
@@ -173,19 +174,20 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
         }
 
         const nextPtr = toNumber(draft.ptr);
+        const nextPurchaseRate = toNumber(draft.purchasePrice);
         const updatedRow: InventoryItem = {
             ...row,
             batch: allowBatchEdit ? (draft.batch || '').trim() : row.batch,
             expiry: normalizedExpiry,
             stock: nextStock,
-            purchasePrice: toNumber(draft.purchasePrice),
+            purchasePrice: nextPurchaseRate,
             minStockLimit: toNonNegativeInt(draft.minStockLimit),
             ptr: nextPtr,
             mrp: toNumber(draft.mrp),
             rateA: toNumber(draft.rateA),
             rateB: toNumber(draft.rateB),
             rateC: toNumber(draft.rateC),
-            value: nextStock * nextPtr,
+            value: nextStock * nextPurchaseRate,
         };
 
         setSavingRowId(row.id);
@@ -220,13 +222,15 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                                 <th className="px-2 py-2 border-r border-gray-300 text-right">Loose Qty</th>
                                 <th className="px-2 py-2 border-r border-gray-300 text-right">Total Stock</th>
                                 <th className="px-2 py-2 border-r border-gray-300 text-right">PTR</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-right">Purchase Rate</th>
                                 <th className="px-2 py-2 border-r border-gray-300 text-right">MRP</th>
                                 <th className="px-2 py-2 border-r border-gray-300 text-right">Rate A</th>
                                 <th className="px-2 py-2 border-r border-gray-300 text-right">Rate B</th>
                                 <th className="px-2 py-2 border-r border-gray-300 text-right">Rate C</th>
                                 <th className="px-2 py-2 border-r border-gray-300 text-right">Stock Value</th>
                                 <th className="px-2 py-2 border-r border-gray-300 text-left">Barcode</th>
-                                <th className="px-2 py-2 text-center">Action</th>
+                                <th className="px-2 py-2 border-r border-gray-300 text-center">Action</th>
+                                <th className="px-2 py-2 text-left">Purchase Rate Source</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
@@ -236,11 +240,12 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                                 const packQty = Math.floor(rowStock / unitsPerPack);
                                 const looseQty = rowStock % unitsPerPack;
                                 const ptr = toNumber(row.ptr);
+                                const purchaseRate = toNumber(row.purchasePrice);
                                 const mrp = toNumber(row.mrp);
                                 const rateA = toNumber(row.rateA);
                                 const rateB = toNumber(row.rateB);
                                 const rateC = toNumber(row.rateC);
-                                const stockValue = rowStock * ptr;
+                                const stockValue = rowStock * purchaseRate;
 
                                 return (
                                     <tr
@@ -255,13 +260,14 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                                         <td className="px-2 py-1.5 border-r border-gray-200 text-right">{looseQty}</td>
                                         <td className="px-2 py-1.5 border-r border-gray-200 text-right font-semibold">{rowStock}</td>
                                         <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{ptr.toFixed(2)}</td>
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{purchaseRate.toFixed(2)}</td>
                                         <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{mrp.toFixed(2)}</td>
                                         <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{rateA.toFixed(2)}</td>
                                         <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{rateB.toFixed(2)}</td>
                                         <td className="px-2 py-1.5 border-r border-gray-200 text-right">₹{rateC.toFixed(2)}</td>
                                         <td className="px-2 py-1.5 border-r border-gray-200 text-right font-semibold">₹{stockValue.toFixed(2)}</td>
                                         <td className="px-2 py-1.5 border-r border-gray-200">{row.barcode || '-'}</td>
-                                        <td className="px-2 py-1.5 text-center">
+                                        <td className="px-2 py-1.5 border-r border-gray-200 text-center">
                                             <button
                                                 onClick={() => beginEdit(row)}
                                                 className="px-2 py-1 border border-primary text-primary text-[10px] font-black uppercase hover:bg-primary hover:text-white"
@@ -269,6 +275,7 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                                                 Edit
                                             </button>
                                         </td>
+                                        <td className="px-2 py-1.5 text-[10px] text-gray-600">Inventory inward batch record</td>
                                     </tr>
                                 );
                             })}
@@ -277,9 +284,9 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
                             <tr className="text-xs font-black uppercase text-primary">
                                 <td colSpan={5} className="px-2 py-2 border-r border-blue-200 text-right">Total</td>
                                 <td className="px-2 py-2 border-r border-blue-200 text-right">{totals.stock}</td>
-                                <td colSpan={5} className="px-2 py-2 border-r border-blue-200 text-right">Batch Stock Value Total</td>
+                                <td colSpan={6} className="px-2 py-2 border-r border-blue-200 text-right">Batch Stock Value Total</td>
                                 <td className="px-2 py-2 border-r border-blue-200 text-right">₹{totals.value.toFixed(2)}</td>
-                                <td colSpan={2} className="px-2 py-2 text-center text-[10px]">Double-click or click Edit to alter selected batch</td>
+                                <td colSpan={3} className="px-2 py-2 text-center text-[10px]">Double-click or click Edit to alter selected batch</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -348,8 +355,8 @@ const InventoryBatchDetailModal: React.FC<InventoryBatchDetailModalProps> = ({
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div>
-                            <label className="text-[10px] font-black uppercase text-gray-500">Landed Cost</label>
-                            <input type="number" step="0.01" className={inputCls} value={draft.purchasePrice} onChange={e => setDraft(prev => (prev ? { ...prev, purchasePrice: toNumber(e.target.value) } : prev))} />
+                            <label className="text-[10px] font-black uppercase text-gray-500">Purchase Rate</label>
+                            <input type="number" step="0.01" className={`${inputCls} bg-gray-100`} value={draft.purchasePrice} readOnly />
                         </div>
                         <div>
                             <label className="text-[10px] font-black uppercase text-gray-500">PTR</label>
