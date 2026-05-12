@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import Modal from './Modal';
-import type { Medicine } from '../types';
+import type { InventoryItem, Medicine } from '../types';
 import { getResolvedMedicinePolicy, MATERIAL_TYPE_RULES, type MaterialMasterType } from '../utils/materialType';
 
 interface EditMedicineModalProps {
@@ -10,18 +10,40 @@ interface EditMedicineModalProps {
     medicine: Medicine | null;
     organizationType?: string | null;
     existingMedicines?: Medicine[];
+    inventoryItems?: InventoryItem[];
 }
 
-const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, onSave, medicine, organizationType, existingMedicines = [] }) => {
+const calculateMovingAverageRate = (medicine: Medicine, inventoryItems: InventoryItem[]): number => {
+    const normalizedCode = String(medicine.materialCode || '').trim().toLowerCase();
+    const normalizedName = String(medicine.name || '').trim().toLowerCase();
+    const relatedBatches = inventoryItems.filter((item) => {
+        const itemCode = String(item.code || '').trim().toLowerCase();
+        const itemName = String(item.name || '').trim().toLowerCase();
+        return (normalizedCode && itemCode === normalizedCode) || itemName === normalizedName;
+    });
+    if (!relatedBatches.length) return 0;
+    const totals = relatedBatches.reduce((acc, batch) => {
+        const qty = Math.max(0, Number(batch.stock || 0));
+        const purchaseRate = Math.max(0, Number(batch.purchasePrice || 0));
+        acc.totalQty += qty;
+        acc.totalValue += qty * purchaseRate;
+        return acc;
+    }, { totalQty: 0, totalValue: 0 });
+    if (totals.totalQty <= 0 || totals.totalValue <= 0) return 0;
+    return Number((totals.totalValue / totals.totalQty).toFixed(2));
+};
+
+const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, onSave, medicine, organizationType, existingMedicines = [], inventoryItems = [] }) => {
     const [formState, setFormState] = useState<Medicine | null>(null);
     const [errors, setErrors] = useState<Partial<Record<keyof Medicine, string>>>({});
 
     useEffect(() => {
         if (isOpen && medicine) {
-            setFormState({ ...medicine });
+            const movingAverageRate = calculateMovingAverageRate(medicine, inventoryItems);
+            setFormState({ ...medicine, movingAverageRate });
             setErrors({});
         }
-    }, [isOpen, medicine]);
+    }, [isOpen, medicine, inventoryItems]);
 
     const validate = useCallback(() => {
         if (!formState) return false;

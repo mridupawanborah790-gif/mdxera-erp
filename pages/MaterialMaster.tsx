@@ -3,7 +3,7 @@ import Card from '../components/Card';
 import EditMedicineModal from '../components/EditMedicineModal';
 import AddMedicineModal from '../components/AddMedicineModal';
 import SupplierSyncView from '../components/SupplierSyncView';
-import type { Medicine, RegisteredPharmacy, Supplier, Purchase, SupplierProductMap } from '../types';
+import type { Medicine, RegisteredPharmacy, Supplier, Purchase, SupplierProductMap, InventoryItem } from '../types';
 import { fuzzyMatch } from '../utils/search';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 
@@ -33,6 +33,7 @@ const MedicineSortableHeader: React.FC<{
 
 interface MaterialMasterProps {
     medicines: Medicine[];
+    inventory: InventoryItem[];
     onAddMedicine: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
     onUpdateMedicine: (updated: Medicine) => void;
     currentUser: RegisteredPharmacy | null;
@@ -50,7 +51,7 @@ interface MaterialMasterProps {
 type SubModule = 'master' | 'sync' | 'bulk';
 
 const MaterialMaster: React.FC<MaterialMasterProps> = ({ 
-    medicines, onAddMedicine, onUpdateMedicine, currentUser, 
+    medicines, inventory, onAddMedicine, onUpdateMedicine, currentUser, 
     suppliers, onAddPurchase, onBulkAddMedicines, onSearchMedicines, 
     onMassUpdateClick, onSaveMapping, onDeleteMapping, mappings,
     initialSubModule = 'master'
@@ -349,6 +350,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     onSave={onUpdateMedicine}
                     organizationType={currentUser?.organization_type || null}
                     existingMedicines={medicines}
+                    inventoryItems={inventory}
                 />
             )}
         </main>
