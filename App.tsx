@@ -2761,7 +2761,7 @@ const App: React.FC = () => {
                 case 'vendorNomenclature':
                 case 'bulkUtility':
                     return <MaterialMaster
-                        medicines={medicines} onAddMedicine={handleAddMedicineMaster}
+                        medicines={medicines} inventory={inventory} onAddMedicine={handleAddMedicineMaster}
                         onUpdateMedicine={handleUpdateMedicineMaster} currentUser={currentUser}
                         suppliers={suppliers} onAddPurchase={handleAddPurchase as any}
                         onBulkAddMedicines={(list) => storage.saveBulkData('material_master', list, currentUser)}

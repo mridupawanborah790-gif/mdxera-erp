@@ -6,7 +6,7 @@ import EditMedicineModal from './components/EditMedicineModal';
 import AddMedicineModal from './components/AddMedicineModal';
 import Modal from './components/Modal';
 import DistributorSyncView from './components/DistributorSyncView';
-import type { Medicine, RegisteredPharmacy, Distributor, Purchase, DistributorProductMap } from './types';
+import type { Medicine, RegisteredPharmacy, Distributor, Purchase, DistributorProductMap, InventoryItem } from './types';
 import { fuzzyMatch } from './utils/search';
 
 type MedicineSortableKeys = keyof Medicine;
@@ -32,6 +32,7 @@ const MedicineSortableHeader: React.FC<{
 
 interface MaterialMasterProps {
     medicines: Medicine[];
+    inventory: InventoryItem[];
     onAddMedicine: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
     onUpdateMedicine: (updated: Medicine) => void;
     currentUser: RegisteredPharmacy | null;
@@ -49,7 +50,7 @@ interface MaterialMasterProps {
 type SubModule = 'master' | 'sync' | 'bulk';
 
 const MaterialMaster: React.FC<MaterialMasterProps> = ({ 
-    medicines, onAddMedicine, onUpdateMedicine, currentUser, 
+    medicines, inventory, onAddMedicine, onUpdateMedicine, currentUser, 
     distributors, onAddPurchase, onBulkAddMedicines, onSearchMedicines, 
     onMassUpdateClick, onSaveMapping, onDeleteMapping, mappings,
     initialSubModule = 'master'
@@ -225,6 +226,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     onClose={() => { setIsEditModalOpen(false); setMedicineToEdit(null); }}
                     medicine={medicineToEdit}
                     onSave={onUpdateMedicine}
+                    inventoryItems={inventory}
                 />
             )}
         </main>
