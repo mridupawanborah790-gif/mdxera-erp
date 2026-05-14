@@ -20,6 +20,29 @@ interface Props {
 
 type ValidityUnit = 'days' | 'months' | 'years';
 
+
+type AddCardValueForm = {
+  cardId: string;
+  cardNumber: string;
+  customerName: string;
+  currentCardValue: number;
+  addValueAmount: number | '';
+  valueDate: string;
+  narration: string;
+};
+
+const getTodayInputDate = () => toDateInput(new Date());
+
+const EMPTY_ADD_CARD_VALUE_FORM: AddCardValueForm = {
+  cardId: '',
+  cardNumber: '',
+  customerName: '',
+  currentCardValue: 0,
+  addValueAmount: '',
+  valueDate: getTodayInputDate(),
+  narration: '',
+};
+
 const EMPTY_TYPE: Partial<MbcCardType> = {
   type_name: '',
   type_code: '',
@@ -172,6 +195,8 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
   const [upgradeTypeId, setUpgradeTypeId] = useState<string>('');
   const [renewalCardValue, setRenewalCardValue] = useState<number>(0);
   const [historyRemarks, setHistoryRemarks] = useState('');
+  const [showAddCardValuePopup, setShowAddCardValuePopup] = useState(false);
+  const [addCardValueForm, setAddCardValueForm] = useState<AddCardValueForm>(EMPTY_ADD_CARD_VALUE_FORM);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -528,6 +553,68 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
     }
   };
 
+
+  const openAddCardValuePopup = (card: MbcCard) => {
+    setAddCardValueForm({
+      cardId: card.id,
+      cardNumber: card.card_number,
+      customerName: card.customer_name,
+      currentCardValue: Number(card.card_value || 0),
+      addValueAmount: '',
+      valueDate: getTodayInputDate(),
+      narration: '',
+    });
+    setShowAddCardValuePopup(true);
+  };
+
+  const closeAddCardValuePopup = () => {
+    setShowAddCardValuePopup(false);
+    setAddCardValueForm(EMPTY_ADD_CARD_VALUE_FORM);
+  };
+
+  const saveAddedCardValue = async () => {
+    if (!addCardValueForm.addValueAmount || Number(addCardValueForm.addValueAmount) <= 0) {
+      alert('Please enter valid card value amount.');
+      return;
+    }
+    if (!addCardValueForm.valueDate) {
+      alert('Please select card value date.');
+      return;
+    }
+
+    const addedValue = Number(addCardValueForm.addValueAmount);
+    const previousValue = Number(addCardValueForm.currentCardValue || 0);
+    const newValue = previousValue + addedValue;
+    setLoading(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('mbc_cards')
+        .update({ card_value: newValue, updated_at: new Date().toISOString() })
+        .eq('id', addCardValueForm.cardId)
+        .eq('organization_id', currentUser.organization_id);
+      if (updateError) {
+        alert(updateError.message);
+        return;
+      }
+
+      await supabase.from('mbc_card_history').insert({
+        organization_id: currentUser.organization_id,
+        mbc_card_id: addCardValueForm.cardId,
+        action_type: 'value_add',
+        old_card_value: previousValue,
+        new_card_value: newValue,
+        remarks: addCardValueForm.narration || '',
+        action_by: currentUser.full_name,
+        action_date: new Date(addCardValueForm.valueDate).toISOString(),
+      });
+
+      closeAddCardValuePopup();
+      await Promise.all([fetchCards(), fetchRenewalHistory(), fetchCardTypes(), fetchTemplates()]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const printPreviewCard = cards.find(c => c.id === selectedCardId) || cards[0];
   const printType = printPreviewCard ? cardTypeMap.get(printPreviewCard.card_type_id) : undefined;
   const printTemplate = printPreviewCard ? templateMap.get(printPreviewCard.template_id || '') : undefined;
@@ -865,6 +952,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                           <button className="px-2 py-1 border mr-1" onClick={() => loadCardForEdit(card)}>Edit</button>
                           <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardPrintPreview'); }}>Print</button>
                           <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardRenewalHistory'); }}>Renew/Upgrade</button>
+                          <button className="px-2 py-1 border mr-1" onClick={() => openAddCardValuePopup(card)}>Add Card Value</button>
                           <button className="px-2 py-1 border" onClick={async () => {
                             setLoading(true);
                             try {
@@ -995,6 +1083,27 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
             </div>
           </Card>
         )}
+
+
+      {showAddCardValuePopup && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <Card className="w-full max-w-xl p-4 border border-gray-300 bg-white space-y-3">
+            <div className="text-sm font-black uppercase">Add Card Value</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+              <input className="border p-2 bg-gray-100" value={addCardValueForm.cardNumber} readOnly placeholder="Card Number" />
+              <input className="border p-2 bg-gray-100" value={addCardValueForm.customerName} readOnly placeholder="Customer Name" />
+              <input className="border p-2 bg-gray-100" value={addCardValueForm.currentCardValue} readOnly placeholder="Current Card Value" />
+              <input type="number" step="any" className="border p-2" placeholder="Add Value Amount" value={addCardValueForm.addValueAmount} onChange={e => setAddCardValueForm(prev => ({ ...prev, addValueAmount: e.target.value === '' ? '' : Number(e.target.value) }))} />
+              <input type="date" className="border p-2" value={addCardValueForm.valueDate} onChange={e => setAddCardValueForm(prev => ({ ...prev, valueDate: e.target.value }))} />
+              <input className="border p-2" placeholder="Narration / Remarks (optional)" value={addCardValueForm.narration} onChange={e => setAddCardValueForm(prev => ({ ...prev, narration: e.target.value }))} />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase" onClick={saveAddedCardValue}>Save</button>
+              <button className="px-3 py-2 border border-gray-300 text-xs font-black uppercase" onClick={closeAddCardValuePopup}>Cancel</button>
+            </div>
+          </Card>
+        </div>
+      )}
       </div>
     </main>
   );
