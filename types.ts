@@ -1239,12 +1239,15 @@ export interface MbcCardHistory {
     id: string;
     organization_id: string;
     mbc_card_id: string;
-    action_type: 'create' | 'update' | 'renew' | 'upgrade' | 'deactivate';
+    action_type: 'create' | 'update' | 'renew' | 'upgrade' | 'deactivate' | 'value_add';
+    card_number?: string;
+    customer_name?: string;
     old_card_type_id?: string;
     new_card_type_id?: string;
     old_validity_to?: string;
     new_validity_to?: string;
     old_card_value?: number;
+    added_card_value?: number;
     new_card_value?: number;
     remarks?: string;
     action_by?: string;

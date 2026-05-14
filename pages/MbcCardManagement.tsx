@@ -601,7 +601,10 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
         organization_id: currentUser.organization_id,
         mbc_card_id: addCardValueForm.cardId,
         action_type: 'value_add',
+        card_number: addCardValueForm.cardNumber,
+        customer_name: addCardValueForm.customerName,
         old_card_value: previousValue,
+        added_card_value: addedValue,
         new_card_value: newValue,
         remarks: addCardValueForm.narration || '',
         action_by: currentUser.full_name,
@@ -953,6 +956,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                           <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardPrintPreview'); }}>Print</button>
                           <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardRenewalHistory'); }}>Renew/Upgrade</button>
                           <button className="px-2 py-1 border mr-1" onClick={() => openAddCardValuePopup(card)}>Add Card Value</button>
+                          <button className="px-2 py-1 border mr-1" onClick={() => openAddCardValuePopup(card)}>Popup Flow</button>
                           <button className="px-2 py-1 border" onClick={async () => {
                             setLoading(true);
                             try {
@@ -1090,12 +1094,30 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
           <Card className="w-full max-w-xl p-4 border border-gray-300 bg-white space-y-3">
             <div className="text-sm font-black uppercase">Add Card Value</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+              <label className="flex flex-col gap-1">
+                <span>Card Number</span>
               <input className="border p-2 bg-gray-100" value={addCardValueForm.cardNumber} readOnly placeholder="Card Number" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span>Customer Name</span>
               <input className="border p-2 bg-gray-100" value={addCardValueForm.customerName} readOnly placeholder="Customer Name" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span>Current Card Value</span>
               <input className="border p-2 bg-gray-100" value={addCardValueForm.currentCardValue} readOnly placeholder="Current Card Value" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span>Add Value Amount</span>
               <input type="number" step="any" className="border p-2" placeholder="Add Value Amount" value={addCardValueForm.addValueAmount} onChange={e => setAddCardValueForm(prev => ({ ...prev, addValueAmount: e.target.value === '' ? '' : Number(e.target.value) }))} />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span>Date</span>
               <input type="date" className="border p-2" value={addCardValueForm.valueDate} onChange={e => setAddCardValueForm(prev => ({ ...prev, valueDate: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span>Narration / Remarks</span>
               <input className="border p-2" placeholder="Narration / Remarks (optional)" value={addCardValueForm.narration} onChange={e => setAddCardValueForm(prev => ({ ...prev, narration: e.target.value }))} />
+              </label>
             </div>
             <div className="flex gap-2 justify-end">
               <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase" onClick={saveAddedCardValue}>Save</button>
