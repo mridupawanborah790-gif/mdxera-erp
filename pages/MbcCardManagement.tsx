@@ -80,6 +80,12 @@ const addByUnit = (date: Date, value: number, unit: ValidityUnit) => {
 };
 
 const toDateInput = (date: Date) => date.toISOString().slice(0, 10);
+const formatDateForDisplay = (value?: string | null) => {
+  if (!value) return '-';
+  const [year, month, day] = value.slice(0, 10).split('-');
+  if (!year || !month || !day) return value;
+  return `${day}-${month}-${year}`;
+};
 const getValidityPeriodText = (fromDate: string, toDate: string) => {
   const from = new Date(fromDate);
   const to = new Date(toDate);
@@ -179,7 +185,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       card_type_id: typeId,
       template_id: cardType.template_id || prev.template_id,
       card_value: cardType.default_card_value || 0,
-      card_number: cardType.auto_numbering ? generateCardNumber(cardType) : prev.card_number,
+      card_number: prev.id ? prev.card_number : (cardType.auto_numbering ? generateCardNumber(cardType) : prev.card_number),
     }));
   };
 
@@ -218,6 +224,27 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
     }
     setTemplateForm(EMPTY_TEMPLATE);
     refreshAll();
+  };
+
+
+  const loadCardForEdit = async (card: MbcCard) => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('mbc_cards')
+        .select('*')
+        .eq('id', card.id)
+        .eq('card_number', card.card_number)
+        .eq('organization_id', currentUser.organization_id)
+        .single();
+      if (error) throw error;
+      setCardForm(data);
+      onNavigate('mbcGenerateCard');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Unable to load selected card for edit');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const saveCard = async () => {
@@ -269,15 +296,33 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       created_at: cardForm.created_at || now,
     };
 
-    const { data, error } = await supabase.from('mbc_cards').upsert(payload).select('id').single();
-    if (error) {
-      alert(error.message);
-      return;
+    let savedId = String(cardForm.id || '');
+    if (cardForm.id) {
+      const { data, error } = await supabase
+        .from('mbc_cards')
+        .update(payload)
+        .eq('id', cardForm.id)
+        .eq('card_number', cardNumber)
+        .eq('organization_id', currentUser.organization_id)
+        .select('id')
+        .single();
+      if (error) {
+        alert(error.message);
+        return;
+      }
+      savedId = data.id;
+    } else {
+      const { data, error } = await supabase.from('mbc_cards').insert(payload).select('id').single();
+      if (error) {
+        alert(error.message);
+        return;
+      }
+      savedId = data.id;
     }
 
     await supabase.from('mbc_card_history').insert({
       organization_id: currentUser.organization_id,
-      mbc_card_id: data.id,
+      mbc_card_id: savedId,
       action_type: cardForm.id ? 'update' : 'create',
       new_card_type_id: payload.card_type_id,
       new_validity_to: payload.validity_to,
@@ -640,19 +685,19 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                       <tr key={card.id} className="border-t">
                         <td className="p-2">{card.card_number}</td>
                         <td className="p-2">{card.customer_name}</td>
-                        <td className="p-2">{card.date_of_birth || '-'}</td>
+                        <td className="p-2">{formatDateForDisplay(card.date_of_birth)}</td>
                         <td className="p-2">{[card.address_line_1, card.address_line_2, card.city].filter(Boolean).join(', ')}</td>
                         <td className="p-2">{card.phone_number}</td>
                         <td className="p-2">{cardTypeMap.get(card.card_type_id)?.type_name || '-'}</td>
                         <td className="p-2">{card.card_value}</td>
-                        <td className="p-2">{card.validity_from}</td>
-                        <td className="p-2">{card.validity_to}</td>
+                        <td className="p-2">{formatDateForDisplay(card.validity_from)}</td>
+                        <td className="p-2">{formatDateForDisplay(card.validity_to)}</td>
                         <td className="p-2">{card.validity_period_text}</td>
                         <td className="p-2 uppercase font-bold">{status}</td>
                         <td className="p-2">{card.created_by}</td>
-                        <td className="p-2">{card.created_at?.slice(0, 10)}</td>
+                        <td className="p-2">{formatDateForDisplay(card.created_at?.slice(0, 10))}</td>
                         <td className="p-2 whitespace-nowrap">
-                          <button className="px-2 py-1 border mr-1" onClick={() => { setCardForm(card); onNavigate('mbcGenerateCard'); }}>Edit</button>
+                          <button className="px-2 py-1 border mr-1" onClick={() => loadCardForEdit(card)}>Edit</button>
                           <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardPrintPreview'); }}>Print</button>
                           <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardRenewalHistory'); }}>Renew/Upgrade</button>
                           <button className="px-2 py-1 border" onClick={async () => { await supabase.from('mbc_cards').update({ status: 'inactive' }).eq('id', card.id); refreshAll(); }}>Deactivate</button>
@@ -690,8 +735,8 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                       <div className="text-lg font-black uppercase text-primary mt-2">{printPreviewCard.customer_name}</div>
                       <div className="text-xs mt-1">Card No: {printPreviewCard.card_number}</div>
                       <div className="text-xs">Phone: {printPreviewCard.phone_number}</div>
-                      <div className="text-xs">DOB: {printPreviewCard.date_of_birth || '-'}</div>
-                      <div className="text-xs">Validity: {printPreviewCard.validity_from} to {printPreviewCard.validity_to}</div>
+                      <div className="text-xs">DOB: {formatDateForDisplay(printPreviewCard.date_of_birth)}</div>
+                      <div className="text-xs">Validity: {formatDateForDisplay(printPreviewCard.validity_from)} to {formatDateForDisplay(printPreviewCard.validity_to)}</div>
                     </div>
                     <div className="w-20 h-20 border border-dashed flex items-center justify-center text-[9px] text-center p-1">QR / Barcode\n{printPreviewCard.qr_value || ''}</div>
                   </div>
@@ -751,12 +796,12 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                 <tbody>
                   {history.filter(h => !selectedCardId || h.mbc_card_id === selectedCardId).map(h => (
                     <tr key={h.id} className="border-t">
-                      <td className="p-2">{h.action_date?.slice(0, 10)}</td>
+                      <td className="p-2">{formatDateForDisplay(h.action_date?.slice(0, 10))}</td>
                       <td className="p-2 uppercase">{h.action_type}</td>
                       <td className="p-2">{cardTypeMap.get(h.old_card_type_id || '')?.type_name || '-'}</td>
                       <td className="p-2">{cardTypeMap.get(h.new_card_type_id || '')?.type_name || '-'}</td>
-                      <td className="p-2">{h.old_validity_to || '-'}</td>
-                      <td className="p-2">{h.new_validity_to || '-'}</td>
+                      <td className="p-2">{formatDateForDisplay(h.old_validity_to)}</td>
+                      <td className="p-2">{formatDateForDisplay(h.new_validity_to)}</td>
                       <td className="p-2">{h.old_card_value ?? '-'}</td>
                       <td className="p-2">{h.new_card_value ?? '-'}</td>
                       <td className="p-2">{h.remarks || '-'}</td>
