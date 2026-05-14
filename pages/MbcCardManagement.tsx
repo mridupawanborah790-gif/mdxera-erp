@@ -154,6 +154,9 @@ const getFieldStyle = (field: string, template: MbcCardTemplate | undefined): Re
 
 const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavigate }) => {
   const [loading, setLoading] = useState(false);
+  const [loadingEditCard, setLoadingEditCard] = useState(false);
+  const [savingCard, setSavingCard] = useState(false);
+  const [cardFormMessage, setCardFormMessage] = useState('');
   const [cardTypes, setCardTypes] = useState<MbcCardType[]>([]);
   const [templates, setTemplates] = useState<MbcCardTemplate[]>([]);
   const [cards, setCards] = useState<MbcCard[]>([]);
@@ -308,52 +311,58 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
 
 
   const loadCardForEdit = async (card: MbcCard) => {
-    const { data, error } = await supabase
-      .from('mbc_cards')
-      .select('*')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('id', card.id)
-      .eq('card_number', card.card_number)
-      .maybeSingle();
+    setLoadingEditCard(true);
+    setCardFormMessage('');
+    try {
+      const { data, error } = await supabase
+        .from('mbc_cards')
+        .select('*')
+        .eq('organization_id', currentUser.organization_id)
+        .eq('id', card.id)
+        .eq('card_number', card.card_number)
+        .single();
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
+      if (error || !data) {
+        setCardFormMessage('Unable to load selected card details. Please try again.');
+        return;
+      }
 
-    const sourceCard = data || card;
-    setFormMode('edit');
-    const editFormData: Partial<MbcCard> = {
-      id: sourceCard.id,
-      card_number: sourceCard.card_number,
-      customer_name: sourceCard.customer_name || (sourceCard as any).customerName || '',
-      guardian_name: sourceCard.guardian_name || (sourceCard as any).guardianName || '',
-      gender: sourceCard.gender || '',
-      date_of_birth: formatDateForInput(sourceCard.date_of_birth || (sourceCard as any).dob || (sourceCard as any).dateOfBirth),
-      address_line_1: sourceCard.address_line_1 || (sourceCard as any).address_line1 || '',
-      address_line_2: sourceCard.address_line_2 || (sourceCard as any).address_line2 || '',
-      city: sourceCard.city || '',
-      district: sourceCard.district || '',
-      state: sourceCard.state || '',
-      pin_code: sourceCard.pin_code || '',
-      phone_number: sourceCard.phone_number || (sourceCard as any).phoneNumber || '',
-      alternate_phone: sourceCard.alternate_phone || (sourceCard as any).alternatePhone || '',
-      email: sourceCard.email || '',
-      card_type_id: sourceCard.card_type_id || (sourceCard as any).card_type || (sourceCard as any).cardType || '',
-      card_value: sourceCard.card_value || 0,
-      template_id: sourceCard.template_id || '',
-      qr_value: sourceCard.qr_value || (sourceCard as any).qr_barcode_value || '',
-      validity_from: formatDateForInput(sourceCard.validity_from || (sourceCard as any).validityFrom),
-      validity_to: formatDateForInput(sourceCard.validity_to || (sourceCard as any).validityTo),
-      remarks: sourceCard.remarks || '',
-      status: sourceCard.status || 'active',
-      created_at: sourceCard.created_at,
-    };
-    setCardForm(editFormData);
-    if (sourceCard.id) {
+      const sourceCard = data;
+      setFormMode('edit');
+      setCardFormMessage(`Editing existing MBC Card: ${sourceCard.card_number}`);
+      const editFormData: Partial<MbcCard> = {
+        id: sourceCard.id,
+        card_number: sourceCard.card_number,
+        customer_name: sourceCard.customer_name || (sourceCard as any).customerName || '',
+        guardian_name: sourceCard.guardian_name || (sourceCard as any).guardianName || '',
+        gender: sourceCard.gender || '',
+        date_of_birth: formatDateForInput(sourceCard.date_of_birth || (sourceCard as any).dob || (sourceCard as any).dateOfBirth),
+        address_line_1: sourceCard.address_line_1 || (sourceCard as any).address_line1 || '',
+        address_line_2: sourceCard.address_line_2 || (sourceCard as any).address_line2 || '',
+        city: sourceCard.city || '',
+        district: sourceCard.district || '',
+        state: sourceCard.state || '',
+        pin_code: sourceCard.pin_code || '',
+        phone_number: sourceCard.phone_number || (sourceCard as any).phoneNumber || '',
+        alternate_phone: sourceCard.alternate_phone || (sourceCard as any).alternatePhone || '',
+        email: sourceCard.email || '',
+        card_type_id: sourceCard.card_type_id || (sourceCard as any).card_type || (sourceCard as any).cardType || '',
+        card_value: sourceCard.card_value || 0,
+        template_id: sourceCard.template_id || '',
+        qr_value: sourceCard.qr_value || (sourceCard as any).qr_barcode_value || '',
+        validity_from: formatDateForInput(sourceCard.validity_from || (sourceCard as any).validityFrom),
+        validity_to: formatDateForInput(sourceCard.validity_to || (sourceCard as any).validityTo),
+        remarks: sourceCard.remarks || '',
+        status: sourceCard.status || 'active',
+        created_at: sourceCard.created_at,
+      };
+      setCardForm(editFormData);
       window.sessionStorage.setItem(EDIT_CARD_STORAGE_KEY, sourceCard.id);
+      setSelectedCardId(sourceCard.id);
+      onNavigate('mbcGenerateCard');
+    } finally {
+      setLoadingEditCard(false);
     }
-    onNavigate('mbcGenerateCard');
   };
 
   const saveCard = async () => {
@@ -411,6 +420,8 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
     };
 
     setLoading(true);
+    setSavingCard(true);
+    setCardFormMessage('');
     try {
       let savedId = String(cardForm.id || '');
       if (cardForm.id) {
@@ -418,6 +429,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
           .from('mbc_cards')
           .update(payload)
           .eq('id', cardForm.id)
+          .eq('card_number', cardNumber)
           .eq('organization_id', currentUser.organization_id)
           .select('id')
           .single();
@@ -450,9 +462,14 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       window.sessionStorage.removeItem(EDIT_CARD_STORAGE_KEY);
       setCardForm(EMPTY_CARD);
       setFormMode('create');
-      await refreshMbcMasterData();
+      await fetchCards();
+      await fetchCardTypes();
+      await fetchTemplates();
+      await fetchRenewalHistory();
+      setCardFormMessage(cardForm.id ? 'MBC Card updated successfully.' : 'MBC Card created successfully.');
       onNavigate('mbcCardList');
     } finally {
+      setSavingCard(false);
       setLoading(false);
     }
   };
@@ -727,6 +744,8 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
         {activeScreen === 'mbcGenerateCard' && (
           <Card className="p-3 border border-gray-300 space-y-3">
             <div className="text-xs font-black uppercase">{formMode === 'edit' ? 'Edit MBC Card' : 'Generate New MBC Card'}</div>
+            {!!cardFormMessage && <div className="text-xs font-bold text-primary">{cardFormMessage}</div>}
+            {loadingEditCard && <div className="text-xs font-bold text-primary">Loading selected card details...</div>}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
               <input className="border p-2" placeholder="Customer Name" value={cardForm.customer_name || ''} onChange={e => setCardForm(prev => ({ ...prev, customer_name: e.target.value }))} />
               <input className="border p-2" placeholder="Guardian Name" value={cardForm.guardian_name || ''} onChange={e => setCardForm(prev => ({ ...prev, guardian_name: e.target.value }))} />
@@ -749,7 +768,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                 <option value="">Card Type</option>
                 {cardTypes.filter(t => t.is_active !== false).map(t => <option key={t.id} value={t.id}>{t.type_name}</option>)}
               </select>
-              <input className="border p-2" placeholder="Card Number" value={cardForm.card_number || ''} readOnly={formMode === 'edit'} onChange={e => setCardForm(prev => ({ ...prev, card_number: e.target.value }))} />
+              <input className="border p-2 bg-gray-50" placeholder="Card Number" value={cardForm.card_number || ''} readOnly={formMode === 'edit'} onChange={e => setCardForm(prev => ({ ...prev, card_number: e.target.value }))} />
               <input type="number" step="any" className="border p-2" placeholder="Card Value" value={cardForm.card_value ?? 0} onChange={e => setCardForm(prev => ({ ...prev, card_value: Number(e.target.value) }))} />
               <select className="border p-2" value={cardForm.template_id || ''} onChange={e => setCardForm(prev => ({ ...prev, template_id: e.target.value }))}>
                 <option value="">Card Template</option>
@@ -795,7 +814,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
             </select>
 
             <div className="flex gap-2">
-              <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase" onClick={saveCard}>{formMode === 'edit' ? 'Update Card' : 'Save / Generate Card'}</button>
+              <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase disabled:opacity-50" disabled={savingCard || loadingEditCard} onClick={saveCard}>{formMode === 'edit' ? 'Update Card' : 'Save / Generate Card'}</button>
               <button className="px-3 py-2 border border-gray-400 text-xs font-black uppercase" onClick={() => setSelectedCardId(cardForm.id || '')}>Preview Current</button>
             </div>
           </Card>
