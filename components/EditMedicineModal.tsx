@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import Modal from './Modal';
-import type { Medicine } from '../types';
+import type { InventoryItem, Medicine } from '../types';
 import { getResolvedMedicinePolicy, MATERIAL_TYPE_RULES, type MaterialMasterType } from '../utils/materialType';
 
 interface EditMedicineModalProps {
@@ -10,18 +10,40 @@ interface EditMedicineModalProps {
     medicine: Medicine | null;
     organizationType?: string | null;
     existingMedicines?: Medicine[];
+    inventoryItems?: InventoryItem[];
 }
 
-const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, onSave, medicine, organizationType, existingMedicines = [] }) => {
+const calculateMovingAverageRate = (medicine: Medicine, inventoryItems: InventoryItem[]): number => {
+    const normalizedCode = String(medicine.materialCode || '').trim().toLowerCase();
+    const normalizedName = String(medicine.name || '').trim().toLowerCase();
+    const relatedBatches = inventoryItems.filter((item) => {
+        const itemCode = String(item.code || '').trim().toLowerCase();
+        const itemName = String(item.name || '').trim().toLowerCase();
+        return (normalizedCode && itemCode === normalizedCode) || itemName === normalizedName;
+    });
+    if (!relatedBatches.length) return 0;
+    const totals = relatedBatches.reduce((acc, batch) => {
+        const qty = Math.max(0, Number(batch.stock || 0));
+        const purchaseRate = Math.max(0, Number(batch.purchasePrice || 0));
+        acc.totalQty += qty;
+        acc.totalValue += qty * purchaseRate;
+        return acc;
+    }, { totalQty: 0, totalValue: 0 });
+    if (totals.totalQty <= 0 || totals.totalValue <= 0) return 0;
+    return Number((totals.totalValue / totals.totalQty).toFixed(2));
+};
+
+const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, onSave, medicine, organizationType, existingMedicines = [], inventoryItems = [] }) => {
     const [formState, setFormState] = useState<Medicine | null>(null);
     const [errors, setErrors] = useState<Partial<Record<keyof Medicine, string>>>({});
 
     useEffect(() => {
         if (isOpen && medicine) {
-            setFormState({ ...medicine });
+            const movingAverageRate = calculateMovingAverageRate(medicine, inventoryItems);
+            setFormState({ ...medicine, movingAverageRate });
             setErrors({});
         }
-    }, [isOpen, medicine]);
+    }, [isOpen, medicine, inventoryItems]);
 
     const validate = useCallback(() => {
         if (!formState) return false;
@@ -37,6 +59,7 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
         }
         const discount = Number(formState.productDiscount ?? 0);
         if (Number.isNaN(discount) || discount < 0 || discount > 100) newErrors.productDiscount = 'Product Discount must be between 0 and 100.';
+        if ((formState.valuationMethod || 'standard') === 'standard' && Number(formState.standardPriceRate || 0) < 0) newErrors.standardPriceRate = 'Standard Price Rate cannot be negative.';
         
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -162,6 +185,26 @@ const EditMedicineModal: React.FC<EditMedicineModalProps> = ({ isOpen, onClose, 
                             {renderInput('hsnCode', 'HSN Code')}
                             {renderInput('imei', 'IMEI', 'text', String(organizationType || '').toLowerCase() !== 'electronics')}
                             {renderInput('productDiscount', 'Product Discount (%)', 'number')}
+                        </div>
+                    </div>
+                    <div className="bg-gray-50 p-4 border border-gray-200">
+                        <p className="text-[11px] font-black text-primary uppercase tracking-widest mb-4">Inventory Valuation</p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Valuation Method</label>
+                                <select name="valuationMethod" value={formState.valuationMethod || 'standard'} onChange={handleChange} className="w-full p-2 border border-gray-400 font-bold text-sm bg-white outline-none">
+                                    <option value="standard">Standard</option>
+                                    <option value="moving_average">Moving Average</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Standard Price Rate</label>
+                                <input type="number" step="0.01" name="standardPriceRate" value={Number(formState.standardPriceRate || 0)} onChange={handleChange} disabled={(formState.valuationMethod || 'standard') !== 'standard'} className="w-full p-2 border border-gray-400 font-bold text-sm bg-input-bg disabled:bg-gray-100 disabled:text-gray-500 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1 ml-1">Moving Average Rate</label>
+                                <input type="number" step="0.01" name="movingAverageRate" value={Number(formState.movingAverageRate || 0).toFixed(2)} readOnly className="w-full p-2 border border-gray-400 font-bold text-sm bg-gray-100 text-gray-500 cursor-not-allowed outline-none" />
+                            </div>
                         </div>
                     </div>
 

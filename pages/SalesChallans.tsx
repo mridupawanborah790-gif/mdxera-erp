@@ -119,13 +119,16 @@ Do you want to continue?`);
             customerName: tx.customerName,
             customerId: tx.customerId,
             customerPhone: tx.customerPhone,
+            customerAddress: tx.customerAddress,
+            referredBy: tx.referredBy,
             date: tx.date,
             items: tx.items,
             totalAmount: tx.total,
             subtotal: tx.subtotal,
             totalGst: tx.totalGst,
             status: SalesChallanStatus.OPEN,
-            narration: tx.narration
+            narration: tx.narration,
+            billCategory: tx.paymentMode
         };
 
         await onAddChallan(challan);

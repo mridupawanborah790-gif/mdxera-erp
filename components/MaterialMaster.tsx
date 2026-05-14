@@ -6,7 +6,7 @@ import AddMedicineModal from '../components/AddMedicineModal';
 import SupplierSyncView from './SupplierSyncView';
 import ExportOptionsModal from './ExportOptionsModal';
 import MasterPriceMaintain from './MasterPriceMaintain';
-import type { Medicine, RegisteredPharmacy, Supplier, Purchase, SupplierProductMap, MrpChangeLogEntry } from '../types';
+import type { Medicine, RegisteredPharmacy, Supplier, Purchase, SupplierProductMap, MrpChangeLogEntry, InventoryItem } from '../types';
 import { fuzzyMatch } from '../utils/search';
 
 const uniformTextStyle = "text-2xl font-normal tracking-tight uppercase leading-tight";
@@ -35,6 +35,7 @@ const MedicineSortableHeader: React.FC<{
 
 interface MaterialMasterProps {
     medicines: Medicine[];
+    inventory: InventoryItem[];
     onAddMedicine: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
     onUpdateMedicine: (updated: Medicine) => void;
     currentUser: RegisteredPharmacy | null;
@@ -53,7 +54,7 @@ interface MaterialMasterProps {
 type SubModule = 'master' | 'pricing' | 'sync' | 'bulk';
 
 const MaterialMaster: React.FC<MaterialMasterProps> = ({ 
-    medicines, onAddMedicine, onUpdateMedicine, currentUser, 
+    medicines, inventory, onAddMedicine, onUpdateMedicine, currentUser, 
     suppliers, onAddPurchase, onBulkAddMedicines, onSearchMedicines, 
     onMassUpdateClick, onSaveMapping, onDeleteMapping, mappings,
     initialSubModule = 'master',
@@ -358,6 +359,7 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
                     onSave={onUpdateMedicine}
                     organizationType={currentUser?.organization_type || null}
                     existingMedicines={medicines}
+                    inventoryItems={inventory}
                 />
             )}
 
@@ -375,4 +377,3 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
 };
 
 export default MaterialMaster;
-

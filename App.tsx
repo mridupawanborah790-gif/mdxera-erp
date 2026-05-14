@@ -149,6 +149,7 @@ const App: React.FC = () => {
     const [bankOptions, setBankOptions] = useState<Array<{ id: string; bankName: string; accountName: string; accountNumber: string; linkedBankGlId?: string; defaultBank?: boolean; activeStatus?: string }>>([]);
 
     const [sourceChallansForPurchase, setSourceChallansForPurchase] = useState<{ items: PurchaseItem[], supplier: string, ids: string[] } | null>(null);
+    const [sourceChallansForSales, setSourceChallansForSales] = useState<Transaction | null>(null);
     const [purchaseCopyDraft, setPurchaseCopyDraft] = useState<{ sourceId: string; items: PurchaseItem[]; supplier: string; invoiceNumber: string; date: string } | null>(null);
     const [mobileSyncSessionId, setMobileSyncSessionId] = useState<string | null>(null);
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
@@ -170,6 +171,47 @@ const App: React.FC = () => {
     };
 
     const [authView, setAuthView] = useState<'auth' | 'forgot' | 'reset'>(resolveAuthViewFromLocation);
+    const syncMovingAverageRates = useCallback(async (basePurchases: Purchase[] = purchases, basePurchaseReturns: PurchaseReturn[] = purchaseReturns) => {
+        if (!currentUser || medicinesRef.current.length === 0) return;
+        const completedPurchases = basePurchases.filter(p => p.status !== 'cancelled');
+        const returnQtyByCode = new Map<string, number>();
+        basePurchaseReturns.forEach(pr => {
+            (pr.items || []).forEach((item: any) => {
+                const code = String(item.materialCode || '').trim().toLowerCase();
+                if (!code) return;
+                const qty = Number(item.quantity || 0) + Number(item.looseQuantity || 0);
+                returnQtyByCode.set(code, (returnQtyByCode.get(code) || 0) + qty);
+            });
+        });
+
+        const aggregates = new Map<string, { qty: number; value: number }>();
+        completedPurchases.forEach(p => {
+            p.items.forEach(item => {
+                const code = String(item.materialCode || '').trim().toLowerCase();
+                if (!code) return;
+                const qty = Number(item.quantity || 0) + Number(item.looseQuantity || 0);
+                const value = qty * Number(item.purchasePrice || 0);
+                const prev = aggregates.get(code) || { qty: 0, value: 0 };
+                aggregates.set(code, { qty: prev.qty + qty, value: prev.value + value });
+            });
+        });
+
+        const nextMedicines = medicinesRef.current.map(med => {
+            const code = String(med.materialCode || '').trim().toLowerCase();
+            const agg = aggregates.get(code);
+            if (!agg || agg.qty <= 0) return med;
+            const returnedQty = returnQtyByCode.get(code) || 0;
+            const effectiveQty = Math.max(agg.qty - returnedQty, 0);
+            const movingAverageRate = effectiveQty > 0 ? Number((agg.value / effectiveQty).toFixed(2)) : 0;
+            if (Number(med.movingAverageRate || 0) === movingAverageRate) return med;
+            return { ...med, movingAverageRate };
+        });
+
+        const changed = nextMedicines.filter((m, idx) => m !== medicinesRef.current[idx]);
+        if (changed.length === 0) return;
+        setMedicines(nextMedicines);
+        await Promise.all(changed.map(m => storage.saveData('material_master', m, currentUser, true)));
+    }, [currentUser, purchases, purchaseReturns]);
 
     const [activeDashboardMenu, setActiveDashboardMenu] = useState<'left' | 'right'>('right');
     const [mountedPages, setMountedPages] = useState<string[]>(['dashboard']);
@@ -1056,6 +1098,14 @@ const App: React.FC = () => {
             }
 
             const savedTx = await storage.addTransaction(tx, currentUser, isUpdate);
+            if (!isUpdate && tx.linkedChallans?.length) {
+                const openLinkedChallans = salesChallans.filter(ch => tx.linkedChallans?.includes(ch.id) && ch.status === SalesChallanStatus.OPEN);
+                await Promise.all(
+                    openLinkedChallans.map(ch =>
+                        storage.saveData('sales_challans', { ...ch, status: SalesChallanStatus.CONVERTED }, currentUser, true)
+                    )
+                );
+            }
 
             // Synchronize the local configuration state with the next expected number.
             // This ensures that the "Preview" number shown in the UI is consistent with what's in the DB
@@ -1084,6 +1134,7 @@ const App: React.FC = () => {
                 setEditingSale(null);
             } else {
                 setTransactions(prev => [savedTx, ...prev]);
+                setSourceChallansForSales(null);
             }
 
             // Do not block UI success state on background refresh.
@@ -1140,6 +1191,7 @@ const App: React.FC = () => {
             // Only refresh inventory (not purchases) to avoid overwriting the optimistic update above
             // with potentially stale server data. The background loadData will sync everything later.
             await refreshInventoryViews(currentUser);
+            await syncMovingAverageRates([savedPurchase, ...purchases], purchaseReturns);
             loadData(currentUser, 'background');
 
             addNotification("Purchase voucher updated.", "success");
@@ -2073,6 +2125,42 @@ const App: React.FC = () => {
     };
 
     const handleConvertToInvoice = (items: BillItem[], customer: Customer, ids: string[]) => {
+        if (!ids.length) {
+            addNotification('Please select at least one challan to convert.', 'error');
+            return;
+        }
+        const selectedChallans = salesChallans.filter(ch => ids.includes(ch.id) && ch.status === SalesChallanStatus.OPEN);
+        if (!selectedChallans.length) {
+            addNotification('Selected challan is already converted/cancelled or unavailable.', 'error');
+            return;
+        }
+        const first = selectedChallans[0];
+        const mergedItems: BillItem[] = [];
+        selectedChallans.forEach(ch => mergedItems.push(...(ch.items || [])));
+
+        setSourceChallansForSales({
+            id: '',
+            organization_id: currentUser?.organization_id || first.organization_id || '',
+            date: first.date,
+            customerName: first.customerName || customer.name,
+            customerId: first.customerId || customer.id,
+            customerPhone: first.customerPhone || customer.phone || '',
+            customerAddress: first.customerAddress || customer.address || '',
+            referredBy: first.referredBy || '',
+            items: mergedItems,
+            total: Number(selectedChallans.reduce((sum, ch) => sum + Number(ch.totalAmount || 0), 0)),
+            itemCount: mergedItems.length,
+            status: 'draft',
+            paymentMode: first.billCategory || 'Cash',
+            billType: 'regular',
+            subtotal: Number(selectedChallans.reduce((sum, ch) => sum + Number(ch.subtotal || 0), 0)),
+            totalItemDiscount: 0,
+            totalGst: Number(selectedChallans.reduce((sum, ch) => sum + Number(ch.totalGst || 0), 0)),
+            schemeDiscount: 0,
+            roundOff: 0,
+            narration: [first.narration, `Converted from Challan: ${selectedChallans.map(ch => ch.challanSerialId).join(', ')}`].filter(Boolean).join('\n'),
+            linkedChallans: selectedChallans.map(ch => ch.id)
+        });
         handleNavigate('pos');
     };
 
@@ -2173,6 +2261,7 @@ const App: React.FC = () => {
                             handleNavigate('salesHistory', true);
                         }}
                         transactionToEdit={editingSale}
+                        conversionDraft={sourceChallansForSales}
                         onRefreshConfig={() => loadData(currentUser!, 'background')}
                         salesChallans={salesChallans}
                     />;
@@ -2314,6 +2403,7 @@ const App: React.FC = () => {
                         onAddPurchaseReturn={async (pr) => {
                             await storage.addPurchaseReturn(pr, currentUser!);
                             await refreshInventoryViews(currentUser!, ['purchase_returns']);
+                            await syncMovingAverageRates(purchases, [pr, ...purchaseReturns]);
                             await loadData(currentUser!, 'background');
                             addNotification('Purchase return recorded.', 'success');
                         }}
@@ -2671,7 +2761,7 @@ const App: React.FC = () => {
                 case 'vendorNomenclature':
                 case 'bulkUtility':
                     return <MaterialMaster
-                        medicines={medicines} onAddMedicine={handleAddMedicineMaster}
+                        medicines={medicines} inventory={inventory} onAddMedicine={handleAddMedicineMaster}
                         onUpdateMedicine={handleUpdateMedicineMaster} currentUser={currentUser}
                         suppliers={suppliers} onAddPurchase={handleAddPurchase as any}
                         onBulkAddMedicines={(list) => storage.saveBulkData('material_master', list, currentUser)}

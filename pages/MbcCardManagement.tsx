@@ -20,16 +20,36 @@ interface Props {
 
 type ValidityUnit = 'days' | 'months' | 'years';
 
+
+type AddCardValueForm = {
+  cardId: string;
+  cardNumber: string;
+  customerName: string;
+  currentCardValue: number;
+  addValueAmount: number | '';
+  valueDate: string;
+  narration: string;
+};
+
+const getTodayInputDate = () => toDateInput(new Date());
+
+const EMPTY_ADD_CARD_VALUE_FORM: AddCardValueForm = {
+  cardId: '',
+  cardNumber: '',
+  customerName: '',
+  currentCardValue: 0,
+  addValueAmount: '',
+  valueDate: getTodayInputDate(),
+  narration: '',
+};
+
 const EMPTY_TYPE: Partial<MbcCardType> = {
   type_name: '',
   type_code: '',
-  description: '',
   default_validity_value: 1,
   default_validity_unit: 'years',
-  default_card_value: 0,
   prefix: 'MBC',
   auto_numbering: true,
-  allow_manual_value_edit: false,
   allow_renewal: true,
   allow_upgrade: true,
   benefits: '',
@@ -48,6 +68,9 @@ const EMPTY_TEMPLATE: Partial<MbcCardTemplate> = {
   template_json: {},
   is_active: true,
 };
+
+
+const EDIT_CARD_STORAGE_KEY = 'mbc_edit_card_id';
 
 const EMPTY_CARD: Partial<MbcCard> = {
   customer_name: '',
@@ -80,6 +103,16 @@ const addByUnit = (date: Date, value: number, unit: ValidityUnit) => {
 };
 
 const toDateInput = (date: Date) => date.toISOString().slice(0, 10);
+const formatDateForInput = (value?: string | null) => {
+  if (!value) return '';
+  return value.slice(0, 10);
+};
+const formatDateForDisplay = (value?: string | null) => {
+  if (!value) return '-';
+  const [year, month, day] = value.slice(0, 10).split('-');
+  if (!year || !month || !day) return value;
+  return `${day}-${month}-${year}`;
+};
 const getValidityPeriodText = (fromDate: string, toDate: string) => {
   const from = new Date(fromDate);
   const to = new Date(toDate);
@@ -98,8 +131,55 @@ const getCardStatus = (card: MbcCard) => {
   return 'active';
 };
 
+type TemplateFieldStyle = {
+  x?: number;
+  y?: number;
+  fontSize?: number;
+  fontWeight?: React.CSSProperties['fontWeight'];
+  color?: string;
+  maxWidth?: number;
+  align?: React.CSSProperties['textAlign'];
+};
+
+const DEFAULT_FIELD_STYLES: Record<string, TemplateFieldStyle> = {
+  card_type: { x: 4, y: 4, fontSize: 10, fontWeight: 800, color: '#111827', maxWidth: 52 },
+  customer_name: { x: 4, y: 14, fontSize: 13, fontWeight: 800, color: '#1d4ed8', maxWidth: 56 },
+  card_number: { x: 4, y: 25, fontSize: 8, fontWeight: 600, color: '#111827', maxWidth: 56 },
+  phone: { x: 4, y: 30, fontSize: 8, fontWeight: 500, color: '#111827', maxWidth: 56 },
+  dob: { x: 4, y: 35, fontSize: 8, fontWeight: 500, color: '#111827', maxWidth: 56 },
+  validity: { x: 4, y: 40, fontSize: 8, fontWeight: 500, color: '#111827', maxWidth: 78 },
+  address: { x: 4, y: 46, fontSize: 7, fontWeight: 500, color: '#111827', maxWidth: 78 },
+  footer: { x: 4, y: 51, fontSize: 7, fontWeight: 500, color: '#111827', maxWidth: 78 },
+  qr: { x: 63, y: 8, maxWidth: 18 },
+};
+
+const getFieldStyle = (field: string, template: MbcCardTemplate | undefined): React.CSSProperties => {
+  const defaults = DEFAULT_FIELD_STYLES[field] || {};
+  const templateJson = (template?.template_json || {}) as Record<string, any>;
+  const config = (templateJson.fields?.[field] || templateJson[field] || {}) as TemplateFieldStyle;
+  const style = { ...defaults, ...config };
+  const width = Number(template?.width || 86);
+  const height = Number(template?.height || 54);
+  return {
+    position: 'absolute',
+    left: `${Math.max(0, Math.min(100, ((style.x || 0) / width) * 100))}%`,
+    top: `${Math.max(0, Math.min(100, ((style.y || 0) / height) * 100))}%`,
+    fontSize: `${style.fontSize || 8}px`,
+    fontWeight: style.fontWeight || 500,
+    color: style.color || '#111827',
+    maxWidth: `${Math.max(0, Math.min(100, ((style.maxWidth || width) / width) * 100))}%`,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    textAlign: style.align || 'left',
+  };
+};
+
 const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavigate }) => {
   const [loading, setLoading] = useState(false);
+  const [loadingEditCard, setLoadingEditCard] = useState(false);
+  const [savingCard, setSavingCard] = useState(false);
+  const [cardFormMessage, setCardFormMessage] = useState('');
   const [cardTypes, setCardTypes] = useState<MbcCardType[]>([]);
   const [templates, setTemplates] = useState<MbcCardTemplate[]>([]);
   const [cards, setCards] = useState<MbcCard[]>([]);
@@ -108,41 +188,64 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
   const [typeForm, setTypeForm] = useState<Partial<MbcCardType>>(EMPTY_TYPE);
   const [templateForm, setTemplateForm] = useState<Partial<MbcCardTemplate>>(EMPTY_TEMPLATE);
   const [cardForm, setCardForm] = useState<Partial<MbcCard>>(EMPTY_CARD);
+  const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
 
   const [selectedCardId, setSelectedCardId] = useState<string>('');
   const [renewMonths, setRenewMonths] = useState(12);
   const [upgradeTypeId, setUpgradeTypeId] = useState<string>('');
+  const [renewalCardValue, setRenewalCardValue] = useState<number>(0);
   const [historyRemarks, setHistoryRemarks] = useState('');
+  const [showAddCardValuePopup, setShowAddCardValuePopup] = useState(false);
+  const [addCardValueForm, setAddCardValueForm] = useState<AddCardValueForm>(EMPTY_ADD_CARD_VALUE_FORM);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [cardTypeFilter, setCardTypeFilter] = useState('');
 
-  const refreshAll = async () => {
-    setLoading(true);
-    try {
-      const [typeRes, templateRes, cardsRes, historyRes] = await Promise.all([
-        supabase.from('mbc_card_types').select('*').eq('organization_id', currentUser.organization_id).order('created_at', { ascending: false }),
-        supabase.from('mbc_card_templates').select('*').eq('organization_id', currentUser.organization_id).order('created_at', { ascending: false }),
-        supabase.from('mbc_cards').select('*').eq('organization_id', currentUser.organization_id).order('created_at', { ascending: false }),
-        supabase.from('mbc_card_history').select('*').eq('organization_id', currentUser.organization_id).order('action_date', { ascending: false }),
-      ]);
-      if (typeRes.error) throw typeRes.error;
-      if (templateRes.error) throw templateRes.error;
-      if (cardsRes.error) throw cardsRes.error;
-      if (historyRes.error) throw historyRes.error;
-      setCardTypes(typeRes.data || []);
-      setTemplates(templateRes.data || []);
-      setCards(cardsRes.data || []);
-      setHistory(historyRes.data || []);
-    } finally {
-      setLoading(false);
-    }
+  const fetchCardTypes = async () => {
+    const { data, error } = await supabase.from('mbc_card_types').select('*').eq('organization_id', currentUser.organization_id).order('created_at', { ascending: false });
+    if (error) throw error;
+    const updatedTypes = data || [];
+    setCardTypes(updatedTypes);
+    return updatedTypes;
+  };
+
+  const fetchTemplates = async () => {
+    const { data, error } = await supabase.from('mbc_card_templates').select('*').eq('organization_id', currentUser.organization_id).order('created_at', { ascending: false });
+    if (error) throw error;
+    const updatedTemplates = data || [];
+    setTemplates(updatedTemplates);
+    return updatedTemplates;
+  };
+
+  const fetchCards = async () => {
+    const { data, error } = await supabase.from('mbc_cards').select('*').eq('organization_id', currentUser.organization_id).order('created_at', { ascending: false });
+    if (error) throw error;
+    const updatedCards = data || [];
+    setCards(updatedCards);
+    return updatedCards;
+  };
+
+  const fetchRenewalHistory = async () => {
+    const { data, error } = await supabase.from('mbc_card_history').select('*').eq('organization_id', currentUser.organization_id).order('action_date', { ascending: false });
+    if (error) throw error;
+    const updatedHistory = data || [];
+    setHistory(updatedHistory);
+    return updatedHistory;
+  };
+
+  const refreshMbcMasterData = async () => {
+    await Promise.all([fetchCardTypes(), fetchTemplates(), fetchCards(), fetchRenewalHistory()]);
   };
 
   useEffect(() => {
-    refreshAll();
+    void refreshMbcMasterData();
   }, [currentUser.organization_id]);
+
+  useEffect(() => {
+    const selectedCard = cards.find(c => c.id === selectedCardId);
+    setRenewalCardValue(selectedCard?.card_value ?? 0);
+  }, [selectedCardId, cards]);
 
   const cardTypeMap = useMemo(() => new Map(cardTypes.map(ct => [ct.id, ct])), [cardTypes]);
   const templateMap = useMemo(() => new Map(templates.map(tp => [tp.id, tp])), [templates]);
@@ -178,8 +281,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       ...prev,
       card_type_id: typeId,
       template_id: cardType.template_id || prev.template_id,
-      card_value: cardType.default_card_value || 0,
-      card_number: cardType.auto_numbering ? generateCardNumber(cardType) : prev.card_number,
+      card_number: prev.id ? prev.card_number : (cardType.auto_numbering ? generateCardNumber(cardType) : prev.card_number),
     }));
   };
 
@@ -193,13 +295,19 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       organization_id: currentUser.organization_id,
       updated_at: new Date().toISOString(),
     };
-    const { error } = await supabase.from('mbc_card_types').upsert(payload);
-    if (error) {
-      alert(error.message);
-      return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('mbc_card_types').upsert(payload);
+      if (error) {
+        alert(error.message);
+        return;
+      }
+      setTypeForm(EMPTY_TYPE);
+      await fetchCardTypes();
+      await fetchCards();
+    } finally {
+      setLoading(false);
     }
-    setTypeForm(EMPTY_TYPE);
-    refreshAll();
   };
 
   const saveTemplate = async () => {
@@ -207,23 +315,89 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       alert('Template name and code are required');
       return;
     }
-    const { error } = await supabase.from('mbc_card_templates').upsert({
-      ...templateForm,
-      organization_id: currentUser.organization_id,
-      updated_at: new Date().toISOString(),
-    });
-    if (error) {
-      alert(error.message);
-      return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('mbc_card_templates').upsert({
+        ...templateForm,
+        organization_id: currentUser.organization_id,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) {
+        alert(error.message);
+        return;
+      }
+      setTemplateForm(EMPTY_TEMPLATE);
+      await fetchTemplates();
+      await fetchCards();
+    } finally {
+      setLoading(false);
     }
-    setTemplateForm(EMPTY_TEMPLATE);
-    refreshAll();
+  };
+
+
+  const loadCardForEdit = async (card: MbcCard) => {
+    setLoadingEditCard(true);
+    setCardFormMessage('');
+    try {
+      const { data, error } = await supabase
+        .from('mbc_cards')
+        .select('*')
+        .eq('organization_id', currentUser.organization_id)
+        .eq('id', card.id)
+        .eq('card_number', card.card_number)
+        .single();
+
+      if (error || !data) {
+        setCardFormMessage('Unable to load selected card details. Please try again.');
+        return;
+      }
+
+      const sourceCard = data;
+      setFormMode('edit');
+      setCardFormMessage(`Editing existing MBC Card: ${sourceCard.card_number}`);
+      const editFormData: Partial<MbcCard> = {
+        id: sourceCard.id,
+        card_number: sourceCard.card_number,
+        customer_name: sourceCard.customer_name || (sourceCard as any).customerName || '',
+        guardian_name: sourceCard.guardian_name || (sourceCard as any).guardianName || '',
+        gender: sourceCard.gender || '',
+        date_of_birth: formatDateForInput(sourceCard.date_of_birth || (sourceCard as any).dob || (sourceCard as any).dateOfBirth),
+        address_line_1: sourceCard.address_line_1 || (sourceCard as any).address_line1 || '',
+        address_line_2: sourceCard.address_line_2 || (sourceCard as any).address_line2 || '',
+        city: sourceCard.city || '',
+        district: sourceCard.district || '',
+        state: sourceCard.state || '',
+        pin_code: sourceCard.pin_code || '',
+        phone_number: sourceCard.phone_number || (sourceCard as any).phoneNumber || '',
+        alternate_phone: sourceCard.alternate_phone || (sourceCard as any).alternatePhone || '',
+        email: sourceCard.email || '',
+        card_type_id: sourceCard.card_type_id || (sourceCard as any).card_type || (sourceCard as any).cardType || '',
+        card_value: sourceCard.card_value || 0,
+        template_id: sourceCard.template_id || '',
+        qr_value: sourceCard.qr_value || (sourceCard as any).qr_barcode_value || '',
+        validity_from: formatDateForInput(sourceCard.validity_from || (sourceCard as any).validityFrom),
+        validity_to: formatDateForInput(sourceCard.validity_to || (sourceCard as any).validityTo),
+        remarks: sourceCard.remarks || '',
+        status: sourceCard.status || 'active',
+        created_at: sourceCard.created_at,
+      };
+      setCardForm(editFormData);
+      window.sessionStorage.setItem(EDIT_CARD_STORAGE_KEY, sourceCard.id);
+      setSelectedCardId(sourceCard.id);
+      onNavigate('mbcGenerateCard');
+    } finally {
+      setLoadingEditCard(false);
+    }
   };
 
   const saveCard = async () => {
     const phone = String(cardForm.phone_number || '').trim();
     if (!cardForm.customer_name?.trim() || !phone || !cardForm.card_type_id || !cardForm.date_of_birth || !cardForm.validity_from || !cardForm.validity_to) {
       alert('Customer, phone, card type, DOB and validity dates are required');
+      return;
+    }
+    if (cardForm.card_value === undefined || cardForm.card_value === null || Number.isNaN(Number(cardForm.card_value))) {
+      alert('Please enter Card Value. Use 0 if no value is required.');
       return;
     }
     if (!/^\d{10}$/.test(phone)) {
@@ -266,30 +440,63 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       status,
       validity_period_text: getValidityPeriodText(String(cardForm.validity_from), String(cardForm.validity_to)),
       updated_at: now,
-      created_at: cardForm.created_at || now,
+              created_at: cardForm.created_at || now,
+      card_value: Number(cardForm.card_value),
     };
 
-    const { data, error } = await supabase.from('mbc_cards').upsert(payload).select('id').single();
-    if (error) {
-      alert(error.message);
-      return;
+    setLoading(true);
+    setSavingCard(true);
+    setCardFormMessage('');
+    try {
+      let savedId = String(cardForm.id || '');
+      if (cardForm.id) {
+        const { data, error } = await supabase
+          .from('mbc_cards')
+          .update(payload)
+          .eq('id', cardForm.id)
+          .eq('card_number', cardNumber)
+          .eq('organization_id', currentUser.organization_id)
+          .select('id')
+          .single();
+        if (error) {
+          alert(error.message);
+          return;
+        }
+        savedId = data.id;
+      } else {
+        const { data, error } = await supabase.from('mbc_cards').insert(payload).select('id').single();
+        if (error) {
+          alert(error.message);
+          return;
+        }
+        savedId = data.id;
+      }
+
+      await supabase.from('mbc_card_history').insert({
+        organization_id: currentUser.organization_id,
+        mbc_card_id: savedId,
+        action_type: cardForm.id ? 'update' : 'create',
+        new_card_type_id: payload.card_type_id,
+        new_validity_to: payload.validity_to,
+        new_card_value: payload.card_value,
+        remarks: payload.remarks || '',
+        action_by: currentUser.full_name,
+        action_date: now,
+      });
+
+      window.sessionStorage.removeItem(EDIT_CARD_STORAGE_KEY);
+      setCardForm(EMPTY_CARD);
+      setFormMode('create');
+      await fetchCards();
+      await fetchCardTypes();
+      await fetchTemplates();
+      await fetchRenewalHistory();
+      setCardFormMessage(cardForm.id ? 'MBC Card updated successfully.' : 'MBC Card created successfully.');
+      onNavigate('mbcCardList');
+    } finally {
+      setSavingCard(false);
+      setLoading(false);
     }
-
-    await supabase.from('mbc_card_history').insert({
-      organization_id: currentUser.organization_id,
-      mbc_card_id: data.id,
-      action_type: cardForm.id ? 'update' : 'create',
-      new_card_type_id: payload.card_type_id,
-      new_validity_to: payload.validity_to,
-      new_card_value: payload.card_value,
-      remarks: payload.remarks || '',
-      action_by: currentUser.full_name,
-      action_date: now,
-    });
-
-    setCardForm(EMPTY_CARD);
-    refreshAll();
-    onNavigate('mbcCardList');
   };
 
   const doRenewUpgrade = async (mode: 'renew' | 'upgrade') => {
@@ -311,33 +518,101 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       card_type_id: newType,
       template_id: typeConfig?.template_id || card.template_id,
       validity_to: toDateInput(nextTo),
-      card_value: mode === 'upgrade' ? Number(typeConfig?.default_card_value || card.card_value) : card.card_value,
+      card_value: renewalCardValue,
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from('mbc_cards').update(patch).eq('id', card.id);
-    if (error) {
-      alert(error.message);
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('mbc_cards').update(patch).eq('id', card.id);
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      await supabase.from('mbc_card_history').insert({
+        organization_id: currentUser.organization_id,
+        mbc_card_id: card.id,
+        action_type: mode,
+        old_card_type_id: oldType,
+        new_card_type_id: patch.card_type_id,
+        old_validity_to: oldTo,
+        new_validity_to: patch.validity_to,
+        old_card_value: oldValue,
+        new_card_value: patch.card_value,
+        remarks: historyRemarks,
+        action_by: currentUser.full_name,
+        action_date: new Date().toISOString(),
+      });
+
+      setHistoryRemarks('');
+      await fetchCards();
+      await fetchRenewalHistory();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  const openAddCardValuePopup = (card: MbcCard) => {
+    setAddCardValueForm({
+      cardId: card.id,
+      cardNumber: card.card_number,
+      customerName: card.customer_name,
+      currentCardValue: Number(card.card_value || 0),
+      addValueAmount: '',
+      valueDate: getTodayInputDate(),
+      narration: '',
+    });
+    setShowAddCardValuePopup(true);
+  };
+
+  const closeAddCardValuePopup = () => {
+    setShowAddCardValuePopup(false);
+    setAddCardValueForm(EMPTY_ADD_CARD_VALUE_FORM);
+  };
+
+  const saveAddedCardValue = async () => {
+    if (!addCardValueForm.addValueAmount || Number(addCardValueForm.addValueAmount) <= 0) {
+      alert('Please enter valid card value amount.');
+      return;
+    }
+    if (!addCardValueForm.valueDate) {
+      alert('Please select card value date.');
       return;
     }
 
-    await supabase.from('mbc_card_history').insert({
-      organization_id: currentUser.organization_id,
-      mbc_card_id: card.id,
-      action_type: mode,
-      old_card_type_id: oldType,
-      new_card_type_id: patch.card_type_id,
-      old_validity_to: oldTo,
-      new_validity_to: patch.validity_to,
-      old_card_value: oldValue,
-      new_card_value: patch.card_value,
-      remarks: historyRemarks,
-      action_by: currentUser.full_name,
-      action_date: new Date().toISOString(),
-    });
+    const addedValue = Number(addCardValueForm.addValueAmount);
+    const previousValue = Number(addCardValueForm.currentCardValue || 0);
+    const newValue = previousValue + addedValue;
+    setLoading(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('mbc_cards')
+        .update({ card_value: newValue, updated_at: new Date().toISOString() })
+        .eq('id', addCardValueForm.cardId)
+        .eq('organization_id', currentUser.organization_id);
+      if (updateError) {
+        alert(updateError.message);
+        return;
+      }
 
-    setHistoryRemarks('');
-    refreshAll();
+      await supabase.from('mbc_card_history').insert({
+        organization_id: currentUser.organization_id,
+        mbc_card_id: addCardValueForm.cardId,
+        action_type: 'value_add',
+        old_card_value: previousValue,
+        new_card_value: newValue,
+        remarks: addCardValueForm.narration || '',
+        action_by: currentUser.full_name,
+        action_date: new Date(addCardValueForm.valueDate).toISOString(),
+      });
+
+      closeAddCardValuePopup();
+      await Promise.all([fetchCards(), fetchRenewalHistory(), fetchCardTypes(), fetchTemplates()]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const printPreviewCard = cards.find(c => c.id === selectedCardId) || cards[0];
@@ -365,6 +640,22 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
     };
   }, [cards, cardTypeMap]);
 
+
+  useEffect(() => {
+    if (activeScreen !== 'mbcGenerateCard') return;
+    const editCardId = window.sessionStorage.getItem(EDIT_CARD_STORAGE_KEY);
+    if (!editCardId) return;
+    const selected = cards.find(c => c.id === editCardId);
+    if (!selected) return;
+    setFormMode('edit');
+    setCardForm({
+      ...selected,
+      date_of_birth: formatDateForInput(selected.date_of_birth),
+      validity_from: formatDateForInput(selected.validity_from),
+      validity_to: formatDateForInput(selected.validity_to),
+    });
+  }, [activeScreen, cards]);
+
   const renderTitle = () => {
     const map: Record<MbcScreen, string> = {
       mbcCardDashboard: 'MBC Card Dashboard',
@@ -380,7 +671,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
 
   const actionButtons = (
     <div className="flex gap-2 flex-wrap">
-      <button className="px-2 py-1 bg-primary text-white text-[10px] font-black uppercase" onClick={() => onNavigate('mbcGenerateCard')}>New Card</button>
+      <button className="px-2 py-1 bg-primary text-white text-[10px] font-black uppercase" onClick={() => { setFormMode('create'); setCardForm(EMPTY_CARD); window.sessionStorage.removeItem(EDIT_CARD_STORAGE_KEY); onNavigate('mbcGenerateCard'); }}>New Card</button>
       <button className="px-2 py-1 bg-primary text-white text-[10px] font-black uppercase" onClick={() => onNavigate('mbcCardList')}>Card List</button>
       <button className="px-2 py-1 bg-primary text-white text-[10px] font-black uppercase" onClick={() => onNavigate('mbcCardTypeMaster')}>Card Type Master</button>
       <button className="px-2 py-1 bg-primary text-white text-[10px] font-black uppercase" onClick={() => onNavigate('mbcCardTemplateMaster')}>Template Master</button>
@@ -466,7 +757,6 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
               <input className="border p-2" placeholder="Card Type Name" value={typeForm.type_name || ''} onChange={e => setTypeForm(prev => ({ ...prev, type_name: e.target.value }))} />
               <input className="border p-2" placeholder="Card Code" value={typeForm.type_code || ''} onChange={e => setTypeForm(prev => ({ ...prev, type_code: e.target.value }))} />
               <input className="border p-2" placeholder="Prefix" value={typeForm.prefix || ''} onChange={e => setTypeForm(prev => ({ ...prev, prefix: e.target.value }))} />
-              <input type="number" className="border p-2" placeholder="Default Value" value={Number(typeForm.default_card_value || 0)} onChange={e => setTypeForm(prev => ({ ...prev, default_card_value: Number(e.target.value || 0) }))} />
               <input type="number" className="border p-2" placeholder="Validity Value" value={Number(typeForm.default_validity_value || 1)} onChange={e => setTypeForm(prev => ({ ...prev, default_validity_value: Number(e.target.value || 1) }))} />
               <select className="border p-2" value={typeForm.default_validity_unit || 'years'} onChange={e => setTypeForm(prev => ({ ...prev, default_validity_unit: e.target.value as ValidityUnit }))}>
                 <option value="days">Days</option><option value="months">Months</option><option value="years">Years</option>
@@ -487,10 +777,10 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
 
             <div className="overflow-auto">
               <table className="w-full text-xs border-collapse">
-                <thead className="bg-gray-100"><tr><th className="p-2 text-left">Type</th><th className="p-2 text-left">Code</th><th className="p-2 text-left">Default Validity</th><th className="p-2 text-left">Default Value</th><th className="p-2 text-left">Prefix</th><th className="p-2 text-left">Actions</th></tr></thead>
+                <thead className="bg-gray-100"><tr><th className="p-2 text-left">Type</th><th className="p-2 text-left">Code</th><th className="p-2 text-left">Default Validity</th><th className="p-2 text-left">Prefix</th><th className="p-2 text-left">Actions</th></tr></thead>
                 <tbody>
                   {cardTypes.map(t => (
-                    <tr key={t.id} className="border-t"><td className="p-2">{t.type_name}</td><td className="p-2">{t.type_code}</td><td className="p-2">{t.default_validity_value} {t.default_validity_unit}</td><td className="p-2">{t.default_card_value}</td><td className="p-2">{t.prefix}</td><td className="p-2"><button className="px-2 py-1 border" onClick={() => setTypeForm(t)}>Edit</button></td></tr>
+                    <tr key={t.id} className="border-t"><td className="p-2">{t.type_name}</td><td className="p-2">{t.type_code}</td><td className="p-2">{t.default_validity_value} {t.default_validity_unit}</td><td className="p-2">{t.prefix}</td><td className="p-2"><button className="px-2 py-1 border" onClick={() => setTypeForm(t)}>Edit</button></td></tr>
                   ))}
                 </tbody>
               </table>
@@ -516,7 +806,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
               <input className="border p-2" placeholder="Background Image URL" value={templateForm.background_image || ''} onChange={e => setTemplateForm(prev => ({ ...prev, background_image: e.target.value }))} />
               <input className="border p-2" placeholder="Logo URL" value={templateForm.logo_image || ''} onChange={e => setTemplateForm(prev => ({ ...prev, logo_image: e.target.value }))} />
             </div>
-            <textarea className="border p-2 w-full text-xs" placeholder="Template JSON (positions for name/phone/dob/address/validity/qr/footer)" value={typeof templateForm.template_json === 'string' ? templateForm.template_json : JSON.stringify(templateForm.template_json || {})} onChange={e => {
+            <textarea className="border p-2 w-full text-xs" placeholder='Template JSON (example: {"fields":{"customer_name":{"x":4,"y":14,"fontSize":13,"fontWeight":800,"color":"#1d4ed8"},"qr":{"x":63,"y":8,"maxWidth":18}}})' value={typeof templateForm.template_json === 'string' ? templateForm.template_json : JSON.stringify(templateForm.template_json || {})} onChange={e => {
               try {
                 setTemplateForm(prev => ({ ...prev, template_json: JSON.parse(e.target.value || '{}') }));
               } catch {
@@ -540,11 +830,18 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
 
         {activeScreen === 'mbcGenerateCard' && (
           <Card className="p-3 border border-gray-300 space-y-3">
-            <div className="text-xs font-black uppercase">Generate New MBC Card</div>
+            <div className="text-xs font-black uppercase">{formMode === 'edit' ? 'Edit MBC Card' : 'Generate New MBC Card'}</div>
+            {!!cardFormMessage && <div className="text-xs font-bold text-primary">{cardFormMessage}</div>}
+            {loadingEditCard && <div className="text-xs font-bold text-primary">Loading selected card details...</div>}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
               <input className="border p-2" placeholder="Customer Name" value={cardForm.customer_name || ''} onChange={e => setCardForm(prev => ({ ...prev, customer_name: e.target.value }))} />
               <input className="border p-2" placeholder="Guardian Name" value={cardForm.guardian_name || ''} onChange={e => setCardForm(prev => ({ ...prev, guardian_name: e.target.value }))} />
-              <input className="border p-2" placeholder="Gender" value={cardForm.gender || ''} onChange={e => setCardForm(prev => ({ ...prev, gender: e.target.value }))} />
+              <select className="border p-2" value={cardForm.gender || ''} onChange={e => setCardForm(prev => ({ ...prev, gender: e.target.value }))}>
+                <option value="">Gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+              </select>
               <input className="border p-2" placeholder="Address Line 1" value={cardForm.address_line_1 || ''} onChange={e => setCardForm(prev => ({ ...prev, address_line_1: e.target.value }))} />
               <input className="border p-2" placeholder="Address Line 2" value={cardForm.address_line_2 || ''} onChange={e => setCardForm(prev => ({ ...prev, address_line_2: e.target.value }))} />
               <input className="border p-2" placeholder="City / Town / Village" value={cardForm.city || ''} onChange={e => setCardForm(prev => ({ ...prev, city: e.target.value }))} />
@@ -558,16 +855,13 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                 <option value="">Card Type</option>
                 {cardTypes.filter(t => t.is_active !== false).map(t => <option key={t.id} value={t.id}>{t.type_name}</option>)}
               </select>
-              <input className="border p-2" placeholder="Card Number" value={cardForm.card_number || ''} onChange={e => setCardForm(prev => ({ ...prev, card_number: e.target.value }))} />
-              <input type="number" className="border p-2" placeholder="Card Value" value={Number(cardForm.card_value || 0)} onChange={e => setCardForm(prev => ({ ...prev, card_value: Number(e.target.value || 0) }))} disabled={!cardTypeMap.get(cardForm.card_type_id || '')?.allow_manual_value_edit} />
+              <input className="border p-2 bg-gray-50" placeholder="Card Number" value={cardForm.card_number || ''} readOnly={formMode === 'edit'} onChange={e => setCardForm(prev => ({ ...prev, card_number: e.target.value }))} />
+              <input type="number" step="any" className="border p-2" placeholder="Card Value" value={cardForm.card_value ?? 0} onChange={e => setCardForm(prev => ({ ...prev, card_value: Number(e.target.value) }))} />
               <select className="border p-2" value={cardForm.template_id || ''} onChange={e => setCardForm(prev => ({ ...prev, template_id: e.target.value }))}>
                 <option value="">Card Template</option>
                 {templates.filter(t => !cardForm.card_type_id || t.card_type_id === cardForm.card_type_id).map(t => <option key={t.id} value={t.id}>{t.template_name}</option>)}
               </select>
               <input className="border p-2" placeholder="QR / Barcode value" value={cardForm.qr_value || ''} onChange={e => setCardForm(prev => ({ ...prev, qr_value: e.target.value }))} />
-              <input className="border p-2" placeholder="WhatsApp Number" value={cardForm.whatsapp_number || ''} onChange={e => setCardForm(prev => ({ ...prev, whatsapp_number: e.target.value }))} />
-              <input className="border p-2" placeholder="Website link" value={cardForm.website_link || ''} onChange={e => setCardForm(prev => ({ ...prev, website_link: e.target.value }))} />
-              <input className="border p-2" placeholder="Office Location Text" value={cardForm.office_location_text || ''} onChange={e => setCardForm(prev => ({ ...prev, office_location_text: e.target.value }))} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
               <label className="flex flex-col gap-1">
@@ -601,8 +895,13 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
             </div>
             <textarea className="border p-2 w-full text-xs" placeholder="Remarks / Notes" value={cardForm.remarks || ''} onChange={e => setCardForm(prev => ({ ...prev, remarks: e.target.value }))} />
 
+            <select className="border p-2 text-xs" value={cardForm.status || 'active'} onChange={e => setCardForm(prev => ({ ...prev, status: e.target.value as MbcCard['status'] }))}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+
             <div className="flex gap-2">
-              <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase" onClick={saveCard}>Save / Generate Card</button>
+              <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase disabled:opacity-50" disabled={savingCard || loadingEditCard} onClick={saveCard}>{formMode === 'edit' ? 'Update Card' : 'Save / Generate Card'}</button>
               <button className="px-3 py-2 border border-gray-400 text-xs font-black uppercase" onClick={() => setSelectedCardId(cardForm.id || '')}>Preview Current</button>
             </div>
           </Card>
@@ -638,22 +937,32 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                       <tr key={card.id} className="border-t">
                         <td className="p-2">{card.card_number}</td>
                         <td className="p-2">{card.customer_name}</td>
-                        <td className="p-2">{card.date_of_birth || '-'}</td>
+                        <td className="p-2">{formatDateForDisplay(card.date_of_birth)}</td>
                         <td className="p-2">{[card.address_line_1, card.address_line_2, card.city].filter(Boolean).join(', ')}</td>
                         <td className="p-2">{card.phone_number}</td>
                         <td className="p-2">{cardTypeMap.get(card.card_type_id)?.type_name || '-'}</td>
                         <td className="p-2">{card.card_value}</td>
-                        <td className="p-2">{card.validity_from}</td>
-                        <td className="p-2">{card.validity_to}</td>
+                        <td className="p-2">{formatDateForDisplay(card.validity_from)}</td>
+                        <td className="p-2">{formatDateForDisplay(card.validity_to)}</td>
                         <td className="p-2">{card.validity_period_text}</td>
                         <td className="p-2 uppercase font-bold">{status}</td>
                         <td className="p-2">{card.created_by}</td>
-                        <td className="p-2">{card.created_at?.slice(0, 10)}</td>
+                        <td className="p-2">{formatDateForDisplay(card.created_at?.slice(0, 10))}</td>
                         <td className="p-2 whitespace-nowrap">
-                          <button className="px-2 py-1 border mr-1" onClick={() => { setCardForm(card); onNavigate('mbcGenerateCard'); }}>Edit</button>
+                          <button className="px-2 py-1 border mr-1" onClick={() => loadCardForEdit(card)}>Edit</button>
                           <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardPrintPreview'); }}>Print</button>
                           <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardRenewalHistory'); }}>Renew/Upgrade</button>
-                          <button className="px-2 py-1 border" onClick={async () => { await supabase.from('mbc_cards').update({ status: 'inactive' }).eq('id', card.id); refreshAll(); }}>Deactivate</button>
+                          <button className="px-2 py-1 border mr-1" onClick={() => openAddCardValuePopup(card)}>Add Card Value</button>
+                          <button className="px-2 py-1 border" onClick={async () => {
+                            setLoading(true);
+                            try {
+                              await supabase.from('mbc_cards').update({ status: 'inactive' }).eq('id', card.id);
+                              await fetchCards();
+                              await fetchRenewalHistory();
+                            } finally {
+                              setLoading(false);
+                            }
+                          }}>Deactivate</button>
                         </td>
                       </tr>
                     );
@@ -676,25 +985,32 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                 const found = cards.find(c => [c.card_number, c.customer_name, c.phone_number].join(' ').toLowerCase().includes(q));
                 if (found) setSelectedCardId(found.id);
               }} />
-              <button className="px-3 py-2 border border-gray-300 font-black uppercase" onClick={refreshAll}>Re-generate Preview</button>
+              <button className="px-3 py-2 border border-gray-300 font-black uppercase" onClick={async () => {
+                setLoading(true);
+                try {
+                  await refreshMbcMasterData();
+                } finally {
+                  setLoading(false);
+                }
+              }}>Re-generate Preview</button>
             </div>
 
             {printPreviewCard ? (
               <>
-                <div className="border p-4 bg-white max-w-[500px]" style={{ aspectRatio: `${Number(printTemplate?.width || 86)} / ${Number(printTemplate?.height || 54)}`, backgroundImage: printTemplate?.background_image ? `url(${printTemplate.background_image})` : undefined, backgroundSize: 'cover' }}>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="text-sm font-black uppercase">{printType?.type_name || 'Membership Card'}</div>
-                      <div className="text-lg font-black uppercase text-primary mt-2">{printPreviewCard.customer_name}</div>
-                      <div className="text-xs mt-1">Card No: {printPreviewCard.card_number}</div>
-                      <div className="text-xs">Phone: {printPreviewCard.phone_number}</div>
-                      <div className="text-xs">DOB: {printPreviewCard.date_of_birth || '-'}</div>
-                      <div className="text-xs">Validity: {printPreviewCard.validity_from} to {printPreviewCard.validity_to}</div>
-                    </div>
-                    <div className="w-20 h-20 border border-dashed flex items-center justify-center text-[9px] text-center p-1">QR / Barcode\n{printPreviewCard.qr_value || ''}</div>
-                  </div>
-                  <div className="text-[10px] mt-3">Address: {[printPreviewCard.address_line_1, printPreviewCard.address_line_2, printPreviewCard.city].filter(Boolean).join(', ')}</div>
-                  <div className="text-[10px] mt-2">{printPreviewCard.website_link || 'www.mdxera.com'} | {printPreviewCard.office_location_text || 'Office'}</div>
+                <div className="border bg-white max-w-[500px] relative overflow-hidden" style={{ aspectRatio: `${Number(printTemplate?.width || 86)} / ${Number(printTemplate?.height || 54)}`, backgroundImage: printTemplate?.background_image ? `url(${printTemplate.background_image})` : undefined, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+                  <div style={getFieldStyle('card_type', printTemplate)}>{printType?.type_name || 'Membership Card'}</div>
+                  <div style={getFieldStyle('customer_name', printTemplate)}>{printPreviewCard.customer_name}</div>
+                  <div style={getFieldStyle('card_number', printTemplate)}>Card No: {printPreviewCard.card_number}</div>
+                  <div style={getFieldStyle('phone', printTemplate)}>Phone: {printPreviewCard.phone_number}</div>
+                  <div style={getFieldStyle('dob', printTemplate)}>DOB: {formatDateForDisplay(printPreviewCard.date_of_birth)}</div>
+                  <div style={getFieldStyle('validity', printTemplate)}>Validity: {formatDateForDisplay(printPreviewCard.validity_from)} to {formatDateForDisplay(printPreviewCard.validity_to)}</div>
+                  <div style={getFieldStyle('address', printTemplate)}>Address: {[printPreviewCard.address_line_1, printPreviewCard.address_line_2, printPreviewCard.city].filter(Boolean).join(', ')}</div>
+                  <div style={getFieldStyle('footer', printTemplate)}>{printPreviewCard.website_link || 'www.mdxera.com'} | {printPreviewCard.office_location_text || 'Office'}</div>
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(printPreviewCard.qr_value || `${window.location.origin}/mbc/${printPreviewCard.card_number}`)}`}
+                    alt="Card QR"
+                    style={{ ...getFieldStyle('qr', printTemplate), width: '20%', aspectRatio: '1 / 1', objectFit: 'contain' }}
+                  />
                 </div>
                 <div className="flex gap-2">
                   <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase" onClick={() => window.print()}>Print</button>
@@ -731,6 +1047,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                 <option value="">Select Card</option>
                 {cards.map(c => <option key={c.id} value={c.id}>{c.card_number} - {c.customer_name}</option>)}
               </select>
+              <input type="number" step="any" className="border p-2" value={renewalCardValue} onChange={e => setRenewalCardValue(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="Card Value" />
               <input type="number" className="border p-2" value={renewMonths} onChange={e => setRenewMonths(Number(e.target.value || 1))} placeholder="Renew Months" />
               <select className="border p-2" value={upgradeTypeId} onChange={e => setUpgradeTypeId(e.target.value)}>
                 <option value="">Upgrade Type</option>
@@ -749,12 +1066,12 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                 <tbody>
                   {history.filter(h => !selectedCardId || h.mbc_card_id === selectedCardId).map(h => (
                     <tr key={h.id} className="border-t">
-                      <td className="p-2">{h.action_date?.slice(0, 10)}</td>
+                      <td className="p-2">{formatDateForDisplay(h.action_date?.slice(0, 10))}</td>
                       <td className="p-2 uppercase">{h.action_type}</td>
                       <td className="p-2">{cardTypeMap.get(h.old_card_type_id || '')?.type_name || '-'}</td>
                       <td className="p-2">{cardTypeMap.get(h.new_card_type_id || '')?.type_name || '-'}</td>
-                      <td className="p-2">{h.old_validity_to || '-'}</td>
-                      <td className="p-2">{h.new_validity_to || '-'}</td>
+                      <td className="p-2">{formatDateForDisplay(h.old_validity_to)}</td>
+                      <td className="p-2">{formatDateForDisplay(h.new_validity_to)}</td>
                       <td className="p-2">{h.old_card_value ?? '-'}</td>
                       <td className="p-2">{h.new_card_value ?? '-'}</td>
                       <td className="p-2">{h.remarks || '-'}</td>
@@ -766,6 +1083,27 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
             </div>
           </Card>
         )}
+
+
+      {showAddCardValuePopup && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <Card className="w-full max-w-xl p-4 border border-gray-300 bg-white space-y-3">
+            <div className="text-sm font-black uppercase">Add Card Value</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+              <input className="border p-2 bg-gray-100" value={addCardValueForm.cardNumber} readOnly placeholder="Card Number" />
+              <input className="border p-2 bg-gray-100" value={addCardValueForm.customerName} readOnly placeholder="Customer Name" />
+              <input className="border p-2 bg-gray-100" value={addCardValueForm.currentCardValue} readOnly placeholder="Current Card Value" />
+              <input type="number" step="any" className="border p-2" placeholder="Add Value Amount" value={addCardValueForm.addValueAmount} onChange={e => setAddCardValueForm(prev => ({ ...prev, addValueAmount: e.target.value === '' ? '' : Number(e.target.value) }))} />
+              <input type="date" className="border p-2" value={addCardValueForm.valueDate} onChange={e => setAddCardValueForm(prev => ({ ...prev, valueDate: e.target.value }))} />
+              <input className="border p-2" placeholder="Narration / Remarks (optional)" value={addCardValueForm.narration} onChange={e => setAddCardValueForm(prev => ({ ...prev, narration: e.target.value }))} />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase" onClick={saveAddedCardValue}>Save</button>
+              <button className="px-3 py-2 border border-gray-300 text-xs font-black uppercase" onClick={closeAddCardValuePopup}>Cancel</button>
+            </div>
+          </Card>
+        </div>
+      )}
       </div>
     </main>
   );
