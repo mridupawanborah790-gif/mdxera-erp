@@ -278,36 +278,48 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
   };
 
 
-  const loadCardForEdit = (card: MbcCard) => {
-    console.log('EDIT CARD DATA:', card);
+  const loadCardForEdit = async (card: MbcCard) => {
+    const { data, error } = await supabase
+      .from('mbc_cards')
+      .select('*')
+      .eq('organization_id', currentUser.organization_id)
+      .eq('id', card.id)
+      .eq('card_number', card.card_number)
+      .maybeSingle();
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    const sourceCard = data || card;
     setFormMode('edit');
     const editFormData: Partial<MbcCard> = {
-      id: card.id,
-      card_number: card.card_number,
-      customer_name: card.customer_name || (card as any).customerName || '',
-      guardian_name: card.guardian_name || (card as any).guardianName || '',
-      gender: card.gender || '',
-      date_of_birth: formatDateForInput(card.date_of_birth || (card as any).dob || (card as any).dateOfBirth),
-      address_line_1: card.address_line_1 || (card as any).address_line1 || '',
-      address_line_2: card.address_line_2 || (card as any).address_line2 || '',
-      city: card.city || '',
-      district: card.district || '',
-      state: card.state || '',
-      pin_code: card.pin_code || '',
-      phone_number: card.phone_number || (card as any).phoneNumber || '',
-      alternate_phone: card.alternate_phone || (card as any).alternatePhone || '',
-      email: card.email || '',
-      card_type_id: card.card_type_id || (card as any).card_type || (card as any).cardType || '',
-      card_value: card.card_value || 0,
-      template_id: card.template_id || '',
-      qr_value: card.qr_value || (card as any).qr_barcode_value || '',
-      validity_from: formatDateForInput(card.validity_from || (card as any).validityFrom),
-      validity_to: formatDateForInput(card.validity_to || (card as any).validityTo),
-      remarks: card.remarks || '',
-      status: card.status || 'active',
-      created_at: card.created_at,
+      id: sourceCard.id,
+      card_number: sourceCard.card_number,
+      customer_name: sourceCard.customer_name || (sourceCard as any).customerName || '',
+      guardian_name: sourceCard.guardian_name || (sourceCard as any).guardianName || '',
+      gender: sourceCard.gender || '',
+      date_of_birth: formatDateForInput(sourceCard.date_of_birth || (sourceCard as any).dob || (sourceCard as any).dateOfBirth),
+      address_line_1: sourceCard.address_line_1 || (sourceCard as any).address_line1 || '',
+      address_line_2: sourceCard.address_line_2 || (sourceCard as any).address_line2 || '',
+      city: sourceCard.city || '',
+      district: sourceCard.district || '',
+      state: sourceCard.state || '',
+      pin_code: sourceCard.pin_code || '',
+      phone_number: sourceCard.phone_number || (sourceCard as any).phoneNumber || '',
+      alternate_phone: sourceCard.alternate_phone || (sourceCard as any).alternatePhone || '',
+      email: sourceCard.email || '',
+      card_type_id: sourceCard.card_type_id || (sourceCard as any).card_type || (sourceCard as any).cardType || '',
+      card_value: sourceCard.card_value || 0,
+      template_id: sourceCard.template_id || '',
+      qr_value: sourceCard.qr_value || (sourceCard as any).qr_barcode_value || '',
+      validity_from: formatDateForInput(sourceCard.validity_from || (sourceCard as any).validityFrom),
+      validity_to: formatDateForInput(sourceCard.validity_to || (sourceCard as any).validityTo),
+      remarks: sourceCard.remarks || '',
+      status: sourceCard.status || 'active',
+      created_at: sourceCard.created_at,
     };
-    console.log('FORM DATA:', editFormData);
     setCardForm(editFormData);
     onNavigate('mbcGenerateCard');
   };
@@ -716,6 +728,11 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
               </label>
             </div>
             <textarea className="border p-2 w-full text-xs" placeholder="Remarks / Notes" value={cardForm.remarks || ''} onChange={e => setCardForm(prev => ({ ...prev, remarks: e.target.value }))} />
+
+            <select className="border p-2 text-xs" value={cardForm.status || 'active'} onChange={e => setCardForm(prev => ({ ...prev, status: e.target.value as MbcCard['status'] }))}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
 
             <div className="flex gap-2">
               <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase" onClick={saveCard}>{formMode === 'edit' ? 'Update Card' : 'Save / Generate Card'}</button>
