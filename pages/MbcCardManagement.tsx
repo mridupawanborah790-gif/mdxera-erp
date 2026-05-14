@@ -23,13 +23,10 @@ type ValidityUnit = 'days' | 'months' | 'years';
 const EMPTY_TYPE: Partial<MbcCardType> = {
   type_name: '',
   type_code: '',
-  description: '',
   default_validity_value: 1,
   default_validity_unit: 'years',
-  default_card_value: 0,
   prefix: 'MBC',
   auto_numbering: true,
-  allow_manual_value_edit: false,
   allow_renewal: true,
   allow_upgrade: true,
   benefits: '',
@@ -123,6 +120,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
   const [selectedCardId, setSelectedCardId] = useState<string>('');
   const [renewMonths, setRenewMonths] = useState(12);
   const [upgradeTypeId, setUpgradeTypeId] = useState<string>('');
+  const [renewalCardValue, setRenewalCardValue] = useState<number>(0);
   const [historyRemarks, setHistoryRemarks] = useState('');
 
   const [search, setSearch] = useState('');
@@ -154,6 +152,11 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
   useEffect(() => {
     refreshAll();
   }, [currentUser.organization_id]);
+
+  useEffect(() => {
+    const selectedCard = cards.find(c => c.id === selectedCardId);
+    setRenewalCardValue(selectedCard?.card_value ?? 0);
+  }, [selectedCardId, cards]);
 
   const cardTypeMap = useMemo(() => new Map(cardTypes.map(ct => [ct.id, ct])), [cardTypes]);
   const templateMap = useMemo(() => new Map(templates.map(tp => [tp.id, tp])), [templates]);
@@ -189,7 +192,6 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       ...prev,
       card_type_id: typeId,
       template_id: cardType.template_id || prev.template_id,
-      card_value: cardType.default_card_value || 0,
       card_number: prev.id ? prev.card_number : (cardType.auto_numbering ? generateCardNumber(cardType) : prev.card_number),
     }));
   };
@@ -272,6 +274,10 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       alert('Customer, phone, card type, DOB and validity dates are required');
       return;
     }
+    if (cardForm.card_value === undefined || cardForm.card_value === null || Number.isNaN(Number(cardForm.card_value))) {
+      alert('Please enter Card Value. Use 0 if no value is required.');
+      return;
+    }
     if (!/^\d{10}$/.test(phone)) {
       alert('Phone number should contain exactly 10 digits');
       return;
@@ -312,7 +318,8 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       status,
       validity_period_text: getValidityPeriodText(String(cardForm.validity_from), String(cardForm.validity_to)),
       updated_at: now,
-      created_at: cardForm.created_at || now,
+              created_at: cardForm.created_at || now,
+      card_value: Number(cardForm.card_value),
     };
 
     let savedId = String(cardForm.id || '');
@@ -375,7 +382,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       card_type_id: newType,
       template_id: typeConfig?.template_id || card.template_id,
       validity_to: toDateInput(nextTo),
-      card_value: mode === 'upgrade' ? Number(typeConfig?.default_card_value || card.card_value) : card.card_value,
+      card_value: renewalCardValue,
       updated_at: new Date().toISOString(),
     };
 
@@ -530,7 +537,6 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
               <input className="border p-2" placeholder="Card Type Name" value={typeForm.type_name || ''} onChange={e => setTypeForm(prev => ({ ...prev, type_name: e.target.value }))} />
               <input className="border p-2" placeholder="Card Code" value={typeForm.type_code || ''} onChange={e => setTypeForm(prev => ({ ...prev, type_code: e.target.value }))} />
               <input className="border p-2" placeholder="Prefix" value={typeForm.prefix || ''} onChange={e => setTypeForm(prev => ({ ...prev, prefix: e.target.value }))} />
-              <input type="number" className="border p-2" placeholder="Default Value" value={Number(typeForm.default_card_value || 0)} onChange={e => setTypeForm(prev => ({ ...prev, default_card_value: Number(e.target.value || 0) }))} />
               <input type="number" className="border p-2" placeholder="Validity Value" value={Number(typeForm.default_validity_value || 1)} onChange={e => setTypeForm(prev => ({ ...prev, default_validity_value: Number(e.target.value || 1) }))} />
               <select className="border p-2" value={typeForm.default_validity_unit || 'years'} onChange={e => setTypeForm(prev => ({ ...prev, default_validity_unit: e.target.value as ValidityUnit }))}>
                 <option value="days">Days</option><option value="months">Months</option><option value="years">Years</option>
@@ -551,10 +557,10 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
 
             <div className="overflow-auto">
               <table className="w-full text-xs border-collapse">
-                <thead className="bg-gray-100"><tr><th className="p-2 text-left">Type</th><th className="p-2 text-left">Code</th><th className="p-2 text-left">Default Validity</th><th className="p-2 text-left">Default Value</th><th className="p-2 text-left">Prefix</th><th className="p-2 text-left">Actions</th></tr></thead>
+                <thead className="bg-gray-100"><tr><th className="p-2 text-left">Type</th><th className="p-2 text-left">Code</th><th className="p-2 text-left">Default Validity</th><th className="p-2 text-left">Prefix</th><th className="p-2 text-left">Actions</th></tr></thead>
                 <tbody>
                   {cardTypes.map(t => (
-                    <tr key={t.id} className="border-t"><td className="p-2">{t.type_name}</td><td className="p-2">{t.type_code}</td><td className="p-2">{t.default_validity_value} {t.default_validity_unit}</td><td className="p-2">{t.default_card_value}</td><td className="p-2">{t.prefix}</td><td className="p-2"><button className="px-2 py-1 border" onClick={() => setTypeForm(t)}>Edit</button></td></tr>
+                    <tr key={t.id} className="border-t"><td className="p-2">{t.type_name}</td><td className="p-2">{t.type_code}</td><td className="p-2">{t.default_validity_value} {t.default_validity_unit}</td><td className="p-2">{t.prefix}</td><td className="p-2"><button className="px-2 py-1 border" onClick={() => setTypeForm(t)}>Edit</button></td></tr>
                   ))}
                 </tbody>
               </table>
@@ -628,7 +634,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                 {cardTypes.filter(t => t.is_active !== false).map(t => <option key={t.id} value={t.id}>{t.type_name}</option>)}
               </select>
               <input className="border p-2" placeholder="Card Number" value={cardForm.card_number || ''} onChange={e => setCardForm(prev => ({ ...prev, card_number: e.target.value }))} />
-              <input type="number" className="border p-2" placeholder="Card Value" value={Number(cardForm.card_value || 0)} onChange={e => setCardForm(prev => ({ ...prev, card_value: Number(e.target.value || 0) }))} disabled={!cardTypeMap.get(cardForm.card_type_id || '')?.allow_manual_value_edit} />
+              <input type="number" step="any" className="border p-2" placeholder="Card Value" value={cardForm.card_value ?? 0} onChange={e => setCardForm(prev => ({ ...prev, card_value: Number(e.target.value) }))} />
               <select className="border p-2" value={cardForm.template_id || ''} onChange={e => setCardForm(prev => ({ ...prev, template_id: e.target.value }))}>
                 <option value="">Card Template</option>
                 {templates.filter(t => !cardForm.card_type_id || t.card_type_id === cardForm.card_type_id).map(t => <option key={t.id} value={t.id}>{t.template_name}</option>)}
@@ -797,6 +803,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                 <option value="">Select Card</option>
                 {cards.map(c => <option key={c.id} value={c.id}>{c.card_number} - {c.customer_name}</option>)}
               </select>
+              <input type="number" step="any" className="border p-2" value={renewalCardValue} onChange={e => setRenewalCardValue(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="Card Value" />
               <input type="number" className="border p-2" value={renewMonths} onChange={e => setRenewMonths(Number(e.target.value || 1))} placeholder="Renew Months" />
               <select className="border p-2" value={upgradeTypeId} onChange={e => setUpgradeTypeId(e.target.value)}>
                 <option value="">Upgrade Type</option>
