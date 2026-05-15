@@ -407,6 +407,38 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   if (!isOpen || !pharmacyDetails) return null;
 
   const handlePrint = () => {
+    const printArea = document.getElementById('print-area');
+    if (!printArea) { window.print(); return; }
+
+    const clone = printArea.cloneNode(true) as HTMLElement;
+
+    const tempContainer = document.createElement('div');
+    tempContainer.id = 'temp-print-container';
+    tempContainer.appendChild(clone);
+    document.body.appendChild(tempContainer);
+
+    const tempStyle = document.createElement('style');
+    tempStyle.id = 'temp-print-css';
+    tempStyle.textContent = `
+      @media print {
+        body > *:not(#temp-print-container) { display: none !important; }
+        #temp-print-container { display: block !important; }
+        #temp-print-container #print-area {
+          width: 100% !important; max-width: 100% !important;
+          height: auto !important; overflow: visible !important;
+          margin: 0 !important; padding: 0 6mm !important;
+          border: 0 !important; box-shadow: none !important;
+        }
+      }
+    `;
+    document.head.appendChild(tempStyle);
+
+    const cleanup = () => {
+      document.getElementById('temp-print-container')?.remove();
+      document.getElementById('temp-print-css')?.remove();
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
     window.print();
   };
 
@@ -573,7 +605,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               max-height: none !important;
             }
             .no-print { display: none !important; }
-            .print-only { display: block !important; }
+            .print-only { display: table-row !important; }
             .report-content {
               width: 100% !important;
               max-width: 100% !important;
@@ -627,47 +659,55 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             .print-meta-row th {
               background: #fff !important;
               border: 0 !important;
-              padding: 0 0 3pt 0 !important;
+              padding: 0 0 5pt 0 !important;
               text-transform: none !important;
             }
-            .print-meta-block {
-              display: flex !important;
-              align-items: flex-start !important;
-              justify-content: space-between !important;
-              gap: 8pt !important;
-              border-bottom: 1pt solid #111 !important;
-              padding-bottom: 5pt !important;
-              margin-bottom: 2pt !important;
+            .print-meta-header {
+              text-align: center !important;
+              border-bottom: 1.5pt solid #111 !important;
+              padding-bottom: 6pt !important;
+              margin-bottom: 3pt !important;
             }
-            .print-meta-company h1 {
+            .print-meta-logo {
+              display: block !important;
+              height: 40pt !important;
+              width: auto !important;
+              object-fit: contain !important;
+              margin: 0 auto 4pt auto !important;
+            }
+            .print-meta-company-center h1 {
               margin: 0 !important;
-              font-size: 12.5pt !important;
+              font-size: 14pt !important;
               font-weight: 900 !important;
               text-transform: uppercase !important;
+              letter-spacing: 0.04em !important;
             }
-            .print-meta-company p {
+            .print-meta-company-center p {
               margin: 1pt 0 !important;
               font-size: 8pt !important;
-              line-height: 1.35 !important;
+              line-height: 1.4 !important;
             }
-            .print-meta-report {
-              text-align: right !important;
-              font-size: 8pt !important;
-              line-height: 1.35 !important;
-              min-width: 45% !important;
+            .print-meta-info {
+              display: flex !important;
+              justify-content: space-between !important;
+              align-items: baseline !important;
+              margin-top: 3pt !important;
+              padding-top: 3pt !important;
+              border-top: 0.5pt solid #bbb !important;
+              font-size: 8.5pt !important;
             }
-            .print-meta-report-title {
-              font-size: 10pt !important;
+            .print-meta-info-left {
               font-weight: 900 !important;
               text-transform: uppercase !important;
-              margin-bottom: 2pt !important;
+              text-align: left !important;
             }
-            .print-page-number::after {
-              content: "Page " counter(page) " of " counter(pages);
-              font-weight: 800 !important;
+            .print-meta-info-right {
+              font-size: 8pt !important;
+              text-align: right !important;
             }
-            tr, td, th { 
-              page-break-inside: avoid !important; 
+            .print-page-number { display: none !important; }
+            thead tr {
+              page-break-inside: avoid !important;
               break-inside: avoid !important;
             }
         }
@@ -685,15 +725,18 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
           max-width: 210mm;
           margin: 0.75rem auto;
           color: #000;
+          border: 1px solid #d8d8d8;
         }
 
         .report-content[data-print-orientation="landscape"] {
           width: min(100%, 297mm);
           max-width: 297mm;
         }
-        
-        .report-table { width: 100%; table-layout: auto; }
+
+        .report-table { width: 100%; table-layout: auto; border-collapse: collapse; }
         .report-table td { white-space: pre-line; }
+        .report-table th, .report-table td { border: 1px solid #c8c8c8; }
+        .report-table thead th { border-color: #999; }
       `}</style>
       
       <div className="flex-shrink-0 no-print bg-gray-900 text-white p-4 flex justify-between items-center shadow-lg">
@@ -844,37 +887,34 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       </div>
 
       <div className="flex-1 overflow-auto bg-gray-100 custom-scrollbar pb-10 print-scroll-root">
-          <div id="print-area" data-print-orientation={printOrientation} className="report-content shadow-2xl border border-gray-200">
+          <div id="print-area" data-print-orientation={printOrientation} className="report-content">
               
-              <div className="flex justify-between items-center mb-8 border-b-2 border-black pb-4 gap-4 no-print">
-                  <div className="flex-1 text-left">
-                      <h1 className="text-xl font-black uppercase text-black leading-tight">{pharmacyDetails.pharmacy_name}</h1>
-                      <p className="text-[9pt] font-medium text-black mt-1 whitespace-pre-line">{pharmacyDetails.address}</p>
-                      <div className="flex space-x-4 mt-2 text-[8pt] font-bold text-gray-700">
-                          <span>GSTIN: {pharmacyDetails.gstin}</span>
-                          <span>DL: {pharmacyDetails.drug_license}</span>
+              <div className="no-print text-center mb-5 pb-4 border-b-2 border-black">
+                  {pharmacyDetails.pharmacy_logo_url && (
+                      <img src={pharmacyDetails.pharmacy_logo_url} alt="Pharmacy Logo" className="h-14 mx-auto mb-2 object-contain" />
+                  )}
+                  <h1 className="text-[15pt] font-black uppercase tracking-wide text-black leading-tight">{pharmacyDetails.pharmacy_name}</h1>
+                  {pharmacyDetails.address && (
+                      <p className="text-[8pt] text-gray-700 mt-0.5 whitespace-pre-line leading-snug">{pharmacyDetails.address}</p>
+                  )}
+                  <div className="flex justify-center gap-6 mt-1 text-[8pt] text-gray-700 font-semibold flex-wrap">
+                      {pharmacyDetails.gstin && <span>GSTIN: {pharmacyDetails.gstin}</span>}
+                      {pharmacyDetails.drug_license && <span>DL: {pharmacyDetails.drug_license}</span>}
+                  </div>
+                  <div className="flex justify-between items-baseline mt-3 pt-2 border-t border-gray-400">
+                      <div className="text-left">
+                          <p className="text-[10pt] font-black uppercase tracking-wide text-black">{title}</p>
+                          <p className="text-[8pt] text-gray-600">Period: {reportPeriodLabel}</p>
                       </div>
-                  </div>
-                  
-                  <div className="flex-shrink-0 flex justify-center px-4">
-                      {pharmacyDetails.pharmacy_logo_url && (
-                          <img src={pharmacyDetails.pharmacy_logo_url} alt="Pharmacy Logo" className="h-20 w-auto object-contain" />
-                      )}
-                  </div>
-
-                  <div className="flex-1 text-right">
-                      <h2 className="text-lg font-black text-black border-2 border-black px-4 py-1 inline-block uppercase tracking-tighter mb-2">
-                        {title}
-                      </h2>
-                      <div className="text-[8pt] text-gray-600 font-bold uppercase space-y-0.5">
-                          <p>DATE: {generatedDate}</p>
-                          <p>GENERATED AT: {generatedTime}</p>
+                      <div className="text-right text-[8pt] text-gray-600">
+                          <p>Generated: {generatedDate}</p>
+                          <p>{generatedTime}</p>
                       </div>
                   </div>
               </div>
 
               {appliedFilters && (
-                <div className="mb-6 p-2 bg-gray-50 border border-gray-200 text-[8pt] font-bold flex space-x-4">
+                <div className="no-print mb-6 p-2 bg-gray-50 border border-gray-200 text-[8pt] font-bold flex space-x-4">
                     <span className="text-gray-400">FILTERS:</span>
                     <span>{appliedFilters}</span>
                 </div>
@@ -904,19 +944,22 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                   <thead className="sticky top-0 z-10">
                       <tr className="print-only print-meta-row">
                         <th colSpan={Math.max(visibleHeaders.length, 1)}>
-                          <div className="print-meta-block">
-                            <div className="print-meta-company">
+                          <div className="print-meta-header">
+                            <div className="print-meta-company-center">
+                              {pharmacyDetails.pharmacy_logo_url && (
+                                <img src={pharmacyDetails.pharmacy_logo_url} alt="Logo" className="print-meta-logo" />
+                              )}
                               <h1>{pharmacyDetails.pharmacy_name}</h1>
                               <p>{pharmacyDetails.address || '-'}</p>
-                              <p>GSTIN: {pharmacyDetails.gstin || '-'}</p>
-                              <p>DL: {pharmacyDetails.drug_license || '-'}</p>
+                              <p>GSTIN: {pharmacyDetails.gstin || '-'} &nbsp;|&nbsp; DL: {pharmacyDetails.drug_license || '-'}</p>
                             </div>
-                            <div className="print-meta-report">
-                              <div className="print-meta-report-title">{title}</div>
-                              <div>Period: {reportPeriodLabel}</div>
-                              <div>Filters: {printFilterSummary}</div>
-                              <div>Printed: {generatedDate} {generatedTime}</div>
-                              <div className="print-page-number" />
+                            <div className="print-meta-info">
+                              <div className="print-meta-info-left">{title}</div>
+                              <div className="print-meta-info-right">Period: {reportPeriodLabel}</div>
+                            </div>
+                            <div className="print-meta-info">
+                              <div className="print-meta-info-left">Filters: {printFilterSummary}</div>
+                              <div className="print-meta-info-right">Printed: {generatedDate} {generatedTime} &nbsp; <span className="print-page-number" /></div>
                             </div>
                           </div>
                         </th>
