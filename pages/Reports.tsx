@@ -30,6 +30,11 @@ type StockMovementViewMode = 'detailed' | 'productSummary';
 type InventoryValueViewMode = 'batchWise' | 'productWise';
 
 const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
+const parsePackSize = (pack: string | null | undefined) => {
+  const matchedPackSize = String(pack || '').match(/\d+(\.\d+)?/);
+  const parsedPackSize = matchedPackSize ? Number(matchedPackSize[0]) : NaN;
+  return Number.isFinite(parsedPackSize) && parsedPackSize > 0 ? parsedPackSize : 1;
+};
 
 const REPORT_LIST: ReportDefinition[] = [
   { id: 'salesRegister', name: 'Sales Register', group: 'Sales Reports' },
@@ -707,15 +712,19 @@ const Reports: React.FC<ReportsProps> = ({
         reportHeaders = reportId === 'stockSummary' ? ['Item Name', 'Batch', 'Pack', 'Stock (Pack / Loose / Total)', 'MRP', 'PTR / Cost', 'Value', 'Expiry'] : reportId === 'batchWiseStock' ? ['Item', 'Batch', 'Expiry', 'Quantity', 'Value'] : ['Item', 'Batch', 'Expiry', 'Qty', 'Value'];
         rows = inventory.map(item => {
           const breakup = getStockBreakup(item.stock, item.unitsPerPack);
+          const packSize = parsePackSize(item.packType);
+          const mrp = Number(item.mrp || 0);
+          const packValue = Number(breakup.pack || 0) * mrp;
+          const looseValue = Number(breakup.loose || 0) * (mrp / packSize);
           return {
             'Item Name': item.name,
             'Item': item.name,
             'Batch': item.batch,
             'Pack': item.packType || 'N/A',
             'Stock (Pack / Loose / Total)': `${breakup.pack} / ${breakup.loose} / ${breakup.totalUnits}`,
-            'MRP': round2(item.mrp || 0),
+            'MRP': round2(mrp),
             'PTR / Cost': round2(item.ptr || item.purchasePrice || 0),
-            'Value': round2(breakup.totalUnits * Number(item.purchasePrice || item.ptr || 0)),
+            'Value': round2(packValue + looseValue),
             'Expiry': item.expiry ? new Date(item.expiry).toLocaleDateString('en-GB') : 'N/A',
             'Quantity': breakup.totalUnits,
             'Qty': breakup.totalUnits,
