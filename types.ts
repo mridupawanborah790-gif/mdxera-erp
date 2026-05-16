@@ -1239,7 +1239,7 @@ export interface MbcCardHistory {
     id: string;
     organization_id: string;
     mbc_card_id: string;
-    action_type: 'create' | 'update' | 'renew' | 'upgrade' | 'deactivate';
+    action_type: 'create' | 'update' | 'renew' | 'upgrade' | 'deactivate' | 'value_add';
     old_card_type_id?: string;
     new_card_type_id?: string;
     old_validity_to?: string;
