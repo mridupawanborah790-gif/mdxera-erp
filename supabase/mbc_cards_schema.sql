@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS public.mbc_card_history (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id text NOT NULL,
     mbc_card_id uuid NOT NULL REFERENCES public.mbc_cards(id) ON DELETE CASCADE,
-    action_type text NOT NULL CHECK (action_type IN ('create','update','renew','upgrade','deactivate')),
+    action_type text NOT NULL CHECK (action_type IN ('create','update','renew','upgrade','deactivate','value_add')),
     old_card_type_id uuid REFERENCES public.mbc_card_types(id) ON DELETE SET NULL,
     new_card_type_id uuid REFERENCES public.mbc_card_types(id) ON DELETE SET NULL,
     old_validity_to date,
