@@ -97,6 +97,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   const [selectedFilterFields, setSelectedFilterFields] = useState<string[]>([]);
   const [draftStructuredFilters, setDraftStructuredFilters] = useState<Record<string, StructuredFilter>>({});
   const [doctorViewMode, setDoctorViewMode] = useState<'summary' | 'item'>('summary');
+  const [paperSize, setPaperSize] = useState<'A4' | 'A5'>('A4');
   const columnDropdownRef = useRef<HTMLDivElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
   const effectiveHeaders = isDoctorWiseSalesReport && doctorViewMode === 'item' ? doctorItemHeaders : doctorSummaryHeaders;
@@ -426,8 +427,8 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
         #temp-print-container #print-area {
           width: 100% !important; max-width: 100% !important;
           height: auto !important; overflow: visible !important;
-          margin: 0 !important; padding: 0 6mm !important;
-          border: 0 !important; box-shadow: none !important;
+          margin: 0 !important; padding: 0 ${paperSize === 'A5' ? '6mm' : '8mm'} !important;
+          border: 0 !important; box-shadow: none !important; box-sizing: border-box !important;
         }
       }
     `;
@@ -553,9 +554,9 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     <div id="print-report-modal-container" className="fixed inset-0 bg-white z-[100] flex flex-col animate-in fade-in duration-200 text-xs">
       <style>{`
         @media print {
-            @page { 
-              size: A4 ${printOrientation};
-              margin: 10mm 8mm;
+            @page {
+              size: ${paperSize} ${printOrientation};
+              margin: ${paperSize === 'A5' ? '10mm 8mm' : '14mm 12mm'};
             }
             html, body {
               margin: 0 !important;
@@ -566,7 +567,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               overflow: visible !important;
               width: 100%;
               min-width: 100%;
-              font-size: 10pt;
+              font-size: ${paperSize === 'A5' ? '8.5pt' : '10pt'};
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
@@ -590,7 +591,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               overflow: visible !important;
             }
             #print-area {
-                padding: 0 !important;
+                padding: 0 ${paperSize === 'A5' ? '6mm' : '8mm'} !important;
                 display: block !important;
                 height: auto !important;
                 overflow: visible !important;
@@ -600,6 +601,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                 margin: 0 !important;
                 border: 0 !important;
                 box-shadow: none !important;
+                box-sizing: border-box !important;
             }
             #print-area * {
               max-height: none !important;
@@ -613,6 +615,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               padding: 0 !important;
               border: 0 !important;
               box-shadow: none !important;
+              box-sizing: border-box !important;
             }
             .report-table-wrap {
               overflow: visible !important;
@@ -622,12 +625,11 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               width: 100% !important;
               table-layout: auto !important;
               border-collapse: collapse !important;
-              border: 0.35pt solid #111 !important;
             }
             th, td {
-              border: 0.35pt solid #111 !important;
-              padding: 3pt 5pt !important;
-              font-size: ${estimatedLandscape ? '8.2pt' : '9pt'} !important;
+              border: 0.35pt solid #bbb !important;
+              padding: ${paperSize === 'A5' ? '2pt 3pt' : '3pt 5pt'} !important;
+              font-size: ${paperSize === 'A5' ? (estimatedLandscape ? '6.5pt' : '7.5pt') : (estimatedLandscape ? '8.2pt' : '9pt')} !important;
               line-height: 1.25 !important;
               color: #000 !important;
               vertical-align: top !important;
@@ -635,9 +637,10 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               word-break: break-word !important;
             }
             th {
-              font-weight: 800 !important;
+              font-weight: 400 !important;
               text-transform: uppercase !important;
               background: #f2f2f2 !important;
+              color: #111 !important;
             }
             td[data-align="right"], th[data-align="right"] {
               text-align: right !important;
@@ -650,10 +653,15 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             thead { display: table-header-group; }
             tfoot { display: table-row-group; }
             thead th { position: static !important; top: auto !important; }
-            .report-footer-signature,
-            .totals-row { 
-              page-break-inside: avoid !important; 
+            .totals-row {
+              page-break-inside: avoid !important;
               break-inside: avoid-page !important;
+            }
+            .report-footer-signature {
+              page-break-inside: avoid !important;
+              break-inside: avoid-page !important;
+              page-break-before: avoid !important;
+              break-before: avoid !important;
             }
 
             .print-meta-row th {
@@ -664,7 +672,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             }
             .print-meta-header {
               text-align: center !important;
-              border-bottom: 1.5pt solid #111 !important;
+              border-bottom: 0.35pt solid #bbb !important;
               padding-bottom: 6pt !important;
               margin-bottom: 3pt !important;
             }
@@ -678,32 +686,36 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             .print-meta-company-center h1 {
               margin: 0 !important;
               font-size: 14pt !important;
-              font-weight: 900 !important;
+              font-weight: 400 !important;
               text-transform: uppercase !important;
               letter-spacing: 0.04em !important;
+              color: #111 !important;
             }
             .print-meta-company-center p {
               margin: 1pt 0 !important;
               font-size: 8pt !important;
               line-height: 1.4 !important;
+              color: #444 !important;
             }
             .print-meta-info {
               display: flex !important;
               justify-content: space-between !important;
               align-items: baseline !important;
               margin-top: 3pt !important;
-              padding-top: 3pt !important;
-              border-top: 0.5pt solid #bbb !important;
+              padding: 3pt 6pt 0 6pt !important;
               font-size: 8.5pt !important;
             }
             .print-meta-info-left {
-              font-weight: 900 !important;
+              font-weight: 400 !important;
               text-transform: uppercase !important;
               text-align: left !important;
+              color: #111 !important;
             }
             .print-meta-info-right {
               font-size: 8pt !important;
               text-align: right !important;
+              font-weight: 400 !important;
+              color: #555 !important;
             }
             .print-page-number { display: none !important; }
             thead tr {
@@ -720,23 +732,23 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
 
         .report-content {
           background: white;
-          padding: 10mm 8mm;
-          width: min(100%, 210mm);
-          max-width: 210mm;
+          padding: ${paperSize === 'A5' ? '10mm 8mm' : '14mm 12mm'};
+          width: min(100%, ${paperSize === 'A5' ? '148mm' : '210mm'});
+          max-width: ${paperSize === 'A5' ? '148mm' : '210mm'};
           margin: 0.75rem auto;
           color: #000;
           border: 1px solid #d8d8d8;
         }
 
         .report-content[data-print-orientation="landscape"] {
-          width: min(100%, 297mm);
-          max-width: 297mm;
+          width: min(100%, ${paperSize === 'A5' ? '210mm' : '297mm'});
+          max-width: ${paperSize === 'A5' ? '210mm' : '297mm'};
         }
 
         .report-table { width: 100%; table-layout: auto; border-collapse: collapse; }
         .report-table td { white-space: pre-line; }
-        .report-table th, .report-table td { border: 1px solid #c8c8c8; }
-        .report-table thead th { border-color: #999; }
+        .report-table th, .report-table td { border: 1px solid #ddd; }
+        .report-table thead th { border-color: #ddd; }
       `}</style>
       
       <div className="flex-shrink-0 no-print bg-gray-900 text-white p-4 flex justify-between items-center shadow-lg">
@@ -782,6 +794,17 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                           </div>
                       </div>
                   )}
+              </div>
+              <div className="flex items-center bg-gray-800 rounded border border-gray-700 overflow-hidden text-[10px] font-bold">
+                  {(['A4', 'A5'] as const).map(size => (
+                      <button
+                          key={size}
+                          onClick={() => setPaperSize(size)}
+                          className={`px-3 py-1.5 transition-colors ${paperSize === size ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                      >
+                          {size}
+                      </button>
+                  ))}
               </div>
               <div className="relative" ref={filterPanelRef}>
                   <button onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)} className="flex items-center space-x-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-[10px] font-bold border border-gray-700 transition-colors">
@@ -889,21 +912,21 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       <div className="flex-1 overflow-auto bg-gray-100 custom-scrollbar pb-10 print-scroll-root">
           <div id="print-area" data-print-orientation={printOrientation} className="report-content">
               
-              <div className="no-print text-center mb-5 pb-4 border-b-2 border-black">
+              <div className="no-print text-center mb-5 pb-4 border-b border-gray-300">
                   {pharmacyDetails.pharmacy_logo_url && (
                       <img src={pharmacyDetails.pharmacy_logo_url} alt="Pharmacy Logo" className="h-14 mx-auto mb-2 object-contain" />
                   )}
-                  <h1 className="text-[15pt] font-black uppercase tracking-wide text-black leading-tight">{pharmacyDetails.pharmacy_name}</h1>
+                  <h1 className="text-[15pt] font-normal uppercase tracking-wide text-gray-900 leading-tight">{pharmacyDetails.pharmacy_name}</h1>
                   {pharmacyDetails.address && (
                       <p className="text-[8pt] text-gray-700 mt-0.5 whitespace-pre-line leading-snug">{pharmacyDetails.address}</p>
                   )}
-                  <div className="flex justify-center gap-6 mt-1 text-[8pt] text-gray-700 font-semibold flex-wrap">
+                  <div className="flex justify-center gap-6 mt-1 text-[8pt] text-gray-600 font-normal flex-wrap">
                       {pharmacyDetails.gstin && <span>GSTIN: {pharmacyDetails.gstin}</span>}
                       {pharmacyDetails.drug_license && <span>DL: {pharmacyDetails.drug_license}</span>}
                   </div>
                   <div className="flex justify-between items-baseline mt-3 pt-2 border-t border-gray-400">
                       <div className="text-left">
-                          <p className="text-[10pt] font-black uppercase tracking-wide text-black">{title}</p>
+                          <p className="text-[10pt] font-normal uppercase tracking-wide text-gray-900">{title}</p>
                           <p className="text-[8pt] text-gray-600">Period: {reportPeriodLabel}</p>
                       </div>
                       <div className="text-right text-[8pt] text-gray-600">
@@ -966,7 +989,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                       </tr>
                       <tr className="bg-gray-100">
                           {visibleHeaders.map(header => (
-                              <th key={header} data-align={isNumericColumn(header, undefined) ? 'right' : 'left'} className={`p-2 font-black uppercase tracking-wider text-[8pt] ${isNumericColumn(header, undefined) ? 'text-right' : 'text-left'}`}>
+                              <th key={header} data-align={isNumericColumn(header, undefined) ? 'right' : 'left'} className={`p-2 font-normal uppercase tracking-wider text-[8pt] text-gray-800 ${isNumericColumn(header, undefined) ? 'text-right' : 'text-left'}`}>
                                   <div className="flex flex-col space-y-2">
                                       <div 
                                           className="flex items-center justify-between cursor-pointer group no-print"
@@ -997,9 +1020,9 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                               key={rIdx}
                               className={`border-b border-gray-100 transition-colors ${
                                 row._rowType === 'subtotal'
-                                  ? 'bg-amber-50 font-bold'
+                                  ? 'bg-amber-50 text-gray-700'
                                   : row._rowType === 'grand'
-                                    ? 'bg-gray-200 font-black'
+                                    ? 'bg-gray-200 text-gray-900'
                                     : 'hover:bg-gray-50'
                               }`}
                           >
@@ -1022,7 +1045,7 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                       )}
                   </tbody>
                   {Object.keys(columnTotals).length > 0 && !(isDoctorWiseSalesReport && doctorViewMode === 'item') && (
-                    <tfoot className="border-t-2 border-black font-black bg-gray-100">
+                    <tfoot className="border-t border-gray-300 font-normal bg-gray-100 text-gray-900">
                         <tr className="totals-row">
                             {visibleHeaders.map((header, index) => {
                                 const total = columnTotals[header];
@@ -1038,14 +1061,14 @@ const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               </table>
               </div>
 
-              <div className="mt-12 flex justify-between items-end border-t border-gray-200 pt-8 report-footer-signature">
-                  <div className="text-[8pt] text-gray-500 font-bold uppercase italic">
+              <div className="mt-6 flex justify-between items-end border-t border-gray-200 pt-4 report-footer-signature">
+                  <div className="text-[8pt] text-gray-400 font-normal uppercase italic">
                       <p>This is a system generated report from <strong>MDXERA ERP</strong>.</p>
                       <p>E. & O. E.</p>
                   </div>
-                  <div className="text-center w-64 border-t-2 border-black pt-2">
-                      <p className="text-[9pt] font-black uppercase">{pharmacyDetails.authorized_signatory}</p>
-                      <p className="text-[7pt] text-gray-500 font-bold uppercase tracking-wider">Authorized Signatory</p>
+                  <div className="text-center w-64 border-t border-gray-400 pt-2">
+                      <p className="text-[9pt] font-normal uppercase text-gray-900">{pharmacyDetails.authorized_signatory}</p>
+                      <p className="text-[7pt] text-gray-400 font-normal uppercase tracking-wider">Authorized Signatory</p>
                   </div>
               </div>
           </div>
