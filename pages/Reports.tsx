@@ -709,22 +709,27 @@ const Reports: React.FC<ReportsProps> = ({
       case 'stockSummary':
       case 'batchWiseStock':
       case 'expiryWiseStock':
-        reportHeaders = reportId === 'stockSummary' ? ['Item Name', 'Batch', 'Pack', 'Stock (Pack / Loose / Total)', 'MRP', 'PTR / Cost', 'Value', 'Expiry'] : reportId === 'batchWiseStock' ? ['Item', 'Batch', 'Expiry', 'Quantity', 'Value'] : ['Item', 'Batch', 'Expiry', 'Qty', 'Value'];
+        reportHeaders = reportId === 'stockSummary' ? ['Item Name', 'Batch', 'Pack', 'Stock (Pack / Loose / Total)', 'MRP', 'MRP Amount', 'PTR / Cost', 'PTR Amount', 'Expiry'] : reportId === 'batchWiseStock' ? ['Item', 'Batch', 'Expiry', 'Quantity', 'Value'] : ['Item', 'Batch', 'Expiry', 'Qty', 'Value'];
         rows = inventory.map(item => {
           const breakup = getStockBreakup(item.stock, item.unitsPerPack);
           const packSize = parsePackSize(item.packType);
+          const packQty = Number(breakup.pack || 0);
+          const looseQty = Number(breakup.loose || 0);
           const mrp = Number(item.mrp || 0);
-          const packValue = Number(breakup.pack || 0) * mrp;
-          const looseValue = Number(breakup.loose || 0) * (mrp / packSize);
+          const ptrCost = Number(item.ptr || item.purchasePrice || 0);
+          const mrpAmount = (packQty * mrp) + (looseQty * (mrp / packSize));
+          const ptrAmount = (packQty * ptrCost) + (looseQty * (ptrCost / packSize));
           return {
             'Item Name': item.name,
             'Item': item.name,
             'Batch': item.batch,
             'Pack': item.packType || 'N/A',
-            'Stock (Pack / Loose / Total)': `${breakup.pack} / ${breakup.loose} / ${breakup.totalUnits}`,
+            'Stock (Pack / Loose / Total)': `${packQty} / ${looseQty} / ${breakup.totalUnits}`,
             'MRP': round2(mrp),
-            'PTR / Cost': round2(item.ptr || item.purchasePrice || 0),
-            'Value': round2(packValue + looseValue),
+            'MRP Amount': round2(mrpAmount),
+            'PTR / Cost': round2(ptrCost),
+            'PTR Amount': round2(ptrAmount),
+            'Value': round2(mrpAmount),
             'Expiry': item.expiry ? new Date(item.expiry).toLocaleDateString('en-GB') : 'N/A',
             'Quantity': breakup.totalUnits,
             'Qty': breakup.totalUnits,
