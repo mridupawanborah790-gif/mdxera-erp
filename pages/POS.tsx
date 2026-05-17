@@ -167,6 +167,7 @@ const POS = forwardRef<any, POSProps>(({
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+    const [isAddMedicineMasterModalOpen, setIsAddMedicineMasterModalOpen] = useState(false);
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
@@ -798,6 +799,17 @@ const POS = forwardRef<any, POSProps>(({
     }, [activeIntelItem, purchases]);
 
     const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (!modalSearchTerm.trim()) {
+                addNotification('Please type product name first to create new material.', 'warning');
+                return;
+            }
+            setIsSearchModalOpen(false);
+            setIsAddMedicineMasterModalOpen(true);
+            return;
+        }
+
         if (deduplicatedSearchInventory.length === 0) return;
 
         if (e.key === 'ArrowDown') {
@@ -972,6 +984,38 @@ const POS = forwardRef<any, POSProps>(({
             }
         }, 50);
     };
+
+    const handleMedicineSavedFromSales = useCallback((savedMedicine: Medicine) => {
+        if (!savedMedicine?.name) return;
+
+        const itemLikeMedicine: InventoryItem = {
+            id: savedMedicine.id,
+            organization_id: savedMedicine.organization_id || '',
+            name: savedMedicine.name,
+            code: savedMedicine.materialCode,
+            brand: savedMedicine.brand || '',
+            category: 'Medicine',
+            manufacturer: savedMedicine.manufacturer || '',
+            stock: 0,
+            unitsPerPack: resolveUnitsPerStrip(1, savedMedicine.pack),
+            packType: savedMedicine.pack || '',
+            minStockLimit: 0,
+            batch: 'NEW-STOCK',
+            expiry: 'N/A',
+            purchasePrice: Number(savedMedicine.rateA || 0),
+            mrp: parseFloat(savedMedicine.mrp || '0'),
+            rateA: Number(savedMedicine.rateA || 0),
+            rateB: Number(savedMedicine.rateB || 0),
+            rateC: Number(savedMedicine.rateC || 0),
+            gstPercent: savedMedicine.gstRate || 0,
+            hsnCode: savedMedicine.hsnCode || '',
+            composition: savedMedicine.composition || '',
+            barcode: savedMedicine.barcode || '',
+            is_active: true,
+        };
+
+        addSelectedBatchToGrid(itemLikeMedicine);
+    }, [addSelectedBatchToGrid]);
 
     const handleUpdateCartItem = (id: string, field: keyof BillItem, value: any) => {
         setCartItems(prev => prev.map(item => {
@@ -1727,7 +1771,7 @@ const POS = forwardRef<any, POSProps>(({
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                             <span className="text-xs font-black uppercase tracking-[0.2em]">Material Discovery Engine</span>
                         </div>
-                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Enter Select</span>
+                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Enter Select | Ctrl+Enter Register Material</span>
                     </div>
 
                     <div className="flex flex-1 overflow-hidden">
@@ -1896,6 +1940,17 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </div>
             </Modal>
+
+            {isAddMedicineMasterModalOpen && (
+                <AddMedicineModal
+                    isOpen={isAddMedicineMasterModalOpen}
+                    onClose={() => setIsAddMedicineMasterModalOpen(false)}
+                    onAddMedicine={onAddMedicineMaster}
+                    onMedicineSaved={handleMedicineSavedFromSales}
+                    initialName={modalSearchTerm.trim() || undefined}
+                    organizationId={currentUser?.organization_id || ''}
+                />
+            )}
 
             <CustomerSearchModal
                 isOpen={isCustomerSearchModalOpen}
