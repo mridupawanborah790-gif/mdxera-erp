@@ -2251,6 +2251,7 @@ const App: React.FC = () => {
                         currentUser={currentUser} config={config} configurations={configurations}
                         billType={pageId === 'nonGstPos' ? 'non-gst' : 'regular'}
                         addNotification={addNotification} onAddMedicineMaster={handleAddMedicineMaster}
+                        onAddInventoryItem={handleAddInventoryItem}
                         onUpdateMedicineMaster={handleUpdateMedicineMaster}
                         onQuickAddCustomer={handleQuickAddCustomerFromPos}
                         onAddCustomer={handleAddCustomer}

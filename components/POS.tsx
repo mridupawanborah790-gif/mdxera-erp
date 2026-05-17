@@ -5,6 +5,7 @@ import SchemeModal from '../components/SchemeModal';
 import SchemeCalculatorModal from '../components/SchemeCalculatorModal';
 import Modal from '../components/Modal';
 import AddMedicineModal from '../components/AddMedicineModal';
+import AddProductModal from '../components/AddProductModal';
 import EditMedicineModal from '../components/EditMedicineModal';
 import AddCustomerModal from './AddCustomerModal';
 import BatchSelectionModal from './BatchSelectionModal';
@@ -44,6 +45,7 @@ interface POSProps {
     isReadOnly?: boolean;
     onCancel?: () => void;
     onAddMedicineMaster: (med: Omit<Medicine, 'id'>) => Promise<Medicine>;
+    onAddInventoryItem?: (item: Omit<InventoryItem, 'id'>) => Promise<InventoryItem>;
     onUpdateMedicineMaster?: (updatedMedicine: Medicine) => Promise<void>;
     onQuickAddCustomer?: (data: {
         name: string;
@@ -283,6 +285,7 @@ const POS = forwardRef<any, POSProps>(({
     isReadOnly,
     onCancel,
     onAddMedicineMaster,
+    onAddInventoryItem,
     onUpdateMedicineMaster,
     onQuickAddCustomer,
     onAddCustomer,
@@ -368,6 +371,8 @@ const POS = forwardRef<any, POSProps>(({
 
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
     const [isAddMedicineMasterModalOpen, setIsAddMedicineMasterModalOpen] = useState(false);
+    const [isAddInventoryModalOpen, setIsAddInventoryModalOpen] = useState(false);
+    const [newlyCreatedMedicine, setNewlyCreatedMedicine] = useState<Medicine | null>(null);
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
@@ -1829,37 +1834,22 @@ const POS = forwardRef<any, POSProps>(({
 
     const handleMedicineSavedFromSales = useCallback((savedMedicine: Medicine) => {
         if (!savedMedicine?.name) return;
-
-        const itemLikeMedicine: InventoryItem = {
-            id: savedMedicine.id,
-            organization_id: savedMedicine.organization_id || '',
-            name: savedMedicine.name,
-            code: savedMedicine.materialCode,
-            brand: savedMedicine.brand || '',
-            category: 'Medicine',
-            manufacturer: savedMedicine.manufacturer || '',
-            stock: 0,
-            unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(savedMedicine.pack) ?? 1, savedMedicine.pack),
-            packType: savedMedicine.pack || '',
-            minStockLimit: 0,
-            batch: 'NEW-STOCK',
-            expiry: 'N/A',
-            purchasePrice: Number(savedMedicine.rateA || 0),
-            mrp: parseFloat(savedMedicine.mrp || '0'),
-            rateA: Number(savedMedicine.rateA || 0),
-            rateB: Number(savedMedicine.rateB || 0),
-            rateC: Number(savedMedicine.rateC || 0),
-            gstPercent: savedMedicine.gstRate || 0,
-            hsnCode: savedMedicine.hsnCode || '',
-            composition: savedMedicine.composition || '',
-            barcode: savedMedicine.barcode || '',
-            is_active: true,
-        };
-
         setIsAddMedicineMasterModalOpen(false);
+        setNewlyCreatedMedicine(savedMedicine);
+        setIsAddInventoryModalOpen(true);
+    }, []);
+
+    const handleAddInventoryForNewMedicine = useCallback(async (newProduct: Omit<InventoryItem, 'id'>) => {
+        if (!onAddInventoryItem) {
+            addNotification('Inventory creation is not available in this screen.', 'warning');
+            return;
+        }
+        const savedInventory = await onAddInventoryItem(newProduct);
+        setIsAddInventoryModalOpen(false);
+        setNewlyCreatedMedicine(null);
         setIsSearchModalOpen(false);
-        addSelectedBatchToGrid(itemLikeMedicine);
-    }, [addSelectedBatchToGrid]);
+        addSelectedBatchToGrid(savedInventory);
+    }, [addNotification, addSelectedBatchToGrid, onAddInventoryItem]);
 
     const handleUpdateCartItem = useCallback((id: string, field: keyof BillItem, value: any) => {
         setCartItems(prev => prev.map(item => {
@@ -3267,6 +3257,34 @@ const POS = forwardRef<any, POSProps>(({
                     onMedicineSaved={handleMedicineSavedFromSales}
                     initialName={modalSearchTerm.trim() || undefined}
                     organizationId={currentUser?.organization_id || ''}
+                />
+            )}
+            {isAddInventoryModalOpen && (
+                <AddProductModal
+                    isOpen={isAddInventoryModalOpen}
+                    onClose={() => {
+                        setIsAddInventoryModalOpen(false);
+                        setNewlyCreatedMedicine(null);
+                    }}
+                    onAddProduct={handleAddInventoryForNewMedicine}
+                    organizationId={currentUser?.organization_id || ''}
+                    medicines={medicines}
+                    initialData={{
+                        name: newlyCreatedMedicine?.name || '',
+                        code: newlyCreatedMedicine?.materialCode || '',
+                        brand: newlyCreatedMedicine?.brand || '',
+                        manufacturer: newlyCreatedMedicine?.manufacturer || newlyCreatedMedicine?.marketer || '',
+                        composition: newlyCreatedMedicine?.composition || '',
+                        hsnCode: newlyCreatedMedicine?.hsnCode || '',
+                        gstPercent: newlyCreatedMedicine?.gstRate || 0,
+                        mrp: Number(newlyCreatedMedicine?.mrp || 0),
+                        rateA: Number(newlyCreatedMedicine?.rateA || 0),
+                        rateB: Number(newlyCreatedMedicine?.rateB || 0),
+                        rateC: Number(newlyCreatedMedicine?.rateC || 0),
+                        packType: newlyCreatedMedicine?.pack || '',
+                        unitsPerPack: resolveUnitsPerStrip(extractPackMultiplier(newlyCreatedMedicine?.pack) ?? 1, newlyCreatedMedicine?.pack),
+                        barcode: newlyCreatedMedicine?.barcode || ''
+                    }}
                 />
             )}
 
