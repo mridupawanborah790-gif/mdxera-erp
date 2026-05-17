@@ -167,6 +167,7 @@ const POS = forwardRef<any, POSProps>(({
     const [isWebcamOpen, setIsWebcamOpen] = useState(false);
     const [lumpsumDiscount, setLumpsumDiscount] = useState<number>(0);
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+    const [isAddMedicineModalOpen, setIsAddMedicineModalOpen] = useState(false);
     const [isInsightsOpen, setIsInsightsOpen] = useState(false);
     const [isKeywordFocused, setIsKeywordFocused] = useState(false);
     const [salesHistory, setSalesHistory] = useState<Transaction[]>([]);
@@ -233,6 +234,7 @@ const POS = forwardRef<any, POSProps>(({
     const [isInsightsLoading, setIsInsightsLoading] = useState(false);
     const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
     const [modalSearchTerm, setModalSearchTerm] = useState('');
+    const [newMaterialSeedName, setNewMaterialSeedName] = useState('');
     const [isCustomerSearchModalOpen, setIsCustomerSearchModalOpen] = useState(false);
     const [pendingBatchSelection, setPendingBatchSelection] = useState<{ item: InventoryItem; batches: InventoryItem[] } | null>(null);
     const [schemeItem, setSchemeItem] = useState<BillItem | null>(null);
@@ -798,6 +800,19 @@ const POS = forwardRef<any, POSProps>(({
     }, [activeIntelItem, purchases]);
 
     const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            const typedProductName = modalSearchTerm.trim();
+            if (!typedProductName) {
+                addNotification('Please type product name first to create new material.', 'warning');
+                return;
+            }
+            if (deduplicatedSearchInventory.length > 0) return;
+            setNewMaterialSeedName(typedProductName);
+            setIsAddMedicineModalOpen(true);
+            return;
+        }
+
         if (deduplicatedSearchInventory.length === 0) return;
 
         if (e.key === 'ArrowDown') {
@@ -811,6 +826,37 @@ const POS = forwardRef<any, POSProps>(({
             const selectedWrapper = deduplicatedSearchInventory[selectedSearchIndex];
             if (selectedWrapper) triggerBatchSelection(selectedWrapper);
         }
+    };
+
+    const handleMaterialCreatedFromMatrix = (savedMedicine: Medicine) => {
+        const unitsPerPack = parseInt(String(savedMedicine.pack || '').match(/\d+/)?.[0] || '10', 10);
+        const virtualItem: InventoryItem = {
+            id: `virtual-${savedMedicine.id}`,
+            organization_id: currentUser?.organization_id || '',
+            code: savedMedicine.materialCode || savedMedicine.name,
+            name: savedMedicine.name,
+            category: 'Medicine',
+            manufacturer: savedMedicine.manufacturer || '',
+            brand: savedMedicine.brand || '',
+            stock: 0,
+            unitsPerPack,
+            packType: savedMedicine.pack || '',
+            minStockLimit: 0,
+            batch: getResolvedMedicinePolicy(savedMedicine).inventorised ? 'NEW-STOCK' : '',
+            expiry: getResolvedMedicinePolicy(savedMedicine).inventorised ? 'N/A' : '',
+            purchasePrice: 0,
+            mrp: parseFloat(savedMedicine.mrp || '0'),
+            gstPercent: savedMedicine.gstRate || 0,
+            hsnCode: savedMedicine.hsnCode || '',
+            composition: savedMedicine.composition || '',
+            barcode: savedMedicine.barcode || '',
+            is_active: true
+        };
+        triggerBatchSelection({ item: virtualItem, batches: [] });
+        setIsAddMedicineModalOpen(false);
+        setIsSearchModalOpen(false);
+        setModalSearchTerm('');
+        setTimeout(() => productSearchInputRef.current?.focus(), 120);
     };
 
     useEffect(() => {
@@ -1727,7 +1773,7 @@ const POS = forwardRef<any, POSProps>(({
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                             <span className="text-xs font-black uppercase tracking-[0.2em]">Material Discovery Engine</span>
                         </div>
-                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Enter Select</span>
+                        <span className="text-[10px] font-bold uppercase opacity-70">↑/↓ Navigate | Enter Select | Ctrl+Enter Register Material</span>
                     </div>
 
                     <div className="flex flex-1 overflow-hidden">
@@ -1800,6 +1846,7 @@ const POS = forwardRef<any, POSProps>(({
                                     <div className="h-full flex flex-col items-center justify-center opacity-20 p-20 text-center">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-6"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                                         <p className="text-4xl font-black uppercase tracking-widest">No Matches</p>
+                                        <p className="mt-3 text-[11px] font-black uppercase tracking-widest text-gray-500">Press Ctrl + Enter to register new material</p>
                                     </div>
                                 )}
                             </div>
@@ -1896,6 +1943,17 @@ const POS = forwardRef<any, POSProps>(({
                     </div>
                 </div>
             </Modal>
+
+            <AddMedicineModal
+                isOpen={isAddMedicineModalOpen}
+                onClose={() => setIsAddMedicineModalOpen(false)}
+                onAddMedicine={onAddMedicineMaster as any}
+                onMedicineSaved={handleMaterialCreatedFromMatrix}
+                initialName={newMaterialSeedName}
+                organizationId={currentUser?.organization_id || ''}
+                organizationType={currentUser?.organization_type || null}
+                existingMedicines={medicines}
+            />
 
             <CustomerSearchModal
                 isOpen={isCustomerSearchModalOpen}
