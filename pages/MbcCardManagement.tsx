@@ -573,8 +573,9 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
   };
 
   const saveAddedCardValue = async () => {
-    if (!addCardValueForm.addValueAmount || Number(addCardValueForm.addValueAmount) <= 0) {
-      alert('Please enter valid card value amount.');
+    const enteredAmount = Number(addCardValueForm.addValueAmount);
+    if (addCardValueForm.addValueAmount === '' || Number.isNaN(enteredAmount) || enteredAmount === 0) {
+      alert('Please enter a valid non-zero card value amount.');
       return;
     }
     if (!addCardValueForm.valueDate) {
@@ -582,7 +583,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       return;
     }
 
-    const addedValue = Number(addCardValueForm.addValueAmount);
+    const addedValue = enteredAmount;
     const previousValue = Number(addCardValueForm.currentCardValue || 0);
     const newValue = previousValue + addedValue;
     setLoading(true);
@@ -1062,9 +1063,16 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
 
             <div className="overflow-auto">
               <table className="w-full text-xs border-collapse">
-                <thead className="bg-gray-100"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Action</th><th className="p-2 text-left">Old Type</th><th className="p-2 text-left">New Type</th><th className="p-2 text-left">Old Validity</th><th className="p-2 text-left">New Validity</th><th className="p-2 text-left">Old Value</th><th className="p-2 text-left">New Value</th><th className="p-2 text-left">Remarks</th><th className="p-2 text-left">By</th></tr></thead>
+                <thead className="bg-gray-100"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Action</th><th className="p-2 text-left">Old Type</th><th className="p-2 text-left">New Type</th><th className="p-2 text-left">Old Validity</th><th className="p-2 text-left">New Validity</th><th className="p-2 text-left">Previous Value</th><th className="p-2 text-left">Added / Deducted</th><th className="p-2 text-left">New Value</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Remarks</th><th className="p-2 text-left">By</th></tr></thead>
                 <tbody>
-                  {history.filter(h => !selectedCardId || h.mbc_card_id === selectedCardId).map(h => (
+                  {history.filter(h => !selectedCardId || h.mbc_card_id === selectedCardId).map(h => {
+                    const delta = (h.old_card_value ?? 0) !== 0 || (h.new_card_value ?? 0) !== 0
+                      ? Number((h.new_card_value ?? 0) - (h.old_card_value ?? 0))
+                      : null;
+                    const valueType = h.action_type === 'value_add'
+                      ? (delta !== null && delta < 0 ? 'Debit' : 'Credit')
+                      : '-';
+                    return (
                     <tr key={h.id} className="border-t">
                       <td className="p-2">{formatDateForDisplay(h.action_date?.slice(0, 10))}</td>
                       <td className="p-2 uppercase">{h.action_type}</td>
@@ -1073,11 +1081,13 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                       <td className="p-2">{formatDateForDisplay(h.old_validity_to)}</td>
                       <td className="p-2">{formatDateForDisplay(h.new_validity_to)}</td>
                       <td className="p-2">{h.old_card_value ?? '-'}</td>
+                      <td className="p-2">{delta === null ? '-' : delta}</td>
                       <td className="p-2">{h.new_card_value ?? '-'}</td>
+                      <td className="p-2">{valueType}</td>
                       <td className="p-2">{h.remarks || '-'}</td>
                       <td className="p-2">{h.action_by}</td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -1093,7 +1103,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
               <input className="border p-2 bg-gray-100" value={addCardValueForm.cardNumber} readOnly placeholder="Card Number" />
               <input className="border p-2 bg-gray-100" value={addCardValueForm.customerName} readOnly placeholder="Customer Name" />
               <input className="border p-2 bg-gray-100" value={addCardValueForm.currentCardValue} readOnly placeholder="Current Card Value" />
-              <input type="number" step="any" className="border p-2" placeholder="Add Value Amount" value={addCardValueForm.addValueAmount} onChange={e => setAddCardValueForm(prev => ({ ...prev, addValueAmount: e.target.value === '' ? '' : Number(e.target.value) }))} />
+              <input type="number" step="any" className="border p-2" placeholder="Add / Deduct Value Amount" value={addCardValueForm.addValueAmount} onChange={e => setAddCardValueForm(prev => ({ ...prev, addValueAmount: e.target.value === '' ? '' : Number(e.target.value) }))} />
               <input type="date" className="border p-2" value={addCardValueForm.valueDate} onChange={e => setAddCardValueForm(prev => ({ ...prev, valueDate: e.target.value }))} />
               <input className="border p-2" placeholder="Narration / Remarks (optional)" value={addCardValueForm.narration} onChange={e => setAddCardValueForm(prev => ({ ...prev, narration: e.target.value }))} />
             </div>

@@ -10,7 +10,7 @@ import { extractPackMultiplier, resolveUnitsPerStrip } from '../utils/pack';
 interface AddProductModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onAddProduct: (newProduct: Omit<InventoryItem, 'id'>) => void;
+    onAddProduct: (newProduct: Omit<InventoryItem, 'id'>) => void | Promise<void>;
     initialData?: Partial<InventoryItem>;
     organizationId: string;
     medicines: Medicine[];
@@ -85,8 +85,16 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
             setMasterSearchTerm('');
             setIsMasterSearchOpen(false);
             setSelectedMasterId(null);
+            const initialCode = (initialData?.code || '').trim().toLowerCase();
+            if (initialCode) {
+                const matchedMedicine = medicines.find(m => (m.materialCode || '').trim().toLowerCase() === initialCode);
+                if (matchedMedicine) {
+                    setMasterSearchTerm(matchedMedicine.name || initialData?.name || '');
+                    setSelectedMasterId(matchedMedicine.id);
+                }
+            }
         }
-    }, [isOpen, initialData, organizationId]);
+    }, [isOpen, initialData, organizationId, medicines]);
 
     useEffect(() => {
         if (isOpen && product.barcode && barcodeRef.current) {
@@ -230,10 +238,10 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onAd
         return Object.keys(newErrors).length === 0;
     }
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (validate()) {
-            onAddProduct({ ...product, organization_id: organizationId });
+            await onAddProduct({ ...product, organization_id: organizationId });
             onClose();
         }
     };

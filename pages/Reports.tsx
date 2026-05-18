@@ -30,6 +30,11 @@ type StockMovementViewMode = 'detailed' | 'productSummary';
 type InventoryValueViewMode = 'batchWise' | 'productWise';
 
 const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
+const parsePackSize = (pack: string | null | undefined) => {
+  const matchedPackSize = String(pack || '').match(/\d+(\.\d+)?/);
+  const parsedPackSize = matchedPackSize ? Number(matchedPackSize[0]) : NaN;
+  return Number.isFinite(parsedPackSize) && parsedPackSize > 0 ? parsedPackSize : 1;
+};
 
 const REPORT_LIST: ReportDefinition[] = [
   { id: 'salesRegister', name: 'Sales Register', group: 'Sales Reports' },
@@ -704,18 +709,27 @@ const Reports: React.FC<ReportsProps> = ({
       case 'stockSummary':
       case 'batchWiseStock':
       case 'expiryWiseStock':
-        reportHeaders = reportId === 'stockSummary' ? ['Item Name', 'Batch', 'Pack', 'Stock (Pack / Loose / Total)', 'MRP', 'PTR / Cost', 'Value', 'Expiry'] : reportId === 'batchWiseStock' ? ['Item', 'Batch', 'Expiry', 'Quantity', 'Value'] : ['Item', 'Batch', 'Expiry', 'Qty', 'Value'];
+        reportHeaders = reportId === 'stockSummary' ? ['Item Name', 'Batch', 'Pack', 'Stock (Pack / Loose / Total)', 'MRP', 'MRP Amount', 'PTR / Cost', 'PTR Amount', 'Expiry'] : reportId === 'batchWiseStock' ? ['Item', 'Batch', 'Expiry', 'Quantity', 'Value'] : ['Item', 'Batch', 'Expiry', 'Qty', 'Value'];
         rows = inventory.map(item => {
           const breakup = getStockBreakup(item.stock, item.unitsPerPack);
+          const packSize = parsePackSize(item.packType);
+          const packQty = Number(breakup.pack || 0);
+          const looseQty = Number(breakup.loose || 0);
+          const mrp = Number(item.mrp || 0);
+          const ptrCost = Number(item.ptr || item.purchasePrice || 0);
+          const mrpAmount = (packQty * mrp) + (looseQty * (mrp / packSize));
+          const ptrAmount = (packQty * ptrCost) + (looseQty * (ptrCost / packSize));
           return {
             'Item Name': item.name,
             'Item': item.name,
             'Batch': item.batch,
             'Pack': item.packType || 'N/A',
-            'Stock (Pack / Loose / Total)': `${breakup.pack} / ${breakup.loose} / ${breakup.totalUnits}`,
-            'MRP': round2(item.mrp || 0),
-            'PTR / Cost': round2(item.ptr || item.purchasePrice || 0),
-            'Value': round2(breakup.totalUnits * Number(item.purchasePrice || item.ptr || 0)),
+            'Stock (Pack / Loose / Total)': `${packQty} / ${looseQty} / ${breakup.totalUnits}`,
+            'MRP': round2(mrp),
+            'MRP Amount': round2(mrpAmount),
+            'PTR / Cost': round2(ptrCost),
+            'PTR Amount': round2(ptrAmount),
+            'Value': round2(mrpAmount),
             'Expiry': item.expiry ? new Date(item.expiry).toLocaleDateString('en-GB') : 'N/A',
             'Quantity': breakup.totalUnits,
             'Qty': breakup.totalUnits,
@@ -1219,6 +1233,21 @@ const Reports: React.FC<ReportsProps> = ({
     return { recordCount: filteredData.length, sums };
   }, [headers, filteredData]);
 
+  const stockSummaryTotals = useMemo(() => {
+    if (activeReportId !== 'stockSummary') return { packQty: 0, looseQty: 0, totalQty: 0 };
+
+    return filteredData.reduce((acc, row) => {
+      const stockText = String(row['Stock (Pack / Loose / Total)'] || '');
+      const [packQty = '0', looseQty = '0', totalQty = '0'] = stockText.split('/').map(part => part.trim());
+      acc.packQty += Number(packQty) || 0;
+      acc.looseQty += Number(looseQty) || 0;
+      acc.totalQty += Number(totalQty) || 0;
+      return acc;
+    }, { packQty: 0, looseQty: 0, totalQty: 0 });
+  }, [activeReportId, filteredData]);
+
+  const formatInrAmount = (amount: number) => `₹${Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
   const selectedRow = selectedRowIndex >= 0 ? filteredData[selectedRowIndex] : null;
 
   const doctorDetailSummary = useMemo(() => {
@@ -1494,11 +1523,22 @@ const Reports: React.FC<ReportsProps> = ({
           </div>
 
           <div className="border-t px-2 py-1 text-[10px] bg-gray-100 flex flex-wrap gap-x-4 gap-y-1">
-            <span><strong>Total Records:</strong> {totals.recordCount}</span>
-            {Object.entries(totals.sums).slice(0, activeReportId === 'doctorWiseSalesSummaryReport' ? 8 : 6).map(([key, value]) => (
-              <span key={key}><strong>{key}:</strong> {value}</span>
-            ))}
-            {activeReportId === 'doctorWiseSalesSummaryReport' && <span><strong>Grand Total:</strong> {round2((totals.sums['Net Sales Value'] || 0) + (totals.sums['Total GST Amount'] || 0) - (totals.sums['Total Discount'] || 0))}</span>}
+            {activeReportId === 'stockSummary' ? (
+              <>
+                <span><strong>Total Records:</strong> {totals.recordCount}</span>
+                <span><strong>Total Stock:</strong> {`${Math.round(stockSummaryTotals.packQty).toLocaleString('en-IN')} / ${Math.round(stockSummaryTotals.looseQty).toLocaleString('en-IN')} / ${Math.round(stockSummaryTotals.totalQty).toLocaleString('en-IN')}`}</span>
+                <span><strong>MRP Amount:</strong> {formatInrAmount(totals.sums['MRP Amount'] || 0)}</span>
+                <span><strong>PTR Amount:</strong> {formatInrAmount(totals.sums['PTR Amount'] || 0)}</span>
+              </>
+            ) : (
+              <>
+                <span><strong>Total Records:</strong> {totals.recordCount}</span>
+                {Object.entries(totals.sums).slice(0, activeReportId === 'doctorWiseSalesSummaryReport' ? 8 : 6).map(([key, value]) => (
+                  <span key={key}><strong>{key}:</strong> {value}</span>
+                ))}
+                {activeReportId === 'doctorWiseSalesSummaryReport' && <span><strong>Grand Total:</strong> {round2((totals.sums['Net Sales Value'] || 0) + (totals.sums['Total GST Amount'] || 0) - (totals.sums['Total Discount'] || 0))}</span>}
+              </>
+            )}
           </div>
         </section>
 
