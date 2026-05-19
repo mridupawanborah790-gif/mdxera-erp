@@ -73,11 +73,16 @@ const SalesLineModal: React.FC<SalesLineModalProps> = ({
         };
 
         return [...batches].sort((a, b) => {
-            const availableA = calculateAvailableStock(a);
-            const availableB = calculateAvailableStock(b);
-            if (availableA <= 0 && availableB > 0) return 1;
+            const availableA = Number(calculateAvailableStock(a) || 0);
+            const availableB = Number(calculateAvailableStock(b) || 0);
+
             if (availableA > 0 && availableB <= 0) return -1;
-            return new Date(a.expiry).getTime() - new Date(b.expiry).getTime();
+            if (availableA <= 0 && availableB > 0) return 1;
+
+            const expiryA = new Date(a.expiry || '9999-12-31').getTime();
+            const expiryB = new Date(b.expiry || '9999-12-31').getTime();
+
+            return expiryA - expiryB;
         });
     }, [batches, cartUnitsByBatchId, initialItem]);
 
