@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "default",
+  "description": "Default capability for the MDXera ERP main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-load",
+    "sql:allow-close",
+    "store:allow-set",
+    "store:allow-get",
+    "store:allow-delete",
+    "store:allow-clear",
+    "store:allow-save",
+    "store:allow-load",
+    "store:allow-keys",
+    "store:allow-has",
+    "store:allow-entries",
+    "shell:allow-open"
+  ]
+}
