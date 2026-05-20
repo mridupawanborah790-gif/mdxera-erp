@@ -18,9 +18,13 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@core/*": ["./src/core/*"],
+      "@core/services/storageService":         ["./services/storageService"],
+      "@core/services/geminiService":          ["./services/geminiService"],
+      "@core/services/supplierService":        ["./services/supplierService"],
+      "@core/services/companyDefaultsService": ["./services/companyDefaultsService"],
+      "@core/*":    ["./src/core/*"],
       "@modules/*": ["./src/modules/*"],
-      "@app/*": ["./src/app/*"]
+      "@app/*":     ["./src/app/*"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx"],

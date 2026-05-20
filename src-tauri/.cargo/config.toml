@@ -1,0 +1,6 @@
+[build]
+# Move the target directory out of Downloads/ to avoid Windows Search indexer
+# and Defender locking .o files mid-compilation (causes "file in use" errors)
+target-dir = "C:\\cargo-target\\mdxera-erp"
+# Limit parallel jobs to reduce file-lock races on Windows
+jobs = 4

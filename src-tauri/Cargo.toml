@@ -5,6 +5,10 @@ description = "MDXera ERP - Pharmacy Management System"
 authors = []
 edition = "2021"
 
+[package.metadata.bundle]
+identifier = "com.mdxera.erp"
+icon = ["icons/icon.ico", "icons/icon.icns", "icons/128x128.png", "icons/128x128@2x.png", "icons/32x32.png"]
+
 [lib]
 name = "mdxera_erp_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

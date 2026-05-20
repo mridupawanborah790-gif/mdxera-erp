@@ -8,11 +8,18 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      '@core': path.resolve(__dirname, './src/core'),
-      '@modules': path.resolve(__dirname, './src/modules'),
-      '@app': path.resolve(__dirname, './src/app'),
-    },
+    alias: [
+      // Services that live at the root — bypass the bridge files so Vite
+      // resolves them directly (the bridge `export *` doesn't forward indented exports)
+      { find: '@core/services/storageService',        replacement: path.resolve(__dirname, './services/storageService') },
+      { find: '@core/services/geminiService',         replacement: path.resolve(__dirname, './services/geminiService') },
+      { find: '@core/services/supplierService',       replacement: path.resolve(__dirname, './services/supplierService') },
+      { find: '@core/services/companyDefaultsService',replacement: path.resolve(__dirname, './services/companyDefaultsService') },
+      // Generic prefix aliases (must come after the specific overrides above)
+      { find: '@core',    replacement: path.resolve(__dirname, './src/core') },
+      { find: '@modules', replacement: path.resolve(__dirname, './src/modules') },
+      { find: '@app',     replacement: path.resolve(__dirname, './src/app') },
+    ],
   },
   // Tauri requires these settings so the WebView can communicate with the dev server
   clearScreen: false,
