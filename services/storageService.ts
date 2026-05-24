@@ -14,6 +14,210 @@
     import { resolveUnitsPerStrip, extractPackMultiplier } from '../utils/pack';
 import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHandling';
     import { DEFAULT_CONFIG_MISSING_MESSAGE, loadDefaultPostingContext } from './companyDefaultsService';
+import {
+    reserveVoucherNumber as _reserveVoucherNumberImpl,
+    markVoucherCancelled as _markVoucherCancelledImpl,
+    type VoucherDocumentType as _VoucherDocumentTypeImpl,
+    type VoucherReservationResult as _VoucherReservationResultImpl,
+} from '../src/core/voucher/voucherService';
+import {
+    login as _loginImpl,
+    signup as _signupImpl,
+    logout as _logoutImpl,
+    requestPasswordReset as _requestPasswordResetImpl,
+    verifyRecoveryToken as _verifyRecoveryTokenImpl,
+    updatePassword as _updatePasswordImpl,
+} from '../src/core/auth/authService';
+import { SyncQueue } from '../src/core/sync/SyncQueue';
+
+// Tables the new SyncEngine knows how to push. Writes to these tables get
+// enqueued when offline (or after a network failure) so the engine can flush
+// them once connectivity returns. Tables not in this set fall back to the
+// legacy "stay pending in IDB" behaviour.
+const SYNC_QUEUE_TABLES = new Set<string>([
+    'sales_bill', 'sales_returns', 'sales_challans', 'delivery_challans',
+    'purchases', 'purchase_returns', 'purchase_orders',
+    'inventory', 'material_master', 'customers', 'suppliers', 'distributors',
+    'doctor_master', 'supplier_product_map', 'customer_price_list',
+    'mbc_cards', 'mbc_card_history',
+    'physical_inventory', 'mrp_change_log', 'ewaybills',
+    'journal_entry_header', 'journal_entry_lines',
+    'promotions', 'configurations',
+]);
+
+async function enqueueForSync(
+    tableName: string,
+    isUpdate: boolean,
+    payload: Record<string, unknown>,
+    organizationId: string,
+): Promise<void> {
+    if (!SYNC_QUEUE_TABLES.has(tableName)) return;
+    const recordId = typeof payload.id === 'string' ? payload.id : String(payload.id ?? '');
+    if (!recordId) return;
+    try {
+        await SyncQueue.enqueue(isUpdate ? 'UPDATE' : 'INSERT', tableName, recordId, payload, organizationId);
+    } catch (err) {
+        // Non-fatal: the local IDB copy is still preserved; we just lose the
+        // queued push. Logged so we can spot it during development.
+        console.warn(`[storage] SyncQueue.enqueue(${tableName}) failed:`, err);
+    }
+}
+
+// Columns whose SQLite values are JSON-encoded by columnFilter/InitialSync
+// and need to be parsed back into native objects/arrays before the legacy
+// app's components consume them. This is the authoritative list (matched
+// against the SQLite schema in src/core/db/migrations/001_initial.ts) — but
+// `decodeSqliteRow` also auto-detects any value that looks like JSON
+// (starts with `[` or `{`) so a missed column can't crash the app.
+const SQLITE_JSON_COLUMNS: Record<string, string[]> = {
+    sales_bill: ['items'],
+    sales_challans: ['items'],
+    delivery_challans: ['items'],
+    sales_returns: ['items'],
+    purchase_returns: ['items'],
+    purchases: ['items'],
+    purchase_orders: ['items'],
+    physical_inventory: ['items'],
+    configurations: [
+        'invoice_config', 'non_gst_invoice_config', 'purchase_config',
+        'purchase_order_config', 'medicine_master_config',
+        'physical_inventory_config', 'delivery_challan_config',
+        'sales_challan_config', 'master_shortcuts', 'display_options',
+        'modules', 'sidebar',
+    ],
+    customers: ['ledger'],
+    suppliers: ['ledger', 'payment_details'],
+    business_roles: ['work_centers', 'permissions_matrix'],
+    team_members: ['assigned_roles', 'work_centers'],
+    mbc_cards: ['transactions'],
+    ewaybills: ['data'],
+    promotions: ['rules'],
+};
+
+function looksLikeJson(s: string): boolean {
+    if (s.length < 2) return false;
+    const first = s.charCodeAt(0);
+    // '[' = 91, '{' = 123
+    return first === 91 || first === 123;
+}
+
+// SQLite-only bookkeeping columns added by columnFilter/migrations. Must NOT
+// be sent back to Supabase, and must be stripped BEFORE toCamel converts them
+// into PascalCase ("SyncStatus", "LocalOnly") which then leak into payloads.
+const SQLITE_BOOKKEEPING_COLUMNS = ['_sync_status', '_local_only'];
+
+function decodeSqliteRow(tableName: string, row: Record<string, any>): Record<string, any> {
+    const jsonCols = SQLITE_JSON_COLUMNS[tableName] || [];
+    const out = { ...row };
+
+    // Strip bookkeeping columns up front.
+    for (const col of SQLITE_BOOKKEEPING_COLUMNS) {
+        delete out[col];
+    }
+
+    // 1. Known JSON columns — always attempt parse.
+    for (const col of jsonCols) {
+        const v = out[col];
+        if (typeof v === 'string' && v.length > 0) {
+            try { out[col] = JSON.parse(v); } catch { /* leave as-is */ }
+        }
+    }
+
+    // 2. Defensive auto-detect — any other string value that smells like JSON
+    //    (starts with `[` or `{`) gets parsed too. Failures are silently
+    //    left as the raw string so this can never crash.
+    for (const key in out) {
+        const v = out[key];
+        if (typeof v !== 'string') continue;
+        if (!looksLikeJson(v)) continue;
+        try { out[key] = JSON.parse(v); } catch { /* not JSON, keep string */ }
+    }
+
+    return out;
+}
+
+// Track in-flight hydrations so parallel callers share one pass instead of
+// queuing up redundant ones (App.tsx boot + SyncBootstrap + getData fallback
+// were all triggering separately and saturating the SQL connection).
+const _hydrateInFlight = new Map<string, Promise<void>>();
+
+/** Fired when hydration finishes (success or failure). Listeners can refresh React state. */
+export const HYDRATE_COMPLETE_EVENT = 'mdxera:hydrate-complete';
+
+/**
+ * Hydrate the in-memory cache from the SQLite store populated by the
+ * offline-first InitialSync. Without this, the legacy app boots with an empty
+ * memoryCache and (since IndexedDB is disabled) is data-less offline.
+ *
+ * Fire-and-forget: callers should NOT await this — the legacy app boots with
+ * an empty cache and refills as soon as the function resolves and fires
+ * `mdxera:hydrate-complete`. Any failure is logged and swallowed.
+ */
+export const hydrateMemoryCacheFromSqlite = async (organizationId: string): Promise<void> => {
+    if (!organizationId) return;
+    const cached = _hydrateInFlight.get(organizationId);
+    if (cached) return cached;
+
+    const work = async (): Promise<void> => {
+        let sqliteDb: typeof import('../src/core/db/client').db | null = null;
+        try {
+            const mod = await import('../src/core/db/client');
+            sqliteDb = mod.db;
+        } catch (err) {
+            console.warn('[storage] SQLite client unavailable, skipping hydration:', err);
+            return;
+        }
+        if (!sqliteDb) return;
+        const db = sqliteDb;
+
+        const TABLES_TO_HYDRATE = Object.values(STORES);
+
+        // Run all table SELECTs concurrently. Tauri's plugin-sql can handle
+        // many parallel reads on its single connection, and serial loads of 30
+        // tables × ~500ms latency each blow the 15s overall timeout on first
+        // launch.
+        await Promise.all(
+            TABLES_TO_HYDRATE.map(async (table) => {
+                try {
+                    const rows = await db.select<Record<string, any>>(
+                        `SELECT * FROM ${table} WHERE organization_id = ?`,
+                        [organizationId],
+                    );
+                    if (!rows || rows.length === 0) return;
+
+                    const normalized = rows
+                        .map(r => decodeSqliteRow(table, r))
+                        .map(r => fromSupabase(table, r));
+
+                    const storeKey = table.toUpperCase();
+                    memoryCache[storeKey] = normalized;
+                    memoryCacheOrgScope[storeKey] = organizationId;
+                } catch (err) {
+                    // Most likely: table doesn't exist locally yet. Safe to skip.
+                    console.debug(`[storage] hydrate(${table}) skipped:`, (err as Error)?.message);
+                }
+            }),
+        );
+    };
+
+    const startedAt = Date.now();
+    const promise = (async () => {
+        try {
+            await work();
+            const elapsed = Date.now() - startedAt;
+            console.info(`[storage] hydrateMemoryCacheFromSqlite completed in ${elapsed}ms`);
+        } catch (err) {
+            console.warn('[storage] hydrateMemoryCacheFromSqlite failed:', err);
+        } finally {
+            _hydrateInFlight.delete(organizationId);
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent(HYDRATE_COMPLETE_EVENT, { detail: { organizationId } }));
+            }
+        }
+    })();
+    _hydrateInFlight.set(organizationId, promise);
+    return promise;
+};
 
     export const generateUUID = () => crypto.randomUUID();
 
@@ -390,8 +594,18 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             }
         }
 
-        // Remove internal sync metadata — never send to DB
+        // Remove internal sync metadata — never send to DB. Covers every
+        // casing produced by toSnake/toCamel from `_sync_status`/`_local_only`.
         delete sanitized.sync_status;
+        delete sanitized.syncStatus;
+        delete sanitized.SyncStatus;
+        delete sanitized._sync_status;
+        delete sanitized._syncStatus;
+        delete sanitized.local_only;
+        delete sanitized.localOnly;
+        delete sanitized.LocalOnly;
+        delete sanitized._local_only;
+        delete sanitized._localOnly;
         delete sanitized.record_uuid;
         
         // Explicitly remove remarks for tables that don't support it in the DB schema.
@@ -413,6 +627,69 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             delete sanitized.companyCodeId;
             delete sanitized.set_of_books_id;
             delete sanitized.setOfBooksId;
+        }
+
+        // Additional sales_bill-only strips (UI/accounting fields with no Supabase column)
+        if (tableName === 'sales_bill') {
+            delete sanitized.balanceAfterBill;
+            delete sanitized.balance_after_bill;
+            delete sanitized.previousBalanceBeforeBill;
+            delete sanitized.previous_balance_before_bill;
+            delete sanitized.hideRetailerOnBill;
+            delete sanitized.hide_retailer_on_bill;
+            delete sanitized.billedById;
+            delete sanitized.billed_by_id;
+            delete sanitized.billedByName;
+            delete sanitized.billed_by_name;
+            delete sanitized.taxCalculationType;
+            delete sanitized.tax_calculation_type;
+            delete sanitized.eWayBillNo;
+            delete sanitized.e_way_bill_no;
+            delete sanitized.eWayBillDate;
+            delete sanitized.e_way_bill_date;
+            delete sanitized.doctorId;
+            delete sanitized.doctor_id;
+        }
+
+        // Additional purchases-only strips (fields with no Supabase column)
+        if (tableName === 'purchases') {
+            delete sanitized.cancelledAt;
+            delete sanitized.cancelled_at;
+            delete sanitized.cancelledBy;
+            delete sanitized.cancelled_by;
+            delete sanitized.cancellationReason;
+            delete sanitized.cancellation_reason;
+        }
+
+        // Strip local-only fields from inventory — these exist in the TypeScript
+        // InventoryItem model or SQLite schema but have no column in Supabase inventory.
+        if (tableName === 'inventory') {
+            // SQLite-only FK for local joins against material_master
+            delete sanitized.material_id;
+            delete sanitized.materialId;
+            // UI/promo display fields
+            delete sanitized.deal;
+            delete sanitized.free;
+            delete sanitized.purchaseDeal;
+            delete sanitized.purchase_deal;
+            delete sanitized.purchaseFree;
+            delete sanitized.purchase_free;
+            delete sanitized.taxBasis;
+            delete sanitized.tax_basis;
+            // Fields from material_master that leak into InventoryItem
+            delete sanitized.description;
+            delete sanitized.manufacturer;
+            delete sanitized.code;
+            delete sanitized.unitOfMeasurement;
+            delete sanitized.unit_of_measurement;
+            delete sanitized.packUnit;
+            delete sanitized.pack_unit;
+            delete sanitized.baseUnit;
+            delete sanitized.base_unit;
+            delete sanitized.outerPack;
+            delete sanitized.outer_pack;
+            delete sanitized.unitsPerOuterPack;
+            delete sanitized.units_per_outer_pack;
         }
 
         // Workaround for incomplete database schemas on Returns tables
@@ -560,13 +837,56 @@ const normalizeMaterialMasterType = (value: unknown): string | undefined => {
             msg.includes('network') ||
             msg.includes('timeout') ||
             msg.includes('failed to connect') ||
-            error?.code === 'PGRST301' || 
+            error?.code === 'PGRST301' ||
             error?.status === 0 ||
-            error?.status === 502 || 
-            error?.status === 503 || 
-            error?.status === 504    
+            error?.status === 502 ||
+            error?.status === 503 ||
+            error?.status === 504
         );
     };
+
+    // Persist a locally-saved row into the SQLite mirror so it survives app
+    // restarts even before the SyncEngine flushes it to Supabase. Without this,
+    // hydrateMemoryCacheFromSqlite on next boot reads the stale pre-save row
+    // and the user sees their offline work disappear. Pulls reuse the same
+    // adapter (adaptRowForSqlite) so we get the same schema-drop / JSON encode
+    // / boolean conversion / NOT-NULL default behaviour the inbound path uses.
+    //
+    // syncStatus 'pending' is the signal SyncPuller honours when deciding
+    // whether to overwrite a local row with a remote one — keep using it for
+    // any write that hasn't been confirmed by Supabase.
+    async function persistLocalRowToSqlite(
+        tableName: string,
+        payload: Record<string, unknown>,
+        syncStatus: 'pending' | 'synced' = 'pending',
+    ): Promise<void> {
+        if (!SYNC_QUEUE_TABLES.has(tableName)) return;
+        try {
+            const [{ db }, { adaptRowForSqlite }] = await Promise.all([
+                import('../src/core/db/client'),
+                import('../src/core/sync/columnFilter'),
+            ]);
+            const remotePayload = getSupabasePayload(tableName, payload);
+            const snake = toSnake(remotePayload);
+            const adapted = await adaptRowForSqlite(tableName, snake, { syncStatus });
+            if (!adapted) return; // local table doesn't exist yet
+            await db.upsert(tableName, adapted);
+        } catch (err) {
+            // Non-fatal: memoryCache and the _sync_queue still have the row.
+            console.warn(`[storage] persistLocalRowToSqlite(${tableName}) failed:`, err);
+        }
+    }
+
+    async function persistLocalRowsToSqlite(
+        tableName: string,
+        payloads: Record<string, unknown>[],
+        syncStatus: 'pending' | 'synced' = 'pending',
+    ): Promise<void> {
+        if (payloads.length === 0) return;
+        for (const p of payloads) {
+            await persistLocalRowToSqlite(tableName, p, syncStatus);
+        }
+    }
 
 export const saveData = async (tableName: string, data: any, user: RegisteredPharmacy | null, isUpdate: boolean = false): Promise<any> => {
         if (!user?.organization_id) throw new Error("Organizational identity not verified.");
@@ -619,13 +939,30 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         else memoryCache[storeKey].push(dbPayload);
 
         await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
-        
+
+        // OFFLINE PATH: don't try Supabase, enqueue for the SyncEngine to flush later.
+        if (!navigator.onLine) {
+            // Mirror the write into SQLite as 'pending' BEFORE enqueueing so a
+            // crash between the two leaves a recoverable row (hydration will
+            // pick it up; the worker can replay from _sync_queue).
+            await persistLocalRowToSqlite(tableName, dbPayload, 'pending');
+            await enqueueForSync(tableName, isUpdate, dbPayload, user.organization_id);
+            return dbPayload;
+        }
+
         if (navigator.onLine) {
             try {
                 const remotePayload = getSupabasePayload(tableName, dbPayload);
                 const snakeData = toSnake(remotePayload);
                 
                 if (tableName === 'configurations') {
+                    // Strip JSONB columns that exist locally but not in production
+                    // Supabase. Sending them triggers PGRST204 and the whole upsert
+                    // is rejected. Mirrors the same filter in SyncWorker so the
+                    // direct online path and the queued-push path agree.
+                    delete snakeData.medicine_master_config;
+                    delete snakeData.fiscal_year_config;
+
                     // Special handling for configurations to prevent stale voucher sequence overwrites.
                     // We fetch the latest config from DB and merge ONLY the volatile sequence fields.
                     const { data: existing, error: fetchError } = await supabase
@@ -753,12 +1090,21 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                     else memoryCache[storeKey].push(syncedData);
                 }
 
+                // Mirror the confirmed row into SQLite as 'synced' so hydration
+                // on next boot reflects the server-confirmed state without
+                // having to wait for the next puller cycle.
+                await persistLocalRowToSqlite(tableName, syncedData, 'synced');
+
                 return syncedData;
             } catch (e: any) {
                 if (isNetworkError(e)) {
-                    console.warn(`Supabase sync failed for ${tableName} due to network, local copy preserved as pending.`, e);
+                    console.warn(`Supabase sync failed for ${tableName} due to network, queueing for retry.`, e);
                     dbPayload.sync_status = 'pending';
                     await idb.put(STORES[tableName.toUpperCase() as keyof typeof STORES], dbPayload);
+                    // Keep the local copy durable so a restart before SyncEngine
+                    // flushes doesn't lose the write.
+                    await persistLocalRowToSqlite(tableName, dbPayload, 'pending');
+                    await enqueueForSync(tableName, isUpdate, dbPayload, user.organization_id);
                     return dbPayload; // DO NOT throw for network errors, let UI continue
                 }
 
@@ -854,98 +1200,12 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     // Added missing fetchEWayBills function
     export const fetchEWayBills = (user: RegisteredPharmacy) => getData('ewaybills', [], user);
 
-    export type VoucherDocumentType =
-        | 'sales-gst'
-        | 'sales-non-gst'
-        | 'purchase-entry'
-        | 'purchase-order'
-        | 'sales-challan'
-        | 'delivery-challan'
-        | 'physical-inventory';
-
-    interface VoucherReservationResult {
-        documentNumber: string;
-        usedNumber: number;
-        nextNumber: number;
-        remainingCount: number | null;
-    }
-
-    const getVoucherConfigKey = (docType: VoucherDocumentType): keyof AppConfigurations => {
-        switch (docType) {
-            case 'sales-gst':
-                return 'invoiceConfig';
-            case 'sales-non-gst':
-                return 'nonGstInvoiceConfig';
-            case 'purchase-entry':
-                return 'purchaseConfig';
-            case 'purchase-order':
-                return 'purchaseOrderConfig';
-            case 'sales-challan':
-                return 'salesChallanConfig';
-            case 'delivery-challan':
-                return 'deliveryChallanConfig';
-            case 'physical-inventory':
-                return 'physicalInventoryConfig';
-            default:
-                return 'invoiceConfig';
-        }
-    };
-
-
-    export const reserveVoucherNumber = async (
-        docType: VoucherDocumentType, 
-        user: RegisteredPharmacy,
-        isPreview: boolean = false
-    ): Promise<VoucherReservationResult> => {
-        const { data, error } = await supabase.rpc('reserve_voucher_number', {
-            p_organization_id: user.organization_id,
-            p_document_type: docType,
-            p_is_preview: isPreview
-        });
-
-        if (error) {
-            throw new Error(parseNetworkAndApiError(error));
-        }
-
-        const payload = Array.isArray(data) ? data[0] : data;
-        if (!payload?.success) {
-            throw new Error(payload?.message || 'Unable to reserve voucher number.');
-        }
-
-        return {
-            documentNumber: payload.document_number,
-            usedNumber: payload.used_number,
-            nextNumber: payload.next_number,
-            remainingCount: payload.remaining_count ?? null
-        };
-    };
-
-    export const markVoucherCancelled = async (
-        docType: VoucherDocumentType,
-        user: RegisteredPharmacy,
-        documentNumber: string,
-        referenceId?: string
-    ): Promise<void> => {
-        // Attempt to REVERT the counter if this was the latest generated number.
-        // This prevents gaps if a user creates and immediately discards an audit/bill.
-        const { error } = await supabase.rpc('revert_voucher_number', {
-            p_organization_id: user.organization_id,
-            p_document_type: docType,
-            p_document_number: documentNumber
-        });
-
-        if (error) {
-            console.warn('Voucher revert failed (likely not the latest in sequence), falling back to audit log:', error);
-            // Fallback: Just log it as cancelled without reverting the counter
-            await supabase.rpc('log_voucher_number_event', {
-                p_organization_id: user.organization_id,
-                p_document_type: docType,
-                p_event_type: 'cancelled',
-                p_document_number: documentNumber,
-                p_reference_id: referenceId || null,
-            });
-        }
-    };
+    // Voucher numbering — moved to @core/voucher/voucherService for offline-first support.
+    // These are re-exported here for backwards compatibility with existing imports.
+    export type VoucherDocumentType = _VoucherDocumentTypeImpl;
+    export type VoucherReservationResult = _VoucherReservationResultImpl;
+    export const reserveVoucherNumber = _reserveVoucherNumberImpl;
+    export const markVoucherCancelled = _markVoucherCancelledImpl;
 
     /**
      * Fetches all organization records from Supabase by handling PostgREST pagination (default 1000 limit).
@@ -983,7 +1243,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     export const getData = async (tableName: string, defaultValue: any[] = [], user: RegisteredPharmacy | null): Promise<any[]> => {
         if (!user) return defaultValue;
         const storeKey = tableName.toUpperCase() as keyof typeof STORES;
-        
+
         // Priority 1: Check Memory Cache (for when IDB is disabled or during same session)
         if (
             memoryCacheOrgScope[storeKey] === user.organization_id &&
@@ -991,6 +1251,20 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             memoryCache[storeKey].length > 0
         ) {
             return memoryCache[storeKey];
+        }
+
+        // Priority 1.5: If we are offline and SQLite has data populated by
+        // InitialSync, hydrate the memoryCache on-demand so we don't return
+        // empty arrays (which would wipe app state).
+        if (!navigator.onLine) {
+            try {
+                await hydrateMemoryCacheFromSqlite(user.organization_id);
+                if (memoryCache[storeKey] && memoryCache[storeKey].length > 0) {
+                    return memoryCache[storeKey];
+                }
+            } catch {
+                /* fall through */
+            }
         }
 
         // Priority 2: Local IndexedDB for instant UI
@@ -1020,24 +1294,10 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 } catch (e) {
                     console.error(`Initial fetch failed for ${tableName}:`, e);
                 }
-            } else {
-                setTimeout(async () => {
-                    try {
-                        const allData = await fetchAllPagesFromSupabase(tableName, user.organization_id);
-                        if (allData.length > 0) {
-                            const normalized = allData.map(d => fromSupabase(tableName, d));
-                            
-                            // Always update memory cache so the session stays consistent
-                            memoryCache[storeKey] = [...normalized];
-                            memoryCacheOrgScope[storeKey] = user.organization_id;
-                            
-                            await idb.putBulk(STORES[storeKey], normalized);
-                        }
-                    } catch (e) {
-                        console.error(`Background fetch failed for ${tableName}:`, e);
-                    }
-                }, 0);
             }
+            // Note: The else block with setTimeout(fetchAllPagesFromSupabase) was removed.
+            // Background polling is now handled correctly by SyncEngine/SyncPuller.
+            // Overwriting memoryCache/IDB directly here destroyed local pending changes.
         }
         return cached.length > 0 ? cached : defaultValue;
     };
@@ -1055,6 +1315,16 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         const cached = await idb.get(STORES[storeKey], id);
         if (cached && !forceRefresh) {
             return cached as T;
+        }
+
+        // IDB is disabled in this build, so `cached` is always null. Fall back
+        // to memoryCache before going to Supabase — otherwise every caller of
+        // getDataById (upsertAutoLedgerEntry, addSalesReturn lookups, etc.)
+        // either fails silently offline or wastes a network round-trip online.
+        if (!forceRefresh) {
+            const scopedCache = memoryCacheOrgScope[storeKey] === user.organization_id ? memoryCache[storeKey] : undefined;
+            const localHit = scopedCache?.find((row: any) => row?.id === id);
+            if (localHit) return localHit as T;
         }
 
         if (!navigator.onLine) {
@@ -1149,19 +1419,26 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
             }
         }
 
-        // Posting Context and Accounting validation - only for COMPLETED bills
-        try {
-            const postingContext = await ensurePostingContext(tx, user);
-            tx.companyCodeId = postingContext.companyCodeId;
-            tx.setOfBooksId = postingContext.setOfBooksId;
-            
-            await validateGLMappings(user.organization_id, tx.setOfBooksId, 'sales');
-        } catch (e: any) {
-            // Only block if we are actually trying to post a completed bill
-            if (newStatus === 'completed') {
-                throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+        // Posting Context and Accounting validation - only for COMPLETED bills.
+        // Offline: skip the server-side validation (Supabase is unreachable).
+        // The SyncEngine will re-validate when it pushes the bill to the server,
+        // and any failure surfaces there with the existing error message.
+        if (navigator.onLine) {
+            try {
+                const postingContext = await ensurePostingContext(tx, user);
+                tx.companyCodeId = postingContext.companyCodeId;
+                tx.setOfBooksId = postingContext.setOfBooksId;
+
+                await validateGLMappings(user.organization_id, tx.setOfBooksId, 'sales');
+            } catch (e: any) {
+                // Only block if we are actually trying to post a completed bill
+                if (newStatus === 'completed') {
+                    throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+                }
+                console.warn('[storage:addTransaction] Accounting validation failed for non-completed bill:', e.message);
             }
-            console.warn('[storage:addTransaction] Accounting validation failed for non-completed bill:', e.message);
+        } else {
+            console.info('[storage:addTransaction] Offline — skipping accounting validation; bill will be validated when synced.');
         }
 
         // Handle stock reversal for updates BEFORE saving new data to IDB
@@ -1199,7 +1476,16 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
                     if (updatedInventory.length > 0) {
                         await idb.putBulk(STORES.INVENTORY, updatedInventory);
-                        clearTableMemoryCache('INVENTORY');
+                        updateMemoryCacheBulk(STORES.INVENTORY, updatedInventory, user.organization_id);
+
+                        // Persist the reversal locally too. Without this, items
+                        // dropped from an updated bill have their stock reverted
+                        // only in memoryCache — Supabase keeps the old (lower)
+                        // value and the next puller resync wipes the reversal.
+                        await persistLocalRowsToSqlite('inventory', updatedInventory as unknown as Record<string, unknown>[], 'pending');
+                        for (const inv of updatedInventory) {
+                            await enqueueForSync('inventory', true, inv as unknown as Record<string, unknown>, user.organization_id);
+                        }
                     }
                 }
             }
@@ -1254,16 +1540,38 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
             if (updatedInventory.length > 0) {
                 await idb.putBulk(STORES.INVENTORY, updatedInventory);
-                clearTableMemoryCache('INVENTORY');
+                // Patch the memoryCache in-place instead of clearing it; otherwise
+                // a subsequent fetchInventory call goes hunting on Supabase and
+                // returns [] when offline — wiping the React state.
+                updateMemoryCacheBulk(STORES.INVENTORY, updatedInventory, user.organization_id);
 
+                let supabaseUpsertSucceeded = false;
                 if (navigator.onLine) {
                     try {
                         const remotePayload = updatedInventory.map(inv => toSnake(getSupabasePayload('inventory', inv)));
                         const { error } = await supabase.from('inventory').upsert(remotePayload);
                         if (error) throw error;
+                        supabaseUpsertSucceeded = true;
                     } catch (e) {
                         console.warn('Supabase batch inventory sync failed after sales transaction, local copy preserved.', e);
                     }
+                }
+
+                // Mirror the deducted stock into SQLite so the inventory page
+                // reflects the new values across restarts AND so hydration
+                // doesn't clobber the local memoryCache with stale stock.
+                await persistLocalRowsToSqlite(
+                    'inventory',
+                    updatedInventory as unknown as Record<string, unknown>[],
+                    supabaseUpsertSucceeded ? 'synced' : 'pending',
+                );
+
+                // Also enqueue each updated inventory row for the SyncEngine to push later.
+                // (Online-but-upsert-succeeded rows are still enqueued; the
+                //  worker dedupes by id, and a redundant push is cheaper than
+                //  silently losing a write if the success was partial.)
+                for (const inv of updatedInventory) {
+                    await enqueueForSync('inventory', true, inv as unknown as Record<string, unknown>, user.organization_id);
                 }
             }
         }
@@ -1395,19 +1703,24 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
     };
 
     export const addPurchase = async (p: Purchase, user: RegisteredPharmacy) => {
-        // Posting Context and Accounting validation - only for COMPLETED bills
-        try {
-            const postingContext = await ensurePostingContext(p, user);
-            p.companyCodeId = postingContext.companyCodeId;
-            p.setOfBooksId = postingContext.setOfBooksId;
+        // Posting Context and Accounting validation - only for COMPLETED bills.
+        // Offline: skip; will re-validate on server when SyncEngine pushes it.
+        if (navigator.onLine) {
+            try {
+                const postingContext = await ensurePostingContext(p, user);
+                p.companyCodeId = postingContext.companyCodeId;
+                p.setOfBooksId = postingContext.setOfBooksId;
 
-            await validateGLMappings(user.organization_id, p.setOfBooksId, 'purchase');
-        } catch (e: any) {
-            // Only block if we are actually trying to post a completed bill
-            if (p.status === 'completed') {
-                throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+                await validateGLMappings(user.organization_id, p.setOfBooksId, 'purchase');
+            } catch (e: any) {
+                // Only block if we are actually trying to post a completed bill
+                if (p.status === 'completed') {
+                    throw new Error(e?.message || DEFAULT_CONFIG_MISSING_MESSAGE);
+                }
+                console.warn('[storage:addPurchase] Accounting validation failed for non-completed bill:', e.message);
             }
-            console.warn('[storage:addPurchase] Accounting validation failed for non-completed bill:', e.message);
+        } else {
+            console.info('[storage:addPurchase] Offline — skipping accounting validation.');
         }
 
         await assertNoDuplicateActivePurchaseInvoice(p, user);
@@ -1715,64 +2028,24 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         return await idb.get(STORES.PROFILES, userId) as RegisteredPharmacy || null;
     };
 
+    // Auth — moved to @core/auth/authService for hybrid online/offline support.
+    // Re-exported here for backwards compatibility (existing callers expect the
+    // old signature that returns RegisteredPharmacy directly, not AuthResult).
     export const login = async (email: string, pass: string): Promise<RegisteredPharmacy> => {
-        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password: pass });
-        if (authError) throw authError;
-        const { data: profile } = await supabase.from('profiles').select('*').eq('user_id', authData.user!.id).single();
-        if (!profile) throw new Error("Profile not found.");
-        const normalized = toCamel(profile);
-        if (!normalized.id) normalized.id = normalized.user_id;
-        await idb.put(STORES.PROFILES, normalized);
-        return normalized;
-    };
-
-    export const signup = async (email: string, pass: string, fullName: string, pharmacyName: string): Promise<RegisteredPharmacy> => {
-        const orgId = generateUUID();
-        const { data: authData, error: authError } = await supabase.auth.signUp({ email, password: pass, options: { data: { full_name: fullName, pharmacy_name: pharmacyName, role: 'owner', organization_id: orgId } } });
-        if (authError) throw authError;
-        const profile = { user_id: authData.user!.id, organization_id: orgId, email, full_name: fullName, pharmacy_name: pharmacyName, role: 'owner', is_active: true };
-        await supabase.from('profiles').insert(toSnake(profile));
-        const user = { ...profile, id: profile.user_id } as unknown as RegisteredPharmacy;
-        await idb.put(STORES.PROFILES, user);
+        const { user } = await _loginImpl(email, pass);
         return user;
     };
 
+    export const signup = _signupImpl;
+
     export const clearCurrentUser = async () => {
-        await supabase.auth.signOut();
+        await _logoutImpl();
         await idb.clearAllStores();
     };
 
-    export const requestPasswordReset = async (email: string) => {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${window.location.origin}/`,
-        });
-        if (error) throw error;
-    };
-
-    export const verifyRecoveryToken = async (email: string, token: string) => {
-        const cleanToken = token.trim();
-        const isOtp = /^\d{6}$/.test(cleanToken);
-        
-        if (isOtp) {
-            const { error } = await supabase.auth.verifyOtp({
-                email,
-                token: cleanToken,
-                type: 'recovery',
-            });
-            if (error) throw error;
-        } else {
-            const { error } = await supabase.auth.verifyOtp({
-                token_hash: cleanToken,
-                type: 'recovery',
-            });
-            if (error) throw error;
-        }
-    };
-
-    export const updatePassword = async (newPassword: string) => {
-        const { error } = await supabase.auth.updateUser({ password: newPassword });
-        if (error) throw error;
-    };
+    export const requestPasswordReset = _requestPasswordResetImpl;
+    export const verifyRecoveryToken = _verifyRecoveryTokenImpl;
+    export const updatePassword = _updatePasswordImpl;
 
     export const getCurrentUser = async (): Promise<RegisteredPharmacy | null> => {
         // 1. Get fresh session from Supabase to verify true authentication state
@@ -2784,27 +3057,36 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         if (lineError) throw lineError;
     };
 
-    const findCustomerForTransaction = async (tx: Transaction): Promise<Customer | undefined> => {
-        const customers = await idb.getAll(STORES.CUSTOMERS) as Customer[];
+    // idb.getAll always returns [] (IDB disabled), so these used to always
+    // resolve to undefined — meaning syncSalesLedger / syncPurchaseLedger
+    // silently skipped every ledger update even online. Read the same list
+    // the UI does (memoryCache via getData) and the lookup actually works.
+    const findCustomerForTransaction = async (tx: Transaction, user: RegisteredPharmacy): Promise<Customer | undefined> => {
         if (!tx.customerId) return undefined;
+        const customers = await getData('customers', [], user) as Customer[];
         return customers.find(c => c.id === tx.customerId);
     };
 
-    const findSupplierForPurchase = async (purchase: Purchase): Promise<Supplier | undefined> => {
-        const suppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
+    const findSupplierForPurchase = async (purchase: Purchase, user: RegisteredPharmacy): Promise<Supplier | undefined> => {
+        const suppliers = await getData('suppliers', [], user) as Supplier[];
         const supplierName = (purchase.supplier || '').trim().toLowerCase();
+        if (!supplierName) return undefined;
         return suppliers.find(s => (s.name || '').trim().toLowerCase() === supplierName);
     };
 
     export const syncSalesLedger = async (tx: Transaction, user: RegisteredPharmacy, isUpdate: boolean = false) => {
-        const customer = await findCustomerForTransaction(tx);
+        const customer = await findCustomerForTransaction(tx, user);
         const paymentMode = String(tx.paymentMode || '').toLowerCase();
         const isImmediatePayment = ['cash', 'card', 'upi', 'bank'].includes(paymentMode);
         const hasSelectedCustomer = !!(customer && tx.customerId);
         const autoSaleLedgerId = `auto-sale-${tx.id}`;
         const autoPaymentLedgerId = `auto-sale-payment-${tx.id}`;
         const autoAdjustmentLedgerId = `auto-sale-adjustment-${tx.id}`;
-        
+
+        // ── Customer-ledger updates (always run, online + offline) ──────────
+        // upsertAutoLedgerEntry writes via saveData('customers',...) which is
+        // queue-safe — the ledger row appears immediately in the local view
+        // and the customers table sync push propagates it to Supabase later.
         if (hasSelectedCustomer) {
             await upsertAutoLedgerEntry(
                 { type: 'customer', id: customer.id },
@@ -2828,6 +3110,52 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
                 await upsertAutoLedgerEntry({ type: 'customer', id: customer.id }, user, { id: autoPaymentLedgerId, date: tx.date, type: 'payment', description: `Auto payment for sales ${tx.invoiceNumber || tx.id}`, debit: 0, credit: 0 }, false);
                 await upsertAutoLedgerEntry({ type: 'customer', id: customer.id }, user, { id: autoAdjustmentLedgerId, date: tx.date, type: 'payment', description: `Auto adjustment for sales ${tx.invoiceNumber || tx.id}`, debit: 0, credit: 0 }, false);
             }
+            return;
+        }
+
+        // Offline path stops here: the bill + customer ledger are queued.
+        // The GL/journal posting below relies on Supabase RPCs (GL master
+        // lookup, journal_entry_header insert) — recomputed when online.
+        // For immediate-payment sales offline, also drop a placeholder payment
+        // ledger row so the customer card shows the cash receipt right away.
+        if (!navigator.onLine) {
+            if (hasSelectedCustomer && isImmediatePayment) {
+                await upsertAutoLedgerEntry(
+                    { type: 'customer', id: customer.id },
+                    user,
+                    {
+                        id: autoPaymentLedgerId,
+                        date: tx.date,
+                        type: 'payment',
+                        entryCategory: 'invoice_payment',
+                        description: `Payment Received Voucher for ${tx.invoiceNumber || tx.id} (offline)`,
+                        debit: 0,
+                        credit: Number(tx.total || 0),
+                        referenceInvoiceId: tx.id,
+                        referenceInvoiceNumber: tx.invoiceNumber,
+                    },
+                    true
+                );
+                await upsertAutoLedgerEntry(
+                    { type: 'customer', id: customer.id },
+                    user,
+                    {
+                        id: autoAdjustmentLedgerId,
+                        date: tx.date,
+                        type: 'payment',
+                        entryCategory: 'invoice_payment_adjustment',
+                        description: `Auto-adjustment against invoice ${tx.invoiceNumber || tx.id} (offline)`,
+                        debit: 0,
+                        credit: 0,
+                        adjustedAmount: Number(tx.total || 0),
+                        sourcePaymentId: autoPaymentLedgerId,
+                        referenceInvoiceId: tx.id,
+                        referenceInvoiceNumber: tx.invoiceNumber,
+                    },
+                    true
+                );
+            }
+            console.info('[storage:syncSalesLedger] Offline — customer ledger written locally, GL/journal posting deferred for', tx.invoiceNumber || tx.id);
             return;
         }
 
@@ -3004,8 +3332,10 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     };
 
     export const syncPurchaseLedger = async (purchase: Purchase, user: RegisteredPharmacy) => {
-        const supplier = await findSupplierForPurchase(purchase);
-        
+        const supplier = await findSupplierForPurchase(purchase, user);
+
+        // Supplier-ledger update runs always (online + offline) — saveData
+        // queues it for sync. The GL/journal posting below stays online-only.
         if (supplier) {
             await upsertAutoLedgerEntry(
                 { type: 'supplier', id: supplier.id },
@@ -3024,6 +3354,12 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
 
         if (purchase.status === 'cancelled') return;
 
+        // Offline path stops here: supplier ledger is queued for sync, journal
+        // posting (GL master/RPCs) is recomputed when the bill flushes online.
+        if (!navigator.onLine) {
+            console.info('[storage:syncPurchaseLedger] Offline — supplier ledger written locally, GL/journal posting deferred for', purchase.invoiceNumber || purchase.id);
+            return;
+        }
 
         const postingContext = await ensurePostingContext(purchase, user);
         purchase.companyCodeId = postingContext.companyCodeId;
@@ -3123,7 +3459,10 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     };
 
     export const syncSalesReturnLedger = async (salesReturn: SalesReturn, user: RegisteredPharmacy) => {
-        const customers = await idb.getAll(STORES.CUSTOMERS) as Customer[];
+        // idb.getAll is a no-op (IDB disabled). Use memoryCache via getData so
+        // the customer lookup actually finds someone — otherwise every sales
+        // return silently skipped its ledger entry.
+        const customers = await getData('customers', [], user) as Customer[];
         const customer = salesReturn.customerId
             ? customers.find(c => c.id === salesReturn.customerId)
             : customers.find(c => (c.name || '').trim().toLowerCase() === (salesReturn.customerName || '').trim().toLowerCase());
@@ -3147,7 +3486,9 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
     };
 
     export const syncPurchaseReturnLedger = async (purchaseReturn: PurchaseReturn, user: RegisteredPharmacy) => {
-        const suppliers = await idb.getAll(STORES.SUPPLIERS) as Supplier[];
+        // idb.getAll is a no-op (IDB disabled). Same memoryCache-via-getData
+        // fix as the sales-return sibling.
+        const suppliers = await getData('suppliers', [], user) as Supplier[];
         const supplier = suppliers.find(s => (s.name || '').trim().toLowerCase() === (purchaseReturn.supplier || '').trim().toLowerCase());
         if (!supplier) return;
 
@@ -3170,11 +3511,15 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
         const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
         const res = await saveData('sales_returns', sr, user);
-        
-        // Update stock: Sales Return means items are coming BACK to inventory
+
+        // Update stock: Sales Return means items are coming BACK to inventory.
+        // idb.get is a no-op (IDB disabled), so look the row up via memoryCache
+        // — otherwise every return would silently skip the stock adjustment.
+        const currentInventory = await fetchInventory(user);
+        const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
         for (const item of sr.items || []) {
             if (!item.inventoryItemId) continue;
-            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            const inv = inventoryById.get(item.inventoryItemId);
             if (inv) {
                 const upp = normalizeUnitsPerPack(inv.unitsPerPack, inv.packType);
                 // Sales returnQuantity in UI is currently in PACKS (original bill quantity units)
@@ -3194,10 +3539,16 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         const cfgRows = await getData('configurations', [{ organization_id: user.organization_id }], user) as AppConfigurations[];
         const stockHandling = resolveStockHandlingConfig(cfgRows?.[0]);
 
+        // idb.get is a no-op (IDB disabled), so use the memoryCache-backed
+        // inventory list for lookups — otherwise validation always passes and
+        // the deduction loop silently skips every item.
+        const currentInventory = await fetchInventory(user);
+        const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
+
         // Strict stock validation BEFORE persisting return voucher (transaction-safe behavior).
         for (const item of pr.items || []) {
             if (!item.inventoryItemId) continue;
-            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            const inv = inventoryById.get(item.inventoryItemId);
             if (!inv) continue;
             const unitsToDeduct = Number(item.returnQuantity || 0);
             const stockBefore = Number(inv.stock || 0);
@@ -3212,7 +3563,7 @@ export const fetchBankMasters = async (user: RegisteredPharmacy): Promise<Array<
         // Update stock: Purchase Return means items are going OUT of inventory
         for (const item of pr.items || []) {
             if (!item.inventoryItemId) continue;
-            const inv = await idb.get(STORES.INVENTORY, item.inventoryItemId) as InventoryItem | undefined;
+            const inv = inventoryById.get(item.inventoryItemId);
             if (inv) {
                 // Purchase returnQuantity in UI is already in TOTAL UNITS (calculated in buildPurchaseReturnItems)
                 const unitsToDeduct = Number(item.returnQuantity || 0);
