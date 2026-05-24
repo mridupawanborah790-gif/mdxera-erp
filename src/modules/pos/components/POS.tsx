@@ -1,4 +1,4 @@
-﻿
+
 import React, { useState, useRef, useEffect, useMemo, useCallback, useImperativeHandle, forwardRef } from 'react';
 import Card from '@core/components/ui/Card';
 import SchemeModal from '../components/SchemeModal';
@@ -1422,20 +1422,42 @@ const POS = forwardRef<any, POSProps>(({
         const grouped = new Map<string, { item: InventoryItem; batches: InventoryItem[] }>();
         const term = modalSearchTerm.toLowerCase().trim();
 
+        // Pre-map medicines to easily resolve codes for inventory items missing them
+        const medicineCodeMap = new Map<string, string>(); // materialId -> code
+        const medicineKeyMap = new Map<string, string>(); // NAME|BRAND -> code
+        medicines.forEach(m => {
+            if (m.materialCode) {
+                medicineCodeMap.set(m.id, m.materialCode);
+                medicineKeyMap.set(`${m.name.toLowerCase()}|${m.brand?.toLowerCase() || ''}`, m.materialCode);
+            }
+        });
+
         // 1. First check the inventory
         inventory.forEach(i => {
             const name = i.name.toLowerCase();
-            const code = (i.code || '').toLowerCase();
-            const barcode = (i.barcode || '').toLowerCase();
             const brand = (i.brand || '').toLowerCase();
+            
+            // Resolve code from inventory, or fallback to medicines map using materialId or name|brand
+            let resolvedCode = i.code;
+            if (!resolvedCode) {
+                if ((i as any).materialId && medicineCodeMap.has((i as any).materialId)) {
+                    resolvedCode = medicineCodeMap.get((i as any).materialId)!;
+                } else if (medicineKeyMap.has(`${name}|${brand}`)) {
+                    resolvedCode = medicineKeyMap.get(`${name}|${brand}`)!;
+                }
+            }
+            const code = (resolvedCode || '').toLowerCase();
+            const barcode = (i.barcode || '').toLowerCase();
             const manufacturer = (i.manufacturer || '').toLowerCase();
             
             if (!term || name.includes(term) || code.includes(term) || barcode.includes(term) || brand.includes(term) || manufacturer.includes(term)) {
                 // Use code as primary key if available, otherwise name|brand
-                const key = i.code ? `CODE:${i.code.toLowerCase()}` : `NAME:${i.name.toLowerCase()}|${i.brand?.toLowerCase() || ''}`;
+                const key = resolvedCode ? `CODE:${resolvedCode.toLowerCase()}` : `NAME:${name}|${brand}`;
                 
                 if (!grouped.has(key)) {
-                    grouped.set(key, { item: i, batches: [i] });
+                    // Inject resolved code into the representative item if it was missing
+                    const repItem = { ...i, code: resolvedCode || i.code };
+                    grouped.set(key, { item: repItem, batches: [i] });
                 } else {
                     const existing = grouped.get(key)!;
                     existing.batches.push(i);

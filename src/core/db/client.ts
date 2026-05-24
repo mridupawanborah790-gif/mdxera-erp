@@ -4,6 +4,52 @@ import { MIGRATIONS } from './migrations';
 let _db: Database | null = null;
 let _initPromise: Promise<Database> | null = null;
 
+/**
+ * Tauri's plugin-sql wraps a sqlx SqlitePool with N connections. Each
+ * `database.execute()` call grabs an arbitrary connection — so BEGIN can land
+ * on connection A and COMMIT can land on connection B, blowing up with
+ * "cannot commit - no transaction is active". The plugin's JS API doesn't let
+ * us pin to a single connection, so we serialize ALL operations through one
+ * queue at the JS level and use only individual auto-commit statements
+ * (no explicit BEGIN/COMMIT). With WAL + busy_timeout the SQLite layer
+ * handles concurrent reads safely; the queue eliminates the pool-race
+ * entirely for writes.
+ */
+let _opQueue: Promise<void> = Promise.resolve();
+
+async function runSerialized<T>(fn: () => Promise<T>): Promise<T> {
+  const prior = _opQueue;
+  let release: () => void = () => {};
+  _opQueue = new Promise<void>((res) => { release = res; });
+  await prior;
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+/**
+ * Retry a SQLite operation up to `attempts` times on SQLITE_BUSY (code 5/517).
+ * Even with busy_timeout set, a contention burst can still surface. Short
+ * exponential backoff usually clears it.
+ */
+async function withBusyRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = String((err as { message?: string })?.message ?? err);
+      if (!/database is locked|SQLITE_BUSY|\bcode: (5|517)\b/i.test(msg)) throw err;
+      // 50ms, 100ms, 200ms, 400ms
+      await new Promise((r) => setTimeout(r, 50 * Math.pow(2, i)));
+    }
+  }
+  throw lastErr;
+}
+
 async function applyMigrations(database: Database): Promise<void> {
   await database.execute(`
     CREATE TABLE IF NOT EXISTS _migrations (
@@ -40,6 +86,25 @@ async function applyMigrations(database: Database): Promise<void> {
 
 async function createDb(): Promise<Database> {
   const database = await Database.load('sqlite:mdxera.db');
+
+  // WAL mode lets multiple readers run concurrently with one writer instead
+  // of forcing "database is locked" every time two operations overlap.
+  // busy_timeout makes any remaining contention wait up to 10s instead of
+  // immediately erroring. foreign_keys keeps relational integrity on.
+  // NB: these PRAGMAs run once per connection in the pool, so call once for
+  // each connection by issuing them several times. (sqlx applies the first
+  // few to whatever connections the pool happens to spin up.)
+  try {
+    for (let i = 0; i < 4; i++) {
+      await database.execute('PRAGMA journal_mode = WAL;');
+      await database.execute('PRAGMA busy_timeout = 10000;');
+      await database.execute('PRAGMA foreign_keys = ON;');
+      await database.execute('PRAGMA synchronous = NORMAL;');
+    }
+  } catch (err) {
+    console.warn('[db] PRAGMA setup failed (non-fatal):', err);
+  }
+
   await applyMigrations(database);
   return database;
 }
@@ -66,7 +131,7 @@ export interface DbClient {
 export const db: DbClient = {
   async execute(sql: string, params: unknown[] = []): Promise<void> {
     const database = await getDb();
-    await database.execute(sql, params);
+    await runSerialized(() => withBusyRetry(() => database.execute(sql, params)));
   },
 
   async select<T = Record<string, unknown>>(
@@ -74,21 +139,33 @@ export const db: DbClient = {
     params: unknown[] = []
   ): Promise<T[]> {
     const database = await getDb();
-    return (await database.select(sql, params)) as T[];
+    // Serialize reads too — Tauri's pool can have a writer holding a lock
+    // while a SELECT on another pooled connection trips SQLITE_BUSY.
+    return runSerialized(() => withBusyRetry(() => database.select(sql, params))) as Promise<T[]>;
   },
 
+  /**
+   * "Transaction" in name only — Tauri's plugin-sql pool cannot keep
+   * BEGIN/COMMIT on the same connection, so explicit transactions are
+   * impossible. Instead we run each statement inside a single serialized
+   * block, so no other DB caller can interleave between them. Statements
+   * auto-commit individually; if one fails mid-batch the previous ones
+   * are already persisted (no rollback). For our use case (sync upserts
+   * with INSERT OR REPLACE, retry-on-failure), that's acceptable.
+   */
   async transaction(
     fn: (tx: Pick<DbClient, 'execute' | 'select'>) => Promise<void>
   ): Promise<void> {
     const database = await getDb();
-    await database.execute('BEGIN');
-    try {
-      await fn(db);
-      await database.execute('COMMIT');
-    } catch (err) {
-      await database.execute('ROLLBACK');
-      throw err;
-    }
+    await runSerialized(async () => {
+      const tx: Pick<DbClient, 'execute' | 'select'> = {
+        execute: (sql, params = []) =>
+          withBusyRetry(() => database.execute(sql, params)).then(() => undefined),
+        select: <T = Record<string, unknown>>(sql: string, params: unknown[] = []) =>
+          withBusyRetry(() => database.select(sql, params)) as Promise<T[]>,
+      };
+      await fn(tx);
+    });
   },
 
   async upsert(table: string, row: Record<string, unknown>): Promise<void> {

@@ -16,37 +16,56 @@ let _supabaseUrl: string | null = null;
 let _running = false;
 
 const SYNC_INTERVAL_MS = 30_000; // 30 seconds
+let _isSyncing = false; // re-entrancy guard
 
 function setStatus(status: SyncStatus, details?: string) {
   _status = status;
   listeners.forEach((fn) => fn(status, details));
 }
 
-async function runSyncCycle(): Promise<void> {
+async function runSyncCycle(skipConnectivityCheck = false): Promise<void> {
   if (!_organizationId || !_supabaseUrl) return;
 
-  const online = await checkConnectivity(_supabaseUrl);
-  if (!online) {
-    setStatus('offline');
-    scheduleSyncCycle();
+  // Re-entrancy guard: don't start a new cycle if one is already running.
+  if (_isSyncing) {
+    console.info('[SyncEngine] Cycle already running, skipping.');
     return;
   }
-
-  setStatus('syncing');
+  _isSyncing = true;
 
   try {
-    // 1. Push local pending changes first
-    const { failed } = await processSyncQueue();
-    if (failed > 0) {
-      setStatus('error', `${failed} record(s) failed to sync`);
+    // Skip the HTTP connectivity ping for user-triggered syncs (forceSync)
+    // because a failed ping (e.g. profiles table returns non-200) would
+    // silently abort the push even when the browser reports online.
+    const online = skipConnectivityCheck
+      ? navigator.onLine
+      : await checkConnectivity(_supabaseUrl);
+
+    if (!online) {
+      setStatus('offline');
+      return;
+    }
+
+    setStatus('syncing');
+
+    // Push local pending changes first
+    const result = await processSyncQueue();
+    console.info('[SyncEngine] Sync cycle result:', result);
+
+    if (result.failed > 0) {
+      setStatus('error', `${result.failed} record(s) failed to sync`);
+    } else if (result.deferred > 0) {
+      setStatus('syncing', `${result.deferred} record(s) waiting for dependencies`);
     } else {
       setStatus('idle');
     }
   } catch (err) {
     setStatus('error', err instanceof Error ? err.message : 'Unknown sync error');
+    console.error('[SyncEngine] Sync cycle error:', err);
+  } finally {
+    _isSyncing = false;
+    scheduleSyncCycle();
   }
-
-  scheduleSyncCycle();
 }
 
 function scheduleSyncCycle() {
@@ -81,14 +100,13 @@ export const SyncEngine = {
       }
     });
 
-    // Initial pull on startup (if online)
-    if (isOnline()) {
-      pullDeltaFromSupabase(organizationId)
-        .then(() => processSyncQueue())
-        .then(() => setStatus('idle'))
-        .catch((err) => setStatus('error', err instanceof Error ? err.message : 'Initial sync failed'));
-    } else {
+    // NB: we DO NOT auto-pull on start. SyncBootstrap owns the first pull —
+    // running it here too would race with InitialSync's foreground writes
+    // ("database is locked") on a fresh sync.
+    if (!isOnline()) {
       setStatus('offline');
+    } else {
+      setStatus('idle');
     }
 
     scheduleSyncCycle();
@@ -108,7 +126,9 @@ export const SyncEngine = {
       clearTimeout(_workerTimer);
       _workerTimer = null;
     }
-    await runSyncCycle();
+    // Pass skipConnectivityCheck=true so a failed ping doesn't abort the push
+    // when the user explicitly requests a sync and the browser shows online.
+    await runSyncCycle(true);
   },
 
   getStatus(): SyncStatus {

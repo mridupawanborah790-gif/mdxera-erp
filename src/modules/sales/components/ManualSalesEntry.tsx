@@ -1,10 +1,11 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Card from '@core/components/ui/Card';
 import { Customer, InventoryItem, RegisteredPharmacy, Transaction, AppConfigurations } from '@core/types';
-import { supabase } from '@core/db/supabaseClient';
 import * as storage from '@core/services/storageService';
 import { fuzzyMatch } from '@core/utils/search';
 import { handleEnterToNextField } from '@core/utils/navigation';
+import { fetchGlMasterForBooks, fetchGlAssignmentsForBooks, fetchSetOfBooksById } from '@modules/accounting/services/accountingService';
+import { fetchTransactions } from '@modules/sales/services/salesService';
 
 interface ManualSalesEntryProps {
   currentUser: RegisteredPharmacy | null;
@@ -84,44 +85,31 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
       startOfMonth.setDate(1);
       const startOfMonthStr = startOfMonth.toISOString().slice(0, 10);
 
-      let historyQuery = supabase
-        .from('sales_bill')
-        .select('*')
-        .eq('organization_id', currentUser.organization_id)
-        .eq('status', 'completed')
-        .order('created_at', { ascending: false })
-        .limit(20);
+      // Read from SQLite-first salesService, then derive recent + month stats client-side
+      const allTx = await fetchTransactions(currentUser);
+      const filtered = allTx.filter((t: any) =>
+        (t.status === 'completed') &&
+        (!customerId || t.customer_id === customerId)
+      );
 
-      let monthQuery = supabase
-        .from('sales_bill')
-        .select('total, date')
-        .eq('organization_id', currentUser.organization_id)
-        .eq('status', 'completed')
-        .gte('date', startOfMonthStr);
+      const recent = [...filtered]
+        .sort((a: any, b: any) => String(b.created_at ?? b.date ?? '').localeCompare(String(a.created_at ?? a.date ?? '')))
+        .slice(0, 20);
+      setSalesHistory(recent.map(r => storage.toCamel(r)));
 
-      if (customerId) {
-        historyQuery = historyQuery.eq('customer_id', customerId);
-        monthQuery = monthQuery.eq('customer_id', customerId);
-      }
-
-      const [{ data: recent }, { data: monthData }] = await Promise.all([
-        historyQuery,
-        monthQuery
-      ]);
-
-      if (recent) setSalesHistory(recent.map(r => storage.toCamel(r)));
-
-      if (monthData) {
-        const monthTotal = monthData.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
-        const todayTotal = monthData
-          .filter(s => s.date === today)
-          .reduce((sum, s) => sum + (Number(s.total) || 0), 0);
-        setStats({
-          monthTotal,
-          todayTotal,
-          monthCount: monthData.length
-        });
-      }
+      const monthData = filtered.filter((t: any) => {
+        const d = String(t.date ?? '').slice(0, 10);
+        return d >= startOfMonthStr;
+      });
+      const monthTotal = monthData.reduce((sum: number, s: any) => sum + (Number(s.total) || 0), 0);
+      const todayTotal = monthData
+        .filter((s: any) => String(s.date ?? '').slice(0, 10) === today)
+        .reduce((sum: number, s: any) => sum + (Number(s.total) || 0), 0);
+      setStats({
+        monthTotal,
+        todayTotal,
+        monthCount: monthData.length,
+      });
     } catch (e) {
       console.error('Error fetching history:', e);
     }
@@ -174,10 +162,10 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
       if (!currentUser) return;
       const ctx = await (await import('@core/services/companyDefaultsService')).loadDefaultPostingContext(currentUser.organization_id);
       const setOfBooksId = ctx.setOfBooksId;
-      const [{ data: glRows }, { data: assignments }, { data: books }] = await Promise.all([
-        supabase.from('gl_master').select('id, gl_code, gl_name, gl_type, posting_allowed, set_of_books_id').eq('organization_id', currentUser.organization_id).eq('set_of_books_id', setOfBooksId),
-        supabase.from('gl_assignments').select('sales_gl, discount_gl, tax_gl').eq('organization_id', currentUser.organization_id).eq('set_of_books_id', setOfBooksId),
-        supabase.from('set_of_books').select('default_customer_gl_id').eq('organization_id', currentUser.organization_id).eq('id', setOfBooksId).single(),
+      const [glRows, assignments, books] = await Promise.all([
+        fetchGlMasterForBooks(currentUser, setOfBooksId),
+        fetchGlAssignmentsForBooks(currentUser, setOfBooksId),
+        fetchSetOfBooksById(currentUser, setOfBooksId),
       ]);
 
       const allowedGlIds = new Set((assignments || []).flatMap((a: any) => [a.sales_gl, a.discount_gl, a.tax_gl].filter(Boolean).map(String)));
@@ -329,13 +317,10 @@ const ManualSalesEntry = React.forwardRef<any, ManualSalesEntryProps>(({ current
       if (line.qty < 0 || line.rate < 0) return `Qty and Rate must be ≥ 0 (line ${idx + 1}).`;
     }
     if (voucherNo) {
-      const { data: duplicate } = await supabase
-        .from('sales_bill')
-        .select('id')
-        .eq('organization_id', currentUser.organization_id)
-        .eq('invoice_number', voucherNo)
-        .maybeSingle();
-      if (duplicate?.id) return `Voucher number ${voucherNo} already exists.`;
+      // Check both local cache and (when online) server for duplicate
+      const allTx = await fetchTransactions(currentUser);
+      const duplicate = allTx.find((t: any) => t.invoice_number === voucherNo || t.id === voucherNo);
+      if (duplicate) return `Voucher number ${voucherNo} already exists.`;
     }
     return null;
   };

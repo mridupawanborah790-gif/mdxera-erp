@@ -13,7 +13,7 @@ export async function fetchTransactions(user: RegisteredPharmacy): Promise<Trans
     `SELECT * FROM ${TABLE.SALES_BILL} WHERE organization_id = ? ORDER BY date DESC`,
     [user.organization_id]
   );
-  if (rows.length > 0) return rows.map(deserializeTransaction) as Transaction[];
+  if (rows.length > 0) return rows.map(deserializeTransaction) as unknown as Transaction[];
 
   const { data } = await supabase
     .from('sales_bill')
@@ -23,7 +23,7 @@ export async function fetchTransactions(user: RegisteredPharmacy): Promise<Trans
     .limit(PAGE_SIZE);
 
   if (data?.length) await db.bulkUpsert(TABLE.SALES_BILL, data.map(serialize));
-  return ((data ?? []).map(deserializeTransaction)) as Transaction[];
+  return ((data ?? []).map(deserializeTransaction)) as unknown as Transaction[];
 }
 
 export async function addTransaction(

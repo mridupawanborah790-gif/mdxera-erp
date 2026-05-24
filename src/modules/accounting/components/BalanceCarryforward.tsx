@@ -1,5 +1,15 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
-import { supabase } from '@core/db/supabaseClient';
+import type { RegisteredPharmacy } from '@core/types';
+import {
+  fetchActiveCompanyCodes,
+  fetchGlAssignments,
+  fetchGlMaster,
+  fetchSetOfBooks,
+} from '@modules/accounting/services/accountingService';
+
+interface BalanceCarryforwardProps {
+  currentUser: RegisteredPharmacy;
+}
 
 type RunType = 'BS' | 'PL';
 type RunMode = 'Test' | 'Actual';
@@ -123,7 +133,7 @@ const Badge: React.FC<{ label: string; tone?: 'neutral' | 'success' | 'warning' 
 
 const syntheticBalance = (gl: GlMaster) => round2(Math.max(gl.posting_count || 1, 1) * 100);
 
-const BalanceCarryforward: React.FC = () => {
+const BalanceCarryforward: React.FC<BalanceCarryforwardProps> = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState<MainTab>('general');
   const [activePostingTab, setActivePostingTab] = useState<PostingTab>('closingBs');
   const [runType, setRunType] = useState<RunType>('BS');
@@ -159,33 +169,33 @@ const BalanceCarryforward: React.FC = () => {
 
   useEffect(() => {
     const loadConfiguration = async () => {
-      const [companyRes, sobRes, glRes, assignRes] = await Promise.all([
-        supabase.from('company_codes').select('id, code, description, status').eq('status', 'Active').order('code', { ascending: true }),
-        supabase.from('set_of_books').select('id, company_code_id, set_of_books_id, description, active_status').eq('active_status', 'Active').order('set_of_books_id', { ascending: true }),
-        supabase.from('gl_master').select('id, set_of_books_id, gl_code, gl_name, gl_type, active_status, posting_count').eq('active_status', 'Active').order('gl_code', { ascending: true }),
-        supabase.from('gl_assignments').select('id, set_of_books_id')
-      ]);
+      try {
+        const [companies, books, glMasters, glAssignments] = await Promise.all([
+          fetchActiveCompanyCodes(currentUser),
+          fetchSetOfBooks(currentUser),
+          fetchGlMaster(currentUser),
+          fetchGlAssignments(currentUser),
+        ]);
 
-      if (companyRes.error || sobRes.error || glRes.error || assignRes.error) {
+        const nextCompanies = (companies || []).sort((a: any, b: any) => String(a.code).localeCompare(String(b.code))) as unknown as CompanyCode[];
+        const nextBooks = (books || []).filter((b: any) => b.active_status === 1 || b.active_status === true || b.active_status === 'Active') as unknown as SetOfBook[];
+        setCompanies(nextCompanies);
+        setSetOfBooks(nextBooks);
+        setGlMasters((glMasters || []) as unknown as GlMaster[]);
+        setGlAssignments((glAssignments || []) as unknown as GlAssignment[]);
+
+        const defaultCompanyId = nextCompanies[0]?.id || '';
+        setSelectedCompanyCodeId((prev) => prev || defaultCompanyId);
+        const defaultSobId = nextBooks.find((b) => b.company_code_id === defaultCompanyId)?.id || '';
+        setSelectedSetOfBooksId((prev) => prev || defaultSobId);
+      } catch (err) {
+        console.error('[BalanceCarryforward] loadConfiguration failed:', err);
         setMessages((prev) => [...prev, 'Configuration load failed. Please verify company/set of books/GL setup in Company Configuration.']);
-        return;
       }
-
-      const nextCompanies = (companyRes.data || []) as CompanyCode[];
-      const nextBooks = (sobRes.data || []) as SetOfBook[];
-      setCompanies(nextCompanies);
-      setSetOfBooks(nextBooks);
-      setGlMasters((glRes.data || []) as GlMaster[]);
-      setGlAssignments((assignRes.data || []) as GlAssignment[]);
-
-      const defaultCompanyId = nextCompanies[0]?.id || '';
-      setSelectedCompanyCodeId((prev) => prev || defaultCompanyId);
-      const defaultSobId = nextBooks.find((b) => b.company_code_id === defaultCompanyId)?.id || '';
-      setSelectedSetOfBooksId((prev) => prev || defaultSobId);
     };
 
     loadConfiguration();
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!selectedCompanyCodeId) return;

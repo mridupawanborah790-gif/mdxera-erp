@@ -2,11 +2,55 @@ import { supabase } from '@core/db/supabaseClient';
 import { db } from '@core/db/client';
 import { SYNCABLE_TABLES, TABLE } from '@core/db/schema';
 import { resolveConflict } from './conflictResolver';
+import { adaptRowForSqlite } from './columnFilter';
 
 interface SyncMeta {
   table_name: string;
   last_pulled_at: number | null;
 }
+
+/**
+ * Per-table overrides for sync mechanics. Default: PK = 'id', delta column = 'updated_at'.
+ * `deltaCol: null` disables delta filtering (always full pull) — used when neither
+ * `updated_at` nor `created_at` is reliable on the Supabase side.
+ */
+const TABLE_META: Record<string, { pk?: string; deltaCol?: string | null }> = {
+  profiles:            { pk: 'user_id' },
+  delivery_challans:   { deltaCol: 'created_at' },
+  sales_challans:      { deltaCol: 'created_at' },
+  physical_inventory:  { deltaCol: 'created_at' },
+  mrp_change_log:      { deltaCol: 'created_at' },
+  journal_entry_lines: { deltaCol: 'created_at' },
+  // mbc_card_history on production has neither updated_at nor created_at —
+  // always full-pull (small table).
+  mbc_card_history:    { deltaCol: null },
+  sales_returns:       { deltaCol: 'created_at' },
+  purchase_returns:    { deltaCol: 'created_at' },
+};
+
+const pkColumn = (table: string) => TABLE_META[table]?.pk ?? 'id';
+const deltaColumn = (table: string): string | null => {
+  const v = TABLE_META[table]?.deltaCol;
+  return v === undefined ? 'updated_at' : v;
+};
+
+/** Postgrest error messages mean "this table/column simply isn't there on the server". */
+function isSchemaMissingError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes('could not find the table') ||
+    m.includes('could not find the column') ||
+    m.includes('does not exist') ||
+    m.includes('schema cache')
+  );
+}
+
+/**
+ * Tables we've confirmed don't exist on the server (or whose schema differs
+ * incompatibly). Skipped for the rest of the session to stop repeated 404/400s
+ * on every 30-second sync cycle.
+ */
+const _permanentlyMissingTables = new Set<string>();
 
 /** Pull changes from Supabase for all syncable tables and apply them to SQLite. */
 export async function pullDeltaFromSupabase(organizationId: string): Promise<void> {
@@ -26,44 +70,77 @@ async function pullTable(
   organizationId: string,
   lastPulledAt: number | null
 ): Promise<void> {
+  // Skip tables we already know aren't on the server.
+  if (_permanentlyMissingTables.has(tableName)) return;
+
+  const pk = pkColumn(tableName);
+  const delta = deltaColumn(tableName);
   try {
     let query = supabase
       .from(tableName)
       .select('*')
       .eq('organization_id', organizationId);
 
-    if (lastPulledAt !== null) {
-      // Only fetch records changed since last pull (ISO 8601)
+    if (lastPulledAt !== null && delta) {
       const since = new Date(lastPulledAt).toISOString();
-      query = query.gt('updated_at', since);
+      query = query.gt(delta, since);
     }
 
     const { data: remoteRows, error } = await query;
-    if (error) throw new Error(error.message);
+    if (error) {
+      // Table or column not present on the server (older Supabase schema) —
+      // remember and stop trying for the rest of the session.
+      if (isSchemaMissingError(error.message)) {
+        console.warn(`[SyncPuller] ${tableName}: schema mismatch on server, will skip for this session (${error.message})`);
+        _permanentlyMissingTables.add(tableName);
+        await updatePullTimestamp(tableName);
+        return;
+      }
+      throw new Error(error.message);
+    }
     if (!remoteRows || remoteRows.length === 0) {
       await updatePullTimestamp(tableName);
       return;
     }
 
-    // For each remote row, compare with local and apply if remote wins
+    // For each remote row, compare with local and apply if remote wins.
     for (const remote of remoteRows) {
-      const localRows = await db.select<{ updated_at: string; _sync_status: string }>(
-        `SELECT updated_at, _sync_status FROM ${tableName} WHERE id = ?`,
-        [remote.id]
-      );
+      const remoteKey = remote[pk];
+      if (remoteKey === undefined || remoteKey === null) {
+        // Server row missing its primary-key column — can't reconcile, just insert.
+        await upsertLocalRow(tableName, remote);
+        continue;
+      }
+
+      let localRows: Array<{ updated_at?: string; _sync_status?: string }> = [];
+      try {
+        // Only request updated_at if the local table actually has it.
+        const cols = delta === 'updated_at' ? 'updated_at, _sync_status' : '_sync_status';
+        localRows = await db.select(
+          `SELECT ${cols} FROM ${tableName} WHERE ${pk} = ?`,
+          [remoteKey]
+        );
+      } catch (err) {
+        // Local table may not exist yet (migration not run) — fall through to insert.
+        console.debug(`[SyncPuller] ${tableName}: local lookup skipped (${(err as Error)?.message})`);
+      }
 
       if (localRows.length === 0) {
-        // New record — insert directly
         await upsertLocalRow(tableName, remote);
-      } else {
-        const local = localRows[0];
-        // Don't overwrite if we have unsent local changes (pending in queue)
-        if (local._sync_status === 'pending') continue;
+        continue;
+      }
 
-        const winner = resolveConflict(local.updated_at, remote.updated_at);
+      const local = localRows[0];
+      if (local._sync_status === 'pending') continue;
+
+      if (delta === 'updated_at' && local.updated_at) {
+        const winner = resolveConflict(local.updated_at, remote.updated_at as string);
         if (winner === 'remote') {
           await upsertLocalRow(tableName, remote);
         }
+      } else {
+        // No reliable timestamp on the local row — server always wins.
+        await upsertLocalRow(tableName, remote);
       }
     }
 
@@ -78,15 +155,11 @@ async function upsertLocalRow(
   tableName: string,
   remote: Record<string, unknown>
 ): Promise<void> {
-  // Serialize any nested objects/arrays to JSON (Supabase JSONB → SQLite TEXT)
-  const row: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(remote)) {
-    row[k] = v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
-  }
-  row._sync_status = 'synced';
-  row._local_only = 0;
-
-  await db.upsert(tableName, row);
+  // Use the schema-aware adapter: drops unknown columns, handles JSONB/booleans,
+  // and sets _sync_status/_local_only automatically.
+  const adapted = await adaptRowForSqlite(tableName, remote, { syncStatus: 'synced' });
+  if (!adapted) return; // table doesn't exist locally — skip
+  await db.upsert(tableName, adapted);
 }
 
 async function updatePullTimestamp(tableName: string): Promise<void> {

@@ -18,6 +18,8 @@ import MasterDataMigrationWizard from '@modules/inventory/components/MasterDataM
 import { fuzzyMatch } from '@core/utils/search';
 import { getFinancialYearLabel } from '@core/utils/invoice';
 import { supabase } from '@core/db/supabaseClient';
+import { reserveVoucherNumber } from '@core/voucher/voucherService';
+import { isOnline } from '@core/sync/networkMonitor';
 import { normalizeStockHandlingConfig } from '@core/utils/stockHandling';
 
 type DemoBusinessType = 'RETAIL' | 'DISTRIBUTOR';
@@ -315,19 +317,11 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                 const results: Record<string, any> = {};
                 for (const [configKey, docType] of Object.entries(voucherKeysMap)) {
                     try {
-                        const { data } = await supabase.rpc('reserve_voucher_number', {
-                            p_organization_id: currentUser.organization_id,
-                            p_document_type: docType,
-                            p_is_preview: true,
-                            p_fy: currentFyInUi || undefined
-                        });
-                        const payload = Array.isArray(data) ? data[0] : data;
-                        if (payload?.success) {
-                            results[configKey] = {
-                                currentNumber: payload.used_number,
-                                documentNumber: payload.document_number
-                            };
-                        }
+                        const preview = await reserveVoucherNumber(docType, currentUser, true);
+                        results[configKey] = {
+                            currentNumber: preview.usedNumber,
+                            documentNumber: preview.documentNumber,
+                        };
                     } catch (e) {
                         console.error(`Failed to fetch live sequence for ${docType}`, e);
                     }
@@ -404,6 +398,10 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
             }
         ];
 
+        if (!isOnline()) {
+            return { data: null, error: { message: 'Internet connection required to run the material master migration.' } };
+        }
+
         let lastError: any = null;
         for (const payload of attempts) {
             const response = await supabase.rpc('run_default_material_master_migration', payload);
@@ -421,6 +419,10 @@ const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
     };
 
     const previewDefaultDemoMigration = async () => {
+        if (!isOnline()) {
+            addNotification('Internet connection required to preview the material master migration.', 'error');
+            return;
+        }
         const { data, error } = await supabase.rpc('preview_default_material_master_migration');
 
         if (error) {

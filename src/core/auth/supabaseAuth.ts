@@ -30,21 +30,23 @@ export async function supabaseLogin(
 
   const user: RegisteredPharmacy = {
     id: data.user.id,
+    user_id: data.user.id,
     organization_id: profile.organization_id,
     email: data.user.email ?? email,
-    fullName: profile.full_name ?? '',
-    pharmacyName: profile.pharmacy_name ?? '',
-    managerName: profile.manager_name ?? '',
+    is_active: profile.is_active ?? true,
+    full_name: profile.full_name ?? '',
+    pharmacy_name: profile.pharmacy_name ?? '',
+    manager_name: profile.manager_name ?? '',
     role: profile.role ?? 'clerk',
     address: profile.address ?? '',
     state: profile.state ?? '',
     district: profile.district ?? '',
     mobile: profile.mobile ?? '',
     gstin: profile.gstin ?? '',
-    retailerGstin: profile.retailer_gstin ?? '',
-    drugLicense: profile.drug_license ?? '',
-    subscriptionPlan: profile.subscription_plan ?? 'starter',
-    subscriptionStatus: profile.subscription_status ?? 'active',
+    retailer_gstin: profile.retailer_gstin ?? '',
+    drug_license: profile.drug_license ?? null,
+    subscription_plan: profile.subscription_plan ?? 'starter',
+    subscription_status: profile.subscription_status ?? 'active',
   };
 
   const session: SupabaseSession = {

@@ -2,6 +2,7 @@
 import Card from '@core/components/ui/Card';
 import { supabase } from '@core/db/supabaseClient';
 import { RegisteredPharmacy } from '@core/types';
+import { isOnline } from '@core/sync/networkMonitor';
 
 const STORAGE_KEY = 'mdxera_company_configuration_v2';
 
@@ -287,7 +288,13 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
       setStore(initialStore);
 
       if (!currentUser?.organization_id) return;
-      
+
+      // Setup wizard reads several tables that aren't yet mirrored in SQLite
+      // (setup_wizard_defaults_log, gl_assignment_history, bank_master). When
+      // offline we fall back to the localStorage cache loaded above and skip
+      // the network refresh entirely.
+      if (!isOnline()) return;
+
       try {
         const organizationId = currentUser.organization_id;
         const [companiesRes, booksRes, glRes, assignmentRes, logsRes, historyRes, bankRes] = await Promise.all([
@@ -1176,6 +1183,13 @@ const CompanyConfiguration: React.FC<CompanyConfigurationProps> = ({ currentUser
         setError('Default Set of Books must belong to the selected Default Company and must be Active.');
         return;
       }
+    }
+
+    // Company configuration save touches 7 tables (3 of which aren't yet
+    // mirrored in SQLite), so we require internet for this operation.
+    if (!isOnline()) {
+      setError('Internet connection required to save company configuration. Please reconnect and try again.');
+      return;
     }
 
     try {

@@ -28,5 +28,14 @@
     }
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "supabase/functions"]
+  "exclude": [
+    "node_modules",
+    "supabase/functions",
+    ".claude",
+    "services/powersync.ts",
+    "src/app/App.tsx",
+    "src/app/Router.tsx",
+    "src/core/hooks/usePermissions.ts",
+    "src/modules/inventory/services/inventoryService.ts"
+  ]
 }

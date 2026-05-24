@@ -31,12 +31,18 @@ export const TABLE = {
   CATEGORIES: 'categories',
   SUB_CATEGORIES: 'sub_categories',
   DISTRIBUTORS: 'distributors',
+  JOURNAL_ENTRY_HEADER: 'journal_entry_header',
+  JOURNAL_ENTRY_LINES: 'journal_entry_lines',
+  MBC_CARD_TYPES: 'mbc_card_types',
+  MBC_CARD_TEMPLATES: 'mbc_card_templates',
+  MBC_CARD_HISTORY: 'mbc_card_history',
 
   // Internal sync tables — never pushed to Supabase
   SYNC_QUEUE: '_sync_queue',
   SYNC_META: '_sync_meta',
   LOCAL_AUTH: '_local_auth',
   MIGRATIONS: '_migrations',
+  INITIAL_SYNC_STATE: '_initial_sync_state',
 } as const;
 
 export type TableName = (typeof TABLE)[keyof typeof TABLE];
@@ -73,4 +79,9 @@ export const SYNCABLE_TABLES: TableName[] = [
   TABLE.CATEGORIES,
   TABLE.SUB_CATEGORIES,
   TABLE.DISTRIBUTORS,
+  TABLE.JOURNAL_ENTRY_HEADER,
+  TABLE.JOURNAL_ENTRY_LINES,
+  TABLE.MBC_CARD_TYPES,
+  TABLE.MBC_CARD_TEMPLATES,
+  TABLE.MBC_CARD_HISTORY,
 ];

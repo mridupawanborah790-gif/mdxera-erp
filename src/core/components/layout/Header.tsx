@@ -15,10 +15,11 @@ interface HeaderProps {
   currentPage: string;
   onReload: () => void;
   isReloading?: boolean;
+  onResyncAll?: () => void;
   onToggleSidebar: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate, onBack, canGoBack, onLogout, isFullScreen, onToggleFullScreen, brandName, currentPage, onReload, isReloading, onToggleSidebar }) => {
+const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate, onBack, canGoBack, onLogout, isFullScreen, onToggleFullScreen, brandName, currentPage, onReload, isReloading, onResyncAll, onToggleSidebar }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -147,7 +148,7 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                     )}
                 </div>
             ))}
-            <button 
+            <button
                 onClick={onReload}
                 disabled={isReloading}
                 className={`h-full px-3 sm:px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 gap-2 ${isReloading ? 'opacity-50' : ''}`}
@@ -157,6 +158,20 @@ const Header: React.FC<HeaderProps> = ({ onNewBillClick, currentUser, onNavigate
                 ) : <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
                 <span className="whitespace-nowrap font-bold"><u>R</u>eload</span>
             </button>
+            {onResyncAll && (
+                <button
+                    onClick={onResyncAll}
+                    className="h-full px-3 sm:px-4 hover:bg-white/20 transition-colors flex items-center border-r border-white/10 gap-2"
+                    title="Re-download every table from the server into local storage"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    <span className="whitespace-nowrap font-bold">Sync All</span>
+                </button>
+            )}
             <div className="relative h-full">
                 <button
                     onClick={() => setActiveMenu(activeMenu === dailyReportsMenu.id ? null : dailyReportsMenu.id)}

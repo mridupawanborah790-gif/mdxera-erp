@@ -1,7 +1,15 @@
-import React, { useEffect, createContext, useContext } from 'react';
+import React, { useEffect, createContext, useContext, useState, useCallback } from 'react';
 import { useAuthStore } from '@core/auth/authStore';
 import { restoreSession } from '@core/auth/authService';
 import { initDatabase } from '@core/db/client';
+import { warmupVoucherRanges } from '@core/voucher/voucherService';
+import {
+  isForegroundComplete,
+  runForegroundSync,
+  startBackgroundSync,
+} from '@core/sync/InitialSync';
+import { isOnline } from '@core/sync/networkMonitor';
+import InitialSyncModal from '@core/components/feedback/InitialSyncModal';
 import type { RegisteredPharmacy } from '@core/types';
 
 interface AuthContextValue {
@@ -22,29 +30,78 @@ export function useAuth(): AuthContextValue {
 
 interface Props {
   children: React.ReactNode;
-  /** Rendered while the session is being restored (splash / loading state). */
   loadingFallback?: React.ReactNode;
-  /** Rendered when no session exists (login screen). */
   loginFallback: React.ReactNode;
 }
 
-export function AuthProvider({ children, loadingFallback, loginFallback }: Props) {
-  const { currentUser, isAuthenticated, isOfflineSession, isRestoringSession, setUser, setRestoringSession } =
-    useAuthStore();
+type InitialSyncPhase = 'unchecked' | 'running' | 'done' | 'skipped' | 'error';
 
+export function AuthProvider({ children, loadingFallback, loginFallback }: Props) {
+  const {
+    currentUser, isAuthenticated, isOfflineSession,
+    isRestoringSession, setUser, setRestoringSession,
+  } = useAuthStore();
+
+  const [initialSyncPhase, setInitialSyncPhase] = useState<InitialSyncPhase>('unchecked');
+
+  // Trigger initial sync once we have an authenticated user.
+  // The function below decides whether sync is needed at all and handles retries.
+  const startInitialSync = useCallback(async (user: RegisteredPharmacy) => {
+    // If we already have all foreground tables → skip directly to background phase
+    try {
+      const fgDone = await isForegroundComplete();
+      if (fgDone) {
+        // Continue/restart background phase (resumable; no-op if everything done)
+        setInitialSyncPhase('done');
+        if (isOnline()) startBackgroundSync(user);
+        return;
+      }
+
+      // Foreground sync is required. Show modal.
+      if (!isOnline()) {
+        // No internet on first launch — can't initial-sync. Let the user in
+        // with an empty local DB (they can still log in offline if they had
+        // _local_auth seeded, but they won't have any data to see).
+        setInitialSyncPhase('skipped');
+        return;
+      }
+
+      setInitialSyncPhase('running');
+      await runForegroundSync(user);
+      setInitialSyncPhase('done');
+      // Kick off background phase
+      startBackgroundSync(user);
+    } catch (err) {
+      console.error('[AuthProvider] Initial sync failed:', err);
+      setInitialSyncPhase('error');
+    }
+  }, []);
+
+  // Re-run sync after a successful login (when login happens mid-app-session).
+  useEffect(() => {
+    if (currentUser && !isRestoringSession && initialSyncPhase === 'unchecked') {
+      startInitialSync(currentUser);
+    }
+  }, [currentUser, isRestoringSession, initialSyncPhase, startInitialSync]);
+
+  // Boot: init DB + restore session
   useEffect(() => {
     let cancelled = false;
 
     async function boot() {
       try {
-        // Initialize SQLite DB and run pending migrations
         await initDatabase();
-
-        // Try to restore a previous session (Supabase JWT or local token)
         const user = await restoreSession();
 
         if (!cancelled) {
-          if (user) setUser(user);
+          if (user) {
+            setUser(user);
+            // Pre-fetch voucher ranges (non-blocking)
+            warmupVoucherRanges(user).catch((err) =>
+              console.warn('[AuthProvider] voucher warmup failed:', err)
+            );
+            // Initial-sync decision happens in the effect above
+          }
           setRestoringSession(false);
         }
       } catch (err) {
@@ -58,13 +115,33 @@ export function AuthProvider({ children, loadingFallback, loginFallback }: Props
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Rendering ────────────────────────────────────────────────────────────
+
   if (isRestoringSession) {
     return <>{loadingFallback ?? <div className="flex items-center justify-center h-screen text-gray-400">Starting MDXera ERP…</div>}</>;
   }
 
+  // Not logged in → show login screen
+  if (!isAuthenticated) {
+    return <AuthContext.Provider value={{ currentUser, isAuthenticated, isOfflineSession }}>{loginFallback}</AuthContext.Provider>;
+  }
+
+  // Logged in but initial sync still running → block UI with modal
+  if (initialSyncPhase === 'running' || initialSyncPhase === 'error') {
+    return (
+      <AuthContext.Provider value={{ currentUser, isAuthenticated, isOfflineSession }}>
+        <InitialSyncModal
+          onRetry={() => currentUser && startInitialSync(currentUser)}
+          onSkip={() => setInitialSyncPhase('skipped')}
+        />
+      </AuthContext.Provider>
+    );
+  }
+
+  // Initial sync done (or skipped because offline) → render the app
   return (
     <AuthContext.Provider value={{ currentUser, isAuthenticated, isOfflineSession }}>
-      {isAuthenticated ? children : loginFallback}
+      {children}
     </AuthContext.Provider>
   );
 }

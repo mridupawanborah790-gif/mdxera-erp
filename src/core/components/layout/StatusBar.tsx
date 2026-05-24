@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 
 import { AppConfigurations } from '@core/types';
 import { resolveFiscalYearConfig } from '@core/utils/fiscalYear';
+import SyncIndicator from '@core/components/feedback/SyncIndicator';
+import BackgroundSyncBadge from '@core/components/feedback/BackgroundSyncBadge';
 
 interface StatusBarProps {
   userName: string;
@@ -46,6 +48,16 @@ const StatusBar: React.FC<StatusBarProps> = ({ userName, isOnline, pharmacyName,
         <div className="flex items-center gap-2">
             <span className="opacity-60 uppercase text-[10px]">F.Y.:</span>
             <span className="text-gray-200">{fy}</span>
+        </div>
+
+        <div className="h-4 w-px bg-white/20"></div>
+
+        {/* Initial sync background badge (only visible during background phase) */}
+        <BackgroundSyncBadge />
+
+        {/* Sync health indicator — click to see the queue + retry/discard */}
+        <div className="bg-white/10 px-2 py-0.5 rounded border border-white/10">
+          <SyncIndicator />
         </div>
       </div>
 

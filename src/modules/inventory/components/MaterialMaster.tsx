@@ -46,9 +46,10 @@ interface MaterialMasterProps {
     onDeleteMapping: (id: string) => Promise<void>;
     mappings: SupplierProductMap[];
     initialSubModule?: SubModule;
+    addNotification?: (message: string, type?: 'success' | 'error' | 'warning') => void;
 }
 
-type SubModule = 'master' | 'sync' | 'bulk';
+type SubModule = 'master' | 'sync' | 'bulk' | 'pricing';
 
 const MaterialMaster: React.FC<MaterialMasterProps> = ({ 
     medicines, inventory, onAddMedicine, onUpdateMedicine, currentUser, 
@@ -120,7 +121,8 @@ const MaterialMaster: React.FC<MaterialMasterProps> = ({
     const moduleTitles: Record<SubModule, string> = {
         master: 'Material Master Data',
         sync: 'Vendor Nomenclature',
-        bulk: 'Bulk Utility'
+        bulk: 'Bulk Utility',
+        pricing: 'Master Price Maintain'
     };
 
     // Keyboard navigation for pagination

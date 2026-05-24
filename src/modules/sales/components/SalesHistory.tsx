@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Card from '@core/components/ui/Card';
 import Modal from '@core/components/ui/Modal';
 import POS from '@modules/pos/components/POS';
@@ -51,10 +51,19 @@ const ITEMS_PER_PAGE = 15;
 
 const getInvoiceSequenceNumber = (transaction: Transaction): number => {
     const invoiceRef = String(transaction.invoiceNumber || transaction.id || '');
+    
+    // Legacy offline bills have UUIDs. If we parse the first chunk of digits from a UUID 
+    // (e.g. '12602748-87c3...'), we get massive sequence numbers (12,602,748) which breaks 
+    // sorting and pushes them above the current INV sequence.
+    // Check if it looks like a UUID (36 chars, 4 hyphens) and return 0 so it falls back to date sorting.
+    if (invoiceRef.length === 36 && invoiceRef.split('-').length === 5) {
+        return 0;
+    }
+
     const firstNumericChunk = invoiceRef.match(/\d+/)?.[0];
-    if (!firstNumericChunk) return Number.MIN_SAFE_INTEGER;
+    if (!firstNumericChunk) return 0;
     const parsed = Number.parseInt(firstNumericChunk, 10);
-    return Number.isFinite(parsed) ? parsed : Number.MIN_SAFE_INTEGER;
+    return Number.isFinite(parsed) ? parsed : 0;
 };
 
 const SalesHistory: React.FC<SalesHistoryProps> = ({ 

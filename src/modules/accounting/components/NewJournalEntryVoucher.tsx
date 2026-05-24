@@ -1,7 +1,18 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Card from '@core/components/ui/Card';
 import { RegisteredPharmacy } from '@core/types';
-import { supabase } from '@core/db/supabaseClient';
+import {
+  fetchActiveCompanyCodes,
+  fetchSetOfBooks,
+  fetchGlMaster,
+  fetchGlMasterForBooks,
+  fetchRecentJournalEntries,
+  fetchJournalEntry,
+  fetchJournalNumbersMatching,
+  saveJournalEntry,
+  type JournalEntryHeader,
+  type JournalEntryLine,
+} from '@modules/accounting/services/accountingService';
 
 interface NewJournalEntryVoucherProps {
   currentUser: RegisteredPharmacy | null;
@@ -101,12 +112,10 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
   const loadMasters = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const [{ data: companyRows, error: companyErr }, { data: bookRows, error: booksErr }] = await Promise.all([
-        supabase.from('company_codes').select('id, company_name').eq('organization_id', currentUser.organization_id).eq('active_status', 'Active').order('created_at', { ascending: true }),
-        supabase.from('set_of_books').select('id, book_name, company_code_id').eq('organization_id', currentUser.organization_id).eq('active_status', 'Active').order('created_at', { ascending: true }),
+      const [companyRows, bookRows] = await Promise.all([
+        fetchActiveCompanyCodes(currentUser),
+        fetchSetOfBooks(currentUser),
       ]);
-      if (companyErr) throw companyErr;
-      if (booksErr) throw booksErr;
       setCompanies((companyRows || []) as any);
       setSetOfBooks((bookRows || []) as any);
 
@@ -115,13 +124,7 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
       setCompanyId((prev) => prev || defaultCompanyId);
       setSetOfBooksId((prev) => prev || defaultBookId);
 
-      const { data: glRows, error: glErr } = await supabase
-        .from('gl_master')
-        .select('id, gl_code, gl_name, posting_allowed, active_status, blocked_for_posting, set_of_books_id')
-        .eq('organization_id', currentUser.organization_id)
-        .eq('active_status', 'Active')
-        .order('gl_code', { ascending: true });
-      if (glErr) throw glErr;
+      const glRows = await fetchGlMaster(currentUser);
       const allowed = (glRows || [])
         .filter((g: any) => g.posting_allowed !== false)
         .filter((g: any) => g.blocked_for_posting !== true)
@@ -135,18 +138,12 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
 
   const loadRecent = useCallback(async () => {
     if (!currentUser) return;
-    const { data, error } = await supabase
-      .from('journal_entry_header')
-      .select('id, journal_entry_number, posting_date, status, narration, reference_id, created_at, created_by, document_type')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('document_type', 'MANUAL_JV')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (error) {
-      addNotification(error.message, 'error');
-      return;
+    try {
+      const data = await fetchRecentJournalEntries(currentUser, 'MANUAL_JV', 20);
+      setRecentVouchers((data || []) as unknown as VoucherHeader[]);
+    } catch (err: any) {
+      addNotification(err?.message ?? 'Failed to load recent vouchers', 'error');
     }
-    setRecentVouchers((data || []) as VoucherHeader[]);
   }, [addNotification, currentUser]);
 
   useEffect(() => {
@@ -156,43 +153,25 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
 
   useEffect(() => {
     if (!currentUser || !setOfBooksId) return;
-    supabase
-      .from('gl_master')
-      .select('id, gl_code, gl_name, posting_allowed, active_status, blocked_for_posting, set_of_books_id')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('active_status', 'Active')
-      .eq('set_of_books_id', setOfBooksId)
-      .order('gl_code', { ascending: true })
-      .then(({ data, error }) => {
-        if (error) {
-          addNotification(error.message, 'error');
-          return;
-        }
+    fetchGlMasterForBooks(currentUser, setOfBooksId)
+      .then((data) => {
         const allowed = (data || [])
           .filter((g: any) => g.posting_allowed !== false)
           .filter((g: any) => g.blocked_for_posting !== true)
           .map((g: any) => ({ id: String(g.id), code: String(g.gl_code || ''), name: String(g.gl_name || '') }));
         setGlOptions(allowed);
-      });
+      })
+      .catch((err) => addNotification(err?.message ?? 'Failed to load GL accounts', 'error'));
   }, [addNotification, currentUser, setOfBooksId]);
 
   const generateVoucherNumber = useCallback(async (inputDate: string) => {
     if (!currentUser) throw new Error('User context missing');
     const fy = getFinancialYearLabel(inputDate);
-    const { data, error } = await supabase
-      .from('journal_entry_header')
-      .select('journal_entry_number')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('document_type', 'MANUAL_JV')
-      .ilike('journal_entry_number', `JV%-${fy}`)
-      .limit(5000);
-
-    if (error) throw error;
+    const numbers = await fetchJournalNumbersMatching(currentUser, 'MANUAL_JV', `JV%-${fy}`, 5000);
 
     let maxSeq = 0;
-    for (const row of data || []) {
-      const value = String((row as any).journal_entry_number || '');
-      const match = value.match(/^JV(\d+)-(\d{4}-\d{2})$/);
+    for (const number of numbers) {
+      const match = number.match(/^JV(\d+)-(\d{4}-\d{2})$/);
       if (!match) continue;
       if (match[2] !== fy) continue;
       maxSeq = Math.max(maxSeq, parseInt(match[1], 10) || 0);
@@ -263,11 +242,11 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
     const resolvedVoucherNo = voucherNo === 'AUTO' || !voucherNo ? await generateVoucherNumber(date) : voucherNo;
     setVoucherNo(resolvedVoucherNo);
 
-    const baseHeader: any = {
+    const baseHeader: Omit<JournalEntryHeader, 'id'> = {
       organization_id: currentUser.organization_id,
       journal_entry_number: resolvedVoucherNo,
       posting_date: date,
-      status: nextStatus,
+      status: nextStatus as JournalEntryHeader['status'],
       reference_type: 'MANUAL_JOURNAL_ENTRY_VOUCHER',
       reference_id: referenceNo || null,
       reference_document_id: currentVoucherId || resolvedVoucherNo,
@@ -283,31 +262,9 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
       created_by: currentUser.user_id,
     };
 
-    let headerId = currentVoucherId;
-
-    if (headerId) {
-      const { error } = await supabase.from('journal_entry_header').update(baseHeader).eq('id', headerId);
-      if (error) throw error;
-      const { error: delErr } = await supabase.from('journal_entry_lines').delete().eq('organization_id', currentUser.organization_id).eq('journal_entry_id', headerId);
-      if (delErr) throw delErr;
-    } else {
-      const { data, error } = await supabase.from('journal_entry_header').insert(baseHeader).select('id, created_at, created_by').single();
-      if (error) {
-        if (String(error.message || '').toLowerCase().includes('duplicate')) {
-          setVoucherNo('AUTO');
-        }
-        throw error;
-      }
-      headerId = String(data.id);
-      setCurrentVoucherId(headerId);
-      setCreatedAt(String(data.created_at || ''));
-      setCreatedByName(currentUser.full_name || currentUser.email || '');
-    }
-
-    const payloadLines = cleanLines.map((line) => ({
+    const payloadLines: Omit<JournalEntryLine, 'id' | 'journal_entry_id'>[] = cleanLines.map((line) => ({
       organization_id: currentUser.organization_id,
-      journal_entry_id: headerId,
-      reference_document_id: headerId,
+      reference_document_id: currentVoucherId || resolvedVoucherNo,
       document_type: 'MANUAL_JV',
       line_number: line.line_number,
       gl_code: line.glCode,
@@ -319,8 +276,18 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
       line_memo: [line.remarks, line.costCenter && `CC:${line.costCenter}`, line.projectTask && `PRJ:${line.projectTask}`, line.reference && `REF:${line.reference}`].filter(Boolean).join(' | ') || null,
     }));
 
-    const { error: lineErr } = await supabase.from('journal_entry_lines').insert(payloadLines as any);
-    if (lineErr) throw lineErr;
+    const result = await saveJournalEntry(
+      baseHeader,
+      payloadLines,
+      currentUser,
+      currentVoucherId || undefined,
+    );
+    const headerId = result.id;
+    if (!currentVoucherId) {
+      setCurrentVoucherId(headerId);
+      setCreatedAt(result.created_at);
+      setCreatedByName(currentUser.full_name || currentUser.email || '');
+    }
 
     setStatus(nextStatus);
     await loadRecent();
@@ -364,25 +331,18 @@ const NewJournalEntryVoucher: React.FC<NewJournalEntryVoucherProps> = ({ current
 
   const loadVoucher = async (voucherId: string) => {
     if (!currentUser) return;
-    const { data: header, error: hErr } = await supabase
-      .from('journal_entry_header')
-      .select('*')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('id', voucherId)
-      .single();
-    if (hErr) {
-      addNotification(hErr.message, 'error');
+    let header: Record<string, unknown> | null;
+    let lineRows: Record<string, unknown>[];
+    try {
+      const result = await fetchJournalEntry(currentUser, voucherId);
+      header = result.header;
+      lineRows = result.lines;
+    } catch (err: any) {
+      addNotification(err?.message ?? 'Failed to load voucher', 'error');
       return;
     }
-
-    const { data: lineRows, error: lErr } = await supabase
-      .from('journal_entry_lines')
-      .select('*')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('journal_entry_id', voucherId)
-      .order('line_number', { ascending: true });
-    if (lErr) {
-      addNotification(lErr.message, 'error');
+    if (!header) {
+      addNotification('Voucher not found', 'error');
       return;
     }
 
