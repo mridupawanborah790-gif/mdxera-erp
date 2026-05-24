@@ -3,6 +3,7 @@ import Card from '@core/components/ui/Card';
 import type { RegisteredPharmacy } from '@core/types';
 import { handleEnterToNextField } from '@core/utils/navigation';
 import { STATE_DISTRICT_MAP } from '@core/utils/constants';
+import UpdateChecker from '@core/updates/UpdateChecker';
 
 interface SettingsProps {
     currentUser: RegisteredPharmacy | null;
@@ -265,6 +266,9 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUpdateProfile, addNo
                                 </div>
                             </div>
                         </section>
+
+                        {/* 5. System & Updates */}
+                        <UpdateChecker addNotification={addNotification} />
 
                         {/* Submit Actions */}
                         <div className="pt-10 border-t border-gray-200 flex justify-end gap-4">

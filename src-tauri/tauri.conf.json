@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "msi", "dmg", "app", "updater"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -45,6 +45,17 @@
     },
     "macOS": {
       "minimumSystemVersion": "10.13"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/mridupawanborah790-gif/mdxera-offline/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU2RjVCNDVBQUE0RDc3QjIKUldTeWQwMnFXclQxVnNxWTc2REoyaFhiL21aK2s3dlhMdFgvaFVMWk52TGNuSVc5ZHZDbk9lQ0QK"
     }
   }
 }

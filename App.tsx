@@ -64,6 +64,7 @@ import { setActiveScreenScope, shouldHandleScreenShortcut } from '@core/utils/sc
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
 import { canAccessScreen, filterNavigationByPermissions } from '@core/utils/rbac';
 import { normalizeStockHandlingConfig, resolveStockHandlingConfig, logStockMovement } from '@core/utils/stockHandling';
+import SyncBootstrap, { triggerFullResync } from '@core/sync/SyncBootstrap';
 
 const DATA_ENTRY_SCREENS = [
     'pos', 'nonGstPos', 'automatedPurchaseEntry', 'manualPurchaseEntry', 'manualSupplierInvoice',
@@ -322,6 +323,25 @@ const App: React.FC = () => {
     const removeNotification = useCallback((id: number) => {
         setNotifications(prev => prev.filter(n => n.id !== id));
     }, []);
+
+    // Silent auto-update probe on app boot. Runs once per session; if an
+    // update is found we just nudge the user with a notification — the actual
+    // install happens from the Check-for-updates panel in Settings.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const { checkForUpdate } = await import('@core/updates/updateService');
+                const update = await checkForUpdate({ silent: true });
+                if (cancelled || !update) return;
+                addNotification(`Update available: v${update.version}. Open Settings → System & Updates to install.`, 'warning');
+            } catch {
+                // Silent failure — most likely the user is offline or the
+                // updater endpoint is unreachable. Re-checks happen manually.
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [addNotification]);
 
     const parseMrpNumber = useCallback((value: unknown): number => {
         const parsed = parseFloat(String(value ?? '').replace(/[^\d.]/g, ''));
@@ -809,23 +829,88 @@ const App: React.FC = () => {
     }, [currentUser, loadData]);
 
     useEffect(() => {
-        storage.getCurrentUser().then(async user => {
-            if (user) {
-                // Set whatever we have (fresh or cached but verified by session)
-                setCurrentUser(user);
-                
-                // If we are online, try one more time to get the absolute latest from DB
-                // to ensure organization_id hasn't changed in the background.
-                if (navigator.onLine) {
-                    const fresh = await storage.fetchProfile(user.user_id);
-                    if (fresh) setCurrentUser(fresh);
-                }
-                
-                loadData(user, 'initial');
+        let cancelled = false;
+
+        const boot = async () => {
+            let user: RegisteredPharmacy | null = null;
+            try {
+                user = await storage.getCurrentUser();
+            } catch (err) {
+                console.warn('[App] getCurrentUser failed:', err);
             }
-            else setIsAppLoading(false);
-        });
+
+            if (cancelled) return;
+
+            if (!user) {
+                setIsAppLoading(false);
+                return;
+            }
+
+            // Kick off SQLite-to-memoryCache hydration in the background.
+            // We don't await: the legacy app boots immediately; loadData('initial')
+            // populates from Supabase (when online) and the listener below
+            // will reload from cache as soon as hydration finishes.
+            storage.hydrateMemoryCacheFromSqlite(user.organization_id);
+
+            setCurrentUser(user);
+
+            if (navigator.onLine) {
+                try {
+                    const fresh = await storage.fetchProfile(user.user_id);
+                    if (!cancelled && fresh) setCurrentUser(fresh);
+                } catch (err) {
+                    console.warn('[App] fetchProfile failed:', err);
+                }
+            }
+
+            if (cancelled) return;
+            loadData(user, 'initial');
+        };
+
+        boot();
+        return () => { cancelled = true; };
     }, []);
+
+    // When SQLite hydration completes (after offline-first InitialSync or
+    // returning to a session with cached data), refresh the legacy React state
+    // so the app shows the freshly-cached masters/transactions.
+    //
+    // Debounced: SyncBootstrap + a POS offline-save can fire this event
+    // multiple times in quick succession. Without the debounce each fire calls
+    // loadData → Supabase fetches → ERR_INTERNET_DISCONNECTED spam → more
+    // state updates → effectively an infinite loop while offline.
+    // The 500 ms window collapses all rapid fires into one refresh.
+    // We also skip loadData entirely when offline; memoryCache is already warm
+    // from the hydration itself, so the only reason to call loadData is to
+    // push the freshly-cached data into React state — but that happens through
+    // storage.getData which falls back to memoryCache anyway.
+    useEffect(() => {
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const onHydrateComplete = () => {
+            if (!currentUser) return;
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                debounceTimer = null;
+                // Skip network calls entirely when offline — the cache is
+                // already populated by hydration and getData() reads from it.
+                if (!navigator.onLine) {
+                    console.info('[App] hydrate complete (offline) — skipping loadData, cache is warm');
+                    return;
+                }
+                console.info('[App] hydrate complete — refreshing loadData');
+                loadData(currentUser, 'sync').catch((err) =>
+                    console.warn('[App] post-hydrate reload failed:', err),
+                );
+            }, 500);
+        };
+
+        window.addEventListener('mdxera:hydrate-complete', onHydrateComplete);
+        return () => {
+            window.removeEventListener('mdxera:hydrate-complete', onHydrateComplete);
+            if (debounceTimer) clearTimeout(debounceTimer);
+        };
+    }, [currentUser, loadData]);
 
     const handleReload = useCallback(async () => {
         if (currentUser) await loadData(currentUser, 'sync');
@@ -1138,9 +1223,13 @@ const App: React.FC = () => {
 
             // Do not block UI success state on background refresh.
             await refreshInventoryViews(currentUser, ['transactions']);
-            loadData(currentUser, 'background').catch((err) => {
-                console.warn('Background reload after sales save failed:', err);
-            });
+            // Only attempt a background Supabase reload when online; offline
+            // the data is already fresh in memoryCache from the save itself.
+            if (navigator.onLine) {
+                loadData(currentUser, 'background').catch((err) => {
+                    console.warn('Background reload after sales save failed:', err);
+                });
+            }
 
             addNotification(isUpdate ? 'Bill updated successfully.' : 'Bill saved successfully.', 'success');
         } catch (e) {
@@ -2792,7 +2881,7 @@ const App: React.FC = () => {
                         reportId={currentDailyReportId}
                     />;
                 case 'balanceCarryforward':
-                    return <BalanceCarryforward />;
+                    return currentUser ? <BalanceCarryforward currentUser={currentUser} /> : null;
                 case 'newJournalEntryVoucher':
                     return <NewJournalEntryVoucher currentUser={currentUser} addNotification={addNotification} />;
                 case 'gst':
@@ -3017,6 +3106,7 @@ const App: React.FC = () => {
 
     return (
         <div className="h-screen flex flex-col bg-app-bg overflow-hidden text-app-text-primary">
+            <SyncBootstrap currentUser={currentUser} />
             <Header
                 currentUser={currentUser}
                 onNavigate={handleNavigate}
@@ -3030,6 +3120,22 @@ const App: React.FC = () => {
                 currentPage={currentPage}
                 onReload={handleReload}
                 isReloading={isReloading}
+                onResyncAll={() => {
+                    if (!currentUser) return;
+                    const ok = window.confirm(
+                        'Re-download every table (configurations, masters, transactions) from the server into local storage?\n\n' +
+                        'The setup modal will appear while masters download. Background tables continue afterwards.'
+                    );
+                    if (!ok) return;
+                    addNotification('Starting full resync — modal will appear.', 'success');
+                    triggerFullResync();
+                    // Refresh the legacy app state after the foreground phase
+                    // completes (5s buffer; background phase will continue
+                    // asynchronously and SyncBootstrap will rehydrate).
+                    setTimeout(() => {
+                        if (currentUser) loadData(currentUser, 'sync');
+                    }, 5000);
+                }}
                 onToggleSidebar={toggleSidebar}
             />
             <div className="flex-1 flex overflow-hidden">

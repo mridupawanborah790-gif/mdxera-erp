@@ -1,0 +1,107 @@
+name: Release
+
+# Push a tag like `v1.2.3` to trigger a build. The workflow:
+#   1. Builds the Tauri app on Windows + macOS (Intel + Apple Silicon).
+#   2. Signs the bundle with the Tauri updater private key (GitHub secret).
+#   3. Creates a draft GitHub Release containing every installer + the
+#      `latest.json` manifest that the in-app updater polls.
+#
+# Required secrets on this repo (Settings → Secrets and variables → Actions):
+#   TAURI_SIGNING_PRIVATE_KEY           — contents of .updater-secrets/updater.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  — passphrase you used at key generation
+#
+# Optional macOS notarization secrets (skip on first release; users will see a
+# Gatekeeper warning until you add these):
+#   APPLE_CERTIFICATE                   — base64-encoded .p12
+#   APPLE_CERTIFICATE_PASSWORD          — .p12 passphrase
+#   APPLE_SIGNING_IDENTITY              — "Developer ID Application: ..."
+#   APPLE_ID                            — Apple ID email
+#   APPLE_PASSWORD                      — app-specific password
+#   APPLE_TEAM_ID                       — Apple Developer team ID
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag for this manual release (e.g. v1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'windows-latest'
+            args: ''
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # On Apple Silicon runners we also build the x86_64 target
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build & publish (tauri-action)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS-only notarization (no-op if these secrets aren't set)
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ steps.tag.outputs.name }}
+          releaseName: 'MDXera ERP ${{ steps.tag.outputs.name }}'
+          releaseBody: |
+            See the full changelog below. Auto-update users will pick this
+            release up on next app launch (or via Settings → System & Updates).
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}

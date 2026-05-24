@@ -22,3 +22,21 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Tauri build artefacts
+src-tauri/target/
+src-tauri/gen/
+
+# Updater signing keys — NEVER commit the private key.
+# .updater-secrets/ holds the local copy of the private key + passphrase.
+# Put the same values into GitHub repository secrets (TAURI_SIGNING_PRIVATE_KEY,
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD) for the release workflow to use.
+.updater-secrets/
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# Claude Code workspace (per-session worktrees, transcripts)
+.claude/
