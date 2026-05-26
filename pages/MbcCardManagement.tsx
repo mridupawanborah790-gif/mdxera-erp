@@ -392,21 +392,16 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
 
   const saveCard = async () => {
     const phone = String(cardForm.phone_number || '').trim();
-    if (!cardForm.customer_name?.trim() || !phone || !cardForm.card_type_id || !cardForm.date_of_birth || !cardForm.validity_from || !cardForm.validity_to) {
-      alert('Customer, phone, card type, DOB and validity dates are required');
+    if (!cardForm.customer_name?.trim() || !cardForm.card_type_id || !cardForm.validity_from || !cardForm.validity_to) {
+      alert('Please fill Customer Name, Card Type, Card Value, Validity From and Validity To.');
       return;
     }
     if (cardForm.card_value === undefined || cardForm.card_value === null || Number.isNaN(Number(cardForm.card_value))) {
       alert('Please enter Card Value. Use 0 if no value is required.');
       return;
     }
-    if (!/^\d{10}$/.test(phone)) {
+    if (phone && !/^\d{10}$/.test(phone)) {
       alert('Phone number should contain exactly 10 digits');
-      return;
-    }
-    const todayDate = toDateInput(new Date());
-    if ((cardForm.date_of_birth || '') >= todayDate) {
-      alert('DOB must be earlier than today');
       return;
     }
     if ((cardForm.validity_to || '') <= (cardForm.validity_from || '')) {
@@ -449,6 +444,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
     setCardFormMessage('');
     try {
       let savedId = String(cardForm.id || '');
+      let savedCard: MbcCard | null = null;
       if (cardForm.id) {
         const { data, error } = await supabase
           .from('mbc_cards')
@@ -456,20 +452,22 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
           .eq('id', cardForm.id)
           .eq('card_number', cardNumber)
           .eq('organization_id', currentUser.organization_id)
-          .select('id')
+          .select('*')
           .single();
         if (error) {
           alert(error.message);
           return;
         }
         savedId = data.id;
+        savedCard = data;
       } else {
-        const { data, error } = await supabase.from('mbc_cards').insert(payload).select('id').single();
+        const { data, error } = await supabase.from('mbc_cards').insert(payload).select('*').single();
         if (error) {
           alert(error.message);
           return;
         }
         savedId = data.id;
+        savedCard = data;
       }
 
       await supabase.from('mbc_card_history').insert({
@@ -487,7 +485,14 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       window.sessionStorage.removeItem(EDIT_CARD_STORAGE_KEY);
       setCardForm(EMPTY_CARD);
       setFormMode('create');
-      await fetchCards();
+      if (savedCard) {
+        setCards(prev => {
+          const withoutCurrent = prev.filter(card => card.id !== savedCard!.id);
+          return [savedCard!, ...withoutCurrent];
+        });
+      } else {
+        await fetchCards();
+      }
       await fetchCardTypes();
       await fetchTemplates();
       await fetchRenewalHistory();
@@ -866,7 +871,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
               <label className="flex flex-col gap-1">
-                <span className="font-bold uppercase">Date of Birth (dd-mm-yyyy) *</span>
+                <span className="font-bold uppercase">Date of Birth (dd-mm-yyyy)</span>
                 <input
                   className="border p-2"
                   type="date"
