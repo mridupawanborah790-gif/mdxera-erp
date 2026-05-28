@@ -12,7 +12,8 @@
     import { normalizeImportDate } from '../utils/helpers';
     import { deductStockLooseFirst, normalizeUnitsPerPack } from '../utils/stock';
     import { resolveUnitsPerStrip, extractPackMultiplier } from '../utils/pack';
-import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHandling';
+    import { resolveStockHandlingConfig, logStockMovement } from '../utils/stockHandling';
+    import { getInventoryPolicy, isStockControlledPolicy } from '../utils/materialType';
     import { DEFAULT_CONFIG_MISSING_MESSAGE, loadDefaultPostingContext } from './companyDefaultsService';
 
     export const generateUUID = () => crypto.randomUUID();
@@ -1169,6 +1170,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         if (isUpdate && oldStatus === 'completed') {
             if (oldTx && oldTx.items) {
                 const currentInventory = await fetchInventory(user);
+                const medicines = await fetchMedicineMaster(user);
                 const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
                 const inventoryByKey = new Map(currentInventory.map((inv) => [normalizeInventoryKey(inv.name, inv.batch), inv]));
                 const unitsToAddByInventoryId = new Map<string, number>();
@@ -1176,7 +1178,7 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
                 for (const item of oldTx.items) {
                     const matchedInventory = (item.inventoryItemId ? inventoryById.get(item.inventoryItemId) : undefined)
                         || inventoryByKey.get(normalizeInventoryKey(item.name, item.batch));
-                    if (!matchedInventory) continue;
+                    if (!matchedInventory || !isStockControlledPolicy(getInventoryPolicy(matchedInventory, medicines))) continue;
                     const current = unitsToAddByInventoryId.get(matchedInventory.id) || 0;
                     unitsToAddByInventoryId.set(matchedInventory.id, current + getBillItemStockUnits(item, matchedInventory));
                 }
@@ -1219,13 +1221,14 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
 
         // Batch inventory updates
         const currentInventory = await fetchInventory(user);
+        const medicines = await fetchMedicineMaster(user);
         const inventoryById = new Map(currentInventory.map((inv) => [inv.id, inv]));
         const inventoryByKey = new Map(currentInventory.map((inv) => [normalizeInventoryKey(inv.name, inv.batch), inv]));
         const unitsToDeductByInventoryId = new Map<string, number>();
         for (const item of tx.items) {
             const matchedInventory = (item.inventoryItemId ? inventoryById.get(item.inventoryItemId) : undefined)
                 || inventoryByKey.get(normalizeInventoryKey(item.name, item.batch));
-            if (!matchedInventory) continue;
+            if (!matchedInventory || !isStockControlledPolicy(getInventoryPolicy(matchedInventory, medicines))) continue;
             const current = unitsToDeductByInventoryId.get(matchedInventory.id) || 0;
             unitsToDeductByInventoryId.set(matchedInventory.id, current + getBillItemStockUnits(item, matchedInventory));
         }

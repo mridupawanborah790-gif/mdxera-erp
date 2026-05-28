@@ -16,7 +16,7 @@ import { generateNewInvoiceId } from '../utils/invoice';
 import { handleEnterToNextField } from '../utils/navigation';
 import { fuzzyMatch } from '../utils/search';
 import { calculateCustomerReceivableBreakdown, getOutstandingBalance, parseNumber, checkIsExpired, formatExpiryToMMYY } from '../utils/helpers';
-import { getInventoryPolicy, getResolvedMedicinePolicy } from '../utils/materialType';
+import { getInventoryPolicy, getResolvedMedicinePolicy, isStockControlledPolicy } from '../utils/materialType';
 import { isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { calculateBillingTotals, resolveBillingSettings } from '../utils/billing';
 
@@ -268,6 +268,7 @@ const POS = forwardRef<any, POSProps>(({
     const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
     const inventoryWithPolicy = useMemo(() => inventory.map(item => ({ item, policy: getInventoryPolicy(item, medicines) })), [inventory, medicines]);
+    const isStockControlledItem = useCallback((item: InventoryItem) => isStockControlledPolicy(getInventoryPolicy(item, medicines)), [medicines]);
     const applicableLineDiscountPercent = useMemo(() => {
         const rules = configurations?.discountRules || [];
         const firstApplicablePercentRule = rules.find(rule => rule.enabled && rule.level === 'line' && (rule.type === 'percentage' || rule.type === 'trade'));
@@ -418,7 +419,7 @@ const POS = forwardRef<any, POSProps>(({
                 const invItem = inventory.find(i => i.id === item.inventoryItemId);
                 if (invItem) {
                     const policy = getInventoryPolicy(invItem, medicines);
-                    if (!policy.inventorised) continue;
+                    if (!isStockControlledPolicy(policy)) continue;
                     const unitsPerPack = invItem.unitsPerPack || 1;
                     const requiredUnits = (item.quantity * unitsPerPack) + (item.looseQuantity || 0);
                     if (invItem.stock <= 0 || invItem.stock < requiredUnits) {
@@ -873,6 +874,11 @@ const POS = forwardRef<any, POSProps>(({
         });
     };
     const triggerBatchSelection = (productWrapper: { item: InventoryItem; batches: InventoryItem[] }) => {
+        if (!isStockControlledItem(productWrapper.item)) {
+            addSelectedBatchToGrid(productWrapper.item);
+            return;
+        }
+
         const isValidBatch = (batchNo?: string) => {
             const normalized = (batchNo || '').trim().toUpperCase();
             return normalized !== '' && !['NEW-STOCK', 'NEW-BATCH', 'N/A', 'NA'].includes(normalized);
@@ -925,13 +931,14 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
-        if (checkIsExpired(batch.expiry ? String(batch.expiry) : '')) {
+        const policy = getInventoryPolicy(batch, medicines);
+        const isStockControlled = isStockControlledPolicy(policy);
+        if (isStockControlled && checkIsExpired(batch.expiry ? String(batch.expiry) : '')) {
             addNotification(`Item ${batch.name} (Batch: ${batch.batch}) is expired and cannot be sold.`, 'error');
             return;
         }
 
-        const policy = getInventoryPolicy(batch, medicines);
-        if (shouldPreventNegativeStock && policy.inventorised && Number(batch.stock || 0) <= 0) {
+        if (shouldPreventNegativeStock && isStockControlled && Number(batch.stock || 0) <= 0) {
             addNotification(`Insufficient stock for ${batch.name}. Available: ${Number(batch.stock || 0)}`, 'error');
             return;
         }
@@ -959,8 +966,8 @@ const POS = forwardRef<any, POSProps>(({
             gstPercent: batch.gstPercent,
             discountPercent: resolveProductDiscountPercent(batch) || applicableLineDiscountPercent || selectedCustomer?.defaultDiscount || 0,
             itemFlatDiscount: 0,
-            batch: policy.inventorised && ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (policy.inventorised ? (batch.batch || '') : ''),
-            expiry: policy.inventorised ? (batch.expiry ? String(batch.expiry) : 'N/A') : '',
+            batch: isStockControlled && ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (isStockControlled ? (batch.batch || '') : ''),
+            expiry: isStockControlled ? (batch.expiry ? String(batch.expiry) : 'N/A') : '',
             rate: rateValue,
             unitsPerPack: batch.unitsPerPack || 1,
             packType: batch.packType
@@ -1783,8 +1790,10 @@ const POS = forwardRef<any, POSProps>(({
                                                 const unitsPerPack = item.unitsPerPack || 1;
                                                 const stripsStock = Math.floor(totalStock / unitsPerPack);
                                                 const looseStock = totalStock % unitsPerPack;
-                                                const isAnyBatchExpired = res.batches.some(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
-                                                const areAllBatchesExpired = res.batches.length > 0 && res.batches.every(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
+                                                const itemStockControlled = isStockControlledItem(item);
+                                                const stockToneClass = isSelected ? 'text-white' : (!itemStockControlled ? 'text-sky-700' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700'));
+                                                const isAnyBatchExpired = itemStockControlled && res.batches.some(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
+                                                const areAllBatchesExpired = itemStockControlled && res.batches.length > 0 && res.batches.every(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
 
                                                 return (
                                                     <tr
@@ -1805,9 +1814,9 @@ const POS = forwardRef<any, POSProps>(({
                                                             {item.code}
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{item.manufacturer || item.brand}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{stripsStock}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{looseStock}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500' : 'text-emerald-700')}`}>{totalStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${stockToneClass}`}>{itemStockControlled ? stripsStock : 'Service'}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${stockToneClass}`}>{itemStockControlled ? looseStock : 'N/A'}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${stockToneClass}`}>{itemStockControlled ? totalStock : 'N/A'}</td>
                                                         <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>
                                                 );
