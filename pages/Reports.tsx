@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import Modal from '../components/Modal';
 import type { InventoryItem, Transaction, Purchase, Distributor, Customer, SalesReturn, PurchaseReturn, ModuleConfig, DoctorMaster } from '../types';
 import { calculateCustomerReceivableBreakdown, calculateSupplierPayableBreakdown, getCustomerInvoiceOutstandingTotalFromTransactions, getOutstandingBalance, getSupplierInvoiceOutstandingTotalFromPurchases } from '../utils/helpers';
@@ -123,6 +123,11 @@ const Reports: React.FC<ReportsProps> = ({
   const [mfrSalesViewMode, setMfrSalesViewMode] = useState<MfrSalesViewMode>('detailed');
   const [stockMovementViewMode, setStockMovementViewMode] = useState<StockMovementViewMode>('detailed');
   const [inventoryValueViewMode, setInventoryValueViewMode] = useState<InventoryValueViewMode>('batchWise');
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState('1');
+  const [paginationError, setPaginationError] = useState('');
+  const rowsPerPage = 25;
 
   const reportById = useMemo(() => new Map(REPORT_LIST.map(r => [r.id, r])), []);
   const groupedReports = useMemo(() => {
@@ -1198,6 +1203,8 @@ const Reports: React.FC<ReportsProps> = ({
     setVisibleColumns(reportHeaders);
     setFilteredData(rows);
     setSelectedRowIndex(rows.length ? 0 : -1);
+    setCurrentPage(1);
+    setPaginationError('');
   };
 
   useEffect(() => {
@@ -1324,6 +1331,45 @@ const Reports: React.FC<ReportsProps> = ({
     return Object.entries(activeFilters).flatMap(([field, values]) => values.map(value => ({ field, value })));
   }, [activeFilters]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage));
+  const pageStartIndex = (currentPage - 1) * rowsPerPage;
+  const pageEndIndex = pageStartIndex + rowsPerPage;
+  const paginatedData = filteredData.slice(pageStartIndex, pageEndIndex);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+      setPageInput(String(totalPages));
+      return;
+    }
+    if (currentPage < 1) {
+      setCurrentPage(1);
+      setPageInput('1');
+      return;
+    }
+    setPageInput(String(currentPage));
+  }, [currentPage, totalPages]);
+
+  const goToPage = (page: number) => {
+    if (page < 1 || page > totalPages) {
+      setPaginationError(`Please enter a valid page number between 1 and ${totalPages}.`);
+      return;
+    }
+    setPaginationError('');
+    setCurrentPage(page);
+  };
+
+  const onPageInputSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const parsedPage = Number.parseInt(pageInput, 10);
+    if (!Number.isFinite(parsedPage)) {
+      setPaginationError(`Please enter a valid page number between 1 and ${totalPages}.`);
+      return;
+    }
+    goToPage(parsedPage);
+  };
+
+
   const toggleFilterValue = (field: string, value: string) => {
     const next = { ...activeFilters };
     const fieldValues = new Set(next[field] || []);
@@ -1337,6 +1383,8 @@ const Reports: React.FC<ReportsProps> = ({
     setActiveFilters(next);
     setFilteredData(nextData);
     setSelectedRowIndex(nextData.length ? 0 : -1);
+    setCurrentPage(1);
+    setPaginationError('');
   };
 
   const clearAllFilters = () => {
@@ -1344,6 +1392,8 @@ const Reports: React.FC<ReportsProps> = ({
     const nextData = applyFiltersAndSort(baseData, {}, sortConfig);
     setFilteredData(nextData);
     setSelectedRowIndex(nextData.length ? 0 : -1);
+    setCurrentPage(1);
+    setPaginationError('');
   };
 
   const removeChip = (field: string, value: string) => {
@@ -1359,6 +1409,8 @@ const Reports: React.FC<ReportsProps> = ({
     const nextData = applyFiltersAndSort(baseData, activeFilters, nextSort);
     setFilteredData(nextData);
     setSelectedRowIndex(nextData.length ? 0 : -1);
+    setCurrentPage(1);
+    setPaginationError('');
   };
 
   const onColumnToggle = (column: string) => {
@@ -1392,6 +1444,26 @@ const Reports: React.FC<ReportsProps> = ({
   const handlePrint = () => {
     onPrintReport({ title: `${activeReportTitle} (Print)`, data: reportDataWithTotalRow, headers: visibleColumns, filters: { startDate: periodStartDate, endDate: periodEndDate, activeFilters } });
   };
+
+
+  const renderPaginationControls = () => (
+    <div className="px-2 py-1 border-b text-[10px] bg-gray-50 flex flex-wrap items-center gap-1">
+      <button onClick={() => goToPage(1)} disabled={currentPage === 1} className="px-2 py-1 border border-gray-300 disabled:opacity-50">First</button>
+      <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="px-2 py-1 border border-gray-300 disabled:opacity-50">Previous</button>
+      <form onSubmit={onPageInputSubmit} className="flex items-center gap-1">
+        <span>Page</span>
+        <input
+          value={pageInput}
+          onChange={(e) => { setPageInput(e.target.value); setPaginationError(''); }}
+          className="w-12 border border-gray-300 px-1 py-1 text-center"
+        />
+        <span>of {totalPages}</span>
+      </form>
+      <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} className="px-2 py-1 border border-gray-300 disabled:opacity-50">Next</button>
+      <button onClick={() => goToPage(totalPages)} disabled={currentPage === totalPages} className="px-2 py-1 border border-gray-300 disabled:opacity-50">Last</button>
+      {paginationError && <span className="text-red-600 ml-2">{paginationError}</span>}
+    </div>
+  );
 
   const onPickReport = (reportId: string) => {
     setPendingReportId(reportId);
@@ -1480,6 +1552,8 @@ const Reports: React.FC<ReportsProps> = ({
             </div>
           )}
 
+          {renderPaginationControls()}
+
           <div className="min-h-0 flex-1 overflow-auto">
             {filteredData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm text-gray-500">
@@ -1497,17 +1571,20 @@ const Reports: React.FC<ReportsProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredData.map((row, idx) => (
+                  {paginatedData.map((row, idx) => {
+                    const absoluteIdx = pageStartIndex + idx;
+                    return (
                     <tr
-                      key={`${activeReportId}-${idx}`}
-                      onClick={() => setSelectedRowIndex(idx)}
-                      className={`${selectedRowIndex === idx ? 'bg-primary/20' : idx % 2 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/10 cursor-pointer`}
+                      key={`${activeReportId}-${absoluteIdx}`}
+                      onClick={() => setSelectedRowIndex(absoluteIdx)}
+                      className={`${selectedRowIndex === absoluteIdx ? 'bg-primary/20' : absoluteIdx % 2 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/10 cursor-pointer`}
                     >
                       {visibleColumns.map(col => (
                         <td key={`${idx}-${col}`} className={`px-2 py-1 border-b border-r whitespace-nowrap ${col === 'Doctor Name' ? 'text-left' : (typeof row[col] === 'number' ? 'text-right' : 'text-left')}`}>{String(row[col] ?? '-')}</td>
                       ))}
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
                 {activeReportId === 'stockMovementSummary' && stockMovementTotalRow && (
                   <tfoot>
@@ -1521,6 +1598,8 @@ const Reports: React.FC<ReportsProps> = ({
               </table>
             )}
           </div>
+
+          {renderPaginationControls()}
 
           <div className="border-t px-2 py-1 text-[10px] bg-gray-100 flex flex-wrap gap-x-4 gap-y-1">
             {activeReportId === 'stockSummary' ? (
