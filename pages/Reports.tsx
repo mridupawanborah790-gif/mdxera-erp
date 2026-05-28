@@ -134,6 +134,9 @@ const Reports: React.FC<ReportsProps> = ({
   const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
   const [sortConfig, setSortConfig] = useState<{ column: string; direction: SortDirection } | null>(null);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [draftFilters, setDraftFilters] = useState<Record<string, string[]>>({});
+  const [filterSearchTerm, setFilterSearchTerm] = useState('');
+  const [filterCardSearch, setFilterCardSearch] = useState<Record<string, string>>({});
   const [columnModalOpen, setColumnModalOpen] = useState(false);
   const [mfrSalesViewMode, setMfrSalesViewMode] = useState<MfrSalesViewMode>('detailed');
   const [stockMovementViewMode, setStockMovementViewMode] = useState<StockMovementViewMode>('detailed');
@@ -1404,6 +1407,27 @@ const Reports: React.FC<ReportsProps> = ({
     return [...filteredData, stockMovementTotalRow];
   }, [activeReportId, filteredData, stockMovementTotalRow]);
 
+
+  const filterableColumns = useMemo(() => {
+    const blockedKeywords = ['mrp', 'amount', 'rate', 'value', 'discount', 'taxable', 'tax', 'gst', 'net'];
+    const supplierWiseColumns = ['Product Name', 'Supplier Name', 'Batch Number', 'Expiry Date', 'Stock Status', 'Near Expiry', 'MFR', 'HSN Code'];
+    const columns = activeReportId === 'supplierWiseProductList'
+      ? headers.filter(col => supplierWiseColumns.includes(col))
+      : headers.filter(col => !blockedKeywords.some(keyword => col.toLowerCase().includes(keyword)));
+
+    return columns.filter(col => (filterOptions[col] || []).length > 0);
+  }, [activeReportId, headers, filterOptions]);
+
+  const visibleFilterColumns = useMemo(() => {
+    const query = filterSearchTerm.trim().toLowerCase();
+    if (!query) return filterableColumns;
+
+    return filterableColumns.filter(col => {
+      if (col.toLowerCase().includes(query)) return true;
+      return (filterOptions[col] || []).some(value => String(value).toLowerCase().includes(query));
+    });
+  }, [filterSearchTerm, filterOptions, filterableColumns]);
+
   const activeFilterChips = useMemo(() => {
     return Object.entries(activeFilters).flatMap(([field, values]) => values.map(value => ({ field, value })));
   }, [activeFilters]);
@@ -1447,17 +1471,20 @@ const Reports: React.FC<ReportsProps> = ({
   };
 
 
-  const toggleFilterValue = (field: string, value: string) => {
-    const next = { ...activeFilters };
+  const toggleFilterValue = (field: string, value: string, sourceFilters: Record<string, string[]>) => {
+    const next = { ...sourceFilters };
     const fieldValues = new Set(next[field] || []);
     if (fieldValues.has(value)) fieldValues.delete(value);
     else fieldValues.add(value);
 
     if (!fieldValues.size) delete next[field];
     else next[field] = Array.from(fieldValues);
+    return next;
+  };
 
-    const nextData = applyFiltersAndSort(baseData, next, sortConfig);
-    setActiveFilters(next);
+  const applySelectedFilters = (filters: Record<string, string[]>) => {
+    const nextData = applyFiltersAndSort(baseData, filters, sortConfig);
+    setActiveFilters(filters);
     setFilteredData(nextData);
     setSelectedRowIndex(nextData.length ? 0 : -1);
     setCurrentPage(1);
@@ -1465,16 +1492,11 @@ const Reports: React.FC<ReportsProps> = ({
   };
 
   const clearAllFilters = () => {
-    setActiveFilters({});
-    const nextData = applyFiltersAndSort(baseData, {}, sortConfig);
-    setFilteredData(nextData);
-    setSelectedRowIndex(nextData.length ? 0 : -1);
-    setCurrentPage(1);
-    setPaginationError('');
+    applySelectedFilters({});
   };
 
   const removeChip = (field: string, value: string) => {
-    toggleFilterValue(field, value);
+    applySelectedFilters(toggleFilterValue(field, value, activeFilters));
   };
 
   const toggleSort = (column: string) => {
@@ -1584,7 +1606,7 @@ const Reports: React.FC<ReportsProps> = ({
         <section className="border border-gray-300 bg-white min-h-0 flex flex-col">
           <div className="px-2 py-1 border-b bg-gray-100 flex items-center justify-between gap-2">
             <div>
-              <div className="text-[11px] font-bold">{activeReportTitle}</div>
+              <div className="text-[11px] font-bold">{activeReportTitle}{Object.keys(activeFilters).length > 0 ? ' — Filtered Result' : ''}</div>
               <div className="text-[10px] text-gray-500">Period: {new Date(periodStartDate).toLocaleDateString('en-GB')} to {new Date(periodEndDate).toLocaleDateString('en-GB')}</div>
             </div>
             <div className="flex gap-1 text-[10px] items-center">
@@ -1609,7 +1631,7 @@ const Reports: React.FC<ReportsProps> = ({
                   )}
                 </div>
               )}
-              <button onClick={() => setFilterModalOpen(true)} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Filter</button>
+              <button onClick={() => { setDraftFilters(activeFilters); setFilterSearchTerm(''); setFilterCardSearch({}); setFilterModalOpen(true); }} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Filter</button>
               <button onClick={() => setColumnModalOpen(true)} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Columns</button>
               <button onClick={handlePreview} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Preview</button>
               <button onClick={exportCsv} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">CSV</button>
@@ -1799,26 +1821,61 @@ const Reports: React.FC<ReportsProps> = ({
         </div>
       </Modal>
 
-      <Modal isOpen={filterModalOpen} onClose={() => setFilterModalOpen(false)} title="Filter Report" widthClass="max-w-3xl">
-        <div className="p-3 overflow-auto text-xs">
-          <div className="grid grid-cols-3 gap-3">
-            {headers.map(col => (
-              <div key={col} className="border border-gray-200 p-2">
-                <div className="font-semibold mb-1">{col}</div>
-                <div className="max-h-48 overflow-auto space-y-1">
-                  {filterOptions[col]?.map(value => (
-                    <label key={`${col}-${value}`} className="flex items-center gap-1">
-                      <input type="checkbox" checked={(activeFilters[col] || []).includes(value)} onChange={() => toggleFilterValue(col, value)} />
-                      <span className="truncate">{value || '(Blank)'}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
+      <Modal isOpen={filterModalOpen} onClose={() => setFilterModalOpen(false)} title="Filter Report" widthClass="max-w-[95vw]" heightClass="h-[90vh]">
+        <div className="flex h-full flex-col text-xs">
+          <div className="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">
+            <div className="text-sm font-semibold uppercase tracking-wide">FILTER REPORT — {activeReportTitle}</div>
+            <div className="mt-1 text-[11px] text-gray-600">Period: {new Date(periodStartDate).toLocaleDateString('en-GB')} to {new Date(periodEndDate).toLocaleDateString('en-GB')}</div>
+            <input
+              type="text"
+              value={filterSearchTerm}
+              onChange={(e) => setFilterSearchTerm(e.target.value)}
+              placeholder="Search filter field or value..."
+              className="mt-3 w-full border border-gray-300 px-3 py-2 text-sm"
+            />
           </div>
-          <div className="flex justify-end mt-3 gap-2">
-            <button onClick={clearAllFilters} className="px-3 py-1 border border-gray-300">Clear All</button>
-            <button onClick={() => setFilterModalOpen(false)} className="px-3 py-1 border border-primary bg-primary text-white">Done</button>
+
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {visibleFilterColumns.map(col => {
+                const cardSearch = (filterCardSearch[col] || '').toLowerCase();
+                const values = (filterOptions[col] || []).filter(value => String(value).toLowerCase().includes(cardSearch));
+                const selectedCount = (draftFilters[col] || []).length;
+                return (
+                  <div key={col} className="flex min-h-[260px] flex-col rounded border border-gray-200 bg-gray-50 p-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="font-semibold">{col}</div>
+                      <div className="text-[10px] text-gray-600">Selected: {selectedCount}</div>
+                    </div>
+                    <input
+                      type="text"
+                      value={filterCardSearch[col] || ''}
+                      onChange={(e) => setFilterCardSearch(prev => ({ ...prev, [col]: e.target.value }))}
+                      placeholder="Search value..."
+                      className="mb-2 w-full border border-gray-300 px-2 py-1"
+                    />
+                    <div className="mb-2 flex gap-2">
+                      <button onClick={() => setDraftFilters(prev => ({ ...prev, [col]: [...(filterOptions[col] || [])] }))} className="border border-gray-300 px-2 py-1">Select all</button>
+                      <button onClick={() => setDraftFilters(prev => { const next = { ...prev }; delete next[col]; return next; })} className="border border-gray-300 px-2 py-1">Clear</button>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-auto space-y-1 bg-white p-1">
+                      {values.map(value => (
+                        <label key={`${col}-${value}`} className="flex items-center gap-1">
+                          <input type="checkbox" checked={(draftFilters[col] || []).includes(value)} onChange={() => setDraftFilters(prev => toggleFilterValue(col, value, prev))} />
+                          <span className="truncate">{value || '(Blank)'}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="sticky bottom-0 z-10 flex justify-end gap-2 border-t border-gray-200 bg-white px-4 py-3">
+            <button onClick={() => setDraftFilters({})} className="px-3 py-1 border border-gray-300">Clear All</button>
+            <button onClick={() => { applySelectedFilters(draftFilters); setFilterModalOpen(false); }} className="px-3 py-1 border border-primary bg-primary text-white">Apply Filter</button>
+            <button onClick={() => setFilterModalOpen(false)} className="px-3 py-1 border border-gray-300">Cancel</button>
           </div>
         </div>
       </Modal>
