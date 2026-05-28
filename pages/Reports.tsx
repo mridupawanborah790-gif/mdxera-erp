@@ -35,6 +35,20 @@ const parsePackSize = (pack: string | null | undefined) => {
   const parsedPackSize = matchedPackSize ? Number(matchedPackSize[0]) : NaN;
   return Number.isFinite(parsedPackSize) && parsedPackSize > 0 ? parsedPackSize : 1;
 };
+const formatExpiryToMMYYYY = (value?: string | null) => {
+  if (!value) return 'N/A';
+  const raw = String(value).trim();
+  if (!raw) return 'N/A';
+  const mmDashYyyy = raw.match(/^(0[1-9]|1[0-2])-(\d{4})$/);
+  if (mmDashYyyy) return `${mmDashYyyy[1]}-${mmDashYyyy[2]}`;
+  const mmSlashYy = raw.match(/^(0[1-9]|1[0-2])\/(\d{2})$/);
+  if (mmSlashYy) return `${mmSlashYy[1]}-20${mmSlashYy[2]}`;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return 'N/A';
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const year = parsed.getFullYear();
+  return `${month}-${year}`;
+};
 
 const REPORT_LIST: ReportDefinition[] = [
   { id: 'salesRegister', name: 'Sales Register', group: 'Sales Reports' },
@@ -66,6 +80,7 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'itemWisePurchase', name: 'Item-wise Purchase', group: 'Purchase Reports' },
   { id: 'purchaseReturnRegister', name: 'Purchase Return Register', group: 'Purchase Reports' },
   { id: 'debitNoteRegister', name: 'Debit Note Register', group: 'Purchase Reports' },
+  { id: 'supplierWiseProductList', name: 'Supplier Wise Product List', group: 'Purchase Reports' },
 
   { id: 'stockSummary', name: 'Stock Summary', group: 'Inventory Reports' },
   { id: 'batchWiseStock', name: 'Batch-wise Stock', group: 'Inventory Reports' },
@@ -711,6 +726,68 @@ const Reports: React.FC<ReportsProps> = ({
         reportHeaders = reportId === 'purchaseReturnRegister' ? ['Return No', 'Date', 'Supplier', 'Original Bill Ref', 'Return Amount', 'Tax Effect'] : ['Debit Note No', 'Date', 'Supplier', 'Reference', 'Amount', 'Reason'];
         rows = filteredPurchaseReturns.map(ret => reportId === 'purchaseReturnRegister' ? ({ 'Return No': ret.id, 'Date': new Date(ret.date).toLocaleDateString('en-GB'), 'Supplier': ret.supplier, 'Original Bill Ref': ret.originalPurchaseInvoiceId, 'Return Amount': round2(ret.totalValue || 0), 'Tax Effect': round2((ret.totalValue || 0) * 0.12) }) : ({ 'Debit Note No': `DN-${ret.id}`, 'Date': new Date(ret.date).toLocaleDateString('en-GB'), 'Supplier': ret.supplier, 'Reference': ret.originalPurchaseInvoiceId, 'Amount': round2(ret.totalValue || 0), 'Reason': ret.remarks || 'Purchase return adjustment' }));
         break;
+      case 'supplierWiseProductList': {
+        reportHeaders = ['Product Name', 'Supplier Name', 'Batch Number', 'Quantity (Pack / Loose / Total)', 'MRP', 'Purchase Rate', 'Expiry Date', 'MRP Amount', 'Purchase Value', 'Stock Status', 'Near Expiry'];
+        const today = new Date();
+        rows = inventory.map(item => {
+          const breakup = getStockBreakup(item.stock, item.unitsPerPack, item.packType);
+          const packSize = parsePackSize(item.packType);
+          const packQty = Number(breakup.pack || 0);
+          const looseQty = Number(breakup.loose || 0);
+          const totalQty = Number(breakup.totalUnits || 0);
+          const mrp = Number(item.mrp || 0);
+          const purchaseRate = Number(item.purchasePrice || item.ptr || 0);
+          const mrpAmount = (packQty * mrp) + (looseQty * (mrp / packSize));
+          const purchaseValue = (packQty * purchaseRate) + (looseQty * (purchaseRate / packSize));
+          const expiryDate = item.expiry ? new Date(item.expiry) : null;
+          const remainingDays = expiryDate && !Number.isNaN(expiryDate.getTime())
+            ? Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+            : null;
+          return {
+            'Product Name': item.name || 'N/A',
+            'Supplier Name': item.supplierName || 'N/A',
+            'Batch Number': item.batch || 'N/A',
+            'Quantity (Pack / Loose / Total)': `${packQty} / ${looseQty} / ${totalQty}`,
+            'MRP': round2(mrp),
+            'Purchase Rate': round2(purchaseRate),
+            'Expiry Date': formatExpiryToMMYYYY(item.expiry),
+            'MRP Amount': round2(mrpAmount),
+            'Purchase Value': round2(purchaseValue),
+            'Stock Status': totalQty > 0 ? 'Available Stock' : 'Zero Stock',
+            'Near Expiry': typeof remainingDays === 'number' && remainingDays >= 0 && remainingDays <= 90 ? 'Yes' : 'No',
+            _sortSupplier: String(item.supplierName || '').toLowerCase(),
+            _sortProduct: String(item.name || '').toLowerCase(),
+            _sortExpiry: expiryDate && !Number.isNaN(expiryDate.getTime()) ? expiryDate.getTime() : Number.MAX_SAFE_INTEGER,
+            _supplierKey: String(item.supplierName || 'N/A').trim().toLowerCase(),
+            _productKey: String(item.name || 'N/A').trim().toLowerCase(),
+            _batchKey: String(item.batch || 'N/A').trim().toLowerCase(),
+            _qtyTotal: totalQty,
+          };
+        }).sort((a, b) => a._sortSupplier.localeCompare(b._sortSupplier) || a._sortProduct.localeCompare(b._sortProduct) || a._sortExpiry - b._sortExpiry);
+
+        const uniqueSuppliers = new Set(rows.map(r => r._supplierKey)).size;
+        const uniqueProducts = new Set(rows.map(r => r._productKey)).size;
+        const uniqueBatches = new Set(rows.map(r => r._batchKey)).size;
+        const totalQty = round2(rows.reduce((sum, row) => sum + Number(row._qtyTotal || 0), 0));
+        const totalMrpAmount = round2(rows.reduce((sum, row) => sum + Number(row['MRP Amount'] || 0), 0));
+        const totalPurchaseValue = round2(rows.reduce((sum, row) => sum + Number(row['Purchase Value'] || 0), 0));
+
+        rows.push({
+          'Product Name': `Total Products: ${uniqueProducts}`,
+          'Supplier Name': `Total Suppliers: ${uniqueSuppliers}`,
+          'Batch Number': `Total Batches: ${uniqueBatches}`,
+          'Quantity (Pack / Loose / Total)': `Total Quantity: ${totalQty}`,
+          'MRP': '',
+          'Purchase Rate': '',
+          'Expiry Date': '',
+          'MRP Amount': `Total MRP Amount: ${totalMrpAmount}`,
+          'Purchase Value': `Total Purchase Value: ${totalPurchaseValue}`,
+          'Stock Status': '',
+          'Near Expiry': '',
+          _isTotal: true
+        });
+        break;
+      }
       case 'stockSummary':
       case 'batchWiseStock':
       case 'expiryWiseStock':
@@ -735,7 +812,7 @@ const Reports: React.FC<ReportsProps> = ({
             'PTR / Cost': round2(ptrCost),
             'PTR Amount': round2(ptrAmount),
             'Value': round2(mrpAmount),
-            'Expiry': item.expiry ? new Date(item.expiry).toLocaleDateString('en-GB') : 'N/A',
+            'Expiry': formatExpiryToMMYYYY(item.expiry),
             'Quantity': breakup.totalUnits,
             'Qty': breakup.totalUnits,
             _sort: item.expiry ? new Date(item.expiry).getTime() : Number.MAX_SAFE_INTEGER
@@ -751,7 +828,7 @@ const Reports: React.FC<ReportsProps> = ({
           const breakup = getStockBreakup(item.stock, item.unitsPerPack, item.packType);
           const expiryDate = item.expiry ? new Date(item.expiry) : null;
           const remainingDays = expiryDate ? Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
-          return { 'Item': item.name, 'Batch': item.batch, 'Expiry': expiryDate ? expiryDate.toLocaleDateString('en-GB') : 'N/A', 'Remaining Days': remainingDays ?? 'N/A', 'Qty': breakup.totalUnits, 'Value': round2(breakup.totalUnits * Number(item.purchasePrice || item.ptr || 0)), _remainingDays: remainingDays };
+          return { 'Item': item.name, 'Batch': item.batch, 'Expiry': formatExpiryToMMYYYY(item.expiry), 'Remaining Days': remainingDays ?? 'N/A', 'Qty': breakup.totalUnits, 'Value': round2(breakup.totalUnits * Number(item.purchasePrice || item.ptr || 0)), _remainingDays: remainingDays };
         }).filter(row => reportId === 'nearExpiryReport' ? typeof row._remainingDays === 'number' && row._remainingDays >= 0 && row._remainingDays <= 90 : typeof row._remainingDays === 'number' && row._remainingDays < 0);
         break;
       }
@@ -776,7 +853,7 @@ const Reports: React.FC<ReportsProps> = ({
               'Product Name': item.name,
               'Material Code': item.code || item.id,
               'Batch': item.batch || 'N/A',
-              'Expiry': item.expiry ? new Date(item.expiry).toLocaleDateString('en-GB') : 'N/A',
+              'Expiry': formatExpiryToMMYYYY(item.expiry),
               'Quantity': qty,
               'Purchase Rate': round2(purchaseRate),
               'Value': round2(qty * purchaseRate),
