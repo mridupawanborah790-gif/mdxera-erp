@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useMemo, useState } from 'react';
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../components/Modal';
 import type { InventoryItem, Transaction, Purchase, Distributor, Customer, SalesReturn, PurchaseReturn, ModuleConfig, DoctorMaster } from '../types';
 import { calculateCustomerReceivableBreakdown, calculateSupplierPayableBreakdown, getCustomerInvoiceOutstandingTotalFromTransactions, getOutstandingBalance, getSupplierInvoiceOutstandingTotalFromPurchases } from '../utils/helpers';
@@ -138,6 +138,7 @@ const Reports: React.FC<ReportsProps> = ({
   const [filterSearchTerm, setFilterSearchTerm] = useState('');
   const [filterCardSearch, setFilterCardSearch] = useState<Record<string, string>>({});
   const [columnModalOpen, setColumnModalOpen] = useState(false);
+  const filterSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [mfrSalesViewMode, setMfrSalesViewMode] = useState<MfrSalesViewMode>('detailed');
   const [stockMovementViewMode, setStockMovementViewMode] = useState<StockMovementViewMode>('detailed');
   const [inventoryValueViewMode, setInventoryValueViewMode] = useState<InventoryValueViewMode>('batchWise');
@@ -1584,6 +1585,36 @@ const Reports: React.FC<ReportsProps> = ({
     setPeriodModalOpen(true);
   };
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+
+      const key = event.key.toLowerCase();
+      if (key === 'f') {
+        event.preventDefault();
+        setDraftFilters(activeFilters);
+        setFilterSearchTerm('');
+        setFilterCardSearch({});
+        setFilterModalOpen(true);
+      } else if (key === 'c') {
+        event.preventDefault();
+        setColumnModalOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeFilters]);
+
+  useEffect(() => {
+    if (!filterModalOpen) return;
+    const timer = window.setTimeout(() => {
+      filterSearchInputRef.current?.focus();
+      filterSearchInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [filterModalOpen]);
+
   return (
     <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
       <div className="bg-primary text-white h-7 flex items-center px-4 justify-between border-b border-gray-600 shadow-md flex-shrink-0">
@@ -1838,6 +1869,7 @@ const Reports: React.FC<ReportsProps> = ({
             <div className="text-sm font-semibold uppercase tracking-wide">FILTER REPORT — {activeReportTitle}</div>
             <div className="mt-1 text-[11px] text-gray-600">Period: {new Date(periodStartDate).toLocaleDateString('en-GB')} to {new Date(periodEndDate).toLocaleDateString('en-GB')}</div>
             <input
+              ref={filterSearchInputRef}
               type="text"
               value={filterSearchTerm}
               onChange={(e) => setFilterSearchTerm(e.target.value)}
