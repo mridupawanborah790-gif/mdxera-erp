@@ -1838,8 +1838,12 @@ const Reports: React.FC<ReportsProps> = ({
           <div className="min-h-0 flex-1 overflow-auto p-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {visibleFilterColumns.map(col => {
-                const cardSearch = (filterCardSearch[col] || '').toLowerCase();
-                const values = (filterOptions[col] || []).filter(value => String(value).toLowerCase().includes(cardSearch));
+                const cardSearchRaw = filterCardSearch[col] || '';
+                const cardSearch = cardSearchRaw.trim().toLowerCase();
+                const hasSearch = cardSearch.length > 0;
+                const values = hasSearch
+                  ? (filterOptions[col] || []).filter(value => String(value).toLowerCase().includes(cardSearch))
+                  : [];
                 const selectedCount = (draftFilters[col] || []).length;
                 return (
                   <div key={col} className="flex min-h-[260px] flex-col rounded border border-gray-200 bg-gray-50 p-2">
@@ -1859,12 +1863,18 @@ const Reports: React.FC<ReportsProps> = ({
                       <button onClick={() => setDraftFilters(prev => { const next = { ...prev }; delete next[col]; return next; })} className="border border-gray-300 px-2 py-1">Clear</button>
                     </div>
                     <div className="min-h-0 flex-1 overflow-auto space-y-1 bg-white p-1">
-                      {values.map(value => (
-                        <label key={`${col}-${value}`} className="flex items-center gap-1">
-                          <input type="checkbox" checked={(draftFilters[col] || []).includes(value)} onChange={() => setDraftFilters(prev => toggleFilterValue(col, value, prev))} />
-                          <span className="truncate">{value || '(Blank)'}</span>
-                        </label>
-                      ))}
+                      {!hasSearch ? (
+                        <div className="px-2 py-3 text-gray-500">Type to search filter values</div>
+                      ) : values.length === 0 ? (
+                        <div className="px-2 py-3 text-gray-500">No matching values found</div>
+                      ) : (
+                        values.map(value => (
+                          <label key={`${col}-${value}`} className="flex items-center gap-1">
+                            <input type="checkbox" checked={(draftFilters[col] || []).includes(value)} onChange={() => setDraftFilters(prev => toggleFilterValue(col, value, prev))} />
+                            <span className="truncate">{value || '(Blank)'}</span>
+                          </label>
+                        ))
+                      )}
                     </div>
                   </div>
                 );
