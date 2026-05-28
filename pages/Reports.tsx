@@ -1304,9 +1304,20 @@ const Reports: React.FC<ReportsProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stockMovementViewMode]);
 
+  const isFilterValueSelectable = (value: string) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return false;
+    if (normalized === '-' || normalized === 'all' || normalized === 'n/a') return false;
+    if (normalized.startsWith('total ') || normalized.startsWith('total:')) return false;
+    return true;
+  };
+
   const filterOptions = useMemo(() => {
     return headers.reduce<Record<string, string[]>>((acc, col) => {
-      acc[col] = Array.from(new Set(baseData.map(row => String(row[col] ?? '')).filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      acc[col] = Array.from(new Set(baseData
+        .map(row => String(row[col] ?? '').trim())
+        .filter(isFilterValueSelectable)))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       return acc;
     }, {});
   }, [headers, baseData]);
@@ -1821,7 +1832,7 @@ const Reports: React.FC<ReportsProps> = ({
         </div>
       </Modal>
 
-      <Modal isOpen={filterModalOpen} onClose={() => setFilterModalOpen(false)} title="Filter Report" widthClass="max-w-[95vw]" heightClass="h-[90vh]">
+      <Modal isOpen={filterModalOpen} onClose={() => setFilterModalOpen(false)} title="Filter Report" widthClass="!w-screen !max-w-[100vw]" heightClass="!h-screen !max-h-[100vh]">
         <div className="flex h-full flex-col text-xs">
           <div className="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">
             <div className="text-sm font-semibold uppercase tracking-wide">FILTER REPORT — {activeReportTitle}</div>
@@ -1838,14 +1849,16 @@ const Reports: React.FC<ReportsProps> = ({
           <div className="min-h-0 flex-1 overflow-auto p-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {visibleFilterColumns.map(col => {
-                const cardSearch = (filterCardSearch[col] || '').toLowerCase();
-                const values = (filterOptions[col] || []).filter(value => String(value).toLowerCase().includes(cardSearch));
+                const cardSearch = (filterCardSearch[col] || '').trim().toLowerCase();
+                const allValues = filterOptions[col] || [];
+                const values = allValues.filter(value => String(value).toLowerCase().includes(cardSearch));
                 const selectedCount = (draftFilters[col] || []).length;
                 return (
                   <div key={col} className="flex min-h-[260px] flex-col rounded border border-gray-200 bg-gray-50 p-2">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <div className="font-semibold">{col}</div>
                       <div className="text-[10px] text-gray-600">Selected: {selectedCount}</div>
+                      <div className="text-[10px] text-gray-600">Showing: {values.length} / Total: {allValues.length}</div>
                     </div>
                     <input
                       type="text"
