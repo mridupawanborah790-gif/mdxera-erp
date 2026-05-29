@@ -92,4 +92,13 @@ export const getInventoryPolicy = (item: InventoryItem, medicines: Medicine[]) =
   return getResolvedMedicinePolicy(linkedMedicine);
 };
 
+
+export const isServiceMaterialPolicy = (policy: ReturnType<typeof getResolvedMedicinePolicy>) => {
+  return policy.type === 'service_material' || policy.label === 'Service Material';
+};
+
+export const isStockControlledPolicy = (policy: ReturnType<typeof getResolvedMedicinePolicy>) => {
+  return policy.inventorised === true && !isServiceMaterialPolicy(policy);
+};
+
 export const getTypeLabel = (type?: Medicine['materialMasterType']) => getMaterialTypeRule(type).label;

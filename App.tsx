@@ -59,7 +59,7 @@ import {
     PurchaseOrderStatus, PurchaseOrderReceiveMode, Category, SubCategory, Promotion, OrganizationMember, ModuleConfig, MrpChangeLogEntry, BusinessRole, DoctorMaster
 } from './types';
 import { navigation } from './constants';
-import { getInventoryPolicy } from './utils/materialType';
+import { getInventoryPolicy, isStockControlledPolicy } from './utils/materialType';
 import { extractPackMultiplier, resolveUnitsPerStrip } from './utils/pack';
 import { setActiveScreenScope, shouldHandleScreenShortcut } from './utils/screenShortcuts';
 import { createSupplierQuick, formatSupplierApiError, SupplierQuickResult } from './services/supplierService';
@@ -1088,7 +1088,7 @@ const App: React.FC = () => {
                         const invItem = inventory.find(i => i.id === inventoryItemId);
                         if (!invItem) continue;
                         const policy = getInventoryPolicy(invItem, medicines);
-                        if (!policy.inventorised) continue;
+                        if (!isStockControlledPolicy(policy)) continue;
                         if (Number(invItem.stock || 0) <= 0 || Number(invItem.stock || 0) < requiredUnits) {
                             logStockMovement({ transactionType: 'sales-outward-validation', item: invItem.name, batch: invItem.batch || 'UNSET', qty: requiredUnits, stockBefore: Number(invItem.stock || 0), stockAfter: Number(invItem.stock || 0), validationResult: 'blocked', mode: stockHandling.mode });
                             throw new Error('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.');
@@ -2106,7 +2106,7 @@ const App: React.FC = () => {
                 const inv = latestInventory.find(i => i.id === item.inventoryItemId);
                 if (inv) {
                     const policy = getInventoryPolicy(inv, medicines);
-                    if (!policy.inventorised) continue;
+                    if (!isStockControlledPolicy(policy)) continue;
                     const restoredUnits = (item.quantity * resolveUnitsPerStrip(inv.unitsPerPack, inv.packType) + (item.looseQuantity || 0));
                     const stockBefore = Number(inv.stock || 0);
                     const stockAfter = stockBefore + restoredUnits;

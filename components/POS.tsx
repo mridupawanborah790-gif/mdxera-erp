@@ -25,6 +25,7 @@ import { calculateBillingTotals, resolveBillingSettings, calculateLineNetAmount,
 import { extractPackMultiplier, isLiquidOrWeightPack, resolveUnitsPerStrip } from '../utils/pack';
 import { shouldHandleScreenShortcut } from '../utils/screenShortcuts';
 import { evaluateCustomerCredit } from '../utils/creditControl';
+import { getInventoryPolicy, getResolvedMedicinePolicy, isStockControlledPolicy } from '../utils/materialType';
 
 interface POSProps {
     inventory: InventoryItem[];
@@ -531,6 +532,7 @@ const POS = forwardRef<any, POSProps>(({
     const strictStock = configurations.displayOptions?.strictStock ?? true;
     const enableNegativeStock = configurations.displayOptions?.enableNegativeStock ?? false;
     const shouldPreventNegativeStock = strictStock && !enableNegativeStock;
+    const isStockControlledItem = useCallback((item: InventoryItem) => isStockControlledPolicy(getInventoryPolicy(item, medicines)), [medicines]);
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
     const isValidExpiry = useCallback((expiry: string) => /^(0[1-9]|1[0-2])\/\d{2}$/.test(expiry), []);
@@ -926,6 +928,8 @@ const POS = forwardRef<any, POSProps>(({
                     const normalizedItemName = (item.name || '').trim().toLowerCase();
                     const normalizedItemBrand = (item.brand || '').trim().toLowerCase();
                     const currentInvItem = inventory.find(i => i.id === item.inventoryItemId);
+                    const policyProbe = currentInvItem || ({ id: item.inventoryItemId, name: item.name, brand: item.brand, code: (item as any).code } as InventoryItem);
+                    if (!isStockControlledItem(policyProbe)) continue;
                     const relatedInventoryRows = inventory.filter(i => {
                         const sameId = item.inventoryItemId && i.id === item.inventoryItemId;
                         const sameName = (i.name || '').trim().toLowerCase() === normalizedItemName;
@@ -1204,7 +1208,7 @@ const POS = forwardRef<any, POSProps>(({
         } finally {
             setIsSaving(false);
         }
-    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment, getCustomerInvoiceOutstandingTotal, onCancel, fetchStats, hasPrescriptionItem]);
+    }, [cartItems, totals, selectedCustomer, invoiceDate, configurations, isNonGst, isSaving, onSaveOrUpdateTransaction, transactionToEdit, currentUser, customerSearch, customerPhone, onPrintBill, addNotification, lumpsumDiscount, billCategory, referredBy, prescriptions, shouldPreventNegativeStock, inventory, roundOff, grandTotal, reservedVoucherNumber, nextVoucherNumberHint, reserveNextVoucherNumber, creditCheck, doctorId, narration, adjustment, getCustomerInvoiceOutstandingTotal, onCancel, fetchStats, hasPrescriptionItem, isStockControlledItem]);
 
     const resetForm = useCallback(() => {
         setCartItems([]);
@@ -1424,6 +1428,8 @@ const POS = forwardRef<any, POSProps>(({
 
         // 1. First check the inventory
         inventory.forEach(i => {
+            const itemPolicy = getInventoryPolicy(i, medicines);
+            if (!itemPolicy.salesEnabled) return;
             const name = i.name.toLowerCase();
             const code = (i.code || '').toLowerCase();
             const barcode = (i.barcode || '').toLowerCase();
@@ -1450,6 +1456,8 @@ const POS = forwardRef<any, POSProps>(({
 
         // 2. Then check the material master (medicines)
         medicines.forEach(m => {
+            const medPolicy = getResolvedMedicinePolicy(m);
+            if (!medPolicy.salesEnabled) return;
             const name = m.name.toLowerCase();
             const materialCode = (m.materialCode || '').toLowerCase();
             const barcode = (m.barcode || '').toLowerCase();
@@ -1716,6 +1724,11 @@ const POS = forwardRef<any, POSProps>(({
         });
     };
     const triggerBatchSelection = (productWrapper: { item: InventoryItem; batches: InventoryItem[] }) => {
+        if (!isStockControlledItem(productWrapper.item)) {
+            addSelectedBatchToGrid(productWrapper.item);
+            return;
+        }
+
         const candidateBatches = productWrapper.batches
             .filter(b => isRealBatch(b.batch));
 
@@ -1764,12 +1777,18 @@ const POS = forwardRef<any, POSProps>(({
     };
 
     const addSelectedBatchToGrid = (batch: InventoryItem) => {
-        if (checkIsExpired(batch.expiry ? String(batch.expiry) : '')) {
+        const policy = getInventoryPolicy(batch, medicines);
+        if (!policy.salesEnabled) {
+            addNotification(`Sales is not enabled for ${batch.name}.`, 'error');
+            return;
+        }
+        const isStockControlled = isStockControlledPolicy(policy);
+        if (isStockControlled && checkIsExpired(batch.expiry ? String(batch.expiry) : '')) {
             addNotification(`Item ${batch.name} (Batch: ${batch.batch}) is expired and cannot be sold.`, 'error');
             return;
         }
 
-        if (shouldPreventNegativeStock && Number(batch.stock || 0) <= 0) {
+        if (shouldPreventNegativeStock && isStockControlled && Number(batch.stock || 0) <= 0) {
             addNotification('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.', 'error');
             return;
         }
@@ -1800,8 +1819,8 @@ const POS = forwardRef<any, POSProps>(({
             discountPercent: Number(activePriceRecord?.defaultDiscountPercent ?? linkedMedicine?.productDiscount ?? selectedCustomer?.defaultDiscount ?? 0),
             itemFlatDiscount: 0,
             taxBasis: batch.taxBasis,
-            batch: ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (batch.batch || ''),
-            expiry: formatExpiryForInput(batch.expiry ? String(batch.expiry) : ''),
+            batch: isStockControlled && ['NEW-STOCK', 'NEW-BATCH'].includes((batch.batch || '').trim().toUpperCase()) ? '' : (isStockControlled ? (batch.batch || '') : ''),
+            expiry: isStockControlled ? formatExpiryForInput(batch.expiry ? String(batch.expiry) : '') : '',
             rate: rateValue,
             schemeDiscountPercent: Number(activePriceRecord?.schemePercent || 0),
             schemeDisplayPercent: Number(activePriceRecord?.schemePercent || 0),
@@ -3121,8 +3140,10 @@ const POS = forwardRef<any, POSProps>(({
                                                 const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
                                                 const stripsStock = Math.floor(totalStock / unitsPerPack);
                                                 const looseStock = totalStock % unitsPerPack;
-                                                const isAnyBatchExpired = res.batches.some(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
-                                                const areAllBatchesExpired = res.batches.length > 0 && res.batches.every(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
+                                                const itemStockControlled = isStockControlledItem(item);
+                                                const stockToneClass = isSelected ? 'text-white' : (!itemStockControlled ? 'text-sky-700 group-hover:text-white' : (totalStock <= 0 ? 'text-red-500 group-hover:text-white' : 'text-emerald-700 group-hover:text-white'));
+                                                const isAnyBatchExpired = itemStockControlled && res.batches.some(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
+                                                const areAllBatchesExpired = itemStockControlled && res.batches.length > 0 && res.batches.every(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
 
                                                 return (
                                                     <tr
@@ -3143,9 +3164,9 @@ const POS = forwardRef<any, POSProps>(({
                                                             {item.code}
                                                         </td>
                                                         <td className={`p-1.5 px-3 border-r border-gray-200 ${matrixRowTextStyle} ${isSelected ? 'text-white/80' : 'group-hover:text-white text-gray-500'}`}>{item.manufacturer || item.brand}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500 group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{stripsStock}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500 group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{looseStock}</td>
-                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${isSelected ? 'text-white' : (totalStock <= 0 ? 'text-red-500 group-hover:text-white' : 'text-emerald-700 group-hover:text-white')}`}>{totalStock}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${stockToneClass}`}>{itemStockControlled ? stripsStock : 'Service'}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${stockToneClass}`}>{itemStockControlled ? looseStock : 'N/A'}</td>
+                                                        <td className={`p-1.5 px-3 border-r border-gray-200 text-center ${matrixRowTextStyle} ${stockToneClass}`}>{itemStockControlled ? totalStock : 'N/A'}</td>
                                                         <td className={`p-1.5 px-3 text-right ${matrixRowTextStyle} ${isSelected ? 'text-white' : 'group-hover:text-white text-gray-900'}`}>₹{(item.mrp || 0).toFixed(2)}</td>
                                                     </tr>
                                                 );
