@@ -4,6 +4,7 @@ import { numberToWords } from '../../utils/numberToWords';
 import { isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import BankDetailsInline from './BankDetailsInline';
+import { resolveInvoiceDisplayName, resolveInvoiceDisplayPack } from '../../utils/invoicePrint';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations };
@@ -50,7 +51,7 @@ const MediThreeTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portr
         ...item,
         sn: index + 1,
         manufacturer: item.manufacturer || inventoryItem?.manufacturer || '-',
-        pack: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack}` : '-'),
+        pack: resolveInvoiceDisplayPack(item, inventoryItem),
         hsn: item.hsnCode || inventoryItem?.hsnCode || '-',
         batch: item.batch || inventoryItem?.batch || '-',
         qtyText: formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity),

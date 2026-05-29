@@ -349,6 +349,13 @@ export interface BillItem {
     baseUnit?: string;
     packUnit?: string;
     packType?: string;
+    materialMasterType?: Medicine['materialMasterType'];
+    material_master_type?: string;
+    isInventorised?: boolean;
+    inventorised?: boolean;
+    materialMasterPack?: string;
+    pack?: string;
+    batch_pack?: string;
     taxBasis?: TaxCalculationBasis;
     appliedDiscountId?: string;
     appliedDiscountValue?: number;

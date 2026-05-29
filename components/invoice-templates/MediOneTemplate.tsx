@@ -6,6 +6,7 @@ import { formatPackLooseQuantity } from '../../utils/quantity';
 import { numberToWords } from '../../utils/numberToWords';
 import { resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 import BankDetailsInline from './BankDetailsInline';
+import { resolveInvoiceDisplayName, resolveInvoiceDisplayPack } from '../../utils/invoicePrint';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -62,7 +63,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
         ...item,
         sn: idx + 1,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
-        packSize: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : ''),
+        packSize: resolveInvoiceDisplayPack(item, inventoryItem),
         batch: item.batch || inventoryItem?.batch || '',
         expiry: item.expiry || (inventoryItem?.expiry ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' }) : ''),
         taxableVal,
@@ -70,8 +71,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
         lineTotal: lineAmount,
         billedRate: rate,
         displayName: (() => {
-          const packLabel = item.packType?.trim() || inventoryItem?.packType?.trim() || '';
-          return packLabel ? `${item.name} (${packLabel})` : item.name;
+          return resolveInvoiceDisplayName(item, inventoryItem);
         })()
       };
     });
@@ -217,6 +217,7 @@ const MediOneTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrai
                 <tr key={item.id}>
                   <td className="text-center">{(pageIdx * ITEMS_PER_PAGE) + idx + 1}</td>
                   <td className="font-semibold uppercase truncate">{item.displayName}</td>
+                  <td className="text-center font-mono text-[7.5pt]">{item.packSize}</td>
                   <td className="text-center font-mono text-[7.5pt]">{item.batch}</td>
                   <td className="text-center text-[7pt]">{item.expiry}</td>
                   <td className="text-center font-semibold">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>

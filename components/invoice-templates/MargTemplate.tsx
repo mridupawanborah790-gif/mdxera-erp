@@ -11,6 +11,7 @@ import {
 import { calculateCustomerReceivableBreakdown } from '../../utils/helpers';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import BankDetailsInline from './BankDetailsInline';
+import { resolveInvoiceDisplayName, resolveInvoiceDisplayPack } from '../../utils/invoicePrint';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations };
@@ -141,7 +142,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
       return {
         ...item,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
-        pack: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack}` : ''),
+        pack: resolveInvoiceDisplayPack(item, inventoryItem),
         batch: item.batch || inventoryItem?.batch || '',
         expiry: item.expiry || (inventoryItem?.expiry
           ? new Date(inventoryItem.expiry).toLocaleDateString('en-GB', { month: '2-digit', year: '2-digit' })
@@ -151,8 +152,7 @@ const MargTemplate: React.FC<TemplateProps> = ({ bill, orientation = 'portrait' 
         displayQty: formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity),
         taxableVal, gstAmt, lineTotal: lineAmount,
         displayName: (() => {
-          const p = item.packType?.trim() || inventoryItem?.packType?.trim() || '';
-          return p ? `${item.name} (${p})` : item.name;
+          return resolveInvoiceDisplayName(item, inventoryItem);
         })(),
       };
     });

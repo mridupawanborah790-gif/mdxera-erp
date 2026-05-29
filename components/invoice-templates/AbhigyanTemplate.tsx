@@ -4,6 +4,7 @@ import { numberToWords } from '../../utils/numberToWords';
 import { formatPackLooseQuantity } from '../../utils/quantity';
 import { isRateFieldAvailable, resolveEffectivePricingMode, resolvePosLineAmountCalculationMode } from '../../utils/billing';
 import BankDetailsInline from './BankDetailsInline';
+import { resolveInvoiceDisplayName, resolveInvoiceDisplayPack } from '../../utils/invoicePrint';
 
 interface TemplateProps {
   bill: DetailedBill & { inventory?: InventoryItem[]; configurations: AppConfigurations; };
@@ -54,15 +55,14 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
         ...item,
         sn: idx + 1,
         hsn: item.hsnCode || inventoryItem?.hsnCode || '',
-        packSize: item.packType || inventoryItem?.packType || item.unitOfMeasurement || (item.unitsPerPack ? `${item.unitsPerPack} units` : ''),
+        packSize: resolveInvoiceDisplayPack(item, inventoryItem),
         gstRate: item.gstPercent || 0,
         taxableVal,
         gstAmt,
         lineTotal: lineAmount,
         billedRate: rate,
         displayName: (() => {
-          const packLabel = item.packType?.trim() || inventoryItem?.packType?.trim() || '';
-          return packLabel ? `${item.name} (${packLabel})` : item.name;
+          return resolveInvoiceDisplayName(item, inventoryItem);
         })(),
         unitLabel: item.packType || 'pkt'
       };
@@ -216,6 +216,7 @@ const AbhigyanTemplate: React.FC<TemplateProps> = ({ bill }) => {
                   <tr key={item.id} className="row-min-h">
                       <td className="text-center">{(pageIdx * ITEMS_PER_PAGE) + index + 1}</td>
                       <td className="font-bold truncate">{item.displayName}</td>
+                      <td className="text-center">{item.packSize}</td>
                       <td className="text-center">{item.hsn}</td>
                       <td className="text-center">{item.gstRate}%</td>
                       <td className="text-center">{formatPackLooseQuantity(item.quantity, item.looseQuantity, item.freeQuantity)}</td>

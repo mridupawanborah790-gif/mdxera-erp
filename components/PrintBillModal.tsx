@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 // Fix: Added AppConfigurations to imports
 import type { DetailedBill, InventoryItem, Medicine, AppConfigurations } from '../types';
@@ -71,8 +71,42 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
   const isInvoice7 = template === 'invoice-7';
   const printWidth = isInvoice7 ? '100mm' : (isThermal ? '76mm' : (isLandscape ? '210mm' : '148mm'));
   const printMinHeight = (isThermal || isInvoice7) ? 'auto' : (template === 'medi-3' ? 'auto' : (isLandscape ? '148mm' : '210mm'));
+
+  const printableBill = useMemo(() => {
+    if (!bill) return null;
+
+    const normalize = (value?: string | null) => String(value || '').trim().toLowerCase();
+    const medicineById = new Map(_medicines.map((medicine) => [medicine.id, medicine]));
+    const medicineByCode = new Map(_medicines.filter((medicine) => medicine.materialCode).map((medicine) => [normalize(medicine.materialCode), medicine]));
+
+    return {
+      ...bill,
+      items: (bill.items || []).map((item) => {
+        const inventoryItem = bill.inventory?.find((inv) => inv.id === item.inventoryItemId);
+        const linkedMedicine = medicineById.get(item.inventoryItemId)
+          || medicineByCode.get(normalize((item as any).materialCode || inventoryItem?.code))
+          || _medicines.find((medicine) => {
+            const sameName = normalize(medicine.name) === normalize(item.name);
+            const itemBrand = normalize(item.brand || inventoryItem?.brand);
+            return sameName && (!itemBrand || normalize(medicine.brand) === itemBrand);
+          });
+
+        if (!linkedMedicine) return item;
+
+        return {
+          ...item,
+          materialMasterType: item.materialMasterType ?? linkedMedicine.materialMasterType,
+          material_master_type: item.material_master_type ?? linkedMedicine.materialMasterType,
+          isInventorised: item.isInventorised ?? linkedMedicine.isInventorised,
+          inventorised: item.inventorised ?? linkedMedicine.isInventorised,
+          materialMasterPack: item.materialMasterPack ?? linkedMedicine.pack ?? '',
+          pack: item.pack ?? linkedMedicine.pack ?? '',
+        };
+      }),
+    };
+  }, [bill, _medicines]);
     
-  if (!isOpen || !bill) return null;
+  if (!isOpen || !bill || !printableBill) return null;
 
   const triggerBrowserPrint = () => {
     const originalTitle = document.title;
@@ -166,14 +200,14 @@ const PrintBillModal: React.FC<PrintBillModalProps> = ({ isOpen, onClose, bill, 
 
   const renderTemplate = () => {
     switch (template) {
-        case 'medi-1': return <MediOneTemplate bill={bill} orientation={effectiveOrientation} />;
-        case 'marg': return <MargTemplate bill={bill} orientation={effectiveOrientation} />;
-        case 'gft': return <GftTemplate bill={bill} />;
-        case 'abhigyan': return <AbhigyanTemplate bill={bill} />;
-        case 'medi-3': return <MediThreeTemplate bill={bill} orientation={effectiveOrientation} />;
-        case 'thermal': return <ThermalTemplate bill={bill} />;
-        case 'invoice-7': return <Invoice7Template bill={bill} />;
-        default: return <MargTemplate bill={bill} orientation={effectiveOrientation} />;
+        case 'medi-1': return <MediOneTemplate bill={printableBill} orientation={effectiveOrientation} />;
+        case 'marg': return <MargTemplate bill={printableBill} orientation={effectiveOrientation} />;
+        case 'gft': return <GftTemplate bill={printableBill} />;
+        case 'abhigyan': return <AbhigyanTemplate bill={printableBill} />;
+        case 'medi-3': return <MediThreeTemplate bill={printableBill} orientation={effectiveOrientation} />;
+        case 'thermal': return <ThermalTemplate bill={printableBill} />;
+        case 'invoice-7': return <Invoice7Template bill={printableBill} />;
+        default: return <MargTemplate bill={printableBill} orientation={effectiveOrientation} />;
     }
   };
 

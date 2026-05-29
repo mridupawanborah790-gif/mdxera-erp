@@ -1478,7 +1478,7 @@ const POS = forwardRef<any, POSProps>(({
                         category: 'Medicine',
                         manufacturer: m.manufacturer || '',
                         stock: 0,
-                        unitsPerPack: parseInt(m.pack?.match(/\d+/)?.[0] || '10', 10),
+                        unitsPerPack: medPolicy.inventorised ? parseInt(m.pack?.match(/\d+/)?.[0] || '1', 10) : 1,
                         packType: m.pack || '',
                         minStockLimit: 0,
                         batch: 'NEW-STOCK',
@@ -1827,8 +1827,14 @@ const POS = forwardRef<any, POSProps>(({
             schemeCalculationBasis: (activePriceRecord?.schemeCalculationBasis || activePriceRecord?.schemeType) === 'before_discount' ? 'before_discount' : 'after_discount',
             schemeFormat: activePriceRecord?.schemeFormat || '',
             schemeRate: Number(activePriceRecord?.schemeRate || 0),
-            unitsPerPack: resolveUnitsPerStrip(batch.unitsPerPack, batch.packType),
-            packType: batch.packType
+            unitsPerPack: policy.inventorised ? resolveUnitsPerStrip(batch.unitsPerPack, batch.packType) : 1,
+            packType: batch.packType,
+            materialMasterType: linkedMedicine?.materialMasterType || policy.type,
+            material_master_type: linkedMedicine?.materialMasterType || policy.type,
+            isInventorised: linkedMedicine?.isInventorised ?? policy.inventorised,
+            inventorised: linkedMedicine?.isInventorised ?? policy.inventorised,
+            materialMasterPack: linkedMedicine?.pack || '',
+            pack: linkedMedicine?.pack || ''
         };
 
         const newItem = normalizePackConversion(selectedItem);
