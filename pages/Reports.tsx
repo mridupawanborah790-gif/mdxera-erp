@@ -28,6 +28,7 @@ type SortDirection = 'asc' | 'desc';
 type MfrSalesViewMode = 'detailed' | 'productSummary';
 type StockMovementViewMode = 'detailed' | 'productSummary';
 type InventoryValueViewMode = 'batchWise' | 'productWise';
+type FilterValueMatchMode = 'exact' | 'contains';
 
 const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
 const parsePackSize = (pack: string | null | undefined) => {
@@ -137,6 +138,7 @@ const Reports: React.FC<ReportsProps> = ({
   const [draftFilters, setDraftFilters] = useState<Record<string, string[]>>({});
   const [filterSearchTerm, setFilterSearchTerm] = useState('');
   const [filterCardSearch, setFilterCardSearch] = useState<Record<string, string>>({});
+  const [filterValueMatchModes, setFilterValueMatchModes] = useState<Record<string, FilterValueMatchMode>>({});
   const [columnModalOpen, setColumnModalOpen] = useState(false);
   const filterSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [mfrSalesViewMode, setMfrSalesViewMode] = useState<MfrSalesViewMode>('detailed');
@@ -194,6 +196,7 @@ const Reports: React.FC<ReportsProps> = ({
     let title = reportById.get(reportId)?.name || 'MIS Report';
 
     const customerByName = new Map(customers.map(c => [c.name, c]));
+    const customerById = new Map(customers.map(c => [c.id, c]));
     const doctorById = new Map(doctors.map(d => [d.id, d]));
     const doctorByName = new Map(doctors.filter(d => (d.name || '').trim()).map(d => [(d.name || '').trim().toLowerCase(), d] as const));
 
@@ -617,18 +620,30 @@ const Reports: React.FC<ReportsProps> = ({
       }
 
       case 'itemWiseSales': {
-        reportHeaders = ['Item Name', 'HSN', 'Quantity Sold', 'Free Qty', 'Gross Value', 'Discount', 'GST', 'Net Value'];
-        const map = new Map<string, any>();
-        completedSales.forEach(tx => tx.items.forEach((item: any) => {
-          const key = `${item.name}|${item.hsnCode || ''}`;
-          const current = map.get(key) || { name: item.name, hsn: item.hsnCode || 'N/A', qty: 0, free: 0, gross: 0, discount: 0, gst: 0, net: 0 };
-          const gross = (Number(item.quantity || 0) + Number(item.freeQuantity || 0)) * Number(item.rate ?? item.mrp ?? 0);
-          const discount = Number(item.itemFlatDiscount || 0) + (Number(item.quantity || 0) * Number(item.rate ?? item.mrp ?? 0) * (Number(item.discountPercent || 0) / 100)) + Number(item.schemeDiscountAmount || 0);
-          const taxable = Number(item.quantity || 0) * Number(item.rate ?? item.mrp ?? 0) - discount;
-          const gst = taxable * (Number(item.gstPercent || 0) / 100);
-          map.set(key, { ...current, qty: current.qty + Number(item.quantity || 0), free: current.free + Number(item.freeQuantity || 0), gross: current.gross + gross, discount: current.discount + discount, gst: current.gst + gst, net: current.net + (gross - discount + gst) });
-        }));
-        rows = Array.from(map.values()).map((v: any) => ({ 'Item Name': v.name, 'HSN': v.hsn, 'Quantity Sold': round2(v.qty), 'Free Qty': round2(v.free), 'Gross Value': round2(v.gross), 'Discount': round2(v.discount), 'GST': round2(v.gst), 'Net Value': round2(v.net) }));
+        reportHeaders = ['Invoice No', 'Bill Date', 'Customer Name', 'Item Name', 'HSN', 'Quantity Sold', 'Free Qty', 'Gross Value', 'Discount', 'GST', 'Net Value'];
+        rows = completedSales.flatMap(tx => {
+          const customer = (tx.customerId ? customerById.get(tx.customerId) : undefined) || customerByName.get(tx.customerName);
+          return tx.items.map((item: any) => {
+            const gross = (Number(item.quantity || 0) + Number(item.freeQuantity || 0)) * Number(item.rate ?? item.mrp ?? 0);
+            const discount = Number(item.itemFlatDiscount || 0) + (Number(item.quantity || 0) * Number(item.rate ?? item.mrp ?? 0) * (Number(item.discountPercent || 0) / 100)) + Number(item.schemeDiscountAmount || 0);
+            const taxable = Number(item.quantity || 0) * Number(item.rate ?? item.mrp ?? 0) - discount;
+            const gst = taxable * (Number(item.gstPercent || 0) / 100);
+            return {
+              'Invoice No': tx.invoiceNumber || tx.id,
+              'Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
+              'Customer Name': tx.customerName,
+              'Customer Group': customer?.customerGroup || 'N/A',
+              'Item Name': item.name,
+              'HSN': item.hsnCode || 'N/A',
+              'Quantity Sold': round2(item.quantity || 0),
+              'Free Qty': round2(item.freeQuantity || 0),
+              'Gross Value': round2(gross),
+              'Discount': round2(discount),
+              'GST': round2(gst),
+              'Net Value': round2(gross - discount + gst),
+            };
+          });
+        });
         break;
       }
       case 'categoryWiseSales': {
@@ -1313,15 +1328,19 @@ const Reports: React.FC<ReportsProps> = ({
     return true;
   };
 
+  const reportFilterFields = useMemo(() => {
+    return activeReportId === 'itemWiseSales' ? [...headers, 'Customer Group'] : headers;
+  }, [activeReportId, headers]);
+
   const filterOptions = useMemo(() => {
-    return headers.reduce<Record<string, string[]>>((acc, col) => {
+    return reportFilterFields.reduce<Record<string, string[]>>((acc, col) => {
       acc[col] = Array.from(new Set(baseData
         .map(row => String(row[col] ?? '').trim())
         .filter(isFilterValueSelectable)))
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       return acc;
     }, {});
-  }, [headers, baseData]);
+  }, [reportFilterFields, baseData]);
 
   const totals = useMemo(() => {
     const numericColumns = headers.filter(col => filteredData.some(row => typeof row[col] === 'number'));
@@ -1424,11 +1443,11 @@ const Reports: React.FC<ReportsProps> = ({
     const blockedKeywords = ['mrp', 'amount', 'rate', 'value', 'discount', 'taxable', 'tax', 'gst', 'net'];
     const supplierWiseColumns = ['Product Name', 'Supplier Name', 'Batch Number', 'Expiry Date', 'Stock Status', 'Near Expiry', 'MFR', 'HSN Code'];
     const columns = activeReportId === 'supplierWiseProductList'
-      ? headers.filter(col => supplierWiseColumns.includes(col))
-      : headers.filter(col => !blockedKeywords.some(keyword => col.toLowerCase().includes(keyword)));
+      ? reportFilterFields.filter(col => supplierWiseColumns.includes(col))
+      : reportFilterFields.filter(col => !blockedKeywords.some(keyword => col.toLowerCase().includes(keyword)));
 
     return columns.filter(col => (filterOptions[col] || []).length > 0);
-  }, [activeReportId, headers, filterOptions]);
+  }, [activeReportId, reportFilterFields, filterOptions]);
 
   const visibleFilterColumns = useMemo(() => {
     const query = filterSearchTerm.trim().toLowerCase();
@@ -1673,7 +1692,7 @@ const Reports: React.FC<ReportsProps> = ({
                   )}
                 </div>
               )}
-              <button onClick={() => { setDraftFilters(activeFilters); setFilterSearchTerm(''); setFilterCardSearch({}); setFilterModalOpen(true); }} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Filter</button>
+              <button onClick={() => { setDraftFilters(activeFilters); setFilterSearchTerm(''); setFilterCardSearch({}); setFilterValueMatchModes({}); setFilterModalOpen(true); }} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Filter</button>
               <button onClick={() => setColumnModalOpen(true)} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Columns</button>
               <button onClick={handlePreview} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Preview</button>
               <button onClick={exportCsv} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">CSV</button>
@@ -1808,7 +1827,7 @@ const Reports: React.FC<ReportsProps> = ({
               <div className="text-gray-500">Select a row to view details.</div>
             ) : (
               <>
-                {Object.entries(selectedRow).map(([key, value]) => (
+                {headers.map(key => [key, selectedRow[key]] as const).map(([key, value]) => (
                   <div key={key} className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1">
                     <div className="font-semibold text-gray-600">{key}</div>
                     <div className="break-words">{String(value ?? '-')}</div>
@@ -1884,8 +1903,9 @@ const Reports: React.FC<ReportsProps> = ({
                 const cardSearch = (filterCardSearch[col] || '').trim().toLowerCase();
                 const hasCardSearch = cardSearch.length > 0;
                 const allValues = filterOptions[col] || [];
+                const matchMode = filterValueMatchModes[col] || 'contains';
                 const values = hasCardSearch
-                  ? allValues.filter(value => String(value).toLowerCase().includes(cardSearch))
+                  ? allValues.filter(value => matchMode === 'exact' ? String(value).toLowerCase() === cardSearch : String(value).toLowerCase().includes(cardSearch))
                   : [];
                 const selectedCount = (draftFilters[col] || []).length;
                 return (
@@ -1895,15 +1915,21 @@ const Reports: React.FC<ReportsProps> = ({
                       <div className="text-[10px] text-gray-600">Selected: {selectedCount}</div>
                       <div className="text-[10px] text-gray-600">Showing: {values.length} / Total: {allValues.length}</div>
                     </div>
-                    <input
-                      type="text"
-                      value={filterCardSearch[col] || ''}
-                      onChange={(e) => setFilterCardSearch(prev => ({ ...prev, [col]: e.target.value }))}
-                      placeholder="Search value..."
-                      className="mb-2 w-full border border-gray-300 px-2 py-1"
-                    />
                     <div className="mb-2 flex gap-2">
-                      <button onClick={() => setDraftFilters(prev => ({ ...prev, [col]: [...(filterOptions[col] || [])] }))} className="border border-gray-300 px-2 py-1">Select all</button>
+                      <select value={matchMode} onChange={(e) => setFilterValueMatchModes(prev => ({ ...prev, [col]: e.target.value as FilterValueMatchMode }))} className="border border-gray-300 bg-white px-2 py-1" aria-label={`${col} match mode`}>
+                        <option value="exact">Exact Match</option>
+                        <option value="contains">Contains</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={filterCardSearch[col] || ''}
+                        onChange={(e) => setFilterCardSearch(prev => ({ ...prev, [col]: e.target.value }))}
+                        placeholder="Search value..."
+                        className="min-w-0 flex-1 border border-gray-300 px-2 py-1"
+                      />
+                    </div>
+                    <div className="mb-2 flex gap-2">
+                      <button onClick={() => setDraftFilters(prev => ({ ...prev, [col]: [...(hasCardSearch ? values : allValues)] }))} className="border border-gray-300 px-2 py-1">Select {hasCardSearch ? 'matching' : 'all'}</button>
                       <button onClick={() => setDraftFilters(prev => { const next = { ...prev }; delete next[col]; return next; })} className="border border-gray-300 px-2 py-1">Clear</button>
                     </div>
                     <div className="min-h-0 flex-1 overflow-auto space-y-1 bg-white p-1">
