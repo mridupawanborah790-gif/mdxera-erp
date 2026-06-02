@@ -1615,9 +1615,6 @@ const Reports: React.FC<ReportsProps> = ({
         setFilterSearchTerm('');
         setFilterCardSearch({});
         setFilterModalOpen(true);
-      } else if (key === 'c') {
-        event.preventDefault();
-        setColumnModalOpen(true);
       }
     };
 
