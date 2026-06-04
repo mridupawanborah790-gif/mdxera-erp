@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Card from '../components/Card';
 import { supabase } from '../services/supabaseClient';
 import type { RegisteredPharmacy, MbcCard, MbcCardHistory, MbcCardTemplate, MbcCardType } from '../types';
@@ -197,6 +197,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
   const [historyRemarks, setHistoryRemarks] = useState('');
   const [showAddCardValuePopup, setShowAddCardValuePopup] = useState(false);
   const [addCardValueForm, setAddCardValueForm] = useState<AddCardValueForm>(EMPTY_ADD_CARD_VALUE_FORM);
+  const cardListKeyboardRef = useRef<HTMLDivElement>(null);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -263,6 +264,103 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       return true;
     });
   }, [cards, search, statusFilter, cardTypeFilter]);
+
+  const selectedCard = useMemo(() => cards.find(c => c.id === selectedCardId), [cards, selectedCardId]);
+
+  useEffect(() => {
+    if (activeScreen !== 'mbcCardList' || !selectedCardId) return;
+    if (!filteredCards.some(card => card.id === selectedCardId)) {
+      setSelectedCardId('');
+    }
+  }, [activeScreen, filteredCards, selectedCardId]);
+
+  const selectCardFromList = (card: MbcCard) => {
+    setSelectedCardId(card.id);
+    cardListKeyboardRef.current?.focus();
+  };
+
+  const moveCardSelection = (direction: 1 | -1) => {
+    if (!filteredCards.length) return;
+    const selectedIndex = filteredCards.findIndex(card => card.id === selectedCardId);
+    const fallbackIndex = direction === 1 ? 0 : filteredCards.length - 1;
+    const nextIndex = selectedIndex === -1
+      ? fallbackIndex
+      : Math.max(0, Math.min(filteredCards.length - 1, selectedIndex + direction));
+    setSelectedCardId(filteredCards[nextIndex].id);
+  };
+
+  const getSelectedCardOrWarn = () => {
+    const card = selectedCard || filteredCards.find(c => c.id === selectedCardId);
+    if (!card) {
+      alert('Please select a card first.');
+      return null;
+    }
+    return card;
+  };
+
+  const handleSelectedCardAction = async (action: 'edit' | 'print' | 'renewUpgrade' | 'addValue' | 'deactivate') => {
+    const card = getSelectedCardOrWarn();
+    if (!card) return;
+
+    if (action === 'edit') {
+      await loadCardForEdit(card);
+      return;
+    }
+    if (action === 'print') {
+      setSelectedCardId(card.id);
+      onNavigate('mbcCardPrintPreview');
+      return;
+    }
+    if (action === 'renewUpgrade') {
+      setSelectedCardId(card.id);
+      onNavigate('mbcCardRenewalHistory');
+      return;
+    }
+    if (action === 'addValue') {
+      openAddCardValuePopup(card);
+      return;
+    }
+
+    if (!window.confirm(`Deactivate MBC card ${card.card_number}?`)) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('mbc_cards')
+        .update({ status: 'inactive', updated_at: new Date().toISOString() })
+        .eq('id', card.id)
+        .eq('organization_id', currentUser.organization_id);
+      if (error) {
+        alert(error.message);
+        return;
+      }
+      await fetchCards();
+      await fetchRenewalHistory();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCardListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveCardSelection(1);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveCardSelection(-1);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void handleSelectedCardAction('edit');
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setSelectedCardId('');
+    }
+  };
 
   const generateCardNumber = (type?: MbcCardType) => {
     if (!type) return '';
@@ -929,19 +1027,43 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                 <option value="inactive">Inactive</option>
               </select>
             </div>
-            <div className="overflow-auto">
+            <div className="flex flex-col gap-2 border border-gray-200 bg-gray-50 p-2 md:flex-row md:items-center md:justify-between">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-gray-600">
+                Selected Card: {selectedCard ? `${selectedCard.card_number} - ${selectedCard.customer_name}` : 'None'}
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button className="px-3 py-2 bg-primary text-white font-black uppercase disabled:cursor-not-allowed disabled:opacity-40" disabled={!selectedCardId || loadingEditCard} onClick={() => void handleSelectedCardAction('edit')}>Edit</button>
+                <button className="px-3 py-2 border border-gray-400 bg-white font-black uppercase disabled:cursor-not-allowed disabled:opacity-40" disabled={!selectedCardId} onClick={() => void handleSelectedCardAction('print')}>Print</button>
+                <button className="px-3 py-2 border border-gray-400 bg-white font-black uppercase disabled:cursor-not-allowed disabled:opacity-40" disabled={!selectedCardId} onClick={() => void handleSelectedCardAction('renewUpgrade')}>Renew/Upgrade</button>
+                <button className="px-3 py-2 border border-gray-400 bg-white font-black uppercase disabled:cursor-not-allowed disabled:opacity-40" disabled={!selectedCardId} onClick={() => void handleSelectedCardAction('addValue')}>Add Card Value</button>
+                <button className="px-3 py-2 border border-red-400 bg-white text-red-700 font-black uppercase disabled:cursor-not-allowed disabled:opacity-40" disabled={!selectedCardId || loading} onClick={() => void handleSelectedCardAction('deactivate')}>Deactivate</button>
+              </div>
+            </div>
+            <div
+              ref={cardListKeyboardRef}
+              className="overflow-auto outline-none focus:ring-2 focus:ring-primary/40"
+              tabIndex={0}
+              onKeyDown={handleCardListKeyDown}
+              aria-label="MBC card list. Use Arrow Up and Arrow Down to move selection, Enter to edit, and Escape to clear selection."
+            >
               <table className="w-full text-xs border-collapse">
                 <thead className="bg-gray-100 sticky top-0"><tr>
-                  {['Card Number', 'Customer Name', 'Date of Birth', 'Address', 'Phone Number', 'Card Type', 'Card Value', 'Validity From', 'Validity To', 'Validity Period', 'Status', 'Created By', 'Created Date', 'Actions'].map(h => (
+                  {['Card Number', 'Customer Name', 'Date of Birth', 'Address', 'Phone Number', 'Card Type', 'Card Value', 'Validity From', 'Validity To', 'Validity Period', 'Status', 'Created By', 'Created Date'].map(h => (
                     <th key={h} className="p-2 text-left border-r">{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
                   {filteredCards.map(card => {
                     const status = getCardStatus(card);
+                    const isSelected = selectedCardId === card.id;
                     return (
-                      <tr key={card.id} className="border-t">
-                        <td className="p-2">{card.card_number}</td>
+                      <tr
+                        key={card.id}
+                        className={`border-t cursor-pointer transition-colors ${isSelected ? 'bg-primary/10 outline outline-2 outline-primary/40' : 'hover:bg-gray-50'}`}
+                        onClick={() => selectCardFromList(card)}
+                        aria-selected={isSelected}
+                      >
+                        <td className="p-2 font-semibold">{card.card_number}</td>
                         <td className="p-2">{card.customer_name}</td>
                         <td className="p-2">{formatDateForDisplay(card.date_of_birth)}</td>
                         <td className="p-2">{[card.address_line_1, card.address_line_2, card.city].filter(Boolean).join(', ')}</td>
@@ -954,22 +1076,6 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                         <td className="p-2 uppercase font-bold">{status}</td>
                         <td className="p-2">{card.created_by}</td>
                         <td className="p-2">{formatDateForDisplay(card.created_at?.slice(0, 10))}</td>
-                        <td className="p-2 whitespace-nowrap">
-                          <button className="px-2 py-1 border mr-1" onClick={() => loadCardForEdit(card)}>Edit</button>
-                          <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardPrintPreview'); }}>Print</button>
-                          <button className="px-2 py-1 border mr-1" onClick={() => { setSelectedCardId(card.id); onNavigate('mbcCardRenewalHistory'); }}>Renew/Upgrade</button>
-                          <button className="px-2 py-1 border mr-1" onClick={() => openAddCardValuePopup(card)}>Add Card Value</button>
-                          <button className="px-2 py-1 border" onClick={async () => {
-                            setLoading(true);
-                            try {
-                              await supabase.from('mbc_cards').update({ status: 'inactive' }).eq('id', card.id);
-                              await fetchCards();
-                              await fetchRenewalHistory();
-                            } finally {
-                              setLoading(false);
-                            }
-                          }}>Deactivate</button>
-                        </td>
                       </tr>
                     );
                   })}
