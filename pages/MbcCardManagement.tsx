@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Card from '../components/Card';
 import { supabase } from '../services/supabaseClient';
-import type { RegisteredPharmacy, MbcCard, MbcCardHistory, MbcCardTemplate, MbcCardType } from '../types';
+import type { RegisteredPharmacy, MbcCard, MbcCardHistory, MbcCardTemplate, MbcCardType, MbcCardValueHistory } from '../types';
 
 export type MbcScreen =
   | 'mbcCardDashboard'
@@ -113,6 +113,24 @@ const formatDateForDisplay = (value?: string | null) => {
   if (!year || !month || !day) return value;
   return `${day}-${month}-${year}`;
 };
+
+const formatDateTimeForDisplay = (value?: string | null) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const formatCurrencyValue = (value?: number | string | null) => {
+  const numericValue = Number(value || 0);
+  return Number.isFinite(numericValue) ? numericValue.toFixed(2) : '0.00';
+};
 const getValidityPeriodText = (fromDate: string, toDate: string) => {
   const from = new Date(fromDate);
   const to = new Date(toDate);
@@ -184,6 +202,9 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
   const [templates, setTemplates] = useState<MbcCardTemplate[]>([]);
   const [cards, setCards] = useState<MbcCard[]>([]);
   const [history, setHistory] = useState<MbcCardHistory[]>([]);
+  const [valueHistory, setValueHistory] = useState<MbcCardValueHistory[]>([]);
+  const [valueHistoryCard, setValueHistoryCard] = useState<MbcCard | null>(null);
+  const [loadingValueHistory, setLoadingValueHistory] = useState(false);
 
   const [typeForm, setTypeForm] = useState<Partial<MbcCardType>>(EMPTY_TYPE);
   const [templateForm, setTemplateForm] = useState<Partial<MbcCardTemplate>>(EMPTY_TEMPLATE);
@@ -233,6 +254,23 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
     const updatedHistory = data || [];
     setHistory(updatedHistory);
     return updatedHistory;
+  };
+
+  const fetchValueHistory = async (card: MbcCard) => {
+    setLoadingValueHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('mbc_card_value_history')
+        .select('*')
+        .eq('card_id', card.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      const updatedValueHistory = data || [];
+      setValueHistory(updatedValueHistory);
+      return updatedValueHistory;
+    } finally {
+      setLoadingValueHistory(false);
+    }
   };
 
   const refreshMbcMasterData = async () => {
@@ -686,18 +724,41 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       return;
     }
 
+    const selectedValueCard = cards.find(card => card.id === addCardValueForm.cardId);
     const addedValue = enteredAmount;
-    const previousValue = Number(addCardValueForm.currentCardValue || 0);
+    const previousValue = Number(selectedValueCard?.card_value ?? addCardValueForm.currentCardValue ?? 0);
     const newValue = previousValue + addedValue;
+    const createdAt = new Date().toISOString();
     setLoading(true);
     try {
       const { error: updateError } = await supabase
         .from('mbc_cards')
-        .update({ card_value: newValue, updated_at: new Date().toISOString() })
+        .update({ card_value: newValue, updated_at: createdAt })
         .eq('id', addCardValueForm.cardId)
         .eq('organization_id', currentUser.organization_id);
       if (updateError) {
         alert(updateError.message);
+        return;
+      }
+
+      const { error: valueHistoryError } = await supabase.from('mbc_card_value_history').insert({
+        card_id: addCardValueForm.cardId,
+        card_number: addCardValueForm.cardNumber,
+        customer_name: addCardValueForm.customerName,
+        previous_value: previousValue,
+        added_value: addedValue,
+        new_value: newValue,
+        added_by: currentUser.full_name,
+        remarks: addCardValueForm.narration || '',
+        created_at: createdAt,
+      });
+      if (valueHistoryError) {
+        await supabase
+          .from('mbc_cards')
+          .update({ card_value: previousValue, updated_at: createdAt })
+          .eq('id', addCardValueForm.cardId)
+          .eq('organization_id', currentUser.organization_id);
+        alert(valueHistoryError.message);
         return;
       }
 
@@ -709,14 +770,59 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
         new_card_value: newValue,
         remarks: addCardValueForm.narration || '',
         action_by: currentUser.full_name,
-        action_date: new Date(addCardValueForm.valueDate).toISOString(),
+        action_date: createdAt,
       });
 
       closeAddCardValuePopup();
       await Promise.all([fetchCards(), fetchRenewalHistory(), fetchCardTypes(), fetchTemplates()]);
+      alert('Card value added successfully.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const openValueHistoryPopup = async (card: MbcCard) => {
+    setSelectedCardId(card.id);
+    setValueHistoryCard(card);
+    setValueHistory([]);
+    try {
+      await fetchValueHistory(card);
+    } catch (error: any) {
+      alert(error?.message || 'Unable to load card value history.');
+    }
+  };
+
+  const closeValueHistoryPopup = () => {
+    setValueHistoryCard(null);
+    setValueHistory([]);
+  };
+
+  const printValueHistory = () => {
+    window.print();
+  };
+
+  const exportValueHistory = () => {
+    if (!valueHistoryCard) return;
+    const headers = ['Date & Time', 'Card Number', 'Customer Name', 'Added Value', 'Previous Value', 'New Value', 'Added By', 'Remarks'];
+    const escapeCsv = (value: string | number | undefined | null) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = valueHistory.map(row => [
+      formatDateTimeForDisplay(row.created_at),
+      row.card_number,
+      row.customer_name || '',
+      row.added_value,
+      row.previous_value ?? 0,
+      row.new_value,
+      row.added_by || '',
+      row.remarks || '',
+    ]);
+    const csv = [headers, ...rows].map(row => row.map(escapeCsv).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${valueHistoryCard.card_number}-value-history.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const printPreviewCard = cards.find(c => c.id === selectedCardId) || cards[0];
@@ -772,6 +878,10 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
     };
     return map[activeScreen];
   };
+
+  const displayValueHistoryCard = valueHistoryCard
+    ? cards.find(card => card.id === valueHistoryCard.id) || valueHistoryCard
+    : null;
 
   const actionButtons = (
     <div className="flex gap-2 flex-wrap">
@@ -1069,7 +1179,19 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
                         <td className="p-2">{[card.address_line_1, card.address_line_2, card.city].filter(Boolean).join(', ')}</td>
                         <td className="p-2">{card.phone_number}</td>
                         <td className="p-2">{cardTypeMap.get(card.card_type_id)?.type_name || '-'}</td>
-                        <td className="p-2">{card.card_value}</td>
+                        <td className="p-2">
+                          <button
+                            type="button"
+                            className="font-black text-primary underline-offset-2 hover:underline focus:underline focus:outline-none"
+                            title={`View value history for ${card.card_number}`}
+                            onClick={event => {
+                              event.stopPropagation();
+                              void openValueHistoryPopup(card);
+                            }}
+                          >
+                            {formatCurrencyValue(card.card_value)}
+                          </button>
+                        </td>
                         <td className="p-2">{formatDateForDisplay(card.validity_from)}</td>
                         <td className="p-2">{formatDateForDisplay(card.validity_to)}</td>
                         <td className="p-2">{card.validity_period_text}</td>
@@ -1206,6 +1328,70 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
         )}
 
 
+      {displayValueHistoryCard && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col print:static print:z-auto">
+          <div className="flex items-center justify-between gap-3 border-b border-gray-300 bg-primary px-4 py-3 text-white print:bg-white print:text-black">
+            <div>
+              <div className="text-base font-black uppercase">MBC Card Value History - {displayValueHistoryCard.card_number}</div>
+              <div className="text-[11px] font-semibold opacity-90">Complete card details and add-value transaction history</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 print:hidden">
+              <button className="px-3 py-2 bg-white text-primary text-xs font-black uppercase" onClick={printValueHistory}>Print</button>
+              <button className="px-3 py-2 bg-white text-primary text-xs font-black uppercase" onClick={exportValueHistory}>Export</button>
+              <button className="px-3 py-2 border border-white text-xs font-black uppercase" onClick={closeValueHistoryPopup}>Close</button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto bg-gray-50 p-4 custom-scrollbar print:bg-white">
+            <Card className="mb-4 border border-gray-300 bg-white p-4">
+              <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-4">
+                <div><div className="font-black uppercase text-gray-500">Card Number</div><div className="font-bold">{displayValueHistoryCard.card_number}</div></div>
+                <div><div className="font-black uppercase text-gray-500">Customer Name</div><div className="font-bold">{displayValueHistoryCard.customer_name || '-'}</div></div>
+                <div><div className="font-black uppercase text-gray-500">Phone Number</div><div className="font-bold">{displayValueHistoryCard.phone_number || '-'}</div></div>
+                <div><div className="font-black uppercase text-gray-500">Card Type</div><div className="font-bold">{cardTypeMap.get(displayValueHistoryCard.card_type_id)?.type_name || '-'}</div></div>
+                <div><div className="font-black uppercase text-gray-500">Current Card Value</div><div className="font-bold">{formatCurrencyValue(displayValueHistoryCard.card_value)}</div></div>
+                <div><div className="font-black uppercase text-gray-500">Status</div><div className="font-bold uppercase">{getCardStatus(displayValueHistoryCard)}</div></div>
+                <div><div className="font-black uppercase text-gray-500">Validity From</div><div className="font-bold">{formatDateForDisplay(displayValueHistoryCard.validity_from)}</div></div>
+                <div><div className="font-black uppercase text-gray-500">Validity To</div><div className="font-bold">{formatDateForDisplay(displayValueHistoryCard.validity_to)}</div></div>
+              </div>
+            </Card>
+
+            <Card className="border border-gray-300 bg-white p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-sm font-black uppercase">Value History</div>
+                <div className="text-[11px] font-bold uppercase text-gray-500">Rows: {valueHistory.length}</div>
+              </div>
+              <div className="overflow-auto">
+                <table className="w-full min-w-[760px] border-collapse text-xs">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      {['Date & Time', 'Added Value', 'Previous Value', 'New Value', 'Added By', 'Remarks'].map(header => (
+                        <th key={header} className="border p-2 text-left">{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loadingValueHistory ? (
+                      <tr><td className="border p-4 text-center font-bold text-gray-500" colSpan={6}>Loading value history...</td></tr>
+                    ) : valueHistory.length === 0 ? (
+                      <tr><td className="border p-4 text-center font-bold text-gray-500" colSpan={6}>No value history found</td></tr>
+                    ) : valueHistory.map(row => (
+                      <tr key={row.id} className="border-t">
+                        <td className="border p-2">{formatDateTimeForDisplay(row.created_at)}</td>
+                        <td className="border p-2 font-bold text-green-700">{formatCurrencyValue(row.added_value)}</td>
+                        <td className="border p-2">{formatCurrencyValue(row.previous_value)}</td>
+                        <td className="border p-2 font-bold">{formatCurrencyValue(row.new_value)}</td>
+                        <td className="border p-2">{row.added_by || '-'}</td>
+                        <td className="border p-2">{row.remarks || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+
       {showAddCardValuePopup && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <Card className="w-full max-w-xl p-4 border border-gray-300 bg-white space-y-3">
@@ -1216,7 +1402,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
               <input className="border p-2 bg-gray-100" value={addCardValueForm.currentCardValue} readOnly placeholder="Current Card Value" />
               <input type="number" step="any" className="border p-2" placeholder="Add / Deduct Value Amount" value={addCardValueForm.addValueAmount} onChange={e => setAddCardValueForm(prev => ({ ...prev, addValueAmount: e.target.value === '' ? '' : Number(e.target.value) }))} />
               <input type="date" className="border p-2" value={addCardValueForm.valueDate} onChange={e => setAddCardValueForm(prev => ({ ...prev, valueDate: e.target.value }))} />
-              <input className="border p-2" placeholder="Narration / Remarks (optional)" value={addCardValueForm.narration} onChange={e => setAddCardValueForm(prev => ({ ...prev, narration: e.target.value }))} />
+              <input className="border p-2" placeholder="Remarks / Reference No (optional)" value={addCardValueForm.narration} onChange={e => setAddCardValueForm(prev => ({ ...prev, narration: e.target.value }))} />
             </div>
             <div className="flex gap-2 justify-end">
               <button className="px-3 py-2 bg-primary text-white text-xs font-black uppercase" onClick={saveAddedCardValue}>Save</button>
