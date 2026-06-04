@@ -1242,6 +1242,19 @@ export interface MbcCard {
     updated_at?: string;
 }
 
+export interface MbcCardValueHistory {
+    id: string;
+    card_id: string;
+    card_number: string;
+    customer_name?: string;
+    previous_value?: number;
+    added_value: number;
+    new_value: number;
+    added_by?: string;
+    remarks?: string;
+    created_at?: string;
+}
+
 export interface MbcCardHistory {
     id: string;
     organization_id: string;
