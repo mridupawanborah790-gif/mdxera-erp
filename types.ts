@@ -1244,6 +1244,7 @@ export interface MbcCard {
 
 export interface MbcCardValueHistory {
     id: string;
+    organization_id: string;
     card_id: string;
     card_number: string;
     customer_name?: string;

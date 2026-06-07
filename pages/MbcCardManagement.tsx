@@ -262,6 +262,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       const { data, error } = await supabase
         .from('mbc_card_value_history')
         .select('*')
+        .eq('organization_id', currentUser.organization_id)
         .eq('card_id', card.id)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -742,6 +743,7 @@ const MbcCardManagement: React.FC<Props> = ({ currentUser, activeScreen, onNavig
       }
 
       const { error: valueHistoryError } = await supabase.from('mbc_card_value_history').insert({
+        organization_id: currentUser.organization_id,
         card_id: addCardValueForm.cardId,
         card_number: addCardValueForm.cardNumber,
         customer_name: addCardValueForm.customerName,
