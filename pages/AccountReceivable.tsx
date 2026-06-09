@@ -21,6 +21,8 @@ interface BankOption {
 
 interface ReceivableInvoiceRow {
     id: string;
+    salesBillId: string;
+    customerId: string;
     invoiceNumber?: string;
     date: string;
     invoiceAmount: number;
@@ -38,6 +40,15 @@ interface VoucherAllocationSummary {
     adjustedAmount: number;
     remainingAmount: number;
     status: 'Open / Unadjusted' | 'Partially Adjusted' | 'Fully Adjusted' | 'Cancelled';
+}
+
+interface VoucherInvoiceAllocation {
+    invoice_id: string;
+    sales_bill_id: string;
+    customer_id: string;
+    invoice_number: string;
+    outstanding_amount: number;
+    allocated_amount: number;
 }
 
 interface AccountReceivableProps {
@@ -90,6 +101,8 @@ const escapeHtml = (value: string): string => value
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 
+const normalizeStableId = (value?: string | number | null): string => String(value ?? '').trim();
+
 const formatDisplayDate = (value?: string): string => {
     if (!value) return '-';
     const parsed = new Date(value);
@@ -103,10 +116,20 @@ const getReceivableInvoiceRowsForCustomer = (
 ): ReceivableInvoiceRow[] => {
     if (!customer || !Array.isArray(transactions)) return [];
 
+    const selectedCustomerId = normalizeStableId(customer.id);
+    const normalizedCustomerName = (customer.name || '').trim().toLowerCase();
+
     const sales: ReceivableInvoiceRow[] = transactions
-        .filter(t => t && t.status !== 'cancelled' && (t.customerId === customer.id || (t.customerName || '').trim().toLowerCase() === (customer.name || '').trim().toLowerCase()))
+        .filter(t => {
+            if (!t || t.status === 'cancelled') return false;
+            const transactionCustomerId = normalizeStableId(t.customerId);
+            if (transactionCustomerId && selectedCustomerId) return transactionCustomerId === selectedCustomerId;
+            return (t.customerName || '').trim().toLowerCase() === normalizedCustomerName;
+        })
         .map(t => ({
-            id: t.id,
+            id: normalizeStableId(t.id),
+            salesBillId: normalizeStableId(t.id),
+            customerId: normalizeStableId(t.customerId) || selectedCustomerId,
             invoiceNumber: t.invoiceNumber,
             date: t.date,
             invoiceAmount: Number(t.total || 0),
@@ -201,7 +224,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
     const [isAmountManuallyEdited, setIsAmountManuallyEdited] = useState(false);
     const [adjustmentVoucher, setAdjustmentVoucher] = useState<TransactionLedgerItem | null>(null);
     const [adjustmentDate, setAdjustmentDate] = useState(new Date().toISOString().split('T')[0]);
-    const [voucherInvoiceAdjustments, setVoucherInvoiceAdjustments] = useState<Record<string, number>>({});
+    const [voucherInvoiceAdjustments, setVoucherInvoiceAdjustments] = useState<Record<string, VoucherInvoiceAllocation>>({});
 
     const normalizedPaymentMode = paymentMode.trim().toLowerCase();
     const isCashMode = normalizedPaymentMode === 'cash';
@@ -620,20 +643,35 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         if (!selectedCustomer || !adjustmentVoucher) return;
         const summary = getVoucherAllocationSummary(adjustmentVoucher);
         if (summary.remainingAmount <= 0) throw new Error('Selected voucher is already fully adjusted.');
-        const allocations = Object.entries(voucherInvoiceAdjustments)
-            .map(([invoiceId, allocated]) => ({ invoiceId, allocated: Number(allocated || 0) }))
-            .filter(({ allocated }) => allocated > 0);
+        const allocations = Object.values(voucherInvoiceAdjustments)
+            .map((allocation) => ({
+                ...allocation,
+                invoice_id: normalizeStableId(allocation.invoice_id),
+                sales_bill_id: normalizeStableId(allocation.sales_bill_id),
+                customer_id: normalizeStableId(allocation.customer_id),
+                invoice_number: String(allocation.invoice_number || '').trim(),
+                outstanding_amount: Number(allocation.outstanding_amount || 0),
+                allocated_amount: Number(allocation.allocated_amount || 0),
+            }))
+            .filter(({ allocated_amount }) => allocated_amount > 0);
         if (allocations.length === 0) throw new Error('Enter at least one invoice allocation.');
-        const totalAllocation = allocations.reduce((sum, row) => sum + row.allocated, 0);
+        const totalAllocation = allocations.reduce((sum, row) => sum + row.allocated_amount, 0);
         if (totalAllocation > summary.remainingAmount + 0.001) throw new Error('Cannot allocate more than voucher unadjusted balance.');
 
         setIsSubmitting(true);
         setSubmitError('');
         try {
             for (const allocation of allocations) {
-                const invoice = openReceivableInvoiceRows.find((row) => row.id === allocation.invoiceId);
-                if (!invoice) throw new Error('One or more invoices are unavailable for adjustment.');
-                if (allocation.allocated > invoice.balance + 0.001) throw new Error(`Allocated amount exceeds pending balance for invoice ${invoice.invoiceNumber || invoice.id}.`);
+                const invoice = openReceivableInvoiceRows.find((row) => (
+                    normalizeStableId(row.id) === allocation.invoice_id
+                    || normalizeStableId(row.salesBillId) === allocation.sales_bill_id
+                ));
+                if (!invoice) throw new Error('Selected invoice is not available for this customer.');
+                if (normalizeStableId(invoice.customerId) !== normalizeStableId(selectedCustomer.id) || allocation.customer_id !== normalizeStableId(selectedCustomer.id)) {
+                    throw new Error('Selected invoice does not belong to this customer.');
+                }
+                if (allocation.allocated_amount <= 0) throw new Error('Adjustment amount must be greater than zero.');
+                if (allocation.allocated_amount > invoice.balance + 0.001 || allocation.allocated_amount > allocation.outstanding_amount + 0.001) throw new Error(`Allocated amount exceeds pending balance for invoice ${invoice.invoiceNumber || invoice.id}.`);
                 if (adjustmentVoucher.entryCategory === 'down_payment') {
                     await onRecordDownPaymentAdjustment({
                         customerId: selectedCustomer.id,
@@ -641,7 +679,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                         downPaymentId: adjustmentVoucher.id,
                         referenceInvoiceId: invoice.id,
                         referenceInvoiceNumber: invoice.invoiceNumber || invoice.id,
-                        amount: allocation.allocated,
+                        amount: allocation.allocated_amount,
                         description: 'Receipt advance adjusted against old / pending invoice',
                     });
                 } else {
@@ -651,7 +689,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                         sourcePaymentId: adjustmentVoucher.id,
                         referenceInvoiceId: invoice.id,
                         referenceInvoiceNumber: invoice.invoiceNumber || invoice.id,
-                        amount: allocation.allocated,
+                        amount: allocation.allocated_amount,
                         description: 'Receipt adjusted against old / pending invoice',
                     });
                 }
@@ -864,7 +902,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                         </thead>
                                         <tbody>
                                             {invoiceRows.map(row => (
-                                                <tr key={row.id} className="border-t">
+                                                <tr key={row.id} className="border-t" data-invoice-id={row.id} data-sales-bill-id={row.salesBillId} data-customer-id={row.customerId} data-invoice-number={row.invoiceNumber || row.id}>
                                                     <td className="p-2 font-bold">{row.invoiceNumber || row.id}</td>
                                                     <td className="p-2">₹{row.invoiceAmount.toFixed(2)}</td>
                                                     <td className="p-2 text-emerald-700">₹{row.received.toFixed(2)}</td>
@@ -981,13 +1019,13 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                                                 {openReceivableInvoiceRows.length === 0 ? (
                                                                     <tr><td colSpan={6} className="p-3 text-center text-gray-500">No open invoices available.</td></tr>
                                                                 ) : openReceivableInvoiceRows.map((row) => (
-                                                                    <tr key={row.id} className="border-t">
+                                                                    <tr key={row.id} className="border-t" data-invoice-id={row.id} data-sales-bill-id={row.salesBillId} data-customer-id={row.customerId} data-invoice-number={row.invoiceNumber || row.id}>
                                                                         <td className="p-2">{row.invoiceNumber || row.id}</td>
                                                                         <td className="p-2">{formatDisplayDate(row.date)}</td>
                                                                         <td className="p-2">₹{row.invoiceAmount.toFixed(2)}</td>
                                                                         <td className="p-2">₹{row.received.toFixed(2)}</td>
                                                                         <td className="p-2">₹{row.balance.toFixed(2)}</td>
-                                                                        <td className="p-2"><input type="number" min={0} max={Math.min(row.balance, summary.remainingAmount)} value={voucherInvoiceAdjustments[row.id] ?? ''} onChange={e => setVoucherInvoiceAdjustments(prev => ({ ...prev, [row.id]: Math.min(parseFloat(e.target.value) || 0, row.balance) }))} className="w-full border border-gray-300 p-2" placeholder="Allocate" /></td>
+                                                                        <td className="p-2"><input type="number" min={0} max={Math.min(row.balance, summary.remainingAmount)} value={voucherInvoiceAdjustments[row.id]?.allocated_amount ?? ''} onChange={e => { const allocatedAmount = Math.min(parseFloat(e.target.value) || 0, row.balance, summary.remainingAmount); setVoucherInvoiceAdjustments(prev => ({ ...prev, [row.id]: { invoice_id: row.id, sales_bill_id: row.salesBillId, customer_id: row.customerId, invoice_number: row.invoiceNumber || row.id, outstanding_amount: row.balance, allocated_amount: allocatedAmount } })); }} className="w-full border border-gray-300 p-2" placeholder="Allocate" /></td>
                                                                     </tr>
                                                                 ))}
                                                             </tbody>
