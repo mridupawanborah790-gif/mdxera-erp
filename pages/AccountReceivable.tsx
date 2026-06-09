@@ -675,42 +675,54 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
     const handleVoucherAdjustmentSubmit = async () => {
         if (!selectedCustomer || !adjustmentVoucher) return;
         const summary = getVoucherAllocationSummary(adjustmentVoucher);
-        if (summary.remainingAmount <= 0) throw new Error('Selected voucher is already fully adjusted.');
-        const selectedReceipt = adjustmentVoucher;
-        const customerInvoices = voucherAllocationRows;
-        const allocations = voucherAllocationRows.filter(a => Number(a.allocated_amount) > 0);
-        console.log("selectedCustomer", selectedCustomer);
-        console.log("receiptVoucher", selectedReceipt);
-        console.log("customerInvoices", customerInvoices);
-        console.log("allocations", allocations);
-        if (allocations.length === 0) throw new Error('Enter at least one invoice allocation.');
-        const totalAllocation = allocations.reduce((sum, row) => sum + Number(row.allocated_amount || 0), 0);
-        if (totalAllocation > summary.remainingAmount + 0.001) throw new Error('Cannot allocate more than voucher unadjusted balance.');
+        const remainingUnadjusted = Number(summary.remainingAmount || 0);
+
+        if (remainingUnadjusted <= 0) {
+            setSubmitError('Selected voucher is already fully adjusted.');
+            return;
+        }
+
+        const validRows = voucherAllocationRows.filter(
+            row => Number(row.allocated_amount) > 0
+        );
+
+        if (validRows.length === 0) {
+            setSubmitError('Please enter allocation amount.');
+            return;
+        }
+
+        for (const row of validRows) {
+            const allocated = Number(row.allocated_amount);
+            const outstanding = Number(row.outstanding_amount);
+
+            if (allocated <= 0) {
+                setSubmitError('Allocation amount must be greater than zero.');
+                return;
+            }
+
+            if (allocated > outstanding) {
+                setSubmitError('Allocation amount cannot exceed invoice outstanding amount.');
+                return;
+            }
+
+            if (allocated > Number(remainingUnadjusted)) {
+                setSubmitError('Allocation amount cannot exceed remaining unadjusted receipt.');
+                return;
+            }
+        }
 
         setIsSubmitting(true);
         setSubmitError('');
         try {
-            for (const allocation of allocations) {
-                const invoice = voucherAllocationRows.find(
-                    row => String(row.invoice_id) === String(allocation.invoice_id)
-                );
-                if (!invoice) {
-                    console.error("Invoice validation failed", { allocation, allocationRows: voucherAllocationRows });
-                    throw new Error("Invoice row state mismatch. Please reopen adjustment popup.");
-                }
-                const selectedCustomerId = String(selectedCustomer.id || (selectedCustomer as unknown as { customer_id?: string }).customer_id || '');
-                if (String(invoice.customer_id || '') !== selectedCustomerId) {
-                    throw new Error("Selected invoice does not belong to this customer.");
-                }
-                if (Number(allocation.allocated_amount || 0) > Number(invoice.outstanding_amount || 0) + 0.001) throw new Error(`Allocated amount exceeds pending balance for invoice ${invoice.invoice_number || invoice.invoice_id}.`);
+            for (const row of validRows) {
                 if (adjustmentVoucher.entryCategory === 'down_payment') {
                     await onRecordDownPaymentAdjustment({
                         customerId: selectedCustomer.id,
                         date: adjustmentDate,
                         downPaymentId: adjustmentVoucher.id,
-                        referenceInvoiceId: invoice.invoice_id,
-                        referenceInvoiceNumber: invoice.invoice_number || invoice.invoice_id,
-                        amount: Number(allocation.allocated_amount || 0),
+                        referenceInvoiceId: row.invoice_id,
+                        referenceInvoiceNumber: row.invoice_number || row.invoice_id,
+                        amount: Number(row.allocated_amount || 0),
                         description: 'Receipt advance adjusted against old / pending invoice',
                     });
                 } else {
@@ -718,9 +730,9 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                         customerId: selectedCustomer.id,
                         date: adjustmentDate,
                         sourcePaymentId: adjustmentVoucher.id,
-                        referenceInvoiceId: invoice.invoice_id,
-                        referenceInvoiceNumber: invoice.invoice_number || invoice.invoice_id,
-                        amount: Number(allocation.allocated_amount || 0),
+                        referenceInvoiceId: row.invoice_id,
+                        referenceInvoiceNumber: row.invoice_number || row.invoice_id,
+                        amount: Number(row.allocated_amount || 0),
                         description: 'Receipt adjusted against old / pending invoice',
                     });
                 }
