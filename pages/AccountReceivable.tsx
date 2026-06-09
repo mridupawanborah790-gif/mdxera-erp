@@ -21,17 +21,34 @@ interface BankOption {
 
 interface ReceivableInvoiceRow {
     id: string;
+    sales_bill_id?: string;
+    customerId?: string | null;
+    customer_id?: string | null;
     invoiceNumber?: string;
+    invoice_number?: string;
     date: string;
     invoiceAmount: number;
     received: number;
     balance: number;
+    outstanding?: number;
     status: 'Open' | 'Partially Received' | 'Paid';
     paymentDate: string;
     paymentMode: string;
     bankName: string;
     voucherRef: string;
     latestPaymentEntry?: TransactionLedgerItem;
+}
+
+interface VoucherAdjustmentAllocationRow {
+    invoice_id: string;
+    sales_bill_id: string;
+    customer_id?: string | null;
+    invoice_number?: string;
+    invoice_date?: string;
+    invoice_amount: number;
+    received_amount: number;
+    outstanding_amount: number;
+    allocated_amount: number;
 }
 
 interface VoucherAllocationSummary {
@@ -107,11 +124,16 @@ const getReceivableInvoiceRowsForCustomer = (
         .filter(t => t && t.status !== 'cancelled' && (t.customerId === customer.id || (t.customerName || '').trim().toLowerCase() === (customer.name || '').trim().toLowerCase()))
         .map(t => ({
             id: t.id,
+            sales_bill_id: t.id,
+            customerId: t.customerId,
+            customer_id: t.customerId,
             invoiceNumber: t.invoiceNumber,
+            invoice_number: t.invoiceNumber,
             date: t.date,
             invoiceAmount: Number(t.total || 0),
             received: 0,
             balance: Number(t.total || 0),
+            outstanding: Number(t.total || 0),
             status: 'Open',
             paymentDate: '-',
             paymentMode: String(t.paymentMode || 'Credit'),
@@ -144,6 +166,7 @@ const getReceivableInvoiceRowsForCustomer = (
             const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
             target.received += (adjustedAmount * multiplier);
             target.balance = Number((target.invoiceAmount - target.received).toFixed(2));
+            target.outstanding = target.balance;
             if (target.balance <= 0) {
                 target.balance = 0;
                 target.status = 'Paid';
@@ -170,6 +193,7 @@ const getReceivableInvoiceRowsForCustomer = (
         if (!target) continue;
         target.received = Number(target.invoiceAmount || 0);
         target.balance = 0;
+        target.outstanding = 0;
         target.status = 'Paid';
         target.paymentDate = target.paymentDate === '-' ? target.date : target.paymentDate;
         target.voucherRef = target.voucherRef === '-' ? 'AUTO RECEIPT' : target.voucherRef;
@@ -201,7 +225,7 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
     const [isAmountManuallyEdited, setIsAmountManuallyEdited] = useState(false);
     const [adjustmentVoucher, setAdjustmentVoucher] = useState<TransactionLedgerItem | null>(null);
     const [adjustmentDate, setAdjustmentDate] = useState(new Date().toISOString().split('T')[0]);
-    const [voucherInvoiceAdjustments, setVoucherInvoiceAdjustments] = useState<Record<string, number>>({});
+    const [voucherAllocationRows, setVoucherAllocationRows] = useState<VoucherAdjustmentAllocationRow[]>([]);
 
     const normalizedPaymentMode = paymentMode.trim().toLowerCase();
     const isCashMode = normalizedPaymentMode === 'cash';
@@ -607,11 +631,43 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         }
     };
 
+    const buildVoucherAllocationRows = (invoices: ReceivableInvoiceRow[]): VoucherAdjustmentAllocationRow[] => invoices.map(inv => {
+        const invoiceId = String(inv.id || inv.sales_bill_id || '');
+        const salesBillId = String(inv.sales_bill_id || inv.id || '');
+        return {
+            invoice_id: invoiceId,
+            sales_bill_id: salesBillId,
+            customer_id: inv.customer_id || inv.customerId || selectedCustomer?.id || null,
+            invoice_number: inv.invoice_number || inv.invoiceNumber || invoiceId,
+            invoice_date: inv.date,
+            invoice_amount: Number(inv.invoiceAmount || 0),
+            received_amount: Number(inv.received || 0),
+            outstanding_amount: Number(inv.balance || inv.outstanding || 0),
+            allocated_amount: 0,
+        };
+    });
+
+    const updateVoucherAllocationAmount = (invoiceId: string, value: string | number) => {
+        setVoucherAllocationRows(prev =>
+            prev.map(row =>
+                row.invoice_id === invoiceId
+                    ? { ...row, allocated_amount: Math.min(Number(value) || 0, Number(row.outstanding_amount || 0)) }
+                    : row
+            )
+        );
+    };
+
+    const closeVoucherAdjustmentModal = () => {
+        setAdjustmentVoucher(null);
+        setVoucherAllocationRows([]);
+    };
+
     const openVoucherAdjustmentModal = (voucher: TransactionLedgerItem) => {
         const summary = getVoucherAllocationSummary(voucher);
         if (voucher.status === 'cancelled' || summary.remainingAmount <= 0) return;
+        const allocationRows = buildVoucherAllocationRows(openReceivableInvoiceRows);
         setAdjustmentVoucher(voucher);
-        setVoucherInvoiceAdjustments({});
+        setVoucherAllocationRows(allocationRows);
         setAdjustmentDate(new Date().toISOString().split('T')[0]);
         setSubmitError('');
     };
@@ -620,28 +676,41 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
         if (!selectedCustomer || !adjustmentVoucher) return;
         const summary = getVoucherAllocationSummary(adjustmentVoucher);
         if (summary.remainingAmount <= 0) throw new Error('Selected voucher is already fully adjusted.');
-        const allocations = Object.entries(voucherInvoiceAdjustments)
-            .map(([invoiceId, allocated]) => ({ invoiceId, allocated: Number(allocated || 0) }))
-            .filter(({ allocated }) => allocated > 0);
+        const selectedReceipt = adjustmentVoucher;
+        const customerInvoices = voucherAllocationRows;
+        const allocations = voucherAllocationRows.filter(a => Number(a.allocated_amount) > 0);
+        console.log("selectedCustomer", selectedCustomer);
+        console.log("receiptVoucher", selectedReceipt);
+        console.log("customerInvoices", customerInvoices);
+        console.log("allocations", allocations);
         if (allocations.length === 0) throw new Error('Enter at least one invoice allocation.');
-        const totalAllocation = allocations.reduce((sum, row) => sum + row.allocated, 0);
+        const totalAllocation = allocations.reduce((sum, row) => sum + Number(row.allocated_amount || 0), 0);
         if (totalAllocation > summary.remainingAmount + 0.001) throw new Error('Cannot allocate more than voucher unadjusted balance.');
 
         setIsSubmitting(true);
         setSubmitError('');
         try {
             for (const allocation of allocations) {
-                const invoice = openReceivableInvoiceRows.find((row) => row.id === allocation.invoiceId);
-                if (!invoice) throw new Error('One or more invoices are unavailable for adjustment.');
-                if (allocation.allocated > invoice.balance + 0.001) throw new Error(`Allocated amount exceeds pending balance for invoice ${invoice.invoiceNumber || invoice.id}.`);
+                const invoice = voucherAllocationRows.find(
+                    row => String(row.invoice_id) === String(allocation.invoice_id)
+                );
+                if (!invoice) {
+                    console.error("Invoice validation failed", { allocation, allocationRows: voucherAllocationRows });
+                    throw new Error("Invoice row state mismatch. Please reopen adjustment popup.");
+                }
+                const selectedCustomerId = String(selectedCustomer.id || (selectedCustomer as unknown as { customer_id?: string }).customer_id || '');
+                if (String(invoice.customer_id || '') !== selectedCustomerId) {
+                    throw new Error("Selected invoice does not belong to this customer.");
+                }
+                if (Number(allocation.allocated_amount || 0) > Number(invoice.outstanding_amount || 0) + 0.001) throw new Error(`Allocated amount exceeds pending balance for invoice ${invoice.invoice_number || invoice.invoice_id}.`);
                 if (adjustmentVoucher.entryCategory === 'down_payment') {
                     await onRecordDownPaymentAdjustment({
                         customerId: selectedCustomer.id,
                         date: adjustmentDate,
                         downPaymentId: adjustmentVoucher.id,
-                        referenceInvoiceId: invoice.id,
-                        referenceInvoiceNumber: invoice.invoiceNumber || invoice.id,
-                        amount: allocation.allocated,
+                        referenceInvoiceId: invoice.invoice_id,
+                        referenceInvoiceNumber: invoice.invoice_number || invoice.invoice_id,
+                        amount: Number(allocation.allocated_amount || 0),
                         description: 'Receipt advance adjusted against old / pending invoice',
                     });
                 } else {
@@ -649,15 +718,14 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                         customerId: selectedCustomer.id,
                         date: adjustmentDate,
                         sourcePaymentId: adjustmentVoucher.id,
-                        referenceInvoiceId: invoice.id,
-                        referenceInvoiceNumber: invoice.invoiceNumber || invoice.id,
-                        amount: allocation.allocated,
+                        referenceInvoiceId: invoice.invoice_id,
+                        referenceInvoiceNumber: invoice.invoice_number || invoice.invoice_id,
+                        amount: Number(allocation.allocated_amount || 0),
                         description: 'Receipt adjusted against old / pending invoice',
                     });
                 }
             }
-            setAdjustmentVoucher(null);
-            setVoucherInvoiceAdjustments({});
+            closeVoucherAdjustmentModal();
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unable to adjust voucher against invoice.';
             setSubmitError(message);
@@ -978,23 +1046,23 @@ const AccountReceivable: React.FC<AccountReceivableProps> = ({ customers, transa
                                                         <table className="min-w-full text-xs">
                                                             <thead className="bg-gray-100 uppercase"><tr><th className="p-2 text-left">Invoice No.</th><th className="p-2 text-left">Invoice Date</th><th className="p-2 text-left">Invoice Amount</th><th className="p-2 text-left">Already Received</th><th className="p-2 text-left">Outstanding</th><th className="p-2 text-left">Allocate Amount</th></tr></thead>
                                                             <tbody>
-                                                                {openReceivableInvoiceRows.length === 0 ? (
+                                                                {voucherAllocationRows.length === 0 ? (
                                                                     <tr><td colSpan={6} className="p-3 text-center text-gray-500">No open invoices available.</td></tr>
-                                                                ) : openReceivableInvoiceRows.map((row) => (
-                                                                    <tr key={row.id} className="border-t">
-                                                                        <td className="p-2">{row.invoiceNumber || row.id}</td>
-                                                                        <td className="p-2">{formatDisplayDate(row.date)}</td>
-                                                                        <td className="p-2">₹{row.invoiceAmount.toFixed(2)}</td>
-                                                                        <td className="p-2">₹{row.received.toFixed(2)}</td>
-                                                                        <td className="p-2">₹{row.balance.toFixed(2)}</td>
-                                                                        <td className="p-2"><input type="number" min={0} max={Math.min(row.balance, summary.remainingAmount)} value={voucherInvoiceAdjustments[row.id] ?? ''} onChange={e => setVoucherInvoiceAdjustments(prev => ({ ...prev, [row.id]: Math.min(parseFloat(e.target.value) || 0, row.balance) }))} className="w-full border border-gray-300 p-2" placeholder="Allocate" /></td>
+                                                                ) : voucherAllocationRows.map((row) => (
+                                                                    <tr key={row.invoice_id} className="border-t">
+                                                                        <td className="p-2">{row.invoice_number || row.invoice_id}</td>
+                                                                        <td className="p-2">{formatDisplayDate(row.invoice_date)}</td>
+                                                                        <td className="p-2">₹{row.invoice_amount.toFixed(2)}</td>
+                                                                        <td className="p-2">₹{row.received_amount.toFixed(2)}</td>
+                                                                        <td className="p-2">₹{row.outstanding_amount.toFixed(2)}</td>
+                                                                        <td className="p-2"><input type="number" min={0} max={Math.min(row.outstanding_amount, summary.remainingAmount)} value={row.allocated_amount || ''} onChange={e => updateVoucherAllocationAmount(row.invoice_id, e.target.value)} className="w-full border border-gray-300 p-2" placeholder="Allocate" /></td>
                                                                     </tr>
                                                                 ))}
                                                             </tbody>
                                                         </table>
                                                     </div>
                                                     <div className="flex justify-end gap-2">
-                                                        <button type="button" onClick={() => setAdjustmentVoucher(null)} className="px-3 py-2 border border-gray-300 text-xs font-black uppercase">Close</button>
+                                                        <button type="button" onClick={closeVoucherAdjustmentModal} className="px-3 py-2 border border-gray-300 text-xs font-black uppercase">Close</button>
                                                         <button type="button" disabled={isSubmitting} onClick={handleVoucherAdjustmentSubmit} className="px-4 py-2 tally-button-primary text-xs font-black uppercase">{isSubmitting ? 'Adjusting...' : 'Adjust Receipt / Clear Against Invoice'}</button>
                                                     </div>
                                                 </>
