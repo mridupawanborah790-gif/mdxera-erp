@@ -100,7 +100,7 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'outstandingReceivables', name: 'Outstanding Receivables', group: 'Accounting Reports' },
   { id: 'outstandingPayables', name: 'Outstanding Payables', group: 'Accounting Reports' },
   { id: 'customerPartyWiseFullStatement', name: 'Customer Party-wise Payment Statement', group: 'Accounting Reports' },
-  { id: 'supplierPartyWiseFullStatement', name: 'Supplier Party-wise Full Statement', group: 'Accounting Reports' },
+  { id: 'supplierPartyWiseFullStatement', name: 'Supplier Party-wise Payment Statement', group: 'Accounting Reports' },
 ];
 
 const isDateWithinRange = (isoDate: string, startIso: string, endIso: string) => {
@@ -1114,7 +1114,90 @@ const Reports: React.FC<ReportsProps> = ({
         });
         break;
       }
-      case 'supplierPartyWiseFullStatement':
+      case 'supplierPartyWiseFullStatement': {
+        const supplier = distributors.find(d => d.id === selectedPartyId);
+        const supplierName = supplier?.name || 'Selected Supplier';
+        title = `${title} - ${supplierName}`;
+        reportHeaders = ['Purchase Invoice Number', 'Invoice Date', 'Opening Outstanding', 'Invoice Amount', 'Payment Made', 'Balance Outstanding', 'Status'];
+
+        const supplierId = String(selectedPartyId || '').trim();
+        const normalizedSupplierName = String(supplierName || '').trim().toLowerCase();
+        const supplierLedger = Array.isArray(supplier?.ledger) ? supplier.ledger : [];
+        const adjustmentCategories = new Set([
+          'invoice_payment_adjustment',
+          'down_payment_adjustment',
+          'invoice_payment_adjustment_reversal',
+          'down_payment_adjustment_reversal',
+        ]);
+
+        const supplierBills = purchases
+          .filter((purchase: any) => purchase && !['draft', 'hold', 'cancelled'].includes(String(purchase.status || '').trim().toLowerCase()))
+          .filter((purchase: any) => {
+            const purchaseSupplierId = String(purchase.supplierId || purchase.supplier_id || '').trim();
+            const purchaseSupplierName = String(purchase.supplier || purchase.supplier_name || '').trim().toLowerCase();
+            if (supplierId && purchaseSupplierId) return purchaseSupplierId === supplierId;
+            return supplierId && purchaseSupplierId === supplierId || (!purchaseSupplierId && purchaseSupplierName === normalizedSupplierName);
+          })
+          .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        const billLookupEntries = supplierBills.flatMap((purchase: any) => {
+          const keys = [purchase.id, purchase.invoiceNumber, purchase.purchaseSerialId, purchase.purchase_bill_no]
+            .map(value => String(value || '').trim().toLowerCase())
+            .filter(Boolean);
+          return keys.map(key => [key, purchase.id] as const);
+        });
+        const billIdByReference = new Map<string, string>(billLookupEntries);
+        const billAdjustments = new Map<string, { previous: number; current: number; total: number }>();
+
+        supplierLedger.forEach((entry: any) => {
+          if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') return;
+          const entryCategory = String(entry.entryCategory || '');
+          if (!adjustmentCategories.has(entryCategory)) return;
+
+          const referenceKeys = [entry.referenceInvoiceId, entry.referenceInvoiceNumber]
+            .map(value => String(value || '').trim().toLowerCase())
+            .filter(Boolean);
+          const invoiceId = referenceKeys.map(key => billIdByReference.get(key)).find(Boolean) || '';
+          if (!invoiceId) return;
+
+          const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
+          const adjustedAmount = round2(Number(entry.adjustedAmount || 0) * multiplier);
+          const bucket = billAdjustments.get(invoiceId) || { previous: 0, current: 0, total: 0 };
+          const entryDate = String(entry.date || '');
+          if (entryDate && new Date(entryDate) < new Date(startDate)) {
+            bucket.previous = round2(bucket.previous + adjustedAmount);
+          }
+          if (entryDate && isDateWithinRange(entryDate, startDate, endDate)) {
+            bucket.current = round2(bucket.current + adjustedAmount);
+          }
+          bucket.total = round2(bucket.total + adjustedAmount);
+          billAdjustments.set(invoiceId, bucket);
+        });
+
+        rows = supplierBills.map((purchase: any) => {
+          const invoiceAmount = round2(Number(purchase.totalAmount || purchase.grand_total || 0));
+          const adjustmentTotals = billAdjustments.get(purchase.id) || { previous: 0, current: 0, total: 0 };
+          const paymentMade = round2(Math.max(Number(adjustmentTotals.total || 0), 0));
+          const openingOutstanding = round2(Math.max(invoiceAmount - Number(adjustmentTotals.previous || 0), 0));
+          const balanceOutstanding = round2(Math.max(invoiceAmount - paymentMade, 0));
+          const invoiceDateInPeriod = isDateWithinRange(purchase.date, startDate, endDate);
+          const paymentMadeInPeriod = Math.max(Number(adjustmentTotals.current || 0), 0) > 0;
+
+          return {
+            'Purchase Invoice Number': purchase.purchaseSerialId || purchase.purchase_bill_no || purchase.invoiceNumber || purchase.id,
+            'Invoice Date': new Date(purchase.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+            'Opening Outstanding': openingOutstanding,
+            'Invoice Amount': invoiceAmount,
+            'Payment Made': paymentMade,
+            'Balance Outstanding': balanceOutstanding,
+            'Status': balanceOutstanding <= 0 ? 'Closed' : 'Pending',
+            _includeInSupplierStatement: invoiceDateInPeriod || balanceOutstanding > 0 || paymentMadeInPeriod,
+          };
+        })
+          .filter((row: any) => row._includeInSupplierStatement)
+          .map(({ _includeInSupplierStatement, ...row }: any) => row);
+        break;
+      }
       case 'accountLedgerCustomer':
       case 'accountLedgerSupplier': {
         const isCustomer = reportId === 'accountLedgerCustomer';
@@ -1552,11 +1635,32 @@ const Reports: React.FC<ReportsProps> = ({
     ];
   }, [customerPaymentStatementSummary]);
 
+  const supplierPaymentStatementSummary = useMemo(() => {
+    if (activeReportId !== 'supplierPartyWiseFullStatement') return null;
+
+    return {
+      totalPurchaseAmount: round2(filteredData.reduce((sum, row) => sum + Number(row['Invoice Amount'] || 0), 0)),
+      totalPaymentMade: round2(filteredData.reduce((sum, row) => sum + Number(row['Payment Made'] || 0), 0)),
+      totalOutstandingBalance: round2(filteredData.reduce((sum, row) => sum + Number(row['Balance Outstanding'] || 0), 0)),
+    };
+  }, [activeReportId, filteredData]);
+
+  const supplierPaymentStatementSummaryRows = useMemo(() => {
+    if (!supplierPaymentStatementSummary) return [];
+
+    return [
+      { 'Purchase Invoice Number': 'Total Purchase Amount', 'Invoice Date': '-', 'Opening Outstanding': '', 'Invoice Amount': supplierPaymentStatementSummary.totalPurchaseAmount, 'Payment Made': '', 'Balance Outstanding': '', 'Status': 'Summary' },
+      { 'Purchase Invoice Number': 'Total Payment Made', 'Invoice Date': '-', 'Opening Outstanding': '', 'Invoice Amount': '', 'Payment Made': supplierPaymentStatementSummary.totalPaymentMade, 'Balance Outstanding': '', 'Status': 'Summary' },
+      { 'Purchase Invoice Number': 'Total Outstanding', 'Invoice Date': '-', 'Opening Outstanding': '', 'Invoice Amount': '', 'Payment Made': '', 'Balance Outstanding': supplierPaymentStatementSummary.totalOutstandingBalance, 'Status': 'Summary' },
+    ];
+  }, [supplierPaymentStatementSummary]);
+
   const reportDataWithTotalRow = useMemo(() => {
     if (activeReportId === 'stockMovementSummary' && stockMovementTotalRow) return [...filteredData, stockMovementTotalRow];
     if (activeReportId === 'customerPartyWiseFullStatement') return [...filteredData, ...customerPaymentStatementSummaryRows];
+    if (activeReportId === 'supplierPartyWiseFullStatement') return [...filteredData, ...supplierPaymentStatementSummaryRows];
     return filteredData;
-  }, [activeReportId, filteredData, stockMovementTotalRow, customerPaymentStatementSummaryRows]);
+  }, [activeReportId, filteredData, stockMovementTotalRow, customerPaymentStatementSummaryRows, supplierPaymentStatementSummaryRows]);
 
 
   const filterableColumns = useMemo(() => {
@@ -1872,12 +1976,12 @@ const Reports: React.FC<ReportsProps> = ({
                     </tr>
                   </tfoot>
                 )}
-                {activeReportId === 'customerPartyWiseFullStatement' && customerPaymentStatementSummaryRows.length > 0 && (
+                {(activeReportId === 'customerPartyWiseFullStatement' || activeReportId === 'supplierPartyWiseFullStatement') && (activeReportId === 'customerPartyWiseFullStatement' ? customerPaymentStatementSummaryRows : supplierPaymentStatementSummaryRows).length > 0 && (
                   <tfoot>
-                    {customerPaymentStatementSummaryRows.map((summaryRow: any, summaryIdx) => (
-                      <tr key={`customer-payment-summary-${summaryIdx}`} className="bg-gray-200 font-bold">
+                    {(activeReportId === 'customerPartyWiseFullStatement' ? customerPaymentStatementSummaryRows : supplierPaymentStatementSummaryRows).map((summaryRow: any, summaryIdx) => (
+                      <tr key={`party-payment-summary-${summaryIdx}`} className="bg-gray-200 font-bold">
                         {visibleColumns.map(col => (
-                          <td key={`customer-payment-summary-${summaryIdx}-${col}`} className={`px-2 py-1 border-t border-r whitespace-nowrap ${typeof summaryRow[col] === 'number' ? 'text-right' : 'text-left'}`}>{String(summaryRow[col] ?? '-')}</td>
+                          <td key={`party-payment-summary-${summaryIdx}-${col}`} className={`px-2 py-1 border-t border-r whitespace-nowrap ${typeof summaryRow[col] === 'number' ? 'text-right' : 'text-left'}`}>{String(summaryRow[col] ?? '-')}</td>
                         ))}
                       </tr>
                     ))}
@@ -1903,6 +2007,13 @@ const Reports: React.FC<ReportsProps> = ({
                 <span><strong>Total Invoice Amount:</strong> {formatInrAmount(customerPaymentStatementSummary.totalInvoiceAmount)}</span>
                 <span><strong>Total Payment Received:</strong> {formatInrAmount(customerPaymentStatementSummary.totalPaymentReceived)}</span>
                 <span><strong>Total Outstanding:</strong> {formatInrAmount(customerPaymentStatementSummary.totalOutstandingBalance)}</span>
+              </>
+            ) : activeReportId === 'supplierPartyWiseFullStatement' && supplierPaymentStatementSummary ? (
+              <>
+                <span><strong>Total Records:</strong> {totals.recordCount}</span>
+                <span><strong>Total Purchase Amount:</strong> {formatInrAmount(supplierPaymentStatementSummary.totalPurchaseAmount)}</span>
+                <span><strong>Total Payment Made:</strong> {formatInrAmount(supplierPaymentStatementSummary.totalPaymentMade)}</span>
+                <span><strong>Total Outstanding:</strong> {formatInrAmount(supplierPaymentStatementSummary.totalOutstandingBalance)}</span>
               </>
             ) : (
               <>

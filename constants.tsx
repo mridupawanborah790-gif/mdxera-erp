@@ -494,7 +494,9 @@ export const configurableModules = [
         { id: 'ledgerReport', name: 'Account Ledger' },
         { id: 'dayBook', name: 'Day Book' },
         { id: 'outstandingReceivables', name: 'Outstanding Receivables' },
-        { id: 'outstandingPayables', name: 'Outstanding Payables' }
+        { id: 'outstandingPayables', name: 'Outstanding Payables' },
+        { id: 'customerPartyWiseFullStatement', name: 'Customer Party-wise Payment Statement' },
+        { id: 'supplierPartyWiseFullStatement', name: 'Supplier Party-wise Payment Statement' }
     ]
   }
 ];
