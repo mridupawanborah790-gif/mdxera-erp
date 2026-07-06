@@ -461,3 +461,13 @@ export const parseNumber = (value: string | number | undefined | null): number =
     const clean = value.trim().replace(/[^0-9.-]/g, '');
     return parseFloat(clean) || 0;
 };
+
+export const formatVoucherNo = (val: string | undefined | null): string => {
+    if (!val) return '';
+    const str = String(val).trim();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    if (isUuid) {
+        return str.slice(0, 8).toUpperCase();
+    }
+    return str;
+};

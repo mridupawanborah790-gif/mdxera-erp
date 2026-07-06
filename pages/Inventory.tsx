@@ -6,7 +6,8 @@ import EditProductModal from '../components/EditProductModal';
 import ExportInventoryModal from '../components/ExportInventoryModal';
 import MrpChangeLogModal from '../components/MrpChangeLogModal';
 import InventoryBatchDetailModal from '../components/InventoryBatchDetailModal';
-import type { InventoryItem, RegisteredPharmacy, ModuleConfig, AppConfigurations, Medicine, MrpChangeLogEntry } from '../types';
+import SyncMaterialMasterModal from '../components/SyncMaterialMasterModal';
+import type { InventoryItem, RegisteredPharmacy, ModuleConfig, AppConfigurations, Medicine, MrpChangeLogEntry, PermissionSet } from '../types';
 import { fuzzyMatch } from '../utils/search';
 import { formatExpiryToMMYY, normalizeImportDate } from '../utils/helpers';
 import { configurableModules } from '../constants';
@@ -50,6 +51,10 @@ interface InventoryProps {
     onUpdateProduct: (item: InventoryItem) => Promise<void>;
     mrpChangeLogs?: MrpChangeLogEntry[];
     configurations?: AppConfigurations | null;
+    addNotification?: (message: string, type: 'success' | 'error' | 'warning') => void;
+    onRefresh?: () => Promise<void> | void;
+    onAddMedicineMaster?: (med: Omit<Medicine, 'id'>) => Promise<Medicine | void> | Medicine | void;
+    permissions?: PermissionSet;
 }
 
 interface GroupedInventoryRow {
@@ -84,11 +89,27 @@ const Inventory: React.FC<InventoryProps> = ({
     onAddProduct,
     onUpdateProduct,
     mrpChangeLogs = [],
-    configurations
+    configurations,
+    addNotification,
+    onRefresh,
+    onAddMedicineMaster,
+    permissions,
 }) => {
+    const defaultPermissions: PermissionSet = {
+        view: true,
+        entry: true,
+        edit: true,
+        delete: true,
+        approve: true,
+        print: true,
+        export: true,
+        full: true,
+    };
+    const perms = permissions || defaultPermissions;
     const [searchTerm, setSearchTerm] = useState('');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isSyncMasterModalOpen, setIsSyncMasterModalOpen] = useState(false);
     const [itemToEdit, setItemToEdit] = useState<InventoryItem | null>(null);
     const [lowStockFilter, setLowStockFilter] = useState(false);
     const [isColumnSelectorOpen, setIsColumnSelectorOpen] = useState(false);
@@ -320,10 +341,10 @@ const Inventory: React.FC<InventoryProps> = ({
                 e.preventDefault();
                 setCurrentPage(p => p - 1);
                 setSelectedIndex(0);
-            } else if (e.key === 'F2') {
+            } else if (e.key === 'F2' && perms.entry) {
                 e.preventDefault();
                 setIsAddModalOpen(true);
-            } else if (e.key === 'F3') {
+            } else if (e.key === 'F3' && perms.export) {
                 e.preventDefault();
                 setIsExportModalOpen(true);
             } else if (e.key === 'Enter') {
@@ -336,7 +357,7 @@ const Inventory: React.FC<InventoryProps> = ({
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [paginatedItems, selectedIndex, itemToEdit, isAddModalOpen, isExportModalOpen, isColumnSelectorOpen, currentPage, totalPages, detailRowKey]);
+    }, [paginatedItems, selectedIndex, itemToEdit, isAddModalOpen, isExportModalOpen, isColumnSelectorOpen, currentPage, totalPages, detailRowKey, perms.entry, perms.export]);
 
     const isFieldVisible = (fieldId: string) => config?.fields?.[fieldId] !== false;
 
@@ -673,7 +694,17 @@ const Inventory: React.FC<InventoryProps> = ({
                                 PRINT
                             </button>
 
-                            <button onClick={() => setIsAddModalOpen(true)} className="px-4 py-1.5 tally-button-accent text-xs font-black uppercase tracking-widest">F2: ADD INVENTORY</button>
+                            {perms.edit && (
+                                <button
+                                    onClick={() => setIsSyncMasterModalOpen(true)}
+                                    className="px-4 py-1.5 border border-gray-400 bg-white text-primary font-black uppercase text-xs tracking-widest hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
+                                    title="Reconcile inventory rows with Material Master"
+                                >
+                                    Sync to Master
+                                </button>
+                            )}
+
+                            {perms.entry && <button onClick={() => setIsAddModalOpen(true)} className="px-4 py-1.5 tally-button-accent text-xs font-black uppercase tracking-widest">F2: ADD INVENTORY</button>}
                         </div>
                     </div>
 
@@ -790,7 +821,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                                     }}
                                                     className={`font-black uppercase text-[10px] px-2 py-0.5 border transition-all ${isSelected ? 'bg-white text-primary border-white' : 'bg-primary/5 text-primary border-primary/20 group-hover:bg-white group-hover:text-primary group-hover:border-white'}`}
                                                 >
-                                                    Alter
+                                                    {perms.edit ? 'Alter' : 'View'}
                                                 </button>
                                             </td>
                                         </tr>
@@ -855,16 +886,23 @@ const Inventory: React.FC<InventoryProps> = ({
 
             {isAddModalOpen && <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onAddProduct={onAddProduct} organizationId={currentUser?.organization_id || ''} medicines={medicines} />}
             {itemToEdit && (
-                <EditProductModal 
-                    isOpen={!!itemToEdit} 
-                    onClose={() => setItemToEdit(null)} 
-                    onSave={onUpdateProduct} 
-                    productToEdit={itemToEdit} 
-                    onPrintBarcodeClick={() => {}} 
+                <EditProductModal
+                    isOpen={!!itemToEdit}
+                    onClose={() => setItemToEdit(null)}
+                    onSave={onUpdateProduct}
+                    productToEdit={itemToEdit}
+                    onPrintBarcodeClick={() => {}}
                     onNext={handleNextProduct}
                     onPrevious={handlePreviousProduct}
                     hasNext={selectedIndex < paginatedItems.length - 1 || currentPage < totalPages}
                     hasPrevious={selectedIndex > 0 || currentPage > 1}
+                    inventory={inventory}
+                    medicines={medicines}
+                    currentUser={currentUser}
+                    addNotification={addNotification}
+                    onRefresh={onRefresh}
+                    onAddMedicineMaster={onAddMedicineMaster}
+                    isReadOnly={!perms.edit}
                 />
             )}
             {isExportModalOpen && (
@@ -876,12 +914,24 @@ const Inventory: React.FC<InventoryProps> = ({
                 />
             )}
             <MrpChangeLogModal isOpen={isMrpLogOpen} onClose={() => setIsMrpLogOpen(false)} logs={mrpChangeLogs} />
+            {isSyncMasterModalOpen && (
+                <SyncMaterialMasterModal
+                    isOpen={isSyncMasterModalOpen}
+                    onClose={() => setIsSyncMasterModalOpen(false)}
+                    inventory={inventory}
+                    medicines={medicines}
+                    currentUser={currentUser}
+                    addNotification={addNotification ?? (() => {})}
+                    onRefresh={async () => { await onRefresh?.(); }}
+                />
+            )}
             <InventoryBatchDetailModal
                 isOpen={!!detailRow}
                 onClose={() => setDetailRowKey(null)}
                 itemName={detailRow?.name || ''}
                 rows={detailRow?.items || []}
                 onSaveRow={onUpdateProduct}
+                allowBatchEdit={perms.edit}
             />
         </main>
     );

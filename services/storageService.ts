@@ -1777,6 +1777,14 @@ export const saveData = async (tableName: string, data: any, user: RegisteredPha
         if (error) throw error;
     };
 
+    export const ensureLiveAuth = async (): Promise<void> => {
+        if (!navigator.onLine) return;
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) {
+            throw new Error('Supabase session is dead. Please log in again.');
+        }
+    };
+
     export const getCurrentUser = async (): Promise<RegisteredPharmacy | null> => {
         // 1. Get fresh session from Supabase to verify true authentication state
         const { data: { session } } = await supabase.auth.getSession();

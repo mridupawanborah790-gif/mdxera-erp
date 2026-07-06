@@ -157,10 +157,112 @@ const resolveSalesRate = (
     return calculateRateExcludingGst(item.mrp, item.gstPercent);
 };
 
+const medicinesMapCache = new WeakMap<Medicine[], {
+    byId: Map<string, Medicine>;
+    byCode: Map<string, Medicine>;
+    byName: Map<string, Medicine[]>;
+}>();
+
+const getMedicineByIdOrCode = (medicines: Medicine[], id?: string, code?: string): Medicine | undefined => {
+    let cached = medicinesMapCache.get(medicines);
+    if (!cached) {
+        const byId = new Map<string, Medicine>();
+        const byCode = new Map<string, Medicine>();
+        const byName = new Map<string, Medicine[]>();
+        (medicines || []).forEach(m => {
+            if (m.id) byId.set(m.id, m);
+            const c = (m.materialCode || '').trim().toLowerCase();
+            if (c && !byCode.has(c)) byCode.set(c, m);
+            const n = (m.name || '').trim().toLowerCase();
+            if (n) {
+                let list = byName.get(n);
+                if (!list) {
+                    list = [];
+                    byName.set(n, list);
+                }
+                list.push(m);
+            }
+        });
+        cached = { byId, byCode, byName };
+        medicinesMapCache.set(medicines, cached);
+    }
+    if (id) {
+        const m = cached.byId.get(id);
+        if (m) return m;
+    }
+    if (code) {
+        const cleanCode = code.trim().toLowerCase();
+        return cached.byCode.get(cleanCode);
+    }
+    return undefined;
+};
+
+const getMedicinesByName = (medicines: Medicine[], name: string): Medicine[] => {
+    getMedicineByIdOrCode(medicines); // ensure cache built
+    const cached = medicinesMapCache.get(medicines);
+    return cached?.byName.get(name.trim().toLowerCase()) || [];
+};
+
+const resolveMedicineForInventoryItem = (
+    medicines: Medicine[],
+    item?: InventoryItem,
+    billItemName?: string,
+    billItemBrand?: string,
+    inventoryItemId?: string
+): Medicine | undefined => {
+    getMedicineByIdOrCode(medicines); // ensure cache built
+    if (item) {
+        const materialId = (item as any).materialId || (item as any).material_id;
+        if (materialId) {
+            const med = getMedicineByIdOrCode(medicines, materialId);
+            if (med) return med;
+        }
+        const code = (item.code || '').trim().toLowerCase();
+        if (code) {
+            const med = getMedicineByIdOrCode(medicines, undefined, code);
+            if (med) return med;
+        }
+    }
+
+    if (inventoryItemId && inventoryItemId.startsWith('MM-')) {
+        const medId = inventoryItemId.substring(3);
+        const med = getMedicineByIdOrCode(medicines, medId);
+        if (med) return med;
+    }
+
+    const name = (item?.name || billItemName || '').trim().toLowerCase();
+    const brand = (item?.brand || billItemBrand || '').trim().toLowerCase();
+    if (name) {
+        const matched = getMedicinesByName(medicines, name);
+        if (matched.length > 0) {
+            const best = matched.find(m => (m.brand || '').trim().toLowerCase() === brand);
+            if (best) return best;
+            return matched[0];
+        }
+    }
+
+    return undefined;
+};
+
+const inventoryMapCache = new WeakMap<InventoryItem[], Map<string, InventoryItem>>();
+
+const getInventoryItemById = (inventory: InventoryItem[], id?: string): InventoryItem | undefined => {
+    if (!id) return undefined;
+    let map = inventoryMapCache.get(inventory);
+    if (!map) {
+        map = new Map();
+        (inventory || []).forEach(i => {
+            if (i.id) map!.set(i.id, i);
+        });
+        inventoryMapCache.set(inventory, map);
+    }
+    return map.get(id);
+};
+
 const resolveActivePriceRecord = (batch: InventoryItem, medicines: Medicine[], transactionDate: string): MasterPriceMaintainRecord | null => {
     const normalizedCode = (batch.code || '').trim().toLowerCase();
     const effectiveDate = transactionDate || new Date().toISOString().slice(0, 10);
-    const med = medicines.find(m => (m.materialCode || '').trim().toLowerCase() === normalizedCode);
+    const med = getMedicineByIdOrCode(medicines, undefined, normalizedCode);
     if (!med) return null;
     return (med.masterPriceMaintains || [])
         .filter(r =>
@@ -922,20 +1024,38 @@ const POS = forwardRef<any, POSProps>(({
 
             if (shouldPreventNegativeStock) {
                 const issues: StockValidationIssue[] = [];
+                const inventoryMapById = new Map<string, InventoryItem>();
+                const inventoryGroupedByName = new Map<string, InventoryItem[]>();
+                inventory.forEach(i => {
+                    if (i.id) inventoryMapById.set(i.id, i);
+                    const nameKey = (i.name || '').trim().toLowerCase();
+                    if (nameKey) {
+                        let list = inventoryGroupedByName.get(nameKey);
+                        if (!list) {
+                            list = [];
+                            inventoryGroupedByName.set(nameKey, list);
+                        }
+                        list.push(i);
+                    }
+                });
 
                 for (const item of cartItems) {
                     const normalizedBatch = (item.batch || '').trim();
                     const normalizedItemName = (item.name || '').trim().toLowerCase();
                     const normalizedItemBrand = (item.brand || '').trim().toLowerCase();
-                    const currentInvItem = inventory.find(i => i.id === item.inventoryItemId);
+                    const currentInvItem = item.inventoryItemId ? inventoryMapById.get(item.inventoryItemId) : undefined;
                     const policyProbe = currentInvItem || ({ id: item.inventoryItemId, name: item.name, brand: item.brand, code: (item as any).code } as InventoryItem);
                     if (!isStockControlledItem(policyProbe)) continue;
-                    const relatedInventoryRows = inventory.filter(i => {
+
+                    const byNameRows = inventoryGroupedByName.get(normalizedItemName) || [];
+                    const relatedInventoryRows = byNameRows.filter(i => {
                         const sameId = item.inventoryItemId && i.id === item.inventoryItemId;
-                        const sameName = (i.name || '').trim().toLowerCase() === normalizedItemName;
                         const sameBrand = normalizedItemBrand === '' || (i.brand || '').trim().toLowerCase() === normalizedItemBrand;
-                        return sameId || (sameName && sameBrand);
+                        return sameId || sameBrand;
                     });
+                    if (currentInvItem && !relatedInventoryRows.some(i => i.id === currentInvItem.id)) {
+                        relatedInventoryRows.unshift(currentInvItem);
+                    }
                     const hasRealBatchStock = relatedInventoryRows.some(i => isRealBatch(i.batch));
 
                     let invItem: InventoryItem | undefined;
@@ -1346,8 +1466,9 @@ const POS = forwardRef<any, POSProps>(({
 
             if (result.items && result.items.length > 0) {
                 const newBillItems: BillItem[] = [];
+                const salesEnabledInventory = inventory.filter(inv => getInventoryPolicy(inv, medicines).salesEnabled);
                 for (const aiItem of result.items) {
-                    const match = inventory.find(inv => fuzzyMatch(inv.name, aiItem.name));
+                    const match = salesEnabledInventory.find(inv => fuzzyMatch(inv.name, aiItem.name));
                     if (match) {
                         const unitsPerPack = match.unitsPerPack || 1;
                         const qty = Math.floor((aiItem.quantity || 0) / unitsPerPack);
@@ -1788,13 +1909,13 @@ const POS = forwardRef<any, POSProps>(({
             return;
         }
 
-        if (shouldPreventNegativeStock && isStockControlled && Number(batch.stock || 0) <= 0) {
+        if (shouldPreventNegativeStock && policy.inventorised && Number(batch.stock || 0) <= 0) {
             addNotification('Insufficient stock in selected batch. Billing not allowed due to Strict Stock Enforcement.', 'error');
             return;
         }
 
         const activePriceRecord = resolveActivePriceRecord(batch, medicines, invoiceDate);
-        const linkedMedicine = medicines.find((med) => med.id === batch.id || (med.materialCode || '').trim().toLowerCase() === (batch.code || '').trim().toLowerCase());
+        const linkedMedicine = resolveMedicineForInventoryItem(medicines, batch, batch.name, batch.brand, batch.id);
         const pricingSource = activePriceRecord ? {
             mrp: Number(activePriceRecord.mrp || batch.mrp || 0),
             gstPercent: batch.gstPercent,
@@ -2035,20 +2156,9 @@ const POS = forwardRef<any, POSProps>(({
         const rowName = (row.name || '').trim().toLowerCase();
         if (!rowName) return null;
 
-        const inventoryItem = row.inventoryItemId ? inventory.find((inv) => inv.id === row.inventoryItemId) : undefined;
-        const inventoryCode = (inventoryItem?.code || '').trim().toLowerCase();
-        if (inventoryCode) {
-            const byInventoryCode = medicines.find((med) => (med.materialCode || '').trim().toLowerCase() === inventoryCode);
-            if (byInventoryCode) return byInventoryCode;
-        }
-
-        const rowPack = (row.packType || '').trim().toLowerCase();
-        return medicines.find((med) => {
-            const medName = (med.name || '').trim().toLowerCase();
-            if (!medName || medName !== rowName) return false;
-            if (!rowPack) return true;
-            return (med.pack || '').trim().toLowerCase() === rowPack;
-        }) || null;
+        const inventoryItem = row.inventoryItemId ? getInventoryItemById(inventory, row.inventoryItemId) : undefined;
+        const medicine = resolveMedicineForInventoryItem(medicines, inventoryItem, row.name, row.brand, row.inventoryItemId);
+        return medicine || null;
     }, [inventory, medicines]);
 
     const openMaterialEditOrSearch = useCallback((rowId: string) => {
@@ -3146,7 +3256,8 @@ const POS = forwardRef<any, POSProps>(({
                                                 const unitsPerPack = resolveUnitsPerStrip(item.unitsPerPack, item.packType);
                                                 const stripsStock = Math.floor(totalStock / unitsPerPack);
                                                 const looseStock = totalStock % unitsPerPack;
-                                                const itemStockControlled = isStockControlledItem(item);
+                                                const itemPolicy = getInventoryPolicy(item, medicines);
+                                                 const itemStockControlled = itemPolicy.inventorised;
                                                 const stockToneClass = isSelected ? 'text-white' : (!itemStockControlled ? 'text-sky-700 group-hover:text-white' : (totalStock <= 0 ? 'text-red-500 group-hover:text-white' : 'text-emerald-700 group-hover:text-white'));
                                                 const isAnyBatchExpired = itemStockControlled && res.batches.some(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));
                                                 const areAllBatchesExpired = itemStockControlled && res.batches.length > 0 && res.batches.every(b => checkIsExpired(b.expiry ? String(b.expiry) : ''));

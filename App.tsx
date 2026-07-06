@@ -40,6 +40,9 @@ import ManualSalesEntry from './pages/ManualSalesEntry';
 import ManualPurchase from './pages/ManualPurchase';
 import PurchaseOrders from './pages/PurchaseOrders';
 import Classification from './pages/Classification';
+import ModuleVisibility from './pages/ModuleVisibility';
+import { useModuleVisibilityStore } from './utils/moduleVisibilityStore';
+import { useModuleVisibility, filterNavByVisibility } from './utils/useModuleVisibility';
 import PrintBillModal from './components/PrintBillModal';
 import TransactionDetailModal from './components/TransactionDetailModal';
 import PurchaseDetailModal from './components/PurchaseDetailModal';
@@ -93,6 +96,7 @@ type PersistedScreenState = {
 
 
 const App: React.FC = () => {
+    const { hiddenScreens } = useModuleVisibility();
     const [currentUser, setCurrentUser] = useState<RegisteredPharmacy | null>(null);
     const [currentPage, setCurrentPage] = useState('dashboard');
     const [currentDailyReportId, setCurrentDailyReportId] = useState('dispatchSummary');
@@ -106,6 +110,10 @@ const App: React.FC = () => {
     const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
     const [isRealtimeActive, setIsRealtimeActive] = useState(false);
     const [isOperationLoading, setIsOperationLoading] = useState(false);
+
+    useEffect(() => {
+        useModuleVisibilityStore.getState().loadForUser(currentUser?.user_id || null);
+    }, [currentUser]);
 
     const [showLogoutPrompt, setShowLogoutPrompt] = useState(false);
     const [showEscSavePrompt, setShowEscSavePrompt] = useState(false);
@@ -1476,6 +1484,15 @@ const App: React.FC = () => {
             }
         }
         const saved = await storage.saveData('material_master', med, currentUser);
+        try {
+            const { linkInventoryToNewMaster } = await import('./services/materialMasterSync');
+            const linked = await linkInventoryToNewMaster(saved as Medicine, inventory, currentUser);
+            if (linked > 0) {
+                addNotification(`Linked ${linked} inventory batch${linked === 1 ? '' : 'es'} to new master ${saved.materialCode}.`, 'success');
+            }
+        } catch (err) {
+            console.warn('[material_master:create] inventory auto-link failed:', err);
+        }
         await loadData(currentUser, 'background');
         return saved;
     };
@@ -2227,6 +2244,13 @@ const App: React.FC = () => {
             }
 
             switch (pageId) {
+                case 'moduleVisibility':
+                    return <ModuleVisibility
+                        currentUser={currentUser}
+                        addNotification={addNotification}
+                        onCancel={() => handleNavigate('dashboard')}
+                        isActive={isActive}
+                    />;
                 case 'dashboard':
                     return <Dashboard
                         currentUser={currentUser} configurations={configurations} inventory={inventory}
@@ -3039,7 +3063,10 @@ const App: React.FC = () => {
                         currentPage={currentPage}
                         onNavigate={handleNavigate}
                         currentUser={currentUser}
-                        navigationItems={filterNavigationByPermissions(navigation, currentUser, teamMembers, businessRoles)}
+                        navigationItems={filterNavByVisibility(
+                            filterNavigationByPermissions(navigation, currentUser, teamMembers, businessRoles),
+                            hiddenScreens
+                        )}
                         configurations={configurations}
                         onToggleMasterExplorer={toggleSidebar}
                         brandName="MDXERA"

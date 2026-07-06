@@ -1,7 +1,7 @@
-import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Modal from '../components/Modal';
 import type { InventoryItem, Transaction, Purchase, Distributor, Customer, SalesReturn, PurchaseReturn, ModuleConfig, DoctorMaster } from '../types';
-import { calculateCustomerReceivableBreakdown, calculateSupplierPayableBreakdown, getCustomerInvoiceOutstandingTotalFromTransactions, getOutstandingBalance, getSupplierInvoiceOutstandingTotalFromPurchases } from '../utils/helpers';
+import { calculateCustomerReceivableBreakdown, calculateSupplierPayableBreakdown, getCustomerInvoiceOutstandingTotalFromTransactions, getOutstandingBalance, getSupplierInvoiceOutstandingTotalFromPurchases, formatVoucherNo } from '../utils/helpers';
 import { getStockBreakup } from '../utils/stock';
 import { formatPackLooseQuantity } from '../utils/quantity';
 
@@ -28,27 +28,12 @@ type SortDirection = 'asc' | 'desc';
 type MfrSalesViewMode = 'detailed' | 'productSummary';
 type StockMovementViewMode = 'detailed' | 'productSummary';
 type InventoryValueViewMode = 'batchWise' | 'productWise';
-type FilterValueMatchMode = 'exact' | 'contains';
 
 const round2 = (value: number) => Number((Number(value || 0)).toFixed(2));
 const parsePackSize = (pack: string | null | undefined) => {
   const matchedPackSize = String(pack || '').match(/\d+(\.\d+)?/);
   const parsedPackSize = matchedPackSize ? Number(matchedPackSize[0]) : NaN;
   return Number.isFinite(parsedPackSize) && parsedPackSize > 0 ? parsedPackSize : 1;
-};
-const formatExpiryToMMYYYY = (value?: string | null) => {
-  if (!value) return 'N/A';
-  const raw = String(value).trim();
-  if (!raw) return 'N/A';
-  const mmDashYyyy = raw.match(/^(0[1-9]|1[0-2])-(\d{4})$/);
-  if (mmDashYyyy) return `${mmDashYyyy[1]}-${mmDashYyyy[2]}`;
-  const mmSlashYy = raw.match(/^(0[1-9]|1[0-2])\/(\d{2})$/);
-  if (mmSlashYy) return `${mmSlashYy[1]}-20${mmSlashYy[2]}`;
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return 'N/A';
-  const month = String(parsed.getMonth() + 1).padStart(2, '0');
-  const year = parsed.getFullYear();
-  return `${month}-${year}`;
 };
 
 const REPORT_LIST: ReportDefinition[] = [
@@ -81,7 +66,6 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'itemWisePurchase', name: 'Item-wise Purchase', group: 'Purchase Reports' },
   { id: 'purchaseReturnRegister', name: 'Purchase Return Register', group: 'Purchase Reports' },
   { id: 'debitNoteRegister', name: 'Debit Note Register', group: 'Purchase Reports' },
-  { id: 'supplierWiseProductList', name: 'Supplier Wise Product List', group: 'Purchase Reports' },
 
   { id: 'stockSummary', name: 'Stock Summary', group: 'Inventory Reports' },
   { id: 'batchWiseStock', name: 'Batch-wise Stock', group: 'Inventory Reports' },
@@ -102,6 +86,24 @@ const REPORT_LIST: ReportDefinition[] = [
   { id: 'customerPartyWiseFullStatement', name: 'Customer Party-wise Payment Statement', group: 'Accounting Reports' },
   { id: 'supplierPartyWiseFullStatement', name: 'Supplier Party-wise Payment Statement', group: 'Accounting Reports' },
 ];
+
+// Standard dd-mm-yyyy — used for every transaction-style date column (Bill
+// Date, Sales Date, Voucher Date, Cancelled On, etc.) and the period header.
+const formatReportDate = (value: string | number | Date | null | undefined): string => {
+  if (value === null || value === undefined || value === '') return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+};
+
+// mm-yyyy — used ONLY for medicine expiry columns, since pack expiries are
+// stamped month-year by manufacturers and the day isn't meaningful.
+const formatExpiryDate = (value: string | number | Date | null | undefined): string => {
+  if (value === null || value === undefined || value === '') return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+};
 
 const isDateWithinRange = (isoDate: string, startIso: string, endIso: string) => {
   const date = new Date(isoDate);
@@ -135,20 +137,16 @@ const Reports: React.FC<ReportsProps> = ({
   const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
   const [sortConfig, setSortConfig] = useState<{ column: string; direction: SortDirection } | null>(null);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
-  const [draftFilters, setDraftFilters] = useState<Record<string, string[]>>({});
-  const [filterSearchTerm, setFilterSearchTerm] = useState('');
-  const [filterCardSearch, setFilterCardSearch] = useState<Record<string, string>>({});
-  const [filterValueMatchModes, setFilterValueMatchModes] = useState<Record<string, FilterValueMatchMode>>({});
   const [columnModalOpen, setColumnModalOpen] = useState(false);
-  const filterSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const [filterColumnSearch, setFilterColumnSearch] = useState<Record<string, string>>({});
+  const [stagedFilters, setStagedFilters] = useState<Record<string, string[]>>({});
+  const [globalFilterSearch, setGlobalFilterSearch] = useState('');
+  const [currentReportPage, setCurrentReportPage] = useState(1);
+  const [reportPageSize, setReportPageSize] = useState(50);
+  const [scrollMode, setScrollMode] = useState<'fit' | 'scroll'>('scroll');
   const [mfrSalesViewMode, setMfrSalesViewMode] = useState<MfrSalesViewMode>('detailed');
   const [stockMovementViewMode, setStockMovementViewMode] = useState<StockMovementViewMode>('detailed');
   const [inventoryValueViewMode, setInventoryValueViewMode] = useState<InventoryValueViewMode>('batchWise');
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageInput, setPageInput] = useState('1');
-  const [paginationError, setPaginationError] = useState('');
-  const rowsPerPage = 25;
 
   const reportById = useMemo(() => new Map(REPORT_LIST.map(r => [r.id, r])), []);
   const groupedReports = useMemo(() => {
@@ -196,9 +194,50 @@ const Reports: React.FC<ReportsProps> = ({
     let title = reportById.get(reportId)?.name || 'MIS Report';
 
     const customerByName = new Map(customers.map(c => [c.name, c]));
-    const customerById = new Map(customers.map(c => [c.id, c]));
     const doctorById = new Map(doctors.map(d => [d.id, d]));
     const doctorByName = new Map(doctors.filter(d => (d.name || '').trim()).map(d => [(d.name || '').trim().toLowerCase(), d] as const));
+
+    const inventoryById = new Map<string, any>();
+    const inventoryByName = new Map<string, any>();
+    const inventoryByNameList = new Map<string, any[]>();
+
+    (inventory || []).forEach(item => {
+      if (item.id && !inventoryById.has(item.id)) {
+        inventoryById.set(item.id, item);
+      }
+      if (item.name) {
+        if (!inventoryByName.has(item.name)) {
+          inventoryByName.set(item.name, item);
+        }
+        let list = inventoryByNameList.get(item.name);
+        if (!list) {
+          list = [];
+          inventoryByNameList.set(item.name, list);
+        }
+        list.push(item);
+      }
+    });
+
+    const getInv = (inventoryItemId?: string, name?: string) => {
+      if (inventoryItemId) {
+        const inv = inventoryById.get(inventoryItemId);
+        if (inv) return inv;
+      }
+      if (name) {
+        return inventoryByName.get(name);
+      }
+      return undefined;
+    };
+
+    const getInvByNameAndBatch = (name?: string, batch?: string) => {
+      if (!name) return undefined;
+      const list = inventoryByNameList.get(name);
+      if (!list || list.length === 0) return undefined;
+      if (!batch) {
+        return list[0];
+      }
+      return list.find(i => !i.batch || i.batch === batch);
+    };
 
     const sales = transactions.filter(tx => tx.status !== 'draft' && isDateWithinRange(tx.date, startDate, endDate));
     const completedSales = sales.filter(tx => tx.status !== 'cancelled');
@@ -213,8 +252,8 @@ const Reports: React.FC<ReportsProps> = ({
       case 'salesRegister':
         reportHeaders = ['Bill No', 'Bill Date', 'Customer Name', 'GSTIN', 'Billing Category', 'Taxable Amount', 'GST Amount', 'Discount', 'Net Amount', 'Status'];
         rows = completedSales.map(tx => ({
-          'Bill No': tx.invoiceNumber || tx.id,
-          'Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
+          'Bill No': formatVoucherNo(tx.invoiceNumber || tx.id),
+          'Bill Date': formatReportDate(tx.date),
           'Customer Name': tx.customerName,
           'GSTIN': customerByName.get(tx.customerName)?.gstNumber || 'N/A',
           'Billing Category': tx.billType || 'regular',
@@ -241,8 +280,8 @@ const Reports: React.FC<ReportsProps> = ({
       case 'billWiseSales':
         reportHeaders = ['Bill No', 'Date', 'Customer', 'Amount', 'Discount', 'GST', 'Final Bill Amount'];
         rows = completedSales.map(tx => ({
-          'Bill No': tx.invoiceNumber || tx.id,
-          'Date': new Date(tx.date).toLocaleDateString('en-GB'),
+          'Bill No': formatVoucherNo(tx.invoiceNumber || tx.id),
+          'Date': formatReportDate(tx.date),
           'Customer': tx.customerName,
           'Amount': round2(tx.subtotal || 0),
           'Discount': round2((tx.totalItemDiscount || 0) + (tx.schemeDiscount || 0)),
@@ -305,8 +344,8 @@ const Reports: React.FC<ReportsProps> = ({
               const gstAmount = round2(taxableAmount * (Number(item.gstPercent || 0) / 100));
               const billAmount = round2(taxableAmount + gstAmount);
               return {
-                'Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
-                'Sales Bill Number': tx.invoiceNumber || tx.id,
+                'Bill Date': formatReportDate(tx.date),
+                'Sales Bill Number': formatVoucherNo(tx.invoiceNumber || tx.id),
                 'Product Name': item.name || '-',
                 'Batch': item.batch || '-',
                 'Qty': round2(qty),
@@ -321,7 +360,7 @@ const Reports: React.FC<ReportsProps> = ({
                 'Referred By': tx.referredBy || '-',
                 'Bill Category': tx.billType || 'regular',
                 'User / Operator': tx.billedByName || tx.user_id || '-',
-                'Bill Number': tx.invoiceNumber || tx.id,
+                'Bill Number': formatVoucherNo(tx.invoiceNumber || tx.id),
                 'Doctor Name': tx.referredBy || '-',
               };
             });
@@ -332,7 +371,8 @@ const Reports: React.FC<ReportsProps> = ({
         reportHeaders = ['Date', 'Number of Bills', 'Gross Sales', 'Discount', 'GST', 'Net Sales'];
         const map = new Map<string, any>();
         completedSales.forEach(tx => {
-          const date = new Date(tx.date).toLocaleDateString('en-GB');
+          // Use full dd-mm-yyyy so each day is its own row (mm-yyyy would collapse the report).
+          const date = formatReportDate(tx.date);
           const current = map.get(date) || { bills: 0, gross: 0, discount: 0, gst: 0, net: 0 };
           map.set(date, { bills: current.bills + 1, gross: current.gross + Number(tx.subtotal || 0), discount: current.discount + Number(tx.totalItemDiscount || 0) + Number(tx.schemeDiscount || 0), gst: current.gst + Number(tx.totalGst || 0), net: current.net + Number(tx.total || 0) });
         });
@@ -394,7 +434,7 @@ const Reports: React.FC<ReportsProps> = ({
             const sgst = Number(item.sgstAmount || 0);
             const cgst = Number(item.cgstAmount || 0);
             const gstAmount = (sgst + cgst) || (lineTaxableAmount * (Number(item.gstPercent || 0) / 100));
-            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const inv = getInv(item.inventoryItemId, item.name);
             const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
             const profit = purchaseRate > 0 ? (salesRate - purchaseRate) * qty : 0;
 
@@ -441,15 +481,15 @@ const Reports: React.FC<ReportsProps> = ({
               + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
               + Number(item.schemeDiscountAmount || 0);
             const amount = (qty * salesRate) - lineDiscount;
-            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const inv = getInv(item.inventoryItemId, item.name);
             const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
             const marginPerUnit = purchaseRate > 0 ? (salesRate - purchaseRate) : 0;
             const totalProfitMargin = qty > 1 ? (marginPerUnit * qty) : marginPerUnit;
 
             return {
               'Doctor Name': doctorName,
-              'Sales Bill No': tx.invoiceNumber || tx.id,
-              'Sales Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
+              'Sales Bill No': formatVoucherNo(tx.invoiceNumber || tx.id),
+              'Sales Bill Date': formatReportDate(tx.date),
               'Product Name': item.name || 'N/A',
               'Quantity': formatPackLooseQuantity(qty, Number(item.looseQuantity || 0), freeQty),
               'Product MFR': item.manufacturer || inv?.manufacturer || 'N/A',
@@ -481,7 +521,7 @@ const Reports: React.FC<ReportsProps> = ({
               const lineDiscount = Number(item.itemFlatDiscount || 0)
                 + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
                 + Number(item.schemeDiscountAmount || 0);
-              const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+              const inv = getInv(item.inventoryItemId, item.name);
               const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
               const taxableAmount = (qty * salesRate) - lineDiscount;
               const sgst = Number(item.sgstAmount || 0);
@@ -535,7 +575,7 @@ const Reports: React.FC<ReportsProps> = ({
             const lineDiscount = Number(item.itemFlatDiscount || 0)
               + (qty * salesRate * (Number(item.discountPercent || 0) / 100))
               + Number(item.schemeDiscountAmount || 0);
-            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const inv = getInv(item.inventoryItemId, item.name);
             const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
             const taxableAmount = (qty * salesRate) - lineDiscount;
             const gstAmount = taxableAmount * (Number(item.gstPercent || 0) / 100);
@@ -545,8 +585,8 @@ const Reports: React.FC<ReportsProps> = ({
             return {
               'MFR Name': item.manufacturer || inv?.manufacturer || 'N/A',
               'Product Name': item.name || 'N/A',
-              'Sales Bill No': tx.invoiceNumber || tx.id,
-              'Sales Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
+              'Sales Bill No': formatVoucherNo(tx.invoiceNumber || tx.id),
+              'Sales Bill Date': formatReportDate(tx.date),
               'Customer Name': tx.customerName || 'Walk-in',
               'Quantity': formatPackLooseQuantity(qty, Number(item.looseQuantity || 0), freeQty),
               'Free Qty': round2(freeQty),
@@ -577,7 +617,7 @@ const Reports: React.FC<ReportsProps> = ({
             const qty = Number(item.quantity || 0);
             const freeQty = Number(item.freeQuantity || 0);
             const salesRate = Number(item.rate ?? item.mrp ?? 0);
-            const inv = inventory.find(invItem => invItem.id === item.inventoryItemId || invItem.name === item.name);
+            const inv = getInv(item.inventoryItemId, item.name);
             const mfrName = item.manufacturer || inv?.manufacturer || 'N/A';
             const purchaseRate = Number(item.ptr ?? inv?.purchasePrice ?? inv?.ptr ?? 0);
             const lineDiscount = Number(item.itemFlatDiscount || 0)
@@ -620,30 +660,18 @@ const Reports: React.FC<ReportsProps> = ({
       }
 
       case 'itemWiseSales': {
-        reportHeaders = ['Invoice No', 'Bill Date', 'Customer Name', 'Item Name', 'HSN', 'Quantity Sold', 'Free Qty', 'Gross Value', 'Discount', 'GST', 'Net Value'];
-        rows = completedSales.flatMap(tx => {
-          const customer = (tx.customerId ? customerById.get(tx.customerId) : undefined) || customerByName.get(tx.customerName);
-          return tx.items.map((item: any) => {
-            const gross = (Number(item.quantity || 0) + Number(item.freeQuantity || 0)) * Number(item.rate ?? item.mrp ?? 0);
-            const discount = Number(item.itemFlatDiscount || 0) + (Number(item.quantity || 0) * Number(item.rate ?? item.mrp ?? 0) * (Number(item.discountPercent || 0) / 100)) + Number(item.schemeDiscountAmount || 0);
-            const taxable = Number(item.quantity || 0) * Number(item.rate ?? item.mrp ?? 0) - discount;
-            const gst = taxable * (Number(item.gstPercent || 0) / 100);
-            return {
-              'Invoice No': tx.invoiceNumber || tx.id,
-              'Bill Date': new Date(tx.date).toLocaleDateString('en-GB'),
-              'Customer Name': tx.customerName,
-              'Customer Group': customer?.customerGroup || 'N/A',
-              'Item Name': item.name,
-              'HSN': item.hsnCode || 'N/A',
-              'Quantity Sold': round2(item.quantity || 0),
-              'Free Qty': round2(item.freeQuantity || 0),
-              'Gross Value': round2(gross),
-              'Discount': round2(discount),
-              'GST': round2(gst),
-              'Net Value': round2(gross - discount + gst),
-            };
-          });
-        });
+        reportHeaders = ['Item Name', 'HSN', 'Quantity Sold', 'Free Qty', 'Gross Value', 'Discount', 'GST', 'Net Value'];
+        const map = new Map<string, any>();
+        completedSales.forEach(tx => tx.items.forEach((item: any) => {
+          const key = `${item.name}|${item.hsnCode || ''}`;
+          const current = map.get(key) || { name: item.name, hsn: item.hsnCode || 'N/A', qty: 0, free: 0, gross: 0, discount: 0, gst: 0, net: 0 };
+          const gross = (Number(item.quantity || 0) + Number(item.freeQuantity || 0)) * Number(item.rate ?? item.mrp ?? 0);
+          const discount = Number(item.itemFlatDiscount || 0) + (Number(item.quantity || 0) * Number(item.rate ?? item.mrp ?? 0) * (Number(item.discountPercent || 0) / 100)) + Number(item.schemeDiscountAmount || 0);
+          const taxable = Number(item.quantity || 0) * Number(item.rate ?? item.mrp ?? 0) - discount;
+          const gst = taxable * (Number(item.gstPercent || 0) / 100);
+          map.set(key, { ...current, qty: current.qty + Number(item.quantity || 0), free: current.free + Number(item.freeQuantity || 0), gross: current.gross + gross, discount: current.discount + discount, gst: current.gst + gst, net: current.net + (gross - discount + gst) });
+        }));
+        rows = Array.from(map.values()).map((v: any) => ({ 'Item Name': v.name, 'HSN': v.hsn, 'Quantity Sold': round2(v.qty), 'Free Qty': round2(v.free), 'Gross Value': round2(v.gross), 'Discount': round2(v.discount), 'GST': round2(v.gst), 'Net Value': round2(v.net) }));
         break;
       }
       case 'categoryWiseSales': {
@@ -674,7 +702,7 @@ const Reports: React.FC<ReportsProps> = ({
       case 'salesReturnRegister':
       case 'creditNoteRegister':
         reportHeaders = reportId === 'salesReturnRegister' ? ['Return Voucher No', 'Date', 'Original Bill No', 'Customer', 'Item / Amount', 'Tax Reversal', 'Return Total'] : ['Credit Note No', 'Date', 'Customer', 'Reference Bill', 'Amount', 'Reason'];
-        rows = filteredSalesReturns.map(ret => reportId === 'salesReturnRegister' ? ({ 'Return Voucher No': ret.id, 'Date': new Date(ret.date).toLocaleDateString('en-GB'), 'Original Bill No': ret.originalInvoiceNumber || ret.originalInvoiceId, 'Customer': ret.customerName, 'Item / Amount': `${ret.items.length} items`, 'Tax Reversal': round2(ret.items.reduce((sum: number, i: any) => sum + (Number(i.returnQuantity || 0) * Number(i.rate ?? i.mrp ?? 0) * (Number(i.gstPercent || 0) / 100)), 0)), 'Return Total': round2(ret.totalRefund || 0) }) : ({ 'Credit Note No': `CN-${ret.id}`, 'Date': new Date(ret.date).toLocaleDateString('en-GB'), 'Customer': ret.customerName, 'Reference Bill': ret.originalInvoiceNumber || ret.originalInvoiceId, 'Amount': round2(ret.totalRefund || 0), 'Reason': ret.remarks || 'Sales return adjustment' }));
+        rows = filteredSalesReturns.map(ret => reportId === 'salesReturnRegister' ? ({ 'Return Voucher No': ret.id, 'Date': formatReportDate(ret.date), 'Original Bill No': formatVoucherNo(ret.originalInvoiceNumber || ret.originalInvoiceId), 'Customer': ret.customerName, 'Item / Amount': `${ret.items.length} items`, 'Tax Reversal': round2(ret.items.reduce((sum: number, i: any) => sum + (Number(i.returnQuantity || 0) * Number(i.rate ?? i.mrp ?? 0) * (Number(i.gstPercent || 0) / 100)), 0)), 'Return Total': round2(ret.totalRefund || 0) }) : ({ 'Credit Note No': `CN-${ret.id}`, 'Date': formatReportDate(ret.date), 'Customer': ret.customerName, 'Reference Bill': formatVoucherNo(ret.originalInvoiceNumber || ret.originalInvoiceId), 'Amount': round2(ret.totalRefund || 0), 'Reason': ret.remarks || 'Sales return adjustment' }));
         break;
       case 'schemeDiscountReport':
         reportHeaders = ['Bill No', 'Date', 'Customer', 'Item', 'Trade Discount', 'Bill Discount', 'Scheme Discount', 'Net Impact'];
@@ -682,34 +710,34 @@ const Reports: React.FC<ReportsProps> = ({
           const tradeDiscount = Number(item.itemFlatDiscount || 0) + (Number(item.quantity || 0) * Number(item.rate ?? item.mrp ?? 0) * (Number(item.discountPercent || 0) / 100));
           const schemeDiscount = Number(item.schemeDiscountAmount || 0);
           const billDiscount = (Number(tx.totalItemDiscount || 0) + Number(tx.schemeDiscount || 0)) / Math.max(tx.items.length, 1);
-          return { 'Bill No': tx.invoiceNumber || tx.id, 'Date': new Date(tx.date).toLocaleDateString('en-GB'), 'Customer': tx.customerName, 'Item': item.name, 'Trade Discount': round2(tradeDiscount), 'Bill Discount': round2(billDiscount), 'Scheme Discount': round2(schemeDiscount), 'Net Impact': round2(tradeDiscount + billDiscount + schemeDiscount) };
+          return { 'Bill No': formatVoucherNo(tx.invoiceNumber || tx.id), 'Date': formatReportDate(tx.date), 'Customer': tx.customerName, 'Item': item.name, 'Trade Discount': round2(tradeDiscount), 'Bill Discount': round2(billDiscount), 'Scheme Discount': round2(schemeDiscount), 'Net Impact': round2(tradeDiscount + billDiscount + schemeDiscount) };
         }));
         break;
       case 'freeQuantityReport':
         reportHeaders = ['Bill No', 'Date', 'Customer', 'Item', 'Sold Qty', 'Free Qty', 'Effective Rate'];
-        rows = completedSales.flatMap(tx => tx.items.filter((i: any) => Number(i.freeQuantity || 0) > 0).map((i: any) => ({ 'Bill No': tx.invoiceNumber || tx.id, 'Date': new Date(tx.date).toLocaleDateString('en-GB'), 'Customer': tx.customerName, 'Item': i.name, 'Sold Qty': round2(i.quantity || 0), 'Free Qty': round2(i.freeQuantity || 0), 'Effective Rate': round2((Number(i.rate ?? i.mrp ?? 0) * Number(i.quantity || 0)) / Math.max(Number(i.quantity || 0) + Number(i.freeQuantity || 0), 1)) })));
+        rows = completedSales.flatMap(tx => tx.items.filter((i: any) => Number(i.freeQuantity || 0) > 0).map((i: any) => ({ 'Bill No': formatVoucherNo(tx.invoiceNumber || tx.id), 'Date': formatReportDate(tx.date), 'Customer': tx.customerName, 'Item': i.name, 'Sold Qty': round2(i.quantity || 0), 'Free Qty': round2(i.freeQuantity || 0), 'Effective Rate': round2((Number(i.rate ?? i.mrp ?? 0) * Number(i.quantity || 0)) / Math.max(Number(i.quantity || 0) + Number(i.freeQuantity || 0), 1)) })));
         break;
       case 'profitOnSales':
       case 'marginAnalysis':
         reportHeaders = reportId === 'profitOnSales' ? ['Bill No / Item', 'Sales Value', 'Cost Value', 'Gross Profit', 'Profit %'] : ['Item Name', 'Sales Rate', 'Cost Rate', 'Margin Amount', 'Margin %'];
         rows = completedSales.flatMap(tx => tx.items.map((i: any) => {
-          const inv = inventory.find(item => item.id === i.inventoryItemId || item.name === i.name);
+          const inv = getInv(i.inventoryItemId, i.name);
           const salesRate = Number(i.rate ?? i.mrp ?? 0);
           const costRate = Number(inv?.purchasePrice || inv?.ptr || 0);
           const salesValue = Number(i.quantity || 0) * salesRate;
           const costValue = Number(i.quantity || 0) * costRate;
           const profit = salesValue - costValue;
-          return reportId === 'profitOnSales' ? { 'Bill No / Item': `${tx.invoiceNumber || tx.id} / ${i.name}`, 'Sales Value': round2(salesValue), 'Cost Value': round2(costValue), 'Gross Profit': round2(profit), 'Profit %': salesValue > 0 ? round2((profit / salesValue) * 100) : 0 } : { 'Item Name': i.name, 'Sales Rate': round2(salesRate), 'Cost Rate': round2(costRate), 'Margin Amount': round2(salesRate - costRate), 'Margin %': salesRate > 0 ? round2(((salesRate - costRate) / salesRate) * 100) : 0 };
+          return reportId === 'profitOnSales' ? { 'Bill No / Item': `${formatVoucherNo(tx.invoiceNumber || tx.id)} / ${i.name}`, 'Sales Value': round2(salesValue), 'Cost Value': round2(costValue), 'Gross Profit': round2(profit), 'Profit %': salesValue > 0 ? round2((profit / salesValue) * 100) : 0 } : { 'Item Name': i.name, 'Sales Rate': round2(salesRate), 'Cost Rate': round2(costRate), 'Margin Amount': round2(salesRate - costRate), 'Margin %': salesRate > 0 ? round2(((salesRate - costRate) / salesRate) * 100) : 0 };
         }));
         break;
       case 'cancelledDeletedBills':
         reportHeaders = ['Bill No', 'Date', 'Customer', 'Amount', 'Cancelled On', 'Cancelled By'];
-        rows = cancelledSales.map(tx => ({ 'Bill No': tx.invoiceNumber || tx.id, 'Date': new Date(tx.date).toLocaleDateString('en-GB'), 'Customer': tx.customerName, 'Amount': round2(tx.total || 0), 'Cancelled On': tx.createdAt ? new Date(tx.createdAt).toLocaleDateString('en-GB') : new Date(tx.date).toLocaleDateString('en-GB'), 'Cancelled By': tx.billedByName || 'System' }));
+        rows = cancelledSales.map(tx => ({ 'Bill No': formatVoucherNo(tx.invoiceNumber || tx.id), 'Date': formatReportDate(tx.date), 'Customer': tx.customerName, 'Amount': round2(tx.total || 0), 'Cancelled On': tx.createdAt ? formatReportDate(tx.createdAt) : formatReportDate(tx.date), 'Cancelled By': tx.billedByName || 'System' }));
         break;
       case 'purchaseRegister':
       case 'billWisePurchase':
         reportHeaders = reportId === 'purchaseRegister' ? ['Purchase Bill No', 'Date', 'Supplier', 'Taxable Amount', 'GST', 'Discount', 'Net Amount'] : ['Bill No', 'Date', 'Supplier', 'Amount', 'GST', 'Discount', 'Final Amount'];
-        rows = completedPurchases.map(p => ({ [reportId === 'purchaseRegister' ? 'Purchase Bill No' : 'Bill No']: p.invoiceNumber, 'Date': new Date(p.date).toLocaleDateString('en-GB'), 'Supplier': p.supplier, [reportId === 'purchaseRegister' ? 'Taxable Amount' : 'Amount']: round2(p.subtotal - p.totalItemDiscount - p.totalItemSchemeDiscount - p.schemeDiscount), 'GST': round2(p.totalGst || 0), 'Discount': round2((p.totalItemDiscount || 0) + (p.totalItemSchemeDiscount || 0) + (p.schemeDiscount || 0)), [reportId === 'purchaseRegister' ? 'Net Amount' : 'Final Amount']: round2(p.totalAmount || 0) }));
+        rows = completedPurchases.map(p => ({ [reportId === 'purchaseRegister' ? 'Purchase Bill No' : 'Bill No']: formatVoucherNo(p.invoiceNumber || p.id), 'Date': formatReportDate(p.date), 'Supplier': p.supplier, [reportId === 'purchaseRegister' ? 'Taxable Amount' : 'Amount']: round2(p.subtotal - p.totalItemDiscount - p.totalItemSchemeDiscount - p.schemeDiscount), 'GST': round2(p.totalGst || 0), 'Discount': round2((p.totalItemDiscount || 0) + (p.totalItemSchemeDiscount || 0) + (p.schemeDiscount || 0)), [reportId === 'purchaseRegister' ? 'Net Amount' : 'Final Amount']: round2(p.totalAmount || 0) }));
         break;
       case 'purchaseSummary':
         reportHeaders = ['Total Purchase Bills', 'Gross Purchase', 'Discount', 'Taxable Value', 'GST', 'Net Purchase'];
@@ -743,70 +771,8 @@ const Reports: React.FC<ReportsProps> = ({
       case 'purchaseReturnRegister':
       case 'debitNoteRegister':
         reportHeaders = reportId === 'purchaseReturnRegister' ? ['Return No', 'Date', 'Supplier', 'Original Bill Ref', 'Return Amount', 'Tax Effect'] : ['Debit Note No', 'Date', 'Supplier', 'Reference', 'Amount', 'Reason'];
-        rows = filteredPurchaseReturns.map(ret => reportId === 'purchaseReturnRegister' ? ({ 'Return No': ret.id, 'Date': new Date(ret.date).toLocaleDateString('en-GB'), 'Supplier': ret.supplier, 'Original Bill Ref': ret.originalPurchaseInvoiceId, 'Return Amount': round2(ret.totalValue || 0), 'Tax Effect': round2((ret.totalValue || 0) * 0.12) }) : ({ 'Debit Note No': `DN-${ret.id}`, 'Date': new Date(ret.date).toLocaleDateString('en-GB'), 'Supplier': ret.supplier, 'Reference': ret.originalPurchaseInvoiceId, 'Amount': round2(ret.totalValue || 0), 'Reason': ret.remarks || 'Purchase return adjustment' }));
+        rows = filteredPurchaseReturns.map(ret => reportId === 'purchaseReturnRegister' ? ({ 'Return No': ret.id, 'Date': formatReportDate(ret.date), 'Supplier': ret.supplier, 'Original Bill Ref': ret.originalPurchaseInvoiceId, 'Return Amount': round2(ret.totalValue || 0), 'Tax Effect': round2((ret.totalValue || 0) * 0.12) }) : ({ 'Debit Note No': `DN-${ret.id}`, 'Date': formatReportDate(ret.date), 'Supplier': ret.supplier, 'Reference': ret.originalPurchaseInvoiceId, 'Amount': round2(ret.totalValue || 0), 'Reason': ret.remarks || 'Purchase return adjustment' }));
         break;
-      case 'supplierWiseProductList': {
-        reportHeaders = ['Product Name', 'Supplier Name', 'Batch Number', 'Quantity (Pack / Loose / Total)', 'MRP', 'Purchase Rate', 'Expiry Date', 'MRP Amount', 'Purchase Value', 'Stock Status', 'Near Expiry'];
-        const today = new Date();
-        rows = inventory.map(item => {
-          const breakup = getStockBreakup(item.stock, item.unitsPerPack, item.packType);
-          const packSize = parsePackSize(item.packType);
-          const packQty = Number(breakup.pack || 0);
-          const looseQty = Number(breakup.loose || 0);
-          const totalQty = Number(breakup.totalUnits || 0);
-          const mrp = Number(item.mrp || 0);
-          const purchaseRate = Number(item.purchasePrice || item.ptr || 0);
-          const mrpAmount = (packQty * mrp) + (looseQty * (mrp / packSize));
-          const purchaseValue = (packQty * purchaseRate) + (looseQty * (purchaseRate / packSize));
-          const expiryDate = item.expiry ? new Date(item.expiry) : null;
-          const remainingDays = expiryDate && !Number.isNaN(expiryDate.getTime())
-            ? Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-            : null;
-          return {
-            'Product Name': item.name || 'N/A',
-            'Supplier Name': item.supplierName || 'N/A',
-            'Batch Number': item.batch || 'N/A',
-            'Quantity (Pack / Loose / Total)': `${packQty} / ${looseQty} / ${totalQty}`,
-            'MRP': round2(mrp),
-            'Purchase Rate': round2(purchaseRate),
-            'Expiry Date': formatExpiryToMMYYYY(item.expiry),
-            'MRP Amount': round2(mrpAmount),
-            'Purchase Value': round2(purchaseValue),
-            'Stock Status': totalQty > 0 ? 'Available Stock' : 'Zero Stock',
-            'Near Expiry': typeof remainingDays === 'number' && remainingDays >= 0 && remainingDays <= 90 ? 'Yes' : 'No',
-            _sortSupplier: String(item.supplierName || '').toLowerCase(),
-            _sortProduct: String(item.name || '').toLowerCase(),
-            _sortExpiry: expiryDate && !Number.isNaN(expiryDate.getTime()) ? expiryDate.getTime() : Number.MAX_SAFE_INTEGER,
-            _supplierKey: String(item.supplierName || 'N/A').trim().toLowerCase(),
-            _productKey: String(item.name || 'N/A').trim().toLowerCase(),
-            _batchKey: String(item.batch || 'N/A').trim().toLowerCase(),
-            _qtyTotal: totalQty,
-          };
-        }).sort((a, b) => a._sortSupplier.localeCompare(b._sortSupplier) || a._sortProduct.localeCompare(b._sortProduct) || a._sortExpiry - b._sortExpiry);
-
-        const uniqueSuppliers = new Set(rows.map(r => r._supplierKey)).size;
-        const uniqueProducts = new Set(rows.map(r => r._productKey)).size;
-        const uniqueBatches = new Set(rows.map(r => r._batchKey)).size;
-        const totalQty = round2(rows.reduce((sum, row) => sum + Number(row._qtyTotal || 0), 0));
-        const totalMrpAmount = round2(rows.reduce((sum, row) => sum + Number(row['MRP Amount'] || 0), 0));
-        const totalPurchaseValue = round2(rows.reduce((sum, row) => sum + Number(row['Purchase Value'] || 0), 0));
-
-        rows.push({
-          'Product Name': `Total Products: ${uniqueProducts}`,
-          'Supplier Name': `Total Suppliers: ${uniqueSuppliers}`,
-          'Batch Number': `Total Batches: ${uniqueBatches}`,
-          'Quantity (Pack / Loose / Total)': `Total Quantity: ${totalQty}`,
-          'MRP': '',
-          'Purchase Rate': '',
-          'Expiry Date': '',
-          'MRP Amount': `Total MRP Amount: ${totalMrpAmount}`,
-          'Purchase Value': `Total Purchase Value: ${totalPurchaseValue}`,
-          'Stock Status': '',
-          'Near Expiry': '',
-          _isTotal: true
-        });
-        break;
-      }
       case 'stockSummary':
       case 'batchWiseStock':
       case 'expiryWiseStock':
@@ -831,7 +797,7 @@ const Reports: React.FC<ReportsProps> = ({
             'PTR / Cost': round2(ptrCost),
             'PTR Amount': round2(ptrAmount),
             'Value': round2(mrpAmount),
-            'Expiry': formatExpiryToMMYYYY(item.expiry),
+            'Expiry': item.expiry ? formatExpiryDate(item.expiry) : 'N/A',
             'Quantity': breakup.totalUnits,
             'Qty': breakup.totalUnits,
             _sort: item.expiry ? new Date(item.expiry).getTime() : Number.MAX_SAFE_INTEGER
@@ -847,7 +813,7 @@ const Reports: React.FC<ReportsProps> = ({
           const breakup = getStockBreakup(item.stock, item.unitsPerPack, item.packType);
           const expiryDate = item.expiry ? new Date(item.expiry) : null;
           const remainingDays = expiryDate ? Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
-          return { 'Item': item.name, 'Batch': item.batch, 'Expiry': formatExpiryToMMYYYY(item.expiry), 'Remaining Days': remainingDays ?? 'N/A', 'Qty': breakup.totalUnits, 'Value': round2(breakup.totalUnits * Number(item.purchasePrice || item.ptr || 0)), _remainingDays: remainingDays };
+          return { 'Item': item.name, 'Batch': item.batch, 'Expiry': expiryDate ? formatExpiryDate(expiryDate) : 'N/A', 'Remaining Days': remainingDays ?? 'N/A', 'Qty': breakup.totalUnits, 'Value': round2(breakup.totalUnits * Number(item.purchasePrice || item.ptr || 0)), _remainingDays: remainingDays };
         }).filter(row => reportId === 'nearExpiryReport' ? typeof row._remainingDays === 'number' && row._remainingDays >= 0 && row._remainingDays <= 90 : typeof row._remainingDays === 'number' && row._remainingDays < 0);
         break;
       }
@@ -872,7 +838,7 @@ const Reports: React.FC<ReportsProps> = ({
               'Product Name': item.name,
               'Material Code': item.code || item.id,
               'Batch': item.batch || 'N/A',
-              'Expiry': formatExpiryToMMYYYY(item.expiry),
+              'Expiry': item.expiry ? formatExpiryDate(item.expiry) : 'N/A',
               'Quantity': qty,
               'Purchase Rate': round2(purchaseRate),
               'Value': round2(qty * purchaseRate),
@@ -946,27 +912,27 @@ const Reports: React.FC<ReportsProps> = ({
         purchases.filter(p => p.status !== 'draft' && p.status !== 'cancelled' && new Date(p.date) < new Date(startDate)).forEach(p => {
           (p.items || []).forEach((item: any) => {
             const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
-            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || item.brand || '', batch: item.batch, rate: Number(item.purchasePrice || item.ptr || 0), movementType: 'Opening', referenceNo: p.invoiceNumber || p.id, openingQty: qty });
+            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || item.brand || '', batch: item.batch, rate: Number(item.purchasePrice || item.ptr || 0), movementType: 'Opening', referenceNo: formatVoucherNo(p.invoiceNumber || p.id), openingQty: qty });
           });
         });
         transactions.filter(tx => tx.status !== 'draft' && tx.status !== 'cancelled' && new Date(tx.date) < new Date(startDate)).forEach(tx => {
           (tx.items || []).forEach((item: any) => {
-            const inv = inventory.find(i => i.name === item.name && (!item.batch || !i.batch || i.batch === item.batch));
+            const inv = getInvByNameAndBatch(item.name, item.batch);
             const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
-            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || inv?.manufacturer || item.brand || '', batch: item.batch || inv?.batch, rate: Number(item.rate ?? item.ptr ?? item.purchasePrice ?? inv?.ptr ?? inv?.purchasePrice ?? 0), movementType: 'Opening Adjustment', referenceNo: tx.invoiceNumber || tx.id, openingQty: -qty });
+            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || inv?.manufacturer || item.brand || '', batch: item.batch || inv?.batch, rate: Number(item.rate ?? item.ptr ?? item.purchasePrice ?? inv?.ptr ?? inv?.purchasePrice ?? 0), movementType: 'Opening Adjustment', referenceNo: formatVoucherNo(tx.invoiceNumber || tx.id), openingQty: -qty });
           });
         });
         purchases.filter(p => p.status !== 'draft' && p.status !== 'cancelled' && isDateWithinRange(p.date, startDate, endDate)).forEach(p => {
           (p.items || []).forEach((item: any) => {
             const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
-            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || item.brand || '', batch: item.batch, rate: Number(item.purchasePrice || item.ptr || 0), movementType: 'Receipt', referenceNo: p.invoiceNumber || p.id, receiptQty: qty });
+            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || item.brand || '', batch: item.batch, rate: Number(item.purchasePrice || item.ptr || 0), movementType: 'Receipt', referenceNo: formatVoucherNo(p.invoiceNumber || p.id), receiptQty: qty });
           });
         });
         transactions.filter(tx => tx.status !== 'draft' && tx.status !== 'cancelled' && isDateWithinRange(tx.date, startDate, endDate)).forEach(tx => {
           (tx.items || []).forEach((item: any) => {
-            const inv = inventory.find(i => i.name === item.name && (!item.batch || !i.batch || i.batch === item.batch));
+            const inv = getInvByNameAndBatch(item.name, item.batch);
             const qty = Number(item.quantity || 0) + Number(item.freeQuantity || 0);
-            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || inv?.manufacturer || item.brand || '', batch: item.batch || inv?.batch, rate: Number(item.rate ?? item.ptr ?? item.purchasePrice ?? inv?.ptr ?? inv?.purchasePrice ?? 0), movementType: 'Issue', referenceNo: tx.invoiceNumber || tx.id, issueQty: qty });
+            addDetailedRow({ name: item.name, manufacturer: item.manufacturer || inv?.manufacturer || item.brand || '', batch: item.batch || inv?.batch, rate: Number(item.rate ?? item.ptr ?? item.purchasePrice ?? inv?.ptr ?? inv?.purchasePrice ?? 0), movementType: 'Issue', referenceNo: formatVoucherNo(tx.invoiceNumber || tx.id), issueQty: qty });
           });
         });
 
@@ -1004,16 +970,16 @@ const Reports: React.FC<ReportsProps> = ({
           ...distributors.flatMap(d => (d.ledger || []).map(entry => ({ party: d.name, entry })))
         ];
         rows = rowsPool
-          .map(r => ({ date: r.entry.date, voucher: r.entry.referenceInvoiceNumber || r.entry.journalEntryNumber || r.entry.id, particulars: `${r.party} - ${r.entry.description}`, debit: Number(r.entry.debit || 0), credit: Number(r.entry.credit || 0), balance: Number(r.entry.balance || 0) }))
+          .map(r => ({ date: r.entry.date, voucher: formatVoucherNo(r.entry.referenceInvoiceNumber || r.entry.journalEntryNumber || r.entry.id), particulars: `${r.party} - ${r.entry.description}`, debit: Number(r.entry.debit || 0), credit: Number(r.entry.credit || 0), balance: Number(r.entry.balance || 0) }))
           .filter(r => isDateWithinRange(r.date, startDate, endDate))
-          .map(r => ({ 'Date': new Date(r.date).toLocaleDateString('en-GB'), 'Voucher No': r.voucher, 'Particulars': r.particulars, 'Debit': round2(r.debit), 'Credit': round2(r.credit), 'Running Balance': round2(r.balance) }));
+          .map(r => ({ 'Date': formatReportDate(r.date), 'Voucher No': r.voucher, 'Particulars': r.particulars, 'Debit': round2(r.debit), 'Credit': round2(r.credit), 'Running Balance': round2(r.balance) }));
         break;
       }
       case 'dayBook':
         reportHeaders = ['Date', 'Voucher Type', 'Voucher No', 'Party / Ledger', 'Amount', 'Narration'];
         rows = [
-          ...completedSales.map(tx => ({ 'Date': new Date(tx.date).toLocaleDateString('en-GB'), 'Voucher Type': 'Sales', 'Voucher No': tx.invoiceNumber || tx.id, 'Party / Ledger': tx.customerName, 'Amount': round2(tx.total || 0), 'Narration': `Sale (${tx.paymentMode || 'N/A'})`, _sort: tx.date })),
-          ...completedPurchases.map(p => ({ 'Date': new Date(p.date).toLocaleDateString('en-GB'), 'Voucher Type': 'Purchase', 'Voucher No': p.invoiceNumber, 'Party / Ledger': p.supplier, 'Amount': round2(p.totalAmount || 0), 'Narration': 'Purchase entry', _sort: p.date })),
+          ...completedSales.map(tx => ({ 'Date': formatReportDate(tx.date), 'Voucher Type': 'Sales', 'Voucher No': formatVoucherNo(tx.invoiceNumber || tx.id), 'Party / Ledger': tx.customerName, 'Amount': round2(tx.total || 0), 'Narration': `Sale (${tx.paymentMode || 'N/A'})`, _sort: tx.date })),
+          ...completedPurchases.map(p => ({ 'Date': formatReportDate(p.date), 'Voucher Type': 'Purchase', 'Voucher No': formatVoucherNo(p.invoiceNumber || p.id), 'Party / Ledger': p.supplier, 'Amount': round2(p.totalAmount || 0), 'Narration': 'Purchase entry', _sort: p.date })),
         ].sort((a, b) => new Date(a._sort).getTime() - new Date(b._sort).getTime());
         break;
       case 'outstandingReceivables':
@@ -1022,7 +988,7 @@ const Reports: React.FC<ReportsProps> = ({
           const dueAmount = Number(tx.total || 0);
           const receivedAmount = Number(tx.amountReceived || 0);
           const balance = dueAmount - receivedAmount;
-          return { 'Customer': tx.customerName, 'Bill No': tx.invoiceNumber || tx.id, 'Bill Date': new Date(tx.date).toLocaleDateString('en-GB'), 'Due Amount': round2(dueAmount), 'Received Amount': round2(receivedAmount), 'Balance Outstanding': round2(balance), 'Ageing': Math.max(0, Math.ceil((new Date().getTime() - new Date(tx.date).getTime()) / (1000 * 60 * 60 * 24))) };
+          return { 'Customer': tx.customerName, 'Bill No': formatVoucherNo(tx.invoiceNumber || tx.id), 'Bill Date': formatReportDate(tx.date), 'Due Amount': round2(dueAmount), 'Received Amount': round2(receivedAmount), 'Balance Outstanding': round2(balance), 'Ageing': Math.max(0, Math.ceil((new Date().getTime() - new Date(tx.date).getTime()) / (1000 * 60 * 60 * 24))) };
         }).filter(r => r['Balance Outstanding'] > 0);
         break;
       case 'outstandingPayables':
@@ -1031,7 +997,7 @@ const Reports: React.FC<ReportsProps> = ({
           const billAmount = Number(p.totalAmount || 0);
           const supplierOutstanding = Math.max(Number(getOutstandingBalance(distributors.find(d => d.name === p.supplier)) || 0), 0);
           const paidAmount = Math.max(billAmount - supplierOutstanding, 0);
-          return { 'Supplier': p.supplier, 'Bill No': p.invoiceNumber, 'Bill Date': new Date(p.date).toLocaleDateString('en-GB'), 'Bill Amount': round2(billAmount), 'Paid Amount': round2(paidAmount), 'Balance Outstanding': round2(Math.max(billAmount - paidAmount, 0)), 'Ageing': Math.max(0, Math.ceil((new Date().getTime() - new Date(p.date).getTime()) / (1000 * 60 * 60 * 24))) };
+          return { 'Supplier': p.supplier, 'Bill No': formatVoucherNo(p.invoiceNumber || p.id), 'Bill Date': formatReportDate(p.date), 'Bill Amount': round2(billAmount), 'Paid Amount': round2(paidAmount), 'Balance Outstanding': round2(Math.max(billAmount - paidAmount, 0)), 'Ageing': Math.max(0, Math.ceil((new Date().getTime() - new Date(p.date).getTime()) / (1000 * 60 * 60 * 24))) };
         }).filter(r => r['Balance Outstanding'] > 0);
         break;
       case 'customerPartyWiseFullStatement': {
@@ -1068,7 +1034,7 @@ const Reports: React.FC<ReportsProps> = ({
         const invoiceAdjustments = new Map<string, { previous: number; current: number }>();
 
         customerLedger.forEach((entry: any) => {
-          if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') return;
+          if (!entry || entry.type !== 'payment' || (entry.status === 'cancelled' && entry.type !== 'payment')) return;
           const entryCategory = String(entry.entryCategory || '');
           if (!adjustmentCategories.has(entryCategory)) return;
 
@@ -1079,8 +1045,7 @@ const Reports: React.FC<ReportsProps> = ({
           );
           if (!invoiceId) return;
 
-          const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
-          const adjustedAmount = round2(Number(entry.adjustedAmount || 0) * multiplier);
+          const adjustedAmount = round2(Number(entry.adjustedAmount || 0));
           const bucket = invoiceAdjustments.get(invoiceId) || { previous: 0, current: 0 };
           const entryDate = String(entry.date || '');
           if (entryDate && new Date(entryDate) < new Date(startDate)) {
@@ -1093,7 +1058,7 @@ const Reports: React.FC<ReportsProps> = ({
 
         rows = customerInvoices.map((tx: any) => {
           const invoiceAmount = round2(Number(tx.total || 0));
-          const invoiceNo = tx.invoiceNumber || tx.id;
+          const invoiceNo = formatVoucherNo(tx.invoiceNumber || tx.id);
           const adjustmentTotals = invoiceAdjustments.get(tx.id) || { previous: 0, current: 0 };
           const isDirectReceipt = paymentReceivedModes.has(String(tx.paymentMode || '').trim().toLowerCase());
           const directReceipt = isDirectReceipt ? round2(Number(tx.amountReceived || tx.total || 0)) : round2(Number(tx.amountReceived || 0));
@@ -1142,7 +1107,7 @@ const Reports: React.FC<ReportsProps> = ({
         const supplierLedger = Array.isArray(supplier?.ledger) ? supplier.ledger : [];
 
         supplierLedger.forEach((entry: any) => {
-          if (!entry || entry.type !== 'payment' || entry.status === 'cancelled') return;
+          if (!entry || entry.type !== 'payment' || (entry.status === 'cancelled' && entry.type !== 'payment')) return;
           const entryCategory = String(entry.entryCategory || '');
           if (!adjustmentCategories.has(entryCategory)) return;
 
@@ -1153,8 +1118,7 @@ const Reports: React.FC<ReportsProps> = ({
           );
           if (!invoiceId) return;
 
-          const multiplier = entryCategory.endsWith('_reversal') ? -1 : 1;
-          const adjustedAmount = round2(Number(entry.adjustedAmount || 0) * multiplier);
+          const adjustedAmount = round2(Number(entry.adjustedAmount || 0));
           const bucket = invoiceAdjustments.get(invoiceId) || { previous: 0, current: 0 };
           const entryDate = String(entry.date || '');
           if (entryDate && new Date(entryDate) < new Date(startDate)) {
@@ -1168,7 +1132,7 @@ const Reports: React.FC<ReportsProps> = ({
         rows = supplierInvoices
           .map((purchase: any) => {
             const invoiceAmount = round2(Number(purchase.totalAmount || purchase.grandTotal || purchase.grand_total || 0));
-            const invoiceNo = purchase.invoiceNumber || purchase.purchaseInvoiceNumber || purchase.purchase_invoice_number || purchase.purchaseSerialId || purchase.id;
+            const invoiceNo = formatVoucherNo(purchase.invoiceNumber || purchase.purchaseInvoiceNumber || purchase.purchase_invoice_number || purchase.purchaseSerialId || purchase.id);
             const invoiceDate = purchase.date || purchase.invoiceDate || purchase.invoice_date;
             const adjustmentTotals = invoiceAdjustments.get(purchase.id) || { previous: 0, current: 0 };
             const openingOutstanding = round2(Math.max(invoiceAmount - Number(adjustmentTotals.previous || 0), 0));
@@ -1211,7 +1175,7 @@ const Reports: React.FC<ReportsProps> = ({
             return txCustomerName === normalizedPartyName || (selectedPartyId && txCustomerId === selectedPartyId);
           })
           .flatMap((tx: any) => {
-            const invoiceNo = tx.invoiceNumber || tx.id;
+            const invoiceNo = formatVoucherNo(tx.invoiceNumber || tx.id);
             const invoiceAmount = round2(Number(tx.total || 0));
             const receivedAmount = round2(Number(tx.amountReceived || 0));
             const rowsForTx: any[] = [{
@@ -1249,7 +1213,7 @@ const Reports: React.FC<ReportsProps> = ({
             type: 'return',
             debit: 0,
             credit: round2(Number(ret.totalValue || 0)),
-            referenceInvoiceNumber: ret.originalBillNumber || ret.originalInvoiceNumber || '-',
+            referenceInvoiceNumber: formatVoucherNo(ret.originalBillNumber || ret.originalInvoiceNumber || '-'),
             journalEntryNumber: `SR-${ret.id}`,
             status: 'active',
           })) : [];
@@ -1272,7 +1236,7 @@ const Reports: React.FC<ReportsProps> = ({
               debit: 0,
               credit: round2(Number(purchase.totalAmount || 0)),
               paymentMode: 'Credit',
-              referenceInvoiceNumber: purchase.invoiceNumber || '-',
+              referenceInvoiceNumber: formatVoucherNo(purchase.invoiceNumber || '-'),
               referenceInvoiceId: purchase.id,
               journalEntryNumber: purchase.purchaseSerialId || purchase.id,
               status: String(purchase.status || 'completed').toLowerCase() === 'completed' ? 'completed' : 'active',
@@ -1294,7 +1258,7 @@ const Reports: React.FC<ReportsProps> = ({
               description: ret.reason || ret.notes || 'Purchase return / debit note',
               debit: round2(Number(ret.totalAmount || ret.totalValue || 0)),
               credit: 0,
-              referenceInvoiceNumber: ret.referenceInvoiceNumber || ret.originalBillNumber || ret.originalInvoiceNumber || '-',
+              referenceInvoiceNumber: formatVoucherNo(ret.referenceInvoiceNumber || ret.originalBillNumber || ret.originalInvoiceNumber || '-'),
               journalEntryNumber: ret.debitNoteNumber || `PR-${ret.id}`,
               status: 'active',
             }));
@@ -1352,10 +1316,10 @@ const Reports: React.FC<ReportsProps> = ({
             : round2((supplierRunningBalance += movement));
           return {
             'Section': 'Ledger Statement',
-            'Date': new Date(entry.date).toLocaleDateString('en-GB'),
+            'Date': formatReportDate(entry.date),
             'Ref. Type': entry.type === 'sale' ? 'Sales Invoice' : entry.type === 'purchase' ? 'Purchase Invoice' : entry.type === 'return' ? (isCustomer ? 'Credit Note / Sales Return' : 'Debit Note / Purchase Return') : entry.type === 'openingBalance' ? 'Opening Balance' : (isCustomer ? 'Receipt / Payment' : 'Payment / Voucher'),
-            'Voucher No': entry.journalEntryNumber || entry.id,
-            'Reference Bill No': entry.referenceInvoiceNumber || '-',
+            'Voucher No': formatVoucherNo(entry.journalEntryNumber || entry.id),
+            'Reference Bill No': formatVoucherNo(entry.referenceInvoiceNumber || '-'),
             [partyColumnName]: entry.supplierName || partyName,
             'Payment Mode': entry.type === 'payment' ? (entry.paymentMode || '-') : '-',
             'Bank/Cash Account': entry.type === 'payment' ? (entry.bankName || 'Cash') : '-',
@@ -1373,10 +1337,10 @@ const Reports: React.FC<ReportsProps> = ({
           const billAmount = isCustomer ? Number(entry.debit || 0) : Number(entry.debit || 0);
           return {
             'Section': 'Bill-wise Outstanding',
-            'Date': new Date(entry.date).toLocaleDateString('en-GB'),
+            'Date': formatReportDate(entry.date),
             'Ref. Type': isCustomer ? 'Sales Invoice' : 'Purchase Invoice',
-            'Voucher No': entry.journalEntryNumber || entry.id,
-            'Reference Bill No': entry.referenceInvoiceNumber || '-',
+            'Voucher No': formatVoucherNo(entry.journalEntryNumber || entry.id),
+            'Reference Bill No': formatVoucherNo(entry.referenceInvoiceNumber || '-'),
             [partyColumnName]: partyName,
             'Payment Mode': '-',
             'Bank/Cash Account': '-',
@@ -1395,10 +1359,10 @@ const Reports: React.FC<ReportsProps> = ({
           const adjusted = Number(entry.adjustedAmount || 0);
           return {
             'Section': 'Payment History',
-            'Date': new Date(entry.date).toLocaleDateString('en-GB'),
+            'Date': formatReportDate(entry.date),
             'Ref. Type': isCustomer ? 'Receipt' : 'Payment',
-            'Voucher No': entry.journalEntryNumber || entry.id,
-            'Reference Bill No': entry.referenceInvoiceNumber || '-',
+            'Voucher No': formatVoucherNo(entry.journalEntryNumber || entry.id),
+            'Reference Bill No': formatVoucherNo(entry.referenceInvoiceNumber || '-'),
             [partyColumnName]: partyName,
             'Payment Mode': entry.paymentMode || '-',
             'Bank/Cash Account': entry.bankName || 'Cash',
@@ -1476,8 +1440,6 @@ const Reports: React.FC<ReportsProps> = ({
     setVisibleColumns(reportHeaders);
     setFilteredData(rows);
     setSelectedRowIndex(rows.length ? 0 : -1);
-    setCurrentPage(1);
-    setPaginationError('');
   };
 
   useEffect(() => {
@@ -1497,27 +1459,12 @@ const Reports: React.FC<ReportsProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stockMovementViewMode]);
 
-  const isFilterValueSelectable = (value: string) => {
-    const normalized = String(value || '').trim().toLowerCase();
-    if (!normalized) return false;
-    if (normalized === '-' || normalized === 'all' || normalized === 'n/a') return false;
-    if (normalized.startsWith('total ') || normalized.startsWith('total:')) return false;
-    return true;
-  };
-
-  const reportFilterFields = useMemo(() => {
-    return activeReportId === 'itemWiseSales' ? [...headers, 'Customer Group'] : headers;
-  }, [activeReportId, headers]);
-
   const filterOptions = useMemo(() => {
-    return reportFilterFields.reduce<Record<string, string[]>>((acc, col) => {
-      acc[col] = Array.from(new Set(baseData
-        .map(row => String(row[col] ?? '').trim())
-        .filter(isFilterValueSelectable)))
-        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return headers.reduce<Record<string, string[]>>((acc, col) => {
+      acc[col] = Array.from(new Set(baseData.map(row => String(row[col] ?? '')).filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       return acc;
     }, {});
-  }, [reportFilterFields, baseData]);
+  }, [headers, baseData]);
 
   const totals = useMemo(() => {
     const numericColumns = headers.filter(col => filteredData.some(row => typeof row[col] === 'number'));
@@ -1657,96 +1604,117 @@ const Reports: React.FC<ReportsProps> = ({
     return filteredData;
   }, [activeReportId, filteredData, stockMovementTotalRow, customerPaymentStatementSummaryRows, supplierPaymentStatementSummaryRows]);
 
+  // Reset to page 1 when the underlying data, sort, or filters change.
+  useEffect(() => { setCurrentReportPage(1); }, [activeReportId, filteredData.length, reportPageSize]);
 
-  const filterableColumns = useMemo(() => {
-    const blockedKeywords = ['mrp', 'amount', 'rate', 'value', 'discount', 'taxable', 'tax', 'gst', 'net'];
-    const supplierWiseColumns = ['Product Name', 'Supplier Name', 'Batch Number', 'Expiry Date', 'Stock Status', 'Near Expiry', 'MFR', 'HSN Code'];
-    const columns = activeReportId === 'supplierWiseProductList'
-      ? reportFilterFields.filter(col => supplierWiseColumns.includes(col))
-      : reportFilterFields.filter(col => !blockedKeywords.some(keyword => col.toLowerCase().includes(keyword)));
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / reportPageSize));
+  const pageStart = (currentReportPage - 1) * reportPageSize;
+  const pageEnd = pageStart + reportPageSize;
+  const paginatedData = useMemo(
+    () => filteredData.slice(pageStart, pageEnd),
+    [filteredData, pageStart, pageEnd]
+  );
 
-    return columns.filter(col => (filterOptions[col] || []).length > 0);
-  }, [activeReportId, reportFilterFields, filterOptions]);
+  // Format an expiry-column value as MM-YYYY. Falls back to the original value
+  // when it isn't a parseable date (e.g. "N/A", "—", already formatted).
+  const formatExpiryCell = (value: any): string => {
+    if (value === null || value === undefined || value === '') return '-';
+    const s = String(value).trim();
+    if (!s || s === 'N/A' || s === '-' || s === '—') return s;
+    if (/^\d{2}-\d{4}$/.test(s)) return s;
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${mm}-${d.getFullYear()}`;
+  };
+  const isExpiryColumn = (col: string) => /^(expiry|exp\.?|exp date)$/i.test(col.trim());
 
-  const visibleFilterColumns = useMemo(() => {
-    const query = filterSearchTerm.trim().toLowerCase();
-    if (!query) return filterableColumns;
-
-    return filterableColumns.filter(col => {
-      if (col.toLowerCase().includes(query)) return true;
-      return (filterOptions[col] || []).some(value => String(value).toLowerCase().includes(query));
-    });
-  }, [filterSearchTerm, filterOptions, filterableColumns]);
+  // Keyboard shortcuts: Ctrl+F → filter pop-up, Ctrl+C → column pop-up.
+  // Only fire when a report is active and the user isn't typing in an input.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const target = e.target as HTMLElement | null;
+      const inEditable = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+      const k = e.key.toLowerCase();
+      if (k === 'f') {
+        if (inEditable) return;
+        e.preventDefault();
+        setFilterModalOpen(true);
+      } else if (k === 'c') {
+        // Don't hijack copy when the user has selected text or is in an input.
+        if (inEditable) return;
+        const sel = window.getSelection?.();
+        if (sel && sel.toString().length > 0) return;
+        e.preventDefault();
+        setColumnModalOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const activeFilterChips = useMemo(() => {
     return Object.entries(activeFilters).flatMap(([field, values]) => values.map(value => ({ field, value })));
   }, [activeFilters]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage));
-  const pageStartIndex = (currentPage - 1) * rowsPerPage;
-  const pageEndIndex = pageStartIndex + rowsPerPage;
-  const paginatedData = filteredData.slice(pageStartIndex, pageEndIndex);
-
+  // Snapshot active filters into staging when the modal opens; clear search state too.
   useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-      setPageInput(String(totalPages));
-      return;
+    if (filterModalOpen) {
+      setStagedFilters({ ...activeFilters });
+      setFilterColumnSearch({});
+      setGlobalFilterSearch('');
     }
-    if (currentPage < 1) {
-      setCurrentPage(1);
-      setPageInput('1');
-      return;
-    }
-    setPageInput(String(currentPage));
-  }, [currentPage, totalPages]);
+  }, [filterModalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const goToPage = (page: number) => {
-    if (page < 1 || page > totalPages) {
-      setPaginationError(`Please enter a valid page number between 1 and ${totalPages}.`);
-      return;
-    }
-    setPaginationError('');
-    setCurrentPage(page);
+  const toggleStagedValue = (field: string, value: string) => {
+    setStagedFilters(prev => {
+      const next = { ...prev };
+      const set = new Set(next[field] || []);
+      if (set.has(value)) set.delete(value); else set.add(value);
+      if (!set.size) delete next[field]; else next[field] = Array.from(set);
+      return next;
+    });
   };
 
-  const onPageInputSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const parsedPage = Number.parseInt(pageInput, 10);
-    if (!Number.isFinite(parsedPage)) {
-      setPaginationError(`Please enter a valid page number between 1 and ${totalPages}.`);
-      return;
-    }
-    goToPage(parsedPage);
+  const matchesFilterSearch = (value: string, query: string) => {
+    if (!query) return true;
+    return value.toLowerCase().includes(query.toLowerCase());
+  };
+
+  const handleApplyFilters = () => {
+    setActiveFilters(stagedFilters);
+    const nextData = applyFiltersAndSort(baseData, stagedFilters, sortConfig);
+    setFilteredData(nextData);
+    setSelectedRowIndex(nextData.length ? 0 : -1);
+    setFilterModalOpen(false);
   };
 
 
-  const toggleFilterValue = (field: string, value: string, sourceFilters: Record<string, string[]>) => {
-    const next = { ...sourceFilters };
+  const toggleFilterValue = (field: string, value: string) => {
+    const next = { ...activeFilters };
     const fieldValues = new Set(next[field] || []);
     if (fieldValues.has(value)) fieldValues.delete(value);
     else fieldValues.add(value);
 
     if (!fieldValues.size) delete next[field];
     else next[field] = Array.from(fieldValues);
-    return next;
-  };
 
-  const applySelectedFilters = (filters: Record<string, string[]>) => {
-    const nextData = applyFiltersAndSort(baseData, filters, sortConfig);
-    setActiveFilters(filters);
+    const nextData = applyFiltersAndSort(baseData, next, sortConfig);
+    setActiveFilters(next);
     setFilteredData(nextData);
     setSelectedRowIndex(nextData.length ? 0 : -1);
-    setCurrentPage(1);
-    setPaginationError('');
   };
 
   const clearAllFilters = () => {
-    applySelectedFilters({});
+    setActiveFilters({});
+    const nextData = applyFiltersAndSort(baseData, {}, sortConfig);
+    setFilteredData(nextData);
+    setSelectedRowIndex(nextData.length ? 0 : -1);
   };
 
   const removeChip = (field: string, value: string) => {
-    applySelectedFilters(toggleFilterValue(field, value, activeFilters));
+    toggleFilterValue(field, value);
   };
 
   const toggleSort = (column: string) => {
@@ -1758,8 +1726,6 @@ const Reports: React.FC<ReportsProps> = ({
     const nextData = applyFiltersAndSort(baseData, activeFilters, nextSort);
     setFilteredData(nextData);
     setSelectedRowIndex(nextData.length ? 0 : -1);
-    setCurrentPage(1);
-    setPaginationError('');
   };
 
   const onColumnToggle = (column: string) => {
@@ -1794,26 +1760,6 @@ const Reports: React.FC<ReportsProps> = ({
     onPrintReport({ title: `${activeReportTitle} (Print)`, data: reportDataWithTotalRow, headers: visibleColumns, filters: { startDate: periodStartDate, endDate: periodEndDate, activeFilters } });
   };
 
-
-  const renderPaginationControls = () => (
-    <div className="px-2 py-1 border-b text-[10px] bg-gray-50 flex flex-wrap items-center gap-1">
-      <button onClick={() => goToPage(1)} disabled={currentPage === 1} className="px-2 py-1 border border-gray-300 disabled:opacity-50">First</button>
-      <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="px-2 py-1 border border-gray-300 disabled:opacity-50">Previous</button>
-      <form onSubmit={onPageInputSubmit} className="flex items-center gap-1">
-        <span>Page</span>
-        <input
-          value={pageInput}
-          onChange={(e) => { setPageInput(e.target.value); setPaginationError(''); }}
-          className="w-12 border border-gray-300 px-1 py-1 text-center"
-        />
-        <span>of {totalPages}</span>
-      </form>
-      <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} className="px-2 py-1 border border-gray-300 disabled:opacity-50">Next</button>
-      <button onClick={() => goToPage(totalPages)} disabled={currentPage === totalPages} className="px-2 py-1 border border-gray-300 disabled:opacity-50">Last</button>
-      {paginationError && <span className="text-red-600 ml-2">{paginationError}</span>}
-    </div>
-  );
-
   const onPickReport = (reportId: string) => {
     setPendingReportId(reportId);
     if (reportId === 'customerPartyWiseFullStatement' || reportId === 'supplierPartyWiseFullStatement' || reportId === 'accountLedgerCustomer' || reportId === 'accountLedgerSupplier') {
@@ -1822,33 +1768,6 @@ const Reports: React.FC<ReportsProps> = ({
     }
     setPeriodModalOpen(true);
   };
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-
-      const key = event.key.toLowerCase();
-      if (key === 'f') {
-        event.preventDefault();
-        setDraftFilters(activeFilters);
-        setFilterSearchTerm('');
-        setFilterCardSearch({});
-        setFilterModalOpen(true);
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeFilters]);
-
-  useEffect(() => {
-    if (!filterModalOpen) return;
-    const timer = window.setTimeout(() => {
-      filterSearchInputRef.current?.focus();
-      filterSearchInputRef.current?.select();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [filterModalOpen]);
 
   return (
     <main className="flex-1 overflow-hidden flex flex-col page-fade-in bg-app-bg">
@@ -1880,11 +1799,11 @@ const Reports: React.FC<ReportsProps> = ({
           </div>
         </section>
 
-        <section className="border border-gray-300 bg-white min-h-0 flex flex-col">
+        <section className="border border-gray-300 bg-white min-h-0 min-w-0 flex flex-col">
           <div className="px-2 py-1 border-b bg-gray-100 flex items-center justify-between gap-2">
             <div>
-              <div className="text-[11px] font-bold">{activeReportTitle}{Object.keys(activeFilters).length > 0 ? ' — Filtered Result' : ''}</div>
-              <div className="text-[10px] text-gray-500">Period: {new Date(periodStartDate).toLocaleDateString('en-GB')} to {new Date(periodEndDate).toLocaleDateString('en-GB')}</div>
+              <div className="text-[11px] font-bold">{activeReportTitle}</div>
+              <div className="text-[10px] text-gray-500">Period: {formatReportDate(periodStartDate)} to {formatReportDate(periodEndDate)}</div>
             </div>
             <div className="flex gap-1 text-[10px] items-center">
               {(activeReportId === 'mfrWiseSalesDetailedReport' || activeReportId === 'stockMovementSummary' || activeReportId === 'inventoryValue') && (
@@ -1908,8 +1827,14 @@ const Reports: React.FC<ReportsProps> = ({
                   )}
                 </div>
               )}
-              <button onClick={() => { setDraftFilters(activeFilters); setFilterSearchTerm(''); setFilterCardSearch({}); setFilterValueMatchModes({}); setFilterModalOpen(true); }} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Filter</button>
+              <button onClick={() => setFilterModalOpen(true)} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Filter</button>
               <button onClick={() => setColumnModalOpen(true)} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Columns</button>
+              <button
+                onClick={() => setScrollMode(prev => prev === 'fit' ? 'scroll' : 'fit')}
+                className={`px-2 py-1 border font-bold ${scrollMode === 'scroll' ? 'bg-primary text-white border-primary hover:bg-primary-dark' : 'border-gray-300 hover:bg-gray-100 text-gray-700'}`}
+              >
+                {scrollMode === 'fit' ? '↔ Enable Scroll' : '⊙ Fit Columns'}
+              </button>
               <button onClick={handlePreview} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">Preview</button>
               <button onClick={exportCsv} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">CSV</button>
               <button onClick={exportXlsx} className="px-2 py-1 border border-gray-300 hover:bg-gray-100">XLSX</button>
@@ -1928,15 +1853,13 @@ const Reports: React.FC<ReportsProps> = ({
             </div>
           )}
 
-          {renderPaginationControls()}
-
           <div className="min-h-0 flex-1 overflow-auto">
             {filteredData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm text-gray-500">
                 {activeReportId === 'rxMedicineSalesReport' ? 'No Prescription Medicine Sales Found For Selected Period' : 'No records found for selected period'}
               </div>
             ) : (
-              <table className="w-full text-[11px] border-collapse">
+              <table className={`${scrollMode === 'scroll' ? 'w-max min-w-full md:min-w-[1200px]' : 'w-full'} text-[11px] border-collapse`}>
                 <thead className="sticky top-0 bg-gray-100 z-10">
                   <tr>
                     {visibleColumns.map(col => (
@@ -1947,19 +1870,23 @@ const Reports: React.FC<ReportsProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedData.map((row, idx) => {
-                    const absoluteIdx = pageStartIndex + idx;
+                  {paginatedData.map((row, localIdx) => {
+                    const idx = pageStart + localIdx;
                     return (
-                    <tr
-                      key={`${activeReportId}-${absoluteIdx}`}
-                      onClick={() => setSelectedRowIndex(absoluteIdx)}
-                      className={`${selectedRowIndex === absoluteIdx ? 'bg-primary/20' : absoluteIdx % 2 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/10 cursor-pointer`}
-                    >
-                      {visibleColumns.map(col => (
-                        <td key={`${idx}-${col}`} className={`px-2 py-1 border-b border-r whitespace-nowrap ${col === 'Doctor Name' ? 'text-left' : (typeof row[col] === 'number' ? 'text-right' : 'text-left')}`}>{String(row[col] ?? '-')}</td>
-                      ))}
-                    </tr>
-                  );
+                      <tr
+                        key={`${activeReportId}-${idx}`}
+                        onClick={() => setSelectedRowIndex(idx)}
+                        className={`${selectedRowIndex === idx ? 'bg-primary/20' : idx % 2 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/10 cursor-pointer`}
+                      >
+                        {visibleColumns.map(col => {
+                          const raw = row[col];
+                          const display = isExpiryColumn(col) ? formatExpiryCell(raw) : String(raw ?? '-');
+                          return (
+                            <td key={`${idx}-${col}`} className={`px-2 py-1 border-b border-r whitespace-nowrap ${col === 'Doctor Name' ? 'text-left' : (typeof raw === 'number' ? 'text-right' : 'text-left')}`}>{display}</td>
+                          );
+                        })}
+                      </tr>
+                    );
                   })}
                 </tbody>
                 {activeReportId === 'stockMovementSummary' && stockMovementTotalRow && (
@@ -1986,7 +1913,50 @@ const Reports: React.FC<ReportsProps> = ({
             )}
           </div>
 
-          {renderPaginationControls()}
+          {filteredData.length > 0 && (
+            <div className="border-t px-2 py-1 text-[10px] bg-white flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-bold">
+                {pageStart + 1}–{Math.min(pageEnd, filteredData.length)} of {filteredData.length}
+              </span>
+              <div className="flex items-center gap-1 ml-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentReportPage(1)}
+                  disabled={currentReportPage === 1}
+                  className="px-2 py-0.5 border border-gray-300 disabled:opacity-40"
+                >« First</button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentReportPage(p => Math.max(1, p - 1))}
+                  disabled={currentReportPage === 1}
+                  className="px-2 py-0.5 border border-gray-300 disabled:opacity-40"
+                >‹ Prev</button>
+                <span className="px-2">Page {currentReportPage} / {totalPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentReportPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentReportPage >= totalPages}
+                  className="px-2 py-0.5 border border-gray-300 disabled:opacity-40"
+                >Next ›</button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentReportPage(totalPages)}
+                  disabled={currentReportPage >= totalPages}
+                  className="px-2 py-0.5 border border-gray-300 disabled:opacity-40"
+                >Last »</button>
+              </div>
+              <label className="ml-auto flex items-center gap-1">
+                Rows per page:
+                <select
+                  value={reportPageSize}
+                  onChange={(e) => setReportPageSize(Number(e.target.value))}
+                  className="border border-gray-300 px-1 py-0.5"
+                >
+                  {[25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
 
           <div className="border-t px-2 py-1 text-[10px] bg-gray-100 flex flex-wrap gap-x-4 gap-y-1">
             {activeReportId === 'stockSummary' ? (
@@ -2085,7 +2055,7 @@ const Reports: React.FC<ReportsProps> = ({
               </>
             ) : (
               <>
-                {headers.map(key => [key, selectedRow[key]] as const).map(([key, value]) => (
+                {Object.entries(selectedRow).map(([key, value]) => (
                   <div key={key} className="grid grid-cols-[120px_1fr] gap-2 border-b border-gray-100 py-1">
                     <div className="font-semibold text-gray-600">{key}</div>
                     <div className="break-words">{String(value ?? '-')}</div>
@@ -2140,81 +2110,140 @@ const Reports: React.FC<ReportsProps> = ({
         </div>
       </Modal>
 
-      <Modal isOpen={filterModalOpen} onClose={() => setFilterModalOpen(false)} title="Filter Report" widthClass="!w-screen !max-w-[100vw]" heightClass="!h-screen !max-h-[100vh]">
-        <div className="flex h-full flex-col text-xs">
-          <div className="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">
-            <div className="text-sm font-semibold uppercase tracking-wide">FILTER REPORT — {activeReportTitle}</div>
-            <div className="mt-1 text-[11px] text-gray-600">Period: {new Date(periodStartDate).toLocaleDateString('en-GB')} to {new Date(periodEndDate).toLocaleDateString('en-GB')}</div>
+      <Modal isOpen={filterModalOpen} onClose={() => setFilterModalOpen(false)} title="Filter Report" widthClass="max-w-7xl" heightClass="h-[85vh]">
+        <div className="px-6 pt-5 pb-4 bg-white flex-shrink-0">
+          <div className="text-sm font-bold uppercase tracking-wide text-gray-900">Filter Report — {activeReportTitle.toUpperCase()}</div>
+          <div className="text-xs text-gray-500 mt-1">
+            Period: {formatReportDate(periodStartDate)} to {formatReportDate(periodEndDate)}
+          </div>
+          <div className="mt-4">
             <input
-              ref={filterSearchInputRef}
               type="text"
-              value={filterSearchTerm}
-              onChange={(e) => setFilterSearchTerm(e.target.value)}
+              value={globalFilterSearch}
+              onChange={(e) => setGlobalFilterSearch(e.target.value)}
               placeholder="Search filter field or value..."
-              className="mt-3 w-full border border-gray-300 px-3 py-2 text-sm"
+              className="w-full px-3 py-2.5 border-2 border-primary text-sm outline-none rounded-sm"
+              autoFocus
             />
           </div>
+        </div>
 
-          <div className="min-h-0 flex-1 overflow-auto p-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {visibleFilterColumns.map(col => {
-                const cardSearch = (filterCardSearch[col] || '').trim().toLowerCase();
-                const hasCardSearch = cardSearch.length > 0;
-                const allValues = filterOptions[col] || [];
-                const matchMode = filterValueMatchModes[col] || 'contains';
-                const values = hasCardSearch
-                  ? allValues.filter(value => matchMode === 'exact' ? String(value).toLowerCase() === cardSearch : String(value).toLowerCase().includes(cardSearch))
-                  : [];
-                const selectedCount = (draftFilters[col] || []).length;
-                return (
-                  <div key={col} className="flex min-h-[260px] flex-col rounded border border-gray-200 bg-gray-50 p-2">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="font-semibold">{col}</div>
-                      <div className="text-[10px] text-gray-600">Selected: {selectedCount}</div>
-                      <div className="text-[10px] text-gray-600">Showing: {values.length} / Total: {allValues.length}</div>
-                    </div>
-                    <div className="mb-2 flex gap-2">
-                      <select value={matchMode} onChange={(e) => setFilterValueMatchModes(prev => ({ ...prev, [col]: e.target.value as FilterValueMatchMode }))} className="border border-gray-300 bg-white px-2 py-1" aria-label={`${col} match mode`}>
-                        <option value="exact">Exact Match</option>
-                        <option value="contains">Contains</option>
-                      </select>
-                      <input
-                        type="text"
-                        value={filterCardSearch[col] || ''}
-                        onChange={(e) => setFilterCardSearch(prev => ({ ...prev, [col]: e.target.value }))}
-                        placeholder="Search value..."
-                        className="min-w-0 flex-1 border border-gray-300 px-2 py-1"
-                      />
-                    </div>
-                    <div className="mb-2 flex gap-2">
-                      <button onClick={() => setDraftFilters(prev => ({ ...prev, [col]: [...(hasCardSearch ? values : allValues)] }))} className="border border-gray-300 px-2 py-1">Select {hasCardSearch ? 'matching' : 'all'}</button>
-                      <button onClick={() => setDraftFilters(prev => { const next = { ...prev }; delete next[col]; return next; })} className="border border-gray-300 px-2 py-1">Clear</button>
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-auto space-y-1 bg-white p-1">
-                      {!hasCardSearch ? (
-                        <div className="px-2 py-3 text-gray-500">Type to search filter values</div>
-                      ) : values.length === 0 ? (
-                        <div className="px-2 py-3 text-gray-500">No matching values found</div>
-                      ) : (
-                        values.map(value => (
-                          <label key={`${col}-${value}`} className="flex items-center gap-1">
-                            <input type="checkbox" checked={(draftFilters[col] || []).includes(value)} onChange={() => setDraftFilters(prev => toggleFilterValue(col, value, prev))} />
-                            <span className="truncate">{value || '(Blank)'}</span>
-                          </label>
-                        ))
-                      )}
+        <div className="px-6 pb-4 flex-1 overflow-auto bg-white">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {headers.map(col => {
+              const search = filterColumnSearch[col] || '';
+              const allValues = (filterOptions[col] || []).map(v => String(v ?? ''));
+              const total = allValues.length;
+              const filteredValues = allValues.filter(value => matchesFilterSearch(value, search));
+              const selected = stagedFilters[col] || [];
+              const selectedCount = selected.length;
+
+              // Global search hides a card entirely when neither the field name nor any value matches.
+              if (globalFilterSearch) {
+                const q = globalFilterSearch.toLowerCase();
+                const colMatches = col.toLowerCase().includes(q);
+                const anyValueMatches = allValues.some(v => v.toLowerCase().includes(q));
+                if (!colMatches && !anyValueMatches) return null;
+              }
+
+              const allFilteredSelected = filteredValues.length > 0 && filteredValues.every(v => selected.includes(v));
+
+              return (
+                <div key={col} className="border border-gray-300 bg-white flex flex-col min-h-[300px]">
+                  <div className="px-3 pt-3 flex items-center justify-between gap-3">
+                    <div className="font-bold text-sm text-gray-900 truncate">{col}</div>
+                    <div className="flex items-center gap-4 text-xs text-gray-500 flex-shrink-0">
+                      <span>Selected: {selectedCount}</span>
+                      <span>Showing: {filteredValues.length} / Total: {total}</span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
 
-          <div className="sticky bottom-0 z-10 flex justify-end gap-2 border-t border-gray-200 bg-white px-4 py-3">
-            <button onClick={() => setDraftFilters({})} className="px-3 py-1 border border-gray-300">Clear All</button>
-            <button onClick={() => { applySelectedFilters(draftFilters); setFilterModalOpen(false); }} className="px-3 py-1 border border-primary bg-primary text-white">Apply Filter</button>
-            <button onClick={() => setFilterModalOpen(false)} className="px-3 py-1 border border-gray-300">Cancel</button>
+                  <div className="px-3 pt-2 flex items-center gap-2">
+                    <select
+                      value="contains"
+                      onChange={() => { /* production only shows Contains; kept for visual parity */ }}
+                      className="px-2 py-1.5 border border-gray-300 text-xs bg-white outline-none"
+                    >
+                      <option value="contains">Contains</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setFilterColumnSearch(prev => ({ ...prev, [col]: e.target.value }))}
+                      placeholder="Search value..."
+                      className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 text-xs outline-none focus:border-primary"
+                    />
+                  </div>
+
+                  <div className="px-3 pt-2 pb-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStagedFilters(prev => {
+                          const next = { ...prev };
+                          const merged = new Set([...(next[col] || []), ...filteredValues]);
+                          if (!merged.size) delete next[col]; else next[col] = Array.from(merged);
+                          return next;
+                        });
+                      }}
+                      disabled={!filteredValues.length || allFilteredSelected}
+                      className="px-3 py-1 border border-gray-300 bg-white text-xs hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStagedFilters(prev => { const next = { ...prev }; delete next[col]; return next; })}
+                      disabled={!selectedCount}
+                      className="px-3 py-1 border border-gray-300 bg-white text-xs hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-auto border-t border-gray-200 px-2 py-2 min-h-[180px] bg-white">
+                    {filteredValues.length === 0 ? (
+                      <div className="h-full flex items-start justify-start text-xs text-gray-400 pt-1 pl-1">
+                        {search ? 'No values match.' : 'Type to search filter values'}
+                      </div>
+                    ) : filteredValues.map(value => {
+                      const checked = selected.includes(value);
+                      return (
+                        <label
+                          key={`${col}-${value}`}
+                          className="flex items-center gap-2 px-1 py-1 cursor-pointer text-xs hover:bg-gray-50"
+                        >
+                          <input type="checkbox" checked={checked} onChange={() => toggleStagedValue(col, value)} />
+                          <span className="truncate flex-1 text-gray-800">{value || <span className="italic text-gray-400">(Blank)</span>}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
+        </div>
+
+        <div className="flex justify-end items-center gap-2 px-6 py-3 border-t border-gray-200 bg-white flex-shrink-0">
+          <button
+            onClick={() => { setStagedFilters({}); setFilterColumnSearch({}); setGlobalFilterSearch(''); }}
+            className="px-4 py-2 border border-gray-300 bg-white text-xs hover:bg-gray-50"
+          >
+            Clear All
+          </button>
+          <button
+            onClick={handleApplyFilters}
+            className="px-5 py-2 border border-primary bg-primary text-white text-xs hover:opacity-90"
+          >
+            Apply Filter
+          </button>
+          <button
+            onClick={() => setFilterModalOpen(false)}
+            className="px-4 py-2 border border-gray-300 bg-white text-xs hover:bg-gray-50"
+          >
+            Cancel
+          </button>
         </div>
       </Modal>
 
