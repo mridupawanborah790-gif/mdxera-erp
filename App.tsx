@@ -115,6 +115,7 @@ const App: React.FC = () => {
     // Refs to trigger child save methods remotely
     const posRef = useRef<any>(null);
     const purchaseFormRef = useRef<any>(null);
+    const lastPartialSyncNotifyRef = useRef<number>(0);
 
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [medicines, setMedicines] = useState<Medicine[]>([]);
@@ -311,6 +312,10 @@ const App: React.FC = () => {
 
     const addNotification = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
         setNotifications(prev => {
+            // Prevent adding duplicate identical notifications
+            if (prev.some(n => n.message === message)) {
+                return prev;
+            }
             // Ensure ID is unique even for rapid calls
             let id = Date.now();
             while (prev.some(n => n.id === id)) {
@@ -518,8 +523,14 @@ const App: React.FC = () => {
                 .filter(entry => entry.result.status === 'rejected');
             if (failedLoads.length > 0) {
                 const labels = failedLoads.map(entry => entry.label).join(', ');
-                const message = `Partial sync completed. Some modules failed to refresh (${labels}).`;
-                addNotification(message, 'warning');
+                console.warn(`Partial sync completed. Failed modules: ${labels}`);
+                const message = "Partially synced. Synchronization will continue in the background.";
+                const now = Date.now();
+                // Throttle toast notification: show at most once every 5 minutes during background syncs, or on manual sync
+                if (now - lastPartialSyncNotifyRef.current > 300000 || mode === 'sync' || mode === 'initial') {
+                    addNotification(message, 'warning');
+                    lastPartialSyncNotifyRef.current = now;
+                }
                 if (mode === 'initial') setAppLoadError(message);
             } else if (mode === 'initial') {
                 setAppLoadError(null);
